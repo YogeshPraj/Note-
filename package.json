@@ -30,7 +30,26 @@
           "arch": ["x64"]
         }
       ],
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "fileAssociations": [
+        { "ext": "txt",  "name": "Text Document",       "description": "Open with Note++", "role": "Editor" },
+        { "ext": "md",   "name": "Markdown File",        "description": "Open with Note++", "role": "Editor" },
+        { "ext": "js",   "name": "JavaScript File",      "description": "Open with Note++", "role": "Editor" },
+        { "ext": "ts",   "name": "TypeScript File",      "description": "Open with Note++", "role": "Editor" },
+        { "ext": "json", "name": "JSON File",             "description": "Open with Note++", "role": "Editor" },
+        { "ext": "html", "name": "HTML File",             "description": "Open with Note++", "role": "Editor" },
+        { "ext": "css",  "name": "CSS File",              "description": "Open with Note++", "role": "Editor" },
+        { "ext": "xml",  "name": "XML File",              "description": "Open with Note++", "role": "Editor" },
+        { "ext": "py",   "name": "Python File",           "description": "Open with Note++", "role": "Editor" },
+        { "ext": "sh",   "name": "Shell Script",          "description": "Open with Note++", "role": "Editor" },
+        { "ext": "bat",  "name": "Batch File",            "description": "Open with Note++", "role": "Editor" },
+        { "ext": "log",  "name": "Log File",              "description": "Open with Note++", "role": "Editor" },
+        { "ext": "ini",  "name": "INI Configuration",     "description": "Open with Note++", "role": "Editor" },
+        { "ext": "yaml", "name": "YAML File",             "description": "Open with Note++", "role": "Editor" },
+        { "ext": "yml",  "name": "YAML File",             "description": "Open with Note++", "role": "Editor" },
+        { "ext": "sql",  "name": "SQL File",              "description": "Open with Note++", "role": "Editor" },
+        { "ext": "csv",  "name": "CSV File",              "description": "Open with Note++", "role": "Editor" }
+      ]
     },
     "nsis": {
       "oneClick": true,
@@ -38,7 +57,8 @@
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Note++"
+      "shortcutName": "Note++",
+      "include": "build/installer.nsh"
     }
   },
   "devDependencies": {

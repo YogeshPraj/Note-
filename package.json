@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win",
-    "build:msi": "electron-builder --win msi",
+    "build:win": "electron-builder --win nsis",
     "build:dir": "electron-builder --dir"
   },
   "build": {
@@ -26,13 +26,13 @@
     "win": {
       "target": [
         {
-          "target": "msi",
+          "target": "nsis",
           "arch": ["x64"]
         }
       ],
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
-    "msi": {
+    "nsis": {
       "oneClick": true,
       "perMachine": false,
       "runAfterFinish": true,

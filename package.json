@@ -14,6 +14,7 @@
     "appId": "com.yogeshpraj.notepp",
     "productName": "Note++",
     "copyright": "Copyright © 2025 Yogesh Prajapati",
+    "icon": "src/assets/icon.ico",
     "directories": {
       "output": "dist"
     },

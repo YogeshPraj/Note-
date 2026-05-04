@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src blob: data:; img-src 'self' data: blob:;">
+  <title>new 1 - Note++</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css">
+</head>
+<body class="theme-light">
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div class="toolbar-group">
+      <button class="tb-btn" title="New (Ctrl+N)" data-action="new"><img src="assets/new.svg" alt="New"></button>
+      <button class="tb-btn" title="Open (Ctrl+O)" data-action="open"><img src="assets/open.svg" alt="Open"></button>
+      <button class="tb-btn" title="Save (Ctrl+S)" data-action="save"><img src="assets/save.svg" alt="Save"></button>
+      <button class="tb-btn" title="Save All (Ctrl+Shift+S)" data-action="save-all"><img src="assets/saveall.svg" alt="Save All"></button>
+      <button class="tb-btn" title="Close" data-action="close"><img src="assets/close.svg" alt="Close"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Print (Ctrl+P)" data-action="print"><img src="assets/print.svg" alt="Print"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Cut (Ctrl+X)" data-action="cut"><img src="assets/cut.svg" alt="Cut"></button>
+      <button class="tb-btn" title="Copy (Ctrl+C)" data-action="copy"><img src="assets/copy.svg" alt="Copy"></button>
+      <button class="tb-btn" title="Paste (Ctrl+V)" data-action="paste"><img src="assets/paste.svg" alt="Paste"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Undo (Ctrl+Z)" data-action="undo"><img src="assets/undo.svg" alt="Undo"></button>
+      <button class="tb-btn" title="Redo (Ctrl+Y)" data-action="redo"><img src="assets/redo.svg" alt="Redo"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Find (Ctrl+F)" data-action="find"><img src="assets/find.svg" alt="Find"></button>
+      <button class="tb-btn" title="Replace (Ctrl+H)" data-action="replace"><img src="assets/replace.svg" alt="Replace"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Zoom In (Ctrl++)" data-action="zoom-in"><img src="assets/zoomin.svg" alt="Zoom In"></button>
+      <button class="tb-btn" title="Zoom Out (Ctrl+-)" data-action="zoom-out"><img src="assets/zoomout.svg" alt="Zoom Out"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Toggle Word Wrap (Ctrl+Alt+W)" data-action="word-wrap" id="btn-wordwrap"><img src="assets/wordwrap.svg" alt="Word Wrap"></button>
+    </div>
+    <div class="tb-separator"></div>
+    <!-- Dev Tools Group -->
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Format Document (Shift+Alt+F)" data-action="format-doc">⎇</button>
+      <button class="tb-btn" title="Toggle Comment (Ctrl+/)" data-action="toggle-comment">∥</button>
+      <button class="tb-btn" title="Quick Open (Ctrl+P)" data-action="quick-open">⚡</button>
+      <button class="tb-btn" title="Toggle Terminal (Ctrl+`)" data-action="terminal" id="btn-terminal">⌨</button>
+      <button class="tb-btn" title="Run File (F5)" data-action="run-file">▶</button>
+      <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
+    </div>
+    <div class="tb-separator"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" title="Toggle Dark Mode (Ctrl+Alt+D)" data-action="dark-mode" id="btn-darkmode"><img src="assets/darkmode.svg" alt="Dark Mode"></button>
+    </div>
+  </div>
+
+  <!-- Tab Bar -->
+  <div id="tab-bar-container">
+    <div id="tab-bar"></div>
+    <button id="tab-new-btn" title="New Tab (Ctrl+N)">+</button>
+  </div>
+
+  <!-- Main Content Area -->
+  <div id="main-area">
+    <!-- File Tree (hidden by default) -->
+    <div id="file-tree" class="hidden">
+      <div id="file-tree-header">
+        <span id="file-tree-title">Workspace</span>
+        <button id="file-tree-close">×</button>
+      </div>
+      <div id="file-tree-content"></div>
+      <div id="file-tree-resize"></div>
+    </div>
+
+    <!-- Editor + Terminal Splitter -->
+    <div id="editor-terminal-split">
+      <!-- Editor + Preview Row -->
+      <div id="editor-preview-row">
+        <!-- Editor Container -->
+        <div id="editor-container">
+          <div id="monaco-editor"></div>
+        </div>
+
+        <!-- Preview Resize Handle -->
+        <div id="preview-resize-handle" class="hidden"></div>
+
+        <!-- Preview Panel -->
+        <div id="preview-panel" class="hidden">
+          <div id="preview-header">
+            <div id="preview-header-left">
+              <span id="preview-title">PREVIEW</span>
+            </div>
+            <div id="preview-header-btns">
+              <button class="tb-btn" id="btn-preview-refresh" title="Refresh Preview">↺</button>
+              <button class="tb-btn" id="btn-preview-close" title="Close Preview">×</button>
+            </div>
+          </div>
+          <div id="preview-body">
+            <div id="preview-md-content" class="md-preview hidden"></div>
+            <iframe id="preview-html-frame" class="hidden" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- Terminal Resize Handle -->
+      <div id="terminal-resize-handle" class="hidden"></div>
+
+      <!-- Integrated Terminal Panel -->
+      <div id="terminal-panel" class="hidden">
+        <div id="terminal-header">
+          <div id="terminal-tabs">
+            <button class="term-tab active" data-term-id="1">PowerShell</button>
+            <button id="term-new-btn" title="New Terminal">+</button>
+          </div>
+          <div id="terminal-header-btns">
+            <button class="tb-btn" id="btn-term-clear" title="Clear Terminal">⌫</button>
+            <button class="tb-btn" id="btn-term-kill" title="Kill Terminal">⏹</button>
+            <button class="tb-btn" id="btn-term-close" title="Close Panel">×</button>
+          </div>
+        </div>
+        <div id="terminal-body">
+          <div id="xterm-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Find/Replace Panel -->
+  <div id="find-replace-panel" class="hidden">
+    <div id="find-replace-header">
+      <div id="find-replace-tabs">
+        <button class="fr-tab active" data-tab="find">Find</button>
+        <button class="fr-tab" data-tab="replace">Replace</button>
+        <button class="fr-tab" data-tab="find-in-files">Find in Files</button>
+        <button class="fr-tab" data-tab="mark">Mark</button>
+      </div>
+      <button id="find-close">×</button>
+    </div>
+    <div id="find-replace-body">
+      <div class="fr-row">
+        <label class="fr-label">Find what:</label>
+        <input type="text" id="find-input" class="fr-input" placeholder="">
+        <button class="fr-btn" id="btn-find-next">Find Next</button>
+        <button class="fr-btn" id="btn-find-prev">Find Previous</button>
+        <button class="fr-btn" id="btn-find-all">Find All in Current Document</button>
+        <button class="fr-btn" id="btn-count">Count</button>
+        <button class="fr-btn" id="btn-close-find">Close</button>
+      </div>
+      <div class="fr-row" id="replace-row" style="display:none">
+        <label class="fr-label">Replace with:</label>
+        <input type="text" id="replace-input" class="fr-input" placeholder="">
+        <button class="fr-btn" id="btn-replace">Replace</button>
+        <button class="fr-btn" id="btn-replace-all">Replace All</button>
+      </div>
+      <div class="fr-options">
+        <label class="fr-check"><input type="checkbox" id="opt-match-case"> Match case</label>
+        <label class="fr-check"><input type="checkbox" id="opt-whole-word"> Match whole word only</label>
+        <label class="fr-check"><input type="checkbox" id="opt-wrap-around" checked> Wrap around</label>
+        <label class="fr-check"><input type="checkbox" id="opt-regex"> Regular expression</label>
+        <label class="fr-check"><input type="checkbox" id="opt-dot-newline"> . matches newline</label>
+      </div>
+      <div id="find-status-bar"></div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div id="status-bar">
+    <div id="status-left">
+      <span id="status-ln-col">Ln : 1    Col : 1    Sel : 0 | 0</span>
+    </div>
+    <div id="status-right">
+      <span id="status-lines" class="status-item" title="Total lines">lines: 1</span>
+      <span class="status-sep">|</span>
+      <span id="status-length" class="status-item" title="Document length">length: 0</span>
+      <span class="status-sep">|</span>
+      <span id="status-encoding" class="status-item clickable" title="Encoding">UTF-8</span>
+      <span class="status-sep">|</span>
+      <span id="status-eol" class="status-item clickable" title="EOL">Windows (CR LF)</span>
+      <span class="status-sep">|</span>
+      <span id="status-lang" class="status-item clickable" title="Language">Normal Text</span>
+      <span class="status-sep">|</span>
+      <span id="status-insert" class="status-item clickable" title="Insert/Overwrite">INS</span>
+    </div>
+  </div>
+
+  <!-- Quick Open Overlay (Ctrl+P) -->
+  <div id="quick-open" class="modal-overlay hidden">
+    <div class="quick-box">
+      <input type="text" id="quick-input" placeholder="Go to file..." autocomplete="off" spellcheck="false">
+      <div id="quick-results"></div>
+    </div>
+  </div>
+
+  <!-- Command Palette (Ctrl+Shift+P) -->
+  <div id="cmd-palette" class="modal-overlay hidden">
+    <div class="quick-box">
+      <input type="text" id="cmd-input" placeholder="> Type a command..." autocomplete="off" spellcheck="false">
+      <div id="cmd-results"></div>
+    </div>
+  </div>
+
+  <!-- Regex Tester Panel -->
+  <div id="regex-tester" class="modal-overlay hidden">
+    <div class="modal-box" style="width:640px">
+      <div class="modal-header">
+        <span>Regex Tester</span>
+        <button class="modal-close" data-modal="regex-tester">×</button>
+      </div>
+      <div class="modal-body" style="padding:12px">
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+          <label style="width:80px;font-size:12px">Pattern:</label>
+          <input type="text" id="rx-pattern" class="fr-input" style="flex:1" placeholder="Regular expression">
+          <span style="font-size:13px;padding:0 4px">/</span>
+          <input type="text" id="rx-flags" class="fr-input" style="width:60px" placeholder="gim" value="g">
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+          <label style="width:80px;font-size:12px">Replace:</label>
+          <input type="text" id="rx-replace" class="fr-input" style="flex:1" placeholder="Replacement string (optional)">
+        </div>
+        <div style="margin-bottom:6px;font-size:11px;color:#888">Test string:</div>
+        <textarea id="rx-test" style="width:100%;height:100px;font-family:monospace;font-size:12px;resize:vertical;border:1px solid var(--find-border);background:var(--find-input-bg);color:var(--tab-text);padding:6px"></textarea>
+        <div style="margin-top:6px;font-size:11px;color:#888">Result:</div>
+        <div id="rx-result" style="min-height:60px;max-height:120px;overflow:auto;font-family:monospace;font-size:12px;padding:6px;border:1px solid var(--find-border);background:var(--find-input-bg);margin-top:4px;white-space:pre-wrap"></div>
+        <div id="rx-info" style="margin-top:6px;font-size:12px;color:#888"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-rx-test">Test</button>
+        <button class="modal-btn" id="btn-rx-apply">Apply to Editor</button>
+        <button class="modal-btn" data-modal="regex-tester">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- About Dialog -->
+  <div id="about-dialog" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>About Note++</span>
+        <button class="modal-close" data-modal="about-dialog">×</button>
+      </div>
+      <div class="modal-body about-body">
+        <div class="about-logo">N++</div>
+        <h2>Note++</h2>
+        <p>Version 1.0.0 (64-bit)</p>
+        <p>Developer Edition</p>
+        <br>
+        <p>Built with Electron + Monaco Editor</p>
+        <p>Featuring IntelliSense, Integrated Terminal,</p>
+        <p>Syntax highlighting for 50+ languages</p>
+        <br>
+        <p>For Software Developers</p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" data-modal="about-dialog">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Go To Line Dialog -->
+  <div id="goto-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:300px">
+      <div class="modal-header">
+        <span>Go to Line</span>
+        <button class="modal-close" data-modal="goto-dialog">×</button>
+      </div>
+      <div class="modal-body">
+        <label>Line Number (1 - <span id="goto-max-line">1</span>):</label>
+        <input type="number" id="goto-line-input" min="1" style="width:100%;margin-top:6px">
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-goto-ok">Go</button>
+        <button class="modal-btn" data-modal="goto-dialog">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preferences Dialog -->
+  <div id="prefs-dialog" class="modal-overlay hidden">
+    <div class="modal-box prefs-box">
+      <div class="modal-header">
+        <span>Preferences</span>
+        <button class="modal-close" data-modal="prefs-dialog">×</button>
+      </div>
+      <div class="prefs-body">
+        <div class="prefs-sidebar">
+          <div class="prefs-item active" data-pref="general">General</div>
+          <div class="prefs-item" data-pref="editing">Editing</div>
+          <div class="prefs-item" data-pref="dev">Developer</div>
+          <div class="prefs-item" data-pref="darkmode">Dark Mode</div>
+          <div class="prefs-item" data-pref="new-doc">New Document</div>
+          <div class="prefs-item" data-pref="cloud">☁ Cloud Storage</div>
+          <div class="prefs-item" data-pref="backup">Backup</div>
+          <div class="prefs-item" data-pref="terminal">Terminal</div>
+        </div>
+        <div class="prefs-content">
+          <div class="pref-page active" id="pref-general">
+            <h3>General</h3>
+            <div class="pref-group">
+              <label><input type="checkbox" id="pref-show-toolbar" checked> Show toolbar</label><br>
+              <label><input type="checkbox" id="pref-show-statusbar" checked> Show status bar</label><br>
+              <label><input type="checkbox" id="pref-show-tabbar" checked> Show tab bar</label>
+            </div>
+            <div class="pref-group">
+              <label>Tab bar:</label><br>
+              <label><input type="checkbox" id="pref-tab-close" checked> Show close button</label><br>
+              <label><input type="checkbox" id="pref-double-click-close" checked> Double click to close document</label>
+            </div>
+          </div>
+          <div class="pref-page" id="pref-editing">
+            <h3>Editing</h3>
+            <div class="pref-group">
+              <label>Tab size: <input type="number" id="pref-tab-size" value="4" min="1" max="16" style="width:50px"></label><br>
+              <label><input type="checkbox" id="pref-tab-as-spaces"> Use spaces instead of tabs</label><br>
+              <label><input type="checkbox" id="pref-show-linenumbers" checked> Show line numbers</label><br>
+              <label><input type="checkbox" id="pref-line-wrap"> Enable Word Wrap</label><br>
+              <label><input type="checkbox" id="pref-scroll-past-end"> Scroll beyond last line</label><br>
+              <label><input type="checkbox" id="pref-auto-indent" checked> Enable auto-indent</label><br>
+              <label><input type="checkbox" id="pref-format-paste" checked> Format on paste</label>
+            </div>
+          </div>
+          <div class="pref-page" id="pref-dev">
+            <h3>Developer Settings</h3>
+            <div class="pref-group">
+              <label><input type="checkbox" id="pref-intellisense" checked> Enable IntelliSense / suggestions</label><br>
+              <label><input type="checkbox" id="pref-bracket-color" checked> Bracket pair colorization</label><br>
+              <label><input type="checkbox" id="pref-minimap" checked> Show minimap</label><br>
+              <label><input type="checkbox" id="pref-ligatures" checked> Font ligatures</label><br>
+              <label><input type="checkbox" id="pref-param-hints" checked> Parameter hints</label><br>
+              <label><input type="checkbox" id="pref-hover" checked> Hover documentation</label><br>
+              <label><input type="checkbox" id="pref-codelen" checked> Code lens</label><br>
+              <label><input type="checkbox" id="pref-inline-hints" checked> Inline type hints</label><br>
+              <label><input type="checkbox" id="pref-whitespace"> Show whitespace characters</label>
+            </div>
+            <div class="pref-group">
+              <label>Font family:<br>
+                <input type="text" id="pref-font" value="'Cascadia Code', 'Fira Code', Consolas, monospace" style="width:100%;margin-top:4px">
+              </label>
+            </div>
+          </div>
+          <div class="pref-page" id="pref-darkmode">
+            <h3>Dark Mode</h3>
+            <label><input type="radio" name="pref-theme" value="light" id="pref-theme-light" checked> Light mode</label><br>
+            <label><input type="radio" name="pref-theme" value="dark" id="pref-theme-dark"> Dark mode</label><br>
+            <label><input type="radio" name="pref-theme" value="system" id="pref-theme-system"> Follow Windows</label>
+          </div>
+          <!-- Cloud Storage -->
+          <div class="pref-page" id="pref-cloud">
+            <h3>Cloud Storage</h3>
+            <p style="font-size:12px;color:#888;margin-bottom:12px">Session and auto-save data will be written to AppData <b>and</b> each enabled cloud folder. No login required — uses your local sync folder.</p>
+
+            <!-- Google Drive -->
+            <div class="cloud-provider" id="cloud-googledrive">
+              <div class="cloud-provider-header">
+                <span class="cloud-logo" style="color:#4285F4">▲</span>
+                <span class="cloud-provider-name">Google Drive</span>
+                <label class="cloud-toggle"><input type="checkbox" id="cloud-gd-enabled"> Enable</label>
+                <span class="cloud-status" id="cloud-gd-status"></span>
+              </div>
+              <div class="cloud-provider-body">
+                <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                  <input type="text" id="cloud-gd-path" class="cloud-path-input" placeholder="Path to Google Drive folder…" readonly>
+                  <button class="fr-btn" id="btn-gd-detect">Auto-detect</button>
+                  <button class="fr-btn" id="btn-gd-browse">Browse…</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- OneDrive -->
+            <div class="cloud-provider" id="cloud-onedrive">
+              <div class="cloud-provider-header">
+                <span class="cloud-logo" style="color:#0078D4">☁</span>
+                <span class="cloud-provider-name">OneDrive</span>
+                <label class="cloud-toggle"><input type="checkbox" id="cloud-od-enabled"> Enable</label>
+                <span class="cloud-status" id="cloud-od-status"></span>
+              </div>
+              <div class="cloud-provider-body">
+                <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                  <input type="text" id="cloud-od-path" class="cloud-path-input" placeholder="Path to OneDrive folder…" readonly>
+                  <button class="fr-btn" id="btn-od-detect">Auto-detect</button>
+                  <button class="fr-btn" id="btn-od-browse">Browse…</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Dropbox -->
+            <div class="cloud-provider" id="cloud-dropbox">
+              <div class="cloud-provider-header">
+                <span class="cloud-logo" style="color:#0061FF">◆</span>
+                <span class="cloud-provider-name">Dropbox</span>
+                <label class="cloud-toggle"><input type="checkbox" id="cloud-db-enabled"> Enable</label>
+                <span class="cloud-status" id="cloud-db-status"></span>
+              </div>
+              <div class="cloud-provider-body">
+                <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                  <input type="text" id="cloud-db-path" class="cloud-path-input" placeholder="Path to Dropbox folder…" readonly>
+                  <button class="fr-btn" id="btn-db-detect">Auto-detect</button>
+                  <button class="fr-btn" id="btn-db-browse">Browse…</button>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:16px;font-size:11px;color:#888">
+              Session file will be saved as <code>Note++/session.json</code> inside each enabled folder.
+            </div>
+          </div>
+
+          <div class="pref-page" id="pref-terminal">
+            <h3>Terminal</h3>
+            <div class="pref-group">
+              <label>Shell:<br>
+                <input type="text" id="pref-shell" value="powershell.exe" style="width:100%;margin-top:4px">
+              </label><br><br>
+              <label>Font size: <input type="number" id="pref-term-fontsize" value="13" min="8" max="24" style="width:50px"> px</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-prefs-ok">OK</button>
+        <button class="modal-btn" data-modal="prefs-dialog">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="context-menu" class="hidden">
+    <div class="ctx-item" data-action="cut">Cut</div>
+    <div class="ctx-item" data-action="copy">Copy</div>
+    <div class="ctx-item" data-action="paste">Paste</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="select-all">Select All</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="format-doc">Format Document</div>
+    <div class="ctx-item" data-action="toggle-comment">Toggle Comment</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="find">Find...</div>
+    <div class="ctx-item" data-action="replace">Replace...</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="google-search">Google Search</div>
+    <div class="ctx-item" data-action="b64-encode">Base64 Encode</div>
+    <div class="ctx-item" data-action="b64-decode">Base64 Decode</div>
+    <div class="ctx-item" data-action="json-format">Pretty Print JSON</div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+  <!-- Monaco + App Loader -->
+  <script>
+    window.MonacoEnvironment = {
+      getWorkerUrl: function(workerId, label) {
+        const base = window.location.href.replace(/[^/]*$/, '');
+        const workerSrc = `
+          self.MonacoEnvironment = { baseUrl: '${base}../node_modules/monaco-editor/min/' };
+          importScripts('${base}../node_modules/monaco-editor/min/vs/base/worker/workerMain.js');
+        `;
+        return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(workerSrc);
+      }
+    };
+  </script>
+  <!-- marked MUST load before Monaco's AMD loader, otherwise Monaco's
+       global define() causes marked to register as an AMD module instead
+       of assigning window.marked. -->
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script>
+    // Safety: if AMD loader already intercepted, recover via require()
+    if (typeof window.marked === 'undefined' && typeof require === 'function') {
+      try { window.marked = require('marked'); } catch(e) {}
+    }
+  </script>
+
+  <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="../node_modules/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+  <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>
+  <script>
+    // Initialize mermaid with startOnLoad:false so we control rendering
+    if (window.mermaid) {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        fontFamily: "'Segoe UI', sans-serif",
+      });
+    }
+  </script>
+  <script src="renderer.js"></script>
+</body>
+</html>

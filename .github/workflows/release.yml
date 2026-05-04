@@ -27,6 +27,8 @@ jobs:
 
       - name: Build Installer
         run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get version from tag
         id: version

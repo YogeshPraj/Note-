@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm start *)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(tasklist)",
+      "Bash(start /B npm start)",
+      "PowerShell(Start-Process -FilePath \"npm\" -ArgumentList \"start\" -WorkingDirectory \"D:\\\\NewNotepad\" -PassThru)",
+      "PowerShell($p = Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c cd D:\\\\NewNotepad && npx electron . 2>&1\" -PassThru -WindowStyle Normal; Start-Sleep 5; $p.HasExited; Get-Process electron -ErrorAction SilentlyContinue | Select-Object Id)",
+      "Bash(timeout 8 npx electron .)",
+      "Bash(timeout 10 npx electron .)",
+      "Bash(timeout 6 npx electron .)",
+      "Bash(Get-Content 'C:\\\\Users\\\\yoges\\\\.claude\\\\projects\\\\D--NewNotepad\\\\69d8d00e-36b8-4127-b496-bbd8b59651eb.jsonl' -Tail 5)",
+      "Bash(Out-File -FilePath 'C:\\\\Temp\\\\last_lines.txt' -Encoding utf8)",
+      "Bash(Get-Content 'C:\\\\Temp\\\\last_lines.txt')",
+      "Bash(grep -E '\\\\.js$')",
+      "Bash(node -e \"const fs = require\\('fs'\\); const html = fs.readFileSync\\('D:/NewNotepad/index.html', 'utf8'\\); console.log\\('HTML length:', html.length\\); console.log\\('Tags check:'\\); const opens = \\(html.match\\(/<div/g\\)||[]\\).length; const closes = \\(html.match\\(/<\\\\/div>/g\\)||[]\\).length; console.log\\('div opens:', opens, 'div closes:', closes\\);\")",
+      "Bash(git -C \"D:/NewNotepad\" status)",
+      "PowerShell(Get-ChildItem \"D:\\\\NewNotepad\" | ForEach-Object { $_.Name + $\\(if\\($_.PSIsContainer\\){\" [dir]\"}else{\"\"}\\) })",
+      "Bash(claude config *)"
+    ]
+  }
+}

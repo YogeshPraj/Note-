@@ -3,12 +3,46 @@
   "version": "1.0.0",
   "description": "Note++ - A powerful text editor",
   "main": "src/main.js",
+  "author": "Yogesh Prajapati",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder --win",
+    "build:msi": "electron-builder --win msi",
+    "build:dir": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.yogeshpraj.notepp",
+    "productName": "Note++",
+    "copyright": "Copyright © 2025 Yogesh Prajapati",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "msi",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "msi": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Note++"
+    }
   },
   "devDependencies": {
-    "electron": "^28.0.0"
+    "electron": "^28.0.0",
+    "electron-builder": "^26.8.1"
   },
   "dependencies": {
     "marked": "^18.0.3",

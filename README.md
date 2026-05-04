@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#license)
 
-[Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap) • [Contributing](#-contributing)
+[Download](https://github.com/YogeshPraj/Note-/releases) • [Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap) • [Contributing](#-contributing)
 
 </div>
 

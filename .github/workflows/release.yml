@@ -46,6 +46,7 @@ jobs:
           organization-id: '${{ vars.SIGNPATH_ORG_ID }}'
           project-slug: 'notepp'
           signing-policy-slug: 'notepp'
+          artifact-configuration-slug: 'notepp'
           github-artifact-id: '${{ steps.upload.outputs.artifact-id }}'
           wait-for-completion: true
           output-artifact-directory: 'dist-signed'

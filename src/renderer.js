@@ -1968,9 +1968,10 @@ function setupAiPanel() {
   });
 
   // Action bar buttons
-  document.getElementById('btn-ai-insert').addEventListener('click',  () => applyAiResponse('insert'));
-  document.getElementById('btn-ai-replace').addEventListener('click', () => applyAiResponse('replace'));
-  document.getElementById('btn-ai-append').addEventListener('click',  () => applyAiResponse('append'));
+  document.getElementById('btn-ai-insert').addEventListener('click',      () => applyAiResponse('insert'));
+  document.getElementById('btn-ai-replace').addEventListener('click',     () => applyAiResponse('replace'));
+  document.getElementById('btn-ai-append').addEventListener('click',      () => applyAiResponse('append'));
+  document.getElementById('btn-ai-replace-all').addEventListener('click', () => applyAiResponse('replace-all'));
   document.getElementById('btn-ai-discard').addEventListener('click', resetAiResponse);
 
   // Resize handle
@@ -2088,33 +2089,47 @@ async function sendAiPrompt() {
   setAiStatus('busy');
 
   // Build context-aware system prompt
-  const settings = await window.electronAPI.readSettings();
-  const userSystem = settings?.ai?.systemPrompt || '';
-  const langName   = tab.language || 'plaintext';
-  const fileName   = tab.name || 'untitled';
-  // Grab cursor context: selection or up to 500 chars before cursor
-  const selection  = editor.getSelection();
-  const selText    = selection && !selection.isEmpty() ? editor.getModel().getValueInRange(selection) : '';
-  const pos        = editor.getPosition();
-  const contextSnippet = editor.getModel().getValueInRange({
-    startLineNumber: Math.max(1, pos.lineNumber - 10),
-    startColumn: 1,
-    endLineNumber: pos.lineNumber,
-    endColumn: pos.column
-  });
+  const settings    = await window.electronAPI.readSettings();
+  const userSystem  = settings?.ai?.systemPrompt || '';
+  const langName    = tab.language || 'plaintext';
+  const fileName    = tab.name || 'untitled';
+  const editorModel = editor.getModel();
+  const fullContent = editorModel.getValue();
+
+  // Selected text takes priority; otherwise send full file (capped at 6000 chars)
+  const selection = editor.getSelection();
+  const selText   = selection && !selection.isEmpty()
+    ? editorModel.getValueInRange(selection) : '';
+
+  const MAX_CONTENT = 6000;
+  const fileContext = fullContent.length <= MAX_CONTENT
+    ? fullContent
+    : fullContent.slice(0, MAX_CONTENT) + '\n…[file truncated]';
+
+  // Detect "fix" / "correct" / "rewrite" intent — AI should replace the whole selection or file section
+  const fixIntent = /\b(fix|correct|repair|rewrite|improve|clean|refactor|error|bug|wrong|broken|syntax)\b/i.test(userPrompt);
 
   const system = [
     userSystem,
     `You are an expert writing and coding assistant embedded in a text editor called Note++.`,
     `The user is editing a ${langName} file named "${fileName}".`,
-    `Your task: output ONLY the text or code to insert — no explanations, no preamble, no "Here is..." intro.`,
+    ``,
+    `Your task: output ONLY the corrected/generated text — no explanations, no preamble, no "Here is..." intro.`,
     `Rules:`,
-    `- Do NOT wrap code in markdown fences unless the file language is markdown`,
-    `- For markdown files: use correct Markdown syntax; Mermaid diagrams go inside \`\`\`mermaid blocks`,
-    `- Match indentation and style of the existing file`,
-    `- If a selection is provided, transform or replace it as the user requests`,
-    selText ? `\nSelected text:\n${selText}` : `\nCursor context (recent lines):\n${contextSnippet}`,
-  ].filter(Boolean).join('\n');
+    `- Output raw content only, ready to paste directly into the editor`,
+    `- Do NOT add markdown code fences (triple backticks) UNLESS the file is .md or .markdown`,
+    `- For Markdown files: use correct Markdown + Mermaid syntax; Mermaid goes inside \`\`\`mermaid fences`,
+    `- In Mermaid diagrams: use only valid Mermaid syntax — no if/else, no programming constructs`,
+    `- Match the indentation and style of the file`,
+    `- If asked to fix/correct: output the fully corrected version of the relevant section`,
+    ``,
+    selText
+      ? `The user has SELECTED this text (operate on it):\n\`\`\`\n${selText}\n\`\`\``
+      : `Full file content (${fullContent.length} chars):\n\`\`\`\n${fileContext}\n\`\`\``,
+    fixIntent && !selText
+      ? `\nThe user wants you to FIX something in the file above. Output the corrected version of the relevant section only.`
+      : '',
+  ].filter(s => s !== undefined).join('\n');
 
   window.electronAPI.aiGenerate({ model, prompt: userPrompt, system });
 }
@@ -2152,6 +2167,14 @@ function applyAiResponse(mode) {
     editor.executeEdits('ai', [{
       range: new monaco.Range(lastLine, lastCol, lastLine, lastCol),
       text: (needsNewline ? '\n' : '') + aiResponse, forceMoveMarkers: true
+    }]);
+  } else if (mode === 'replace-all') {
+    // Replace entire file content
+    const lastLine = model.getLineCount();
+    const lastCol  = model.getLineMaxColumn(lastLine);
+    editor.executeEdits('ai', [{
+      range: new monaco.Range(1, 1, lastLine, lastCol),
+      text: aiResponse, forceMoveMarkers: true
     }]);
   }
 

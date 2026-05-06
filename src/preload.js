@@ -31,4 +31,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Menu events (main → renderer)
   onMenu: (channel, cb) => ipcRenderer.on(channel, (e, ...args) => cb(...args)),
   removeMenuListener: (ch) => ipcRenderer.removeAllListeners(ch),
+
+  // AI Assistant (Ollama)
+  aiCheck:      ()               => ipcRenderer.invoke('ai-check'),
+  aiGenerate:   (opts)           => ipcRenderer.invoke('ai-generate', opts),
+  aiAbort:      ()               => ipcRenderer.invoke('ai-abort'),
+  aiPull:       (model)          => ipcRenderer.invoke('ai-pull', model),
+  onAiToken:    (cb)             => ipcRenderer.on('ai-token',        (e, t)    => cb(t)),
+  onAiDone:     (cb)             => ipcRenderer.on('ai-done',         ()        => cb()),
+  onAiProgress: (cb)             => ipcRenderer.on('ai-pull-progress',(e, d)    => cb(d)),
+  removeAiListeners: ()          => {
+    ipcRenderer.removeAllListeners('ai-token');
+    ipcRenderer.removeAllListeners('ai-done');
+    ipcRenderer.removeAllListeners('ai-pull-progress');
+  },
+  openUrl: (url) => ipcRenderer.invoke('open-url', url),
 });

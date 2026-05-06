@@ -56,6 +56,7 @@
       <button class="tb-btn" title="Toggle Terminal (Ctrl+`)" data-action="terminal" id="btn-terminal">⌨</button>
       <button class="tb-btn" title="Run File (F5)" data-action="run-file">▶</button>
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
+      <button class="tb-btn" title="AI Writing Assistant (Ctrl+Shift+A)" data-action="ai" id="btn-ai">🤖</button>
       <button class="tb-btn" title="Dev Arcade — take a break! (Ctrl+Shift+G)" data-action="games" id="btn-games">🎮</button>
     </div>
     <div class="tb-separator"></div>
@@ -92,6 +93,38 @@
           <!-- Game Container (lazy iframe, hidden by default) -->
           <div id="game-container" class="hidden">
             <iframe id="game-frame" src="" allowfullscreen></iframe>
+          </div>
+          <!-- AI Panel resize handle -->
+          <div id="ai-resize-handle" class="hidden"></div>
+          <!-- AI Assistant Panel -->
+          <div id="ai-panel" class="hidden">
+            <div id="ai-header">
+              <span id="ai-header-title">🤖 AI ASSISTANT</span>
+              <select id="ai-model-select" title="Active model"></select>
+              <span id="ai-status-dot" class="ai-dot-offline" title="Ollama status">●</span>
+              <span id="ai-status-text">Not connected</span>
+              <div style="flex:1"></div>
+              <button class="tb-btn" id="btn-ai-settings" title="AI Settings">⚙</button>
+              <button class="tb-btn" id="btn-ai-close" title="Close AI Panel">×</button>
+            </div>
+            <div id="ai-response-area">
+              <div id="ai-response-placeholder">
+                <span>Ask AI to write, continue, or transform text in this file.</span><br>
+                <span style="font-size:0.72rem;color:#484f58">e.g. "write a mermaid user-login flow" · "add JSDoc to this function" · "convert to TypeScript"</span>
+              </div>
+              <pre id="ai-response-text" class="hidden"></pre>
+            </div>
+            <div id="ai-action-bar" class="hidden">
+              <button class="ai-btn ai-btn-primary" id="btn-ai-insert">↩ Insert at cursor</button>
+              <button class="ai-btn" id="btn-ai-replace">↔ Replace selection</button>
+              <button class="ai-btn" id="btn-ai-append">↓ Append to file</button>
+              <div style="flex:1"></div>
+              <button class="ai-btn ai-btn-danger" id="btn-ai-discard">✕ Discard</button>
+            </div>
+            <div id="ai-input-row">
+              <textarea id="ai-prompt" placeholder="Describe what to write… (Enter to send · Shift+Enter for newline)" rows="2" spellcheck="false"></textarea>
+              <button class="ai-btn ai-btn-primary" id="btn-ai-send" disabled>Send ↵</button>
+            </div>
           </div>
         </div>
 
@@ -305,6 +338,7 @@
           <div class="prefs-item" data-pref="cloud">☁ Cloud Storage</div>
           <div class="prefs-item" data-pref="backup">Backup</div>
           <div class="prefs-item" data-pref="terminal">Terminal</div>
+          <div class="prefs-item" data-pref="ai">🤖 AI Assistant</div>
         </div>
         <div class="prefs-content">
           <div class="pref-page active" id="pref-general">
@@ -415,6 +449,42 @@
 
             <div style="margin-top:16px;font-size:11px;color:#888">
               Session file will be saved as <code>Note++/session.json</code> inside each enabled folder.
+            </div>
+          </div>
+
+          <div class="pref-page" id="pref-ai">
+            <h3>🤖 AI Writing Assistant</h3>
+            <p style="font-size:12px;color:#8b949e;margin-bottom:14px;line-height:1.6">
+              Powered by <strong>Ollama</strong> — runs 100% locally, no cloud, no API key needed.<br>
+              Install Ollama first, then download a model below.
+            </p>
+            <div class="pref-group">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span id="pref-ai-dot" class="ai-dot-offline">●</span>
+                <span id="pref-ai-status-text" style="font-size:12px">Checking...</span>
+                <button class="fr-btn" id="btn-pref-ai-check">Check Connection</button>
+                <button class="fr-btn" id="btn-pref-ai-install" title="Open ollama.com/download in browser">⬇ Download Ollama</button>
+              </div>
+              <label style="font-size:12px">Default Model:
+                <select id="pref-ai-model" style="margin-left:8px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;padding:2px 6px">
+                  <option value="">— none installed —</option>
+                </select>
+              </label>
+            </div>
+            <div class="pref-group">
+              <div style="font-size:12px;color:#8b949e;margin-bottom:8px">Quick Download (choose a model):</div>
+              <div id="ai-model-cards" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+              <div id="pref-ai-pull-progress" style="display:none;margin-top:10px">
+                <div style="font-size:11px;color:#8b949e;margin-bottom:4px" id="pref-ai-pull-label">Downloading…</div>
+                <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
+                  <div id="pref-ai-pull-bar" style="height:100%;background:#3fb950;width:0%;border-radius:3px;transition:width 0.2s"></div>
+                </div>
+              </div>
+            </div>
+            <div class="pref-group">
+              <label style="font-size:12px">System prompt prefix (optional):<br>
+                <textarea id="pref-ai-system" rows="3" style="width:100%;margin-top:4px;font-family:monospace;font-size:11px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);padding:6px;resize:vertical"></textarea>
+              </label>
             </div>
           </div>
 

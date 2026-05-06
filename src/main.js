@@ -499,6 +499,106 @@ ipcMain.handle('terminal-resize', (e, id, cols, rows) => {
   // node-pty would be needed for true PTY resize; skip silently without it
 });
 
+// ── AI Assistant (Ollama) ─────────────────────────────────────────────────
+const http = require('http');
+let currentAiReq = null; // active streaming request (for abort)
+
+function ollamaRequest(path2, method, body, onChunk) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = body ? JSON.stringify(body) : '';
+    const opts = {
+      hostname: '127.0.0.1', port: 11434,
+      path: path2, method,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) }
+    };
+    const req = http.request(opts, (res) => {
+      let buf = '';
+      res.on('data', chunk => {
+        buf += chunk.toString();
+        const lines = buf.split('\n');
+        buf = lines.pop(); // keep incomplete line
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try { onChunk && onChunk(JSON.parse(line)); } catch {}
+        }
+      });
+      res.on('end', () => {
+        if (buf.trim()) { try { onChunk && onChunk(JSON.parse(buf)); } catch {} }
+        resolve();
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+    currentAiReq = req;
+  });
+}
+
+// Check if Ollama is running + list installed models
+ipcMain.handle('ai-check', async () => {
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const req = http.get('http://127.0.0.1:11434/api/tags', (res) => {
+        let raw = '';
+        res.on('data', d => raw += d);
+        res.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve({}); } });
+      });
+      req.on('error', reject);
+      req.setTimeout(2000, () => { req.destroy(); reject(new Error('timeout')); });
+    });
+    const models = (data.models || []).map(m => m.name);
+    return { running: true, models };
+  } catch {
+    return { running: false, models: [] };
+  }
+});
+
+// Stream generation — tokens sent via 'ai-token' event
+ipcMain.handle('ai-generate', async (event, { model, prompt, system }) => {
+  try {
+    if (currentAiReq) { try { currentAiReq.destroy(); } catch {} currentAiReq = null; }
+    await ollamaRequest('/api/generate', 'POST',
+      { model, prompt, system, stream: true },
+      (d) => {
+        if (d.response) event.sender.send('ai-token', d.response);
+        if (d.done)     event.sender.send('ai-done');
+      }
+    );
+    return { success: true };
+  } catch (err) {
+    event.sender.send('ai-done');
+    return { success: false, error: err.message };
+  }
+});
+
+// Abort current generation
+ipcMain.handle('ai-abort', () => {
+  if (currentAiReq) { try { currentAiReq.destroy(); } catch {} currentAiReq = null; }
+  return { success: true };
+});
+
+// Pull (download) a model — progress events sent via 'ai-pull-progress'
+ipcMain.handle('ai-pull', async (event, model) => {
+  try {
+    await ollamaRequest('/api/pull', 'POST', { name: model, stream: true }, (d) => {
+      event.sender.send('ai-pull-progress', {
+        model,
+        status:    d.status || '',
+        total:     d.total     || 0,
+        completed: d.completed || 0,
+        done: d.status === 'success'
+      });
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Open URL in default browser
+ipcMain.handle('open-url', (e, url) => { shell.openExternal(url); });
+
 ipcMain.handle('run-command', async (e, cmd, cwd) => {
   return new Promise((resolve) => {
     const isWin = process.platform === 'win32';

@@ -194,10 +194,23 @@ require(['vs/editor/editor.main'], () => {
 });
 
 // ===== Tab Management =====
+
+// Returns the lowest integer N ≥ 1 not already used by an untitled tab
+function nextNewTabNumber() {
+  const used = new Set(
+    tabs
+      .filter(t => !t.filePath && /^new \d+$/.test(t.name))
+      .map(t => parseInt(t.name.slice(4), 10))
+  );
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
+
 function createTab(filePath = null, content = '') {
   tabCounter++;
   const id = tabCounter;
-  const name = filePath ? filePath.split(/[\\/]/).pop() : `new ${tabCounter}`;
+  const name = filePath ? filePath.split(/[\\/]/).pop() : `new ${nextNewTabNumber()}`;
   const language = filePath ? detectLanguage(filePath) : 'plaintext';
   const model = monaco.editor.createModel(content, language);
   const tab = { id, name, filePath, content, dirty: false, language, encoding: 'UTF-8', eol: 'Windows (CR LF)', model, viewState: null, type: 'editor' };
@@ -1845,15 +1858,14 @@ async function saveSession() {
       active: tab.id === activeTabId,
     };
   });
-  await window.electronAPI.writeSession({ tabs: sessionTabs, tabCounter });
+  await window.electronAPI.writeSession({ tabs: sessionTabs });
 }
 
 async function restoreSession() {
   const res = await window.electronAPI.readSession();
   if (!res.success || !res.data?.tabs?.length) return false;
 
-  const { tabs: saved, tabCounter: savedCounter } = res.data;
-  if (savedCounter) tabCounter = savedCounter;
+  const { tabs: saved } = res.data;
 
   let activeId = null;
 

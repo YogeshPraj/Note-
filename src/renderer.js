@@ -26,6 +26,9 @@ let previewOpen = false;
 let previewTimer = null;
 const PREVIEW_DELAY = 400;
 
+// Game state
+let gameTabId = null;
+
 // ===== DOM =====
 const tabBar       = document.getElementById('tab-bar');
 const findPanel    = document.getElementById('find-replace-panel');
@@ -167,6 +170,7 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => formatWithAutoDetect());
   editor.addCommand(monaco.KeyCode.F5, () => runCurrentFile());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyV, () => togglePreview());
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => openGameTab());
   editor.addCommand(monaco.KeyCode.F12, () => editor.getAction('editor.action.revealDefinition')?.run());
   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F12, () => editor.getAction('editor.action.goToReferences')?.run());
   editor.addCommand(monaco.KeyCode.F2, () => editor.getAction('editor.action.rename')?.run());
@@ -196,40 +200,80 @@ function createTab(filePath = null, content = '') {
   const name = filePath ? filePath.split(/[\\/]/).pop() : `new ${tabCounter}`;
   const language = filePath ? detectLanguage(filePath) : 'plaintext';
   const model = monaco.editor.createModel(content, language);
-  const tab = { id, name, filePath, content, dirty: false, language, encoding: 'UTF-8', eol: 'Windows (CR LF)', model, viewState: null };
+  const tab = { id, name, filePath, content, dirty: false, language, encoding: 'UTF-8', eol: 'Windows (CR LF)', model, viewState: null, type: 'editor' };
   tabs.push(tab);
   activateTab(id);
   renderTabs();
   return tab;
 }
 
+function createGameTab() {
+  // Only allow one game tab at a time
+  if (gameTabId !== null) {
+    const existing = tabs.find(t => t.id === gameTabId);
+    if (existing) { activateTab(gameTabId); return existing; }
+  }
+  tabCounter++;
+  const id = tabCounter;
+  const tab = { id, name: '🎮 Dev Arcade', filePath: null, content: '', dirty: false, language: 'plaintext', encoding: 'UTF-8', eol: 'Windows (CR LF)', model: null, viewState: null, type: 'game' };
+  gameTabId = id;
+  tabs.push(tab);
+  activateTab(id);
+  renderTabs();
+  return tab;
+}
+
+function openGameTab() {
+  createGameTab();
+}
+
 function activateTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   const prev = getActiveTab();
-  if (prev && editor) {
+  if (prev && editor && prev.type !== 'game') {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
   }
   activeTabId = id;
-  if (editor) {
-    editor.setModel(tab.model);
-    if (tab.viewState) editor.restoreViewState(tab.viewState);
-    editor.focus();
+
+  const gameContainer = document.getElementById('game-container');
+  const monacoEl     = document.getElementById('monaco-editor');
+  const gameFrame    = document.getElementById('game-frame');
+
+  if (tab.type === 'game') {
+    // Show game container, hide monaco editor
+    monacoEl.style.display = 'none';
+    gameContainer.classList.remove('hidden');
+    // Load launcher only if not already loaded
+    if (!gameFrame.src || !gameFrame.src.endsWith('launcher.html')) {
+      const base = window.location.href.replace(/[^/]*$/, '');
+      gameFrame.src = base + 'games/launcher.html';
+    }
+    if (previewOpen) closePreview();
+  } else {
+    // Show editor, hide game container
+    monacoEl.style.display = '';
+    gameContainer.classList.add('hidden');
+    if (editor) {
+      editor.setModel(tab.model);
+      if (tab.viewState) editor.restoreViewState(tab.viewState);
+      editor.focus();
+    }
+    // Update preview for the new active tab
+    if (previewOpen) {
+      if (isPreviewable(tab.language)) {
+        updatePreview();
+      } else {
+        showPreviewPlaceholder();
+      }
+    }
   }
+
   renderTabs();
   updateStatusBar();
   updateTitle();
   updateLanguageStatus();
-  // Update preview for the new active tab
-  if (previewOpen) {
-    if (isPreviewable(tab.language)) {
-      updatePreview();
-    } else {
-      // Show placeholder for non-previewable files
-      showPreviewPlaceholder();
-    }
-  }
 }
 
 function renderTabs() {
@@ -241,7 +285,7 @@ function renderTabs() {
 
     const icon = document.createElement('span');
     icon.className = 'tab-icon';
-    icon.textContent = getFileEmoji(tab.name);
+    icon.textContent = tab.type === 'game' ? '🎮' : getFileEmoji(tab.name);
 
     const name = document.createElement('span');
     name.className = 'tab-name';
@@ -266,6 +310,21 @@ function renderTabs() {
 async function closeTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
+  if (tab.type === 'game') {
+    // Game tab: no model, just remove
+    const idx = tabs.findIndex(t => t.id === id);
+    gameTabId = null;
+    // Unload the iframe to free memory
+    const gameFrame = document.getElementById('game-frame');
+    if (gameFrame) gameFrame.src = '';
+    document.getElementById('game-container').classList.add('hidden');
+    document.getElementById('monaco-editor').style.display = '';
+    tabs.splice(idx, 1);
+    if (tabs.length === 0) createTab();
+    else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+    renderTabs();
+    return;
+  }
   if (tab.dirty) {
     const r = await window.electronAPI.messageDialog({
       type: 'question', title: 'Save',
@@ -738,6 +797,13 @@ async function runCurrentFile() {
 // ===== Status Bar =====
 function updateStatusBar() {
   if (!editor) return;
+  const activeTab = getActiveTab();
+  if (activeTab && activeTab.type === 'game') {
+    statusLnCol.textContent = `🎮 Dev Arcade`;
+    statusLines.textContent = 'lines: —';
+    statusLength.textContent = 'length: —';
+    return;
+  }
   const pos = editor.getPosition();
   const sel = editor.getSelection();
   const model = editor.getModel();
@@ -752,12 +818,22 @@ function updateStatusBar() {
 function updateTitle() {
   const tab = getActiveTab();
   if (!tab) return;
+  if (tab.type === 'game') {
+    window.electronAPI.setTitle('🎮 Dev Arcade - Note++');
+    return;
+  }
   window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`);
 }
 
 function updateLanguageStatus() {
   const tab = getActiveTab();
   if (!tab) return;
+  if (tab.type === 'game') {
+    statusLang.textContent = '🎮 Game';
+    document.getElementById('status-encoding').textContent = '—';
+    document.getElementById('status-eol').textContent = '—';
+    return;
+  }
   const names = { plaintext:'Normal Text',javascript:'JavaScript',typescript:'TypeScript',python:'Python',java:'Java',c:'C',cpp:'C++',csharp:'C#',go:'Go',rust:'Rust',ruby:'Ruby',php:'PHP',html:'HTML',css:'CSS',json:'JSON',xml:'XML',markdown:'Markdown',sql:'SQL',shell:'Shell Script',powershell:'PowerShell',bat:'Batch',yaml:'YAML',lua:'Lua',kotlin:'Kotlin',swift:'Swift',r:'R',dockerfile:'Dockerfile',scss:'SCSS' };
   statusLang.textContent = names[tab.language] || tab.language;
   document.getElementById('status-encoding').textContent = tab.encoding;
@@ -1529,15 +1605,16 @@ function setupToolbar() {
         'terminal': toggleTerminal,
         'run-file': runCurrentFile,
         'preview': togglePreview,
+        'games': openGameTab,
       };
       map[a]?.();
-      editor.focus();
+      if (a !== 'games') editor.focus();
     });
   });
 
   statusLang.addEventListener('click', () => {
     const tab = getActiveTab();
-    if (!tab) return;
+    if (!tab || tab.type === 'game') return;
     const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
     showFloatingMenu(statusLang.getBoundingClientRect().left, window.innerHeight - 30,
       langs.map(lang => [lang, () => {
@@ -1754,7 +1831,7 @@ function scheduleAutoSave() {
 }
 
 async function saveSession() {
-  const sessionTabs = tabs.map(tab => {
+  const sessionTabs = tabs.filter(tab => tab.type !== 'game').map(tab => {
     const content = tab.model.getValue();
     return {
       id: tab.id,

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Game Arcade — Note++</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px;
+    overflow-x: hidden;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-size: 2.4rem;
+    letter-spacing: 4px;
+    color: #58a6ff;
+    text-shadow: 0 0 20px #58a6ff66;
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+  .header p {
+    color: #8b949e;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+  }
+  @keyframes glow {
+    from { text-shadow: 0 0 10px #58a6ff44; }
+    to   { text-shadow: 0 0 30px #58a6ffcc, 0 0 60px #58a6ff44; }
+  }
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+    width: 100%;
+    max-width: 1000px;
+  }
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .card:hover { transform: translateY(-4px); border-color: #58a6ff; box-shadow: 0 8px 32px #58a6ff22; }
+  .card:hover::before { opacity: 1; }
+  .card:active { transform: translateY(-2px); }
+
+  .card-preview {
+    height: 100px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    position: relative;
+    overflow: hidden;
+  }
+  .card-preview canvas { border-radius: 8px; }
+
+  .card-tag {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #238636;
+    color: #fff;
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 1px;
+  }
+  .card-title { font-size: 1.1rem; font-weight: bold; color: #f0f6fc; }
+  .card-desc  { font-size: 0.78rem; color: #8b949e; line-height: 1.5; flex: 1; }
+  .card-keys  { font-size: 0.7rem; color: #58a6ff; }
+  .play-btn {
+    background: #1f6feb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: background 0.15s;
+    align-self: flex-start;
+  }
+  .play-btn:hover { background: #388bfd; }
+
+  .footer {
+    margin-top: 40px;
+    color: #484f58;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🎮 DEV ARCADE <span class="blink">_</span></h1>
+  <p>// take a break. you deserve it.</p>
+</div>
+
+<div class="grid">
+  <a class="card" href="code-runner.html">
+    <div class="card-preview" id="prev-runner"></div>
+    <span class="card-tag">CLASSIC</span>
+    <div class="card-title">⚡ Code Runner</div>
+    <div class="card-desc">A cursor races through endless code, dodging bugs and null pointers. How long can you survive?</div>
+    <div class="card-keys">SPACE / ↑ to jump · Double jump allowed</div>
+    <button class="play-btn">▶ PLAY</button>
+  </a>
+
+  <a class="card" href="snake.html">
+    <div class="card-preview" id="prev-snake"></div>
+    <span class="card-tag">STRATEGY</span>
+    <div class="card-title">🐍 Snake++</div>
+    <div class="card-desc">Guide the snake through a grid of code tokens. Eat variables, avoid walls and your own tail.</div>
+    <div class="card-keys">Arrow keys / WASD · Wrap-around mode</div>
+    <button class="play-btn">▶ PLAY</button>
+  </a>
+
+  <a class="card" href="bug-squash.html">
+    <div class="card-preview" id="prev-bugs"></div>
+    <span class="card-tag">ACTION</span>
+    <div class="card-title">🪲 Bug Squasher</div>
+    <div class="card-desc">Bugs are crawling through your codebase! Click fast to squash them before they escape.</div>
+    <div class="card-keys">Mouse click · 30 second sprint</div>
+    <button class="play-btn">▶ PLAY</button>
+  </a>
+
+  <a class="card" href="memory.html">
+    <div class="card-preview" id="prev-memory"></div>
+    <span class="card-tag">PUZZLE</span>
+    <div class="card-title">🧠 Memory Match</div>
+    <div class="card-desc">Match pairs of programming languages and tech logos. Test your developer memory under pressure.</div>
+    <div class="card-keys">Mouse click · Fewest moves wins</div>
+    <button class="play-btn">▶ PLAY</button>
+  </a>
+</div>
+
+<div class="footer">// Note++ Dev Arcade · more games coming soon</div>
+
+<script>
+  // Animated previews
+  function drawRunnerPreview(id) {
+    const el = document.getElementById(id);
+    const c = document.createElement('canvas');
+    c.width = el.clientWidth || 220; c.height = 100;
+    el.appendChild(c);
+    const ctx = c.getContext('2d');
+    let x = 0, cursorX = 40, jumping = false, jumpY = 0, jumpV = 0, obstacles = [{ox: 180}];
+    function frame() {
+      ctx.fillStyle = '#0d1117'; ctx.fillRect(0,0,c.width,c.height);
+      // scrolling code BG
+      ctx.fillStyle = '#21262d'; ctx.fillRect(0,70,c.width,2);
+      ctx.fillStyle = '#30363d'; ctx.font = '9px monospace';
+      const code = 'for(let i=0;i<bugs.length;i++){squash(bugs[i]);} // run!  ';
+      const off = (x*1.2)%((code.length)*6);
+      ctx.fillText(code.repeat(3), -off, 85);
+      // cursor
+      if (jumping) { jumpV += 0.5; jumpY += jumpV; if(jumpY>=0){jumpY=0;jumpV=0;jumping=false;} }
+      ctx.fillStyle = '#58a6ff';
+      ctx.fillRect(cursorX, 55 + jumpY, 4, 14);
+      // obstacle
+      obstacles.forEach(o => {
+        o.ox -= 2;
+        if (o.ox < -30) o.ox = c.width + Math.random()*60+60;
+        ctx.fillStyle = '#f85149'; ctx.font = 'bold 11px monospace';
+        ctx.fillText('BUG', o.ox, 66);
+      });
+      x++; if (!jumping && Math.random()<0.015) { jumping=true; jumpV=-8; }
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  function drawSnakePreview(id) {
+    const el = document.getElementById(id);
+    const c = document.createElement('canvas');
+    c.width = el.clientWidth || 220; c.height = 100; el.appendChild(c);
+    const ctx = c.getContext('2d');
+    const G = 10, cols = Math.floor(c.width/G), rows = Math.floor(c.height/G);
+    let snake = [{x:5,y:5},{x:4,y:5},{x:3,y:5}], dir = {x:1,y:0}, t = 0;
+    function frame() {
+      t++;
+      if (t%8===0) {
+        const head = {x:(snake[0].x+dir.x+cols)%cols, y:(snake[0].y+dir.y+rows)%rows};
+        snake.unshift(head); snake.pop();
+        if (Math.random()<0.05) { const dirs=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}]; dir=dirs[Math.floor(Math.random()*4)]; }
+      }
+      ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,c.width,c.height);
+      snake.forEach((s,i)=>{ ctx.fillStyle=i===0?'#3fb950':'#2ea043'; ctx.fillRect(s.x*G+1,s.y*G+1,G-2,G-2); });
+      ctx.fillStyle='#e3b341'; ctx.font='9px monospace';
+      ctx.fillText('let',15*G,3*G+8);
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  function drawBugPreview(id) {
+    const el = document.getElementById(id);
+    const c = document.createElement('canvas'); c.width=el.clientWidth||220; c.height=100; el.appendChild(c);
+    const ctx = c.getContext('2d');
+    const bugs = Array.from({length:6},(_,i)=>({x:20+i%3*70,y:20+Math.floor(i/3)*50,vis:Math.random()>0.5,t:Math.random()*60}));
+    function frame() {
+      ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,c.width,c.height);
+      bugs.forEach(b=>{ b.t++; if(b.t>40+Math.random()*40){b.vis=!b.vis;b.t=0;} if(b.vis){ctx.font='22px serif';ctx.fillText('🪲',b.x,b.y+22);} else {ctx.fillStyle='#21262d';ctx.fillRect(b.x,b.y,50,36);ctx.fillStyle='#30363d';ctx.font='9px monospace';ctx.fillText('{}',b.x+14,b.y+20);} });
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  function drawMemoryPreview(id) {
+    const el = document.getElementById(id); const c = document.createElement('canvas'); c.width=el.clientWidth||220; c.height=100; el.appendChild(c);
+    const ctx = c.getContext('2d');
+    const icons = ['JS','TS','🐍','🦀','Go','☕'];
+    const cards = icons.map((ic,i)=>({ic,x:10+i%6*34,y:20,flipped:i<2,t:Math.random()*100}));
+    function frame() {
+      ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,c.width,c.height);
+      cards.forEach(ca=>{ ca.t++; if(ca.t>80+Math.random()*80){ca.flipped=!ca.flipped;ca.t=0;} ctx.fillStyle=ca.flipped?'#1f6feb':'#21262d'; ctx.strokeStyle='#30363d'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(ca.x,ca.y,28,56,4); ctx.fill(); ctx.stroke(); if(ca.flipped){ctx.fillStyle='#fff';ctx.font='bold 9px monospace';ctx.fillText(ca.ic,ca.x+4,ca.y+32);} });
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  window.addEventListener('load', () => {
+    drawRunnerPreview('prev-runner');
+    drawSnakePreview('prev-snake');
+    drawBugPreview('prev-bugs');
+    drawMemoryPreview('prev-memory');
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Snake++</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1117; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:'Cascadia Code','Consolas',monospace; color:#e6edf3; overflow:hidden; }
+  #wrap { position:relative; }
+  canvas { display:block; border:1px solid #30363d; border-radius:8px; }
+  #ui { display:flex; gap:32px; margin-bottom:12px; font-size:0.8rem; color:#8b949e; }
+  #ui span { color:#3fb950; font-weight:bold; }
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#0d111799; backdrop-filter:blur(2px); border-radius:8px; }
+  #overlay h2 { font-size:1.8rem; color:#3fb950; letter-spacing:3px; }
+  #overlay p  { color:#8b949e; font-size:0.82rem; }
+  .score-big { font-size:1.2rem; color:#e3b341; }
+  .btn { background:#238636; color:#fff; border:none; border-radius:6px; padding:10px 28px; font-family:inherit; font-size:0.9rem; cursor:pointer; letter-spacing:2px; }
+  .btn:hover { background:#2ea043; }
+  #back { position:absolute; top:10px; left:10px; background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:6px; padding:5px 12px; font-family:inherit; font-size:0.75rem; cursor:pointer; z-index:10; }
+  #back:hover { color:#e6edf3; border-color:#3fb950; }
+</style>
+</head>
+<body>
+<button id="back" onclick="location.href='launcher.html'">← Games</button>
+<div id="ui">
+  <div>SCORE <span id="scoreVal">0</span></div>
+  <div>BEST  <span id="bestVal">0</span></div>
+  <div>LENGTH <span id="lenVal">3</span></div>
+</div>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="overlay">
+    <h2>🐍 SNAKE++</h2>
+    <p>// eat tokens. grow longer. don't crash.</p>
+    <div class="score-big" id="finalScore" style="display:none"></div>
+    <button class="btn" id="startBtn">▶ START</button>
+    <p style="font-size:0.7rem;color:#484f58">Arrow keys / WASD · walls wrap around</p>
+  </div>
+</div>
+
+<script>
+const COLS = 25, ROWS = 20, G = 22;
+const canvas = document.getElementById('c');
+canvas.width  = COLS * G;
+canvas.height = ROWS * G;
+const ctx = canvas.getContext('2d');
+
+const FOODS = ['let','var','fn','{}','[]','=>','0x','px','&&','??','||','++','**','::','//'];
+const COLORS = { head:'#3fb950', body:'#2ea043', dark:'#238636', food:'#e3b341', foodBg:'#e3b34120' };
+
+let snake, dir, nextDir, food, score, best, state, frame, foodLabel;
+best = parseInt(localStorage.getItem('sn-best')||'0');
+
+function rand(n) { return Math.floor(Math.random()*n); }
+function samePos(a,b){ return a.x===b.x && a.y===b.y; }
+
+function spawnFood() {
+  do { food = {x:rand(COLS), y:rand(ROWS)}; }
+  while (snake.some(s => samePos(s, food)));
+  foodLabel = FOODS[rand(FOODS.length)];
+}
+
+function startGame() {
+  snake = [{x:12,y:10},{x:11,y:10},{x:10,y:10}];
+  dir = {x:1,y:0}; nextDir = {x:1,y:0};
+  score = 0; frame = 0; state = 'running';
+  spawnFood();
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('finalScore').style.display = 'none';
+  loop();
+}
+
+function die() {
+  state = 'dead';
+  if (score > best) { best = score; localStorage.setItem('sn-best', best); }
+  document.getElementById('bestVal').textContent = best;
+  document.getElementById('finalScore').textContent = `SCORE: ${score}  LENGTH: ${snake.length}${score >= best ? '  🏆' : ''}`;
+  document.getElementById('finalScore').style.display = 'block';
+  document.getElementById('startBtn').textContent = '↺ RETRY';
+  document.querySelector('#overlay h2').textContent = '💥 STACK OVERFLOW';
+  document.querySelector('#overlay p').textContent  = '// snake.push() caused stack overflow';
+  document.getElementById('overlay').style.display  = 'flex';
+}
+
+function loop() {
+  if (state !== 'running') return;
+  frame++;
+  const speed = Math.max(4, 10 - Math.floor(score/5));
+  if (frame % speed === 0) {
+    dir = nextDir;
+    const head = { x:(snake[0].x+dir.x+COLS)%COLS, y:(snake[0].y+dir.y+ROWS)%ROWS };
+    if (snake.some(s => samePos(s, head))) { die(); return; }
+    snake.unshift(head);
+    if (samePos(head, food)) { score++; spawnFood(); }
+    else snake.pop();
+    document.getElementById('scoreVal').textContent = score;
+    document.getElementById('lenVal').textContent   = snake.length;
+    document.getElementById('bestVal').textContent  = best;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function draw() {
+  // Grid bg
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for (let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
+    ctx.fillStyle=(r+c)%2===0?'#0d1117':'#0f1318';
+    ctx.fillRect(c*G,r*G,G,G);
+  }
+
+  // Food
+  ctx.fillStyle = COLORS.foodBg;
+  ctx.beginPath(); ctx.arc(food.x*G+G/2,food.y*G+G/2,G/2-1,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = COLORS.food;
+  ctx.font = `bold ${G*0.5}px Consolas,monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(foodLabel, food.x*G+G/2, food.y*G+G/2);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+
+  // Snake
+  snake.forEach((s,i) => {
+    const x = s.x*G+1, y = s.y*G+1, sz = G-2;
+    ctx.fillStyle = i===0 ? COLORS.head : (i%2===0 ? COLORS.body : COLORS.dark);
+    ctx.beginPath(); ctx.roundRect(x,y,sz,sz,3); ctx.fill();
+    if (i===0) {
+      // Eyes
+      ctx.fillStyle='#0d1117';
+      const eyeOff = dir.x!==0 ? [dir.x>0?sz-5:2, 3] : [3, dir.y>0?sz-5:2];
+      ctx.fillRect(x+eyeOff[0],   y+eyeOff[1],   3,3);
+      ctx.fillRect(x+eyeOff[0],   y+sz-eyeOff[1]-3, 3,3);
+    }
+    // Code char inside body
+    if (i>0 && i<snake.length-1 && sz>10) {
+      ctx.fillStyle='#2ea04380'; ctx.font=`${G*0.4}px monospace`;
+      ctx.fillText('>',x+3,y+sz-3);
+    }
+  });
+}
+
+// Input
+document.addEventListener('keydown', e => {
+  const map = { ArrowUp:{x:0,y:-1}, ArrowDown:{x:0,y:1}, ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0},
+                w:{x:0,y:-1}, s:{x:0,y:1}, a:{x:-1,y:0}, d:{x:1,y:0},
+                W:{x:0,y:-1}, S:{x:0,y:1}, A:{x:-1,y:0}, D:{x:1,y:0} };
+  const nd = map[e.key];
+  if (!nd) return;
+  e.preventDefault();
+  if (nd.x !== -dir.x || nd.y !== -dir.y) nextDir = nd;
+});
+document.getElementById('startBtn').addEventListener('click', startGame);
+draw();
+</script>
+</body>
+</html>

@@ -294,9 +294,26 @@ html, body {
   background: var(--editor-bg);
   min-height: 0;
   min-width: 0;
+  position: relative;
 }
 
 #monaco-editor { flex: 1; min-height: 0; overflow: hidden; }
+
+/* ===== Game Container ===== */
+#game-container {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: #0d1117;
+  border-radius: 0;
+}
+
+#game-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
 
 /* ===== Preview Resize Handle ===== */
 #preview-resize-handle {

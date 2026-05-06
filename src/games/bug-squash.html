@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bug Squasher</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1117; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:'Cascadia Code','Consolas',monospace; color:#e6edf3; overflow:hidden; user-select:none; }
+  #wrap { position:relative; }
+  canvas { display:block; border:1px solid #30363d; border-radius:8px; cursor:crosshair; }
+  #ui { display:flex; gap:32px; margin-bottom:12px; font-size:0.8rem; color:#8b949e; }
+  #ui span { color:#f85149; font-weight:bold; }
+  #timer-bar-wrap { width:100%; height:6px; background:#21262d; border-radius:3px; margin-bottom:10px; overflow:hidden; }
+  #timer-bar { height:100%; background:#3fb950; border-radius:3px; transition:width 0.1s linear, background 0.3s; }
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#0d111799; backdrop-filter:blur(2px); border-radius:8px; }
+  #overlay h2 { font-size:1.8rem; color:#f85149; letter-spacing:3px; }
+  #overlay p  { color:#8b949e; font-size:0.82rem; }
+  .score-big { font-size:1.2rem; color:#e3b341; }
+  .btn { background:#da3633; color:#fff; border:none; border-radius:6px; padding:10px 28px; font-family:inherit; font-size:0.9rem; cursor:pointer; letter-spacing:2px; }
+  .btn:hover { background:#f85149; }
+  #back { position:absolute; top:10px; left:10px; background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:6px; padding:5px 12px; font-family:inherit; font-size:0.75rem; cursor:pointer; z-index:10; }
+  #back:hover { color:#e6edf3; border-color:#f85149; }
+  .miss-flash { animation: flashRed 0.3s ease; }
+  @keyframes flashRed { 0%,100%{background:#0d1117} 50%{background:#f8514920} }
+</style>
+</head>
+<body>
+<button id="back" onclick="location.href='launcher.html'">← Games</button>
+<div id="ui">
+  <div>SCORE <span id="scoreVal">0</span></div>
+  <div>BEST  <span id="bestVal">0</span></div>
+  <div>MISS  <span id="missVal">0</span></div>
+</div>
+<div id="timer-bar-wrap"><div id="timer-bar"></div></div>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="overlay">
+    <h2>🪲 BUG SQUASHER</h2>
+    <p>// squash bugs before they escape</p>
+    <div class="score-big" id="finalScore" style="display:none"></div>
+    <button class="btn" id="startBtn">▶ START</button>
+    <p style="font-size:0.7rem;color:#484f58">Click / tap bugs · 30 second sprint</p>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width  = Math.min(window.innerWidth - 60, 640);
+const H = canvas.height = Math.min(window.innerHeight - 160, 420);
+
+const DURATION = 30; // seconds
+const BUG_TYPES = ['🪲','🐛','🦗','🐜','🕷️'];
+const BUG_LABELS = ['NullPtr','SegFault','RaceCondition','MemLeak','Deadlock','OffByOne','BufferOvf','TypeError','UndefinedRef','StackOvf','InfiniteLoop'];
+const COLORS = ['#f85149','#e3b341','#ff7b72','#d2a8ff','#79c0ff','#56d364'];
+
+let bugs = [], particles = [], score, misses, best, state, startTime, animId;
+best = parseInt(localStorage.getItem('bs-best')||'0');
+
+let ripples = [];
+
+// ── Bug class ─────────────────────────────────────────────────────────────
+class Bug {
+  constructor() {
+    this.reset();
+    // start off-screen for initial spawn variety
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.appear = performance.now() + Math.random() * 1200;
+    this.visible = false;
+  }
+  reset() {
+    this.x = 30 + Math.random() * (W - 60);
+    this.y = 30 + Math.random() * (H - 60);
+    this.vx = (Math.random() - 0.5) * 1.4;
+    this.vy = (Math.random() - 0.5) * 1.4;
+    this.emoji = BUG_TYPES[Math.floor(Math.random() * BUG_TYPES.length)];
+    this.label = BUG_LABELS[Math.floor(Math.random() * BUG_LABELS.length)];
+    this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    this.size  = 20 + Math.random() * 14;
+    this.life  = 2500 + Math.random() * 2000; // ms until escapes
+    this.born  = performance.now();
+    this.appear = performance.now() + 200;
+    this.visible = false;
+    this.wobble  = Math.random() * Math.PI * 2;
+    this.squashed = false;
+    this.r = this.size * 0.9; // hit radius
+  }
+  age(now) { return now - this.born; }
+  lifeRatio(now) { return Math.min(1, this.age(now) / this.life); }
+  update(now, dt) {
+    if (now < this.appear) return;
+    this.visible = true;
+    this.x += this.vx * dt * 0.06;
+    this.y += this.vy * dt * 0.06;
+    // bounce walls
+    if (this.x < this.size)  { this.x = this.size;  this.vx = Math.abs(this.vx); }
+    if (this.x > W-this.size){ this.x = W-this.size; this.vx = -Math.abs(this.vx); }
+    if (this.y < this.size)  { this.y = this.size;  this.vy = Math.abs(this.vy); }
+    if (this.y > H-this.size){ this.y = H-this.size; this.vy = -Math.abs(this.vy); }
+    this.wobble += 0.07;
+    // speed increases over time
+    const urgency = 1 + this.lifeRatio(now) * 1.2;
+    this.vx = this.vx * 0.995 || 0.5;
+    this.vy = this.vy * 0.995 || 0.5;
+  }
+  draw(now) {
+    if (!this.visible) return;
+    const ratio = this.lifeRatio(now);
+    const pulse = 1 + Math.sin(this.wobble) * 0.08;
+    const sz = this.size * pulse;
+    const alpha = ratio > 0.75 ? 1 - (ratio - 0.75) * 4 * 0.3 : 1; // fade out last 25%
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(this.x, this.y);
+
+    // Glow ring (urgency)
+    const glowColor = ratio > 0.6 ? '#f85149' : '#e3b341';
+    ctx.beginPath(); ctx.arc(0, 0, sz + 4, 0, Math.PI*2);
+    ctx.fillStyle = glowColor + '22'; ctx.fill();
+
+    // Life arc
+    ctx.beginPath();
+    ctx.arc(0, 0, sz + 6, -Math.PI/2, -Math.PI/2 + (1-ratio) * Math.PI*2);
+    ctx.strokeStyle = glowColor; ctx.lineWidth = 2; ctx.stroke();
+
+    // Bug body bg
+    ctx.beginPath(); ctx.arc(0, 0, sz, 0, Math.PI*2);
+    ctx.fillStyle = '#161b22'; ctx.fill();
+    ctx.strokeStyle = this.color; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Emoji
+    ctx.font = `${sz * 0.95}px serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(this.emoji, 0, 1);
+
+    // Label below
+    ctx.fillStyle = this.color;
+    ctx.font = `bold 7px monospace`;
+    ctx.fillText(this.label, 0, sz + 10);
+
+    ctx.restore();
+  }
+  hit(mx, my) {
+    const dx = mx - this.x, dy = my - this.y;
+    return Math.sqrt(dx*dx + dy*dy) < this.r + 8;
+  }
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────
+function burst(x, y, color, n = 10) {
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2 + Math.random() * 0.3;
+    const spd = 2 + Math.random() * 4;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life: 1,
+      size: 2 + Math.random() * 3,
+      color
+    });
+  }
+}
+
+// ── Floating score texts ───────────────────────────────────────────────────
+let floats = [];
+function floatText(x, y, text, color) {
+  floats.push({ x, y, text, color, life: 1, vy: -1.2 });
+}
+
+// ── Draw ──────────────────────────────────────────────────────────────────
+function drawBg() {
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
+  // Grid
+  ctx.strokeStyle = '#161b22'; ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+}
+
+let lastTime = 0;
+function draw(now) {
+  const dt = now - lastTime; lastTime = now;
+  drawBg();
+
+  // Ripples
+  ripples = ripples.filter(r => r.life > 0);
+  ripples.forEach(r => {
+    r.r += 3; r.life -= 0.06;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(248,81,73,${r.life})`; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+
+  // Bugs
+  bugs.forEach(b => { b.update(now, dt); b.draw(now); });
+
+  // Particles
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    ctx.fillStyle = p.color + Math.floor(p.life * 200).toString(16).padStart(2,'0');
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2); ctx.fill();
+    p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.04;
+  });
+
+  // Float texts
+  floats = floats.filter(f => f.life > 0);
+  floats.forEach(f => {
+    ctx.fillStyle = f.color + Math.floor(f.life * 255).toString(16).padStart(2,'0');
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(f.text, f.x, f.y);
+    f.y += f.vy; f.life -= 0.025;
+  });
+  ctx.textAlign = 'left';
+}
+
+// ── Timer bar ─────────────────────────────────────────────────────────────
+function updateTimerBar() {
+  const elapsed = (Date.now() - startTime) / 1000;
+  const pct = Math.max(0, 1 - elapsed / DURATION);
+  const bar = document.getElementById('timer-bar');
+  bar.style.width = (pct * 100) + '%';
+  bar.style.background = pct > 0.4 ? '#3fb950' : pct > 0.2 ? '#e3b341' : '#f85149';
+}
+
+// ── Spawn logic ───────────────────────────────────────────────────────────
+let spawnInterval;
+function spawnBug() {
+  if (state !== 'running') return;
+  const elapsed = (Date.now() - startTime) / 1000;
+  const maxBugs = Math.min(3 + Math.floor(elapsed / 6), 10);
+  if (bugs.length < maxBugs) bugs.push(new Bug());
+}
+
+// ── Game loop ─────────────────────────────────────────────────────────────
+function loop(now) {
+  if (state !== 'running') return;
+
+  // Check for escaped bugs
+  bugs.forEach(b => {
+    if (b.visible && !b.squashed && b.lifeRatio(performance.now()) >= 1) {
+      b.squashed = true; // mark to remove
+      misses++;
+      document.getElementById('missVal').textContent = misses;
+      document.body.classList.add('miss-flash');
+      setTimeout(() => document.body.classList.remove('miss-flash'), 300);
+    }
+  });
+  bugs = bugs.filter(b => !b.squashed || b.lifeRatio(performance.now()) < 1);
+  // also remove fully escaped
+  bugs = bugs.filter(b => b.lifeRatio(performance.now()) < 1 || !b.squashed);
+
+  // Check time
+  const elapsed = (Date.now() - startTime) / 1000;
+  if (elapsed >= DURATION) { endGame(); return; }
+
+  updateTimerBar();
+  draw(now);
+  animId = requestAnimationFrame(loop);
+}
+
+function endGame() {
+  state = 'dead';
+  cancelAnimationFrame(animId);
+  if (score > best) { best = score; localStorage.setItem('bs-best', best); }
+  clearInterval(spawnInterval);
+  document.getElementById('bestVal').textContent = best;
+  const isNew = score >= best && score > 0;
+  document.getElementById('finalScore').textContent = `SQUASHED: ${score}  MISSED: ${misses}${isNew ? '  🏆' : ''}`;
+  document.getElementById('finalScore').style.display = 'block';
+  document.getElementById('startBtn').textContent = '↺ RETRY';
+  document.querySelector('#overlay h2').textContent = '🧹 SWEEP COMPLETE';
+  document.querySelector('#overlay p').textContent  = `// git commit -m "fix: squash ${score} bugs"`;
+  document.getElementById('overlay').style.display = 'flex';
+}
+
+function startGame() {
+  score = 0; misses = 0; state = 'running';
+  bugs = []; particles = []; floats = []; ripples = [];
+  startTime = Date.now();
+  document.getElementById('scoreVal').textContent = 0;
+  document.getElementById('missVal').textContent  = 0;
+  document.getElementById('bestVal').textContent  = best;
+  document.getElementById('timer-bar').style.width = '100%';
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('finalScore').style.display = 'none';
+
+  // Initial bugs
+  for (let i = 0; i < 3; i++) bugs.push(new Bug());
+
+  clearInterval(spawnInterval);
+  spawnInterval = setInterval(spawnBug, 700);
+
+  lastTime = performance.now();
+  animId = requestAnimationFrame(loop);
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+  if (state !== 'running') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  ripples.push({ x: mx, y: my, r: 0, life: 1 });
+
+  let hit = false;
+  bugs = bugs.filter(b => {
+    if (!b.squashed && b.visible && b.hit(mx, my)) {
+      burst(b.x, b.y, b.color, 12);
+      const ratio = b.lifeRatio(performance.now());
+      const pts = ratio < 0.3 ? 3 : ratio < 0.6 ? 2 : 1; // bonus for quick kill
+      score += pts;
+      floatText(b.x, b.y - b.size, `+${pts}`, b.color);
+      document.getElementById('scoreVal').textContent = score;
+      hit = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (!hit) {
+    floatText(mx, my - 10, 'MISS', '#8b949e');
+  }
+});
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+// Initial draw
+drawBg();
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Memory Match</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1117; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:'Cascadia Code','Consolas',monospace; color:#e6edf3; overflow:hidden; user-select:none; }
+  #wrap { position:relative; }
+  #ui { display:flex; gap:32px; margin-bottom:12px; font-size:0.8rem; color:#8b949e; }
+  #ui span { color:#d2a8ff; font-weight:bold; }
+  #grid { display:grid; gap:10px; }
+  .card {
+    width:80px; height:80px;
+    border-radius:10px;
+    cursor:pointer;
+    position:relative;
+    transform-style:preserve-3d;
+    transition:transform 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  .card.flipped  { transform:rotateY(180deg); }
+  .card.matched  { transform:rotateY(180deg); cursor:default; }
+  .card .front, .card .back {
+    position:absolute; inset:0; border-radius:10px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    backface-visibility:hidden;
+  }
+  .card .back {
+    background:#161b22;
+    border:1px solid #30363d;
+    font-size:1.6rem;
+    transform:rotateY(180deg);
+  }
+  .card .front {
+    background:#0d1117;
+    border:1px solid #21262d;
+    font-size:0.9rem;
+    color:#30363d;
+  }
+  .card .front::after { content:'</>'; font-family:monospace; color:#21262d; }
+  .card.matched .back { border-color:#3fb950; box-shadow:0 0 12px #3fb95044; background:#0f1f13; }
+  .card-icon { font-size:1.8rem; line-height:1; }
+  .card-name { font-size:0.55rem; color:#8b949e; margin-top:4px; letter-spacing:1px; }
+
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#0d111799; backdrop-filter:blur(2px); border-radius:12px; z-index:10; }
+  #overlay h2 { font-size:1.8rem; color:#d2a8ff; letter-spacing:3px; }
+  #overlay p  { color:#8b949e; font-size:0.82rem; }
+  .score-big { font-size:1.1rem; color:#e3b341; text-align:center; line-height:1.7; }
+  .btn { background:#6e40c9; color:#fff; border:none; border-radius:6px; padding:10px 28px; font-family:inherit; font-size:0.9rem; cursor:pointer; letter-spacing:2px; }
+  .btn:hover { background:#8957e5; }
+  #back { position:absolute; top:10px; left:10px; background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:6px; padding:5px 12px; font-family:inherit; font-size:0.75rem; cursor:pointer; z-index:20; }
+  #back:hover { color:#e6edf3; border-color:#d2a8ff; }
+
+  .diff-btn { background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:6px; padding:6px 16px; font-family:inherit; font-size:0.8rem; cursor:pointer; }
+  .diff-btn.active { background:#6e40c9; color:#fff; border-color:#8957e5; }
+  .diff-row { display:flex; gap:8px; align-items:center; }
+</style>
+</head>
+<body>
+<button id="back" onclick="location.href='launcher.html'">← Games</button>
+<div id="ui">
+  <div>MOVES <span id="movesVal">0</span></div>
+  <div>PAIRS <span id="pairsVal">0</span></div>
+  <div>TIME  <span id="timeVal">0s</span></div>
+  <div>BEST  <span id="bestVal">—</span></div>
+</div>
+<div id="wrap">
+  <div id="grid"></div>
+  <div id="overlay">
+    <h2>🧠 MEMORY MATCH</h2>
+    <p>// match pairs of dev tech logos</p>
+    <div class="diff-row">
+      <button class="diff-btn active" data-cols="4">4×3 Easy</button>
+      <button class="diff-btn" data-cols="6">6×4 Medium</button>
+      <button class="diff-btn" data-cols="6" data-rows="5">6×5 Hard</button>
+    </div>
+    <div class="score-big" id="finalScore" style="display:none"></div>
+    <button class="btn" id="startBtn">▶ START</button>
+    <p style="font-size:0.7rem;color:#484f58">Click cards to flip · Match all pairs to win</p>
+  </div>
+</div>
+
+<script>
+const CARDS_DATA = [
+  { icon:'JS',  name:'JavaScript', color:'#e3b341' },
+  { icon:'TS',  name:'TypeScript',  color:'#58a6ff' },
+  { icon:'🐍',  name:'Python',      color:'#3fb950' },
+  { icon:'🦀',  name:'Rust',        color:'#f85149' },
+  { icon:'Go',  name:'Golang',      color:'#58a6ff' },
+  { icon:'☕',  name:'Java',        color:'#e3b341' },
+  { icon:'⚛️', name:'React',       color:'#79c0ff' },
+  { icon:'🅰️', name:'Angular',     color:'#f85149' },
+  { icon:'💚',  name:'Vue',         color:'#3fb950' },
+  { icon:'🐳',  name:'Docker',      color:'#58a6ff' },
+  { icon:'⚙️', name:'Rust CLI',    color:'#8b949e' },
+  { icon:'🔥',  name:'Firebase',    color:'#e3b341' },
+  { icon:'🛡️', name:'GraphQL',     color:'#d2a8ff' },
+  { icon:'📦',  name:'npm',         color:'#f85149' },
+  { icon:'🧪',  name:'Testing',     color:'#3fb950' },
+];
+
+let moves, pairs, matched, flipped, locked, timer, startTime, state;
+let cols = 4, rows = 3;
+let bestKey = 'mm-best-4x3';
+
+const grid = document.getElementById('grid');
+
+function getBestKey() { return `mm-best-${cols}x${rows}`; }
+function getBest() { return localStorage.getItem(getBestKey()) || null; }
+function setBest(val) { localStorage.setItem(getBestKey(), val); }
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+function buildGrid() {
+  const totalPairs = (cols * rows) / 2;
+  const pool = shuffle(CARDS_DATA).slice(0, totalPairs);
+  const deck = shuffle([...pool, ...pool]);
+
+  grid.style.gridTemplateColumns = `repeat(${cols}, 80px)`;
+  grid.innerHTML = '';
+
+  deck.forEach((data, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.id = i;
+    card.dataset.name = data.name;
+    card.innerHTML = `
+      <div class="front"></div>
+      <div class="back" style="border-color:#30363d">
+        <div class="card-icon">${data.icon}</div>
+        <div class="card-name">${data.name}</div>
+      </div>`;
+    card.style.setProperty('--accent', data.color);
+    card.addEventListener('click', () => clickCard(card, data.name));
+    grid.appendChild(card);
+  });
+}
+
+function clickCard(card, name) {
+  if (state !== 'running') return;
+  if (locked) return;
+  if (card.classList.contains('flipped') || card.classList.contains('matched')) return;
+
+  card.classList.add('flipped');
+  flipped.push({ card, name });
+
+  if (flipped.length === 2) {
+    moves++;
+    document.getElementById('movesVal').textContent = moves;
+    locked = true;
+    const [a, b] = flipped;
+    if (a.name === b.name) {
+      // Match!
+      setTimeout(() => {
+        a.card.classList.add('matched');
+        b.card.classList.add('matched');
+        a.card.style.setProperty('--accent', getComputedStyle(a.card).getPropertyValue('--accent'));
+        pairs++;
+        matched++;
+        document.getElementById('pairsVal').textContent = pairs;
+        flipped = [];
+        locked = false;
+
+        const totalPairs = (cols * rows) / 2;
+        if (matched >= totalPairs) winGame();
+      }, 400);
+    } else {
+      // No match
+      setTimeout(() => {
+        a.card.classList.remove('flipped');
+        b.card.classList.remove('flipped');
+        flipped = [];
+        locked = false;
+      }, 900);
+    }
+  }
+}
+
+function winGame() {
+  state = 'won';
+  clearInterval(timer);
+  const elapsed = Math.round((Date.now() - startTime) / 1000);
+  const best = getBest();
+  const isBest = !best || moves < parseInt(best.split('m')[0]);
+  if (isBest) setBest(`${moves}m ${elapsed}s`);
+
+  const bestDisp = getBest() || `${moves}m ${elapsed}s`;
+  document.getElementById('bestVal').textContent = bestDisp;
+  document.getElementById('finalScore').innerHTML =
+    `Moves: ${moves} &nbsp;·&nbsp; Time: ${elapsed}s<br>${isBest ? '🏆 NEW BEST RECORD!' : `Best: ${bestDisp}`}`;
+  document.getElementById('finalScore').style.display = 'block';
+  document.getElementById('startBtn').textContent = '↺ PLAY AGAIN';
+  document.querySelector('#overlay h2').textContent = '✅ ALL MATCHED!';
+  document.querySelector('#overlay p').textContent  = `// merge conflict resolved`;
+  document.getElementById('overlay').style.display = 'flex';
+}
+
+function startGame() {
+  moves = 0; pairs = 0; matched = 0; flipped = []; locked = false; state = 'running';
+  document.getElementById('movesVal').textContent = 0;
+  document.getElementById('pairsVal').textContent = 0;
+  document.getElementById('timeVal').textContent  = '0s';
+  const b = getBest();
+  document.getElementById('bestVal').textContent = b || '—';
+  document.getElementById('finalScore').style.display = 'none';
+  document.getElementById('overlay').style.display = 'none';
+
+  buildGrid();
+
+  clearInterval(timer);
+  startTime = Date.now();
+  timer = setInterval(() => {
+    const s = Math.round((Date.now() - startTime) / 1000);
+    document.getElementById('timeVal').textContent = s + 's';
+  }, 500);
+}
+
+// Difficulty buttons
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    cols = parseInt(btn.dataset.cols);
+    rows = parseInt(btn.dataset.rows || (cols === 4 ? 3 : 4));
+  });
+});
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+</script>
+</body>
+</html>

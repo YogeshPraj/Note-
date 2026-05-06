@@ -56,6 +56,7 @@
       <button class="tb-btn" title="Toggle Terminal (Ctrl+`)" data-action="terminal" id="btn-terminal">⌨</button>
       <button class="tb-btn" title="Run File (F5)" data-action="run-file">▶</button>
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
+      <button class="tb-btn" title="Dev Arcade — take a break! (Ctrl+Shift+G)" data-action="games" id="btn-games">🎮</button>
     </div>
     <div class="tb-separator"></div>
     <div class="toolbar-group">
@@ -88,6 +89,10 @@
         <!-- Editor Container -->
         <div id="editor-container">
           <div id="monaco-editor"></div>
+          <!-- Game Container (lazy iframe, hidden by default) -->
+          <div id="game-container" class="hidden">
+            <iframe id="game-frame" src="" allowfullscreen></iframe>
+          </div>
         </div>
 
         <!-- Preview Resize Handle -->

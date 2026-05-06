@@ -6,6 +6,32 @@ const { spawn } = require('child_process');
 let mainWindow;
 const terminalProcesses = new Map();
 
+// ── Single-instance lock ──────────────────────────────────────────────────
+// If another instance launches, focus the existing window and open the file.
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    const file = fileFromArgv(argv);
+    if (file && mainWindow) mainWindow.webContents.send('open-files', [file]);
+  });
+}
+
+// Extract the first real file path from a argv array
+function fileFromArgv(argv) {
+  // argv[0] = exe, skip flags starting with '-'
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('-') && a !== '.' && fs.existsSync(a)) return a;
+  }
+  return null;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -23,7 +49,12 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    // Open file passed via command line (e.g. double-click or "Open with")
+    const file = fileFromArgv(process.argv);
+    if (file) mainWindow.webContents.send('open-files', [file]);
+  });
 
   mainWindow.on('close', (e) => {
     e.preventDefault();
@@ -502,7 +533,7 @@ async function handleOpenFolder() {
   if (!result.canceled) send('open-folder', result.filePaths[0]);
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => { if (gotTheLock) createWindow(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 app.on('quit', () => { terminalProcesses.forEach(p => p.kill()); });

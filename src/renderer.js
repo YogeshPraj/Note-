@@ -2774,6 +2774,29 @@ let mermaidRenderId    = 0;
 let mermaidLastContent = '';      // tracks last successfully rendered content
 let mermaidTheme       = 'default'; // current diagram theme
 let mermaidSketch      = false;   // hand-drawn look toggle
+
+// Guard against Mermaid bomb-SVGs leaking into document.body.
+// Mermaid appends temporary render containers (e.g. #dmmd-r1, #mmd-r1) directly
+// to document.body. On parse/render errors it may not clean them up, causing the
+// huge "Syntax error in text / mermaid version X" bomb icons to appear on screen.
+// A MutationObserver fires synchronously for each childList change so we can
+// remove stale containers before they are ever painted.
+(function installMermaidBodyGuard() {
+  const MMD_ID_RE = /^d?mmd-r\d|^mmd-scratch-/;
+  const obs = new MutationObserver(mutations => {
+    for (const mut of mutations) {
+      for (const node of mut.addedNodes) {
+        if (node.nodeType === 1 && MMD_ID_RE.test(node.id || '')) {
+          // Hide immediately, then remove after current microtask so Mermaid's
+          // own cleanup code (removeTempElements) can still run if it wants to.
+          node.style.cssText += ';display:none!important;visibility:hidden!important;';
+          Promise.resolve().then(() => { if (node.parentNode) node.parentNode.removeChild(node); });
+        }
+      }
+    }
+  });
+  obs.observe(document.body, { childList: true });
+})();
 let mermaidPanning     = false;   // pan-drag active
 let mermaidPanStart    = { x: 0, y: 0, sl: 0, st: 0 }; // pan anchor
 
@@ -2829,12 +2852,23 @@ async function renderMermaidPreview(content) {
     look: mermaidSketch ? 'handDrawn' : 'classic',
     securityLevel: 'loose',
     fontFamily: "'Segoe UI', Tahoma, sans-serif",
+    // Prevent Mermaid from rendering its own error-bomb SVGs into document.body.
+    // We handle parse/render errors ourselves in the catch block below.
+    suppressErrorRendering: true,
   });
 
   const id = `mmd-r${++mermaidRenderId}`;
 
+  // Create a hidden scratch container and pass it to mermaid.render() so
+  // Mermaid never appends anything to document.body (which causes bomb-SVG overflow).
+  const scratch = Object.assign(document.createElement('div'), {
+    id: `mmd-scratch-${id}`,
+    style: 'visibility:hidden;position:absolute;top:-9999px;left:-9999px;',
+  });
+  document.body.appendChild(scratch);
+
   try {
-    const { svg, bindFunctions } = await mermaid.render(id, text);
+    const { svg, bindFunctions } = await mermaid.render(id, text, scratch);
     diagramEl.innerHTML = svg;
     if (typeof bindFunctions === 'function') bindFunctions(diagramEl);
     errorBox.classList.add('hidden');
@@ -2846,6 +2880,13 @@ async function renderMermaidPreview(content) {
     // Strip any HTML tags Mermaid injects into the error
     errorText.textContent = raw.replace(/<[^>]*>/g, '').slice(0, 400);
     errorBox.classList.remove('hidden');
+  } finally {
+    // Always remove the scratch element regardless of success or failure.
+    scratch.remove();
+    // Belt-and-suspenders: sweep any other stray Mermaid render roots in the body.
+    document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"],[id^="mmd-scratch-"]').forEach(el => {
+      if (el.parentElement === document.body) el.remove();
+    });
   }
 }
 

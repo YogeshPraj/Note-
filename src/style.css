@@ -602,6 +602,20 @@ html, body {
   user-select: none;
 }
 
+/* Suppress any Mermaid render containers / error bombs leaked to document.body.
+   Belt-and-suspenders fallback in case the JS finally-block sweep ever misses one. */
+body > [id^="mmd-r"],
+body > [id^="dmmd-r"],
+body > [id^="mmd-scratch-"],
+body > [id^="d"] > svg.mermaid-error,
+body > svg[id^="mmd-r"] {
+  display: none !important;
+  visibility: hidden !important;
+  position: absolute !important;
+  top: -9999px !important;
+  pointer-events: none !important;
+}
+
 /* ===== Mermaid Preview Content ===== */
 #preview-mermaid-content {
   flex: 1;

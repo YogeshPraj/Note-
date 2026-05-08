@@ -138,6 +138,9 @@ if (bindFunctions) bindFunctions(container);
 | `schedulePreviewUpdate()` | 400ms debounced call to `updatePreview()` |
 | `activateTab(id)` | Switches active tab, updates editor model + preview |
 | `createTab(opts)` | Creates new tab object + DOM tab element |
+| `renderMermaidPreview(content)` | Renders Mermaid SVG into `#mermaid-diagram` via `mermaid.render()` |
+| `renderMmdLiveView(content)` | Renders Mermaid SVG into `#mmd-live-view` overlay (fullscreen) |
+| `toggleMmdLiveView()` | Toggles between local zoom-panel and fullscreen `#mmd-live-view` overlay |
 
 ---
 
@@ -161,6 +164,14 @@ if (bindFunctions) bindFunctions(container);
 - Moved all source files to `src/` subdirectory
 - Updated all `node_modules/` paths to `../node_modules/` in `src/`
 - Initialized git repo, pushed initial commit to https://github.com/YogeshPraj/Note-
+
+### Session 3 (continued from Session 2)
+- **"Live" button fix**: Replaced `<webview>` pointing to `mermaid.live` (which rendered tiny/dark) with a local `<div id="mmd-live-view">` overlay rendered by the in-process mermaid library
+- `renderMmdLiveView()` renders SVG via `mermaid.render()` and overlays the full preview pane via `position:absolute;inset:0;z-index:5`
+- **Bug fix**: Live view was blank — root cause was stripping SVG `width`/`height` attributes then applying CSS `width:auto!important`, collapsing SVG to 0px. Fix: keep SVG attributes, override with `style="width:100%;height:auto"` inline
+- **Bug fix**: Stale V8 code cache caused old code to run after edits — cleared `AppData/Roaming/notepp/Code Cache/` to force recompile
+- Removed `openDevTools({ mode: 'detach' })` from `main.js`
+- Removed all debug instrumentation (`document.title='DBG...'`, `showToast('DBG...')`) from preview functions
 
 ---
 

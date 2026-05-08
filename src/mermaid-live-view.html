@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mermaid Live View</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      background: #ffffff;
+      color: #1e1e1e;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    body.dark {
+      background: #1e1e1e;
+      color: #d4d4d4;
+    }
+
+    /* ── Container ── */
+    #container {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    /* ── Diagram wrapper ── */
+    #diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-width: 100%;
+    }
+
+    /* Force SVG to fill available space while keeping aspect ratio */
+    #diagram svg {
+      display: block;
+      max-width: 100%;
+      height: auto !important;
+      /* Override any fixed width mermaid sets */
+      width: auto !important;
+    }
+
+    /* ── Error display ── */
+    #error {
+      display: none;
+      padding: 16px 20px;
+      color: #c00000;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-width: 100%;
+      border-left: 3px solid #c00000;
+      background: rgba(200,0,0,0.06);
+      border-radius: 2px;
+    }
+
+    body.dark #error {
+      color: #f88;
+      border-left-color: #f88;
+      background: rgba(255,100,100,0.08);
+    }
+
+    /* ── Empty state ── */
+    #empty {
+      display: none;
+      opacity: 0.35;
+      font-size: 13px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="diagram"></div>
+    <div id="error"></div>
+    <div id="empty">No diagram content</div>
+  </div>
+
+  <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>
+  <script>
+    'use strict';
+
+    let currentTheme = 'default';
+    let renderCount  = 0;
+    let renderPending = null;   // debounce handle
+
+    /* ── init ── */
+    mermaid.initialize({
+      startOnLoad:   false,
+      theme:         currentTheme,
+      securityLevel: 'loose',
+    });
+
+    /* ── MutationObserver: hide Mermaid's temp render elements ── */
+    (function guardBody() {
+      const RE = /^d?mmd-r\d/;
+      const obs = new MutationObserver(mutations => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === 1 && RE.test(node.id || '')) {
+              node.style.cssText +=
+                ';position:fixed!important;top:-9999px!important;' +
+                'left:-9999px!important;visibility:hidden!important;' +
+                'pointer-events:none!important;';
+            }
+          }
+        }
+      });
+      obs.observe(document.body, { childList: true });
+    })();
+
+    /* ── Core render function ── */
+    async function doRender(code, theme) {
+      const diagramDiv = document.getElementById('diagram');
+      const errorDiv   = document.getElementById('error');
+      const emptyDiv   = document.getElementById('empty');
+
+      /* Theme change */
+      if (theme && theme !== currentTheme) {
+        currentTheme = theme;
+        mermaid.initialize({
+          startOnLoad:   false,
+          theme:         currentTheme,
+          securityLevel: 'loose',
+        });
+        document.body.className = (currentTheme === 'dark') ? 'dark' : '';
+      }
+
+      const text = (code || '').trim();
+
+      if (!text) {
+        diagramDiv.innerHTML = '';
+        errorDiv.style.display  = 'none';
+        emptyDiv.style.display  = 'block';
+        return;
+      }
+      emptyDiv.style.display = 'none';
+
+      const id = 'mlv-' + (++renderCount);
+      try {
+        const { svg, bindFunctions } = await mermaid.render(id, text);
+
+        /* Strip explicit width/height attributes so CSS can control sizing */
+        const cleaned = svg
+          .replace(/\bwidth="[^"]*"/g, '')
+          .replace(/\bheight="[^"]*"/g, '');
+
+        diagramDiv.innerHTML = cleaned;
+        if (typeof bindFunctions === 'function') bindFunctions(diagramDiv);
+
+        /* Ensure the SVG fills container width sensibly */
+        const svgEl = diagramDiv.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.maxWidth  = '100%';
+          svgEl.style.height    = 'auto';
+          svgEl.style.width     = '100%';
+        }
+
+        errorDiv.style.display = 'none';
+      } catch (err) {
+        const msg = String(err?.message || err).replace(/<[^>]*>/g, '').slice(0, 600);
+        errorDiv.textContent   = msg;
+        errorDiv.style.display = 'block';
+        diagramDiv.innerHTML   = '';
+      } finally {
+        /* Clean up any temp elements Mermaid injected into <body> */
+        document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"]').forEach(el => {
+          if (el.parentElement === document.body) el.remove();
+        });
+      }
+    }
+
+    /**
+     * Public API called by the parent renderer via webview.executeJavaScript():
+     *   window.renderDiagram(code, theme)
+     *
+     * Debounced by 50 ms so rapid keystrokes don't queue up many renders.
+     */
+    window.renderDiagram = function(code, theme) {
+      if (renderPending !== null) clearTimeout(renderPending);
+      renderPending = setTimeout(() => {
+        renderPending = null;
+        doRender(code, theme);
+      }, 50);
+    };
+
+    /* Initial empty state */
+    document.getElementById('empty').style.display = 'block';
+  </script>
+</body>
+</html>

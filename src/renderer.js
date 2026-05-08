@@ -134,6 +134,7 @@ require(['vs/editor/editor.main'], () => {
     padding: { top: 4, bottom: 4 },
   });
 
+  registerMermaidLanguage();
   restoreSession().then(restored => { if (!restored) createTab(); });
 
   // Events
@@ -194,6 +195,158 @@ require(['vs/editor/editor.main'], () => {
   setupGlobalEscape();
   updateStatusBar();
 });
+
+// ===== Mermaid Language Registration =====
+function registerMermaidLanguage() {
+  if (monaco.languages.getLanguages().some(l => l.id === 'mermaid')) return;
+
+  monaco.languages.register({
+    id: 'mermaid',
+    extensions: ['.mmd', '.mermaid'],
+    aliases: ['Mermaid', 'mermaid'],
+    mimetypes: ['text/x-mermaid'],
+  });
+
+  // Monarch tokenizer — syntax highlighting
+  monaco.languages.setMonarchTokensProvider('mermaid', {
+    defaultToken: '',
+    tokenPostfix: '.mermaid',
+
+    diagramTypes: [
+      'graph','flowchart','sequenceDiagram','classDiagram','stateDiagram',
+      'stateDiagram-v2','erDiagram','gantt','pie','journey','gitGraph',
+      'mindmap','timeline','xychart-beta','block-beta','architecture-beta',
+      'quadrantChart','requirementDiagram',
+      'C4Context','C4Container','C4Component','C4Dynamic','C4Deployment',
+    ],
+
+    keywords: [
+      'subgraph','end','direction','style','classDef','class','linkStyle',
+      'click','callback','call','href','participant','actor','activate',
+      'deactivate','note','loop','alt','else','opt','par','and','critical',
+      'break','rect','over','section','title','dateFormat','axisFormat',
+      'excludes','includes','todayMarker','accTitle','accDescr',
+      'commit','branch','checkout','merge','cherry-pick','reset','revert',
+    ],
+
+    directions: ['LR','RL','TB','TD','BT'],
+
+    tokenizer: {
+      root: [
+        // Comments (%% to end of line)
+        [/%%.*$/, 'comment'],
+        // Strings
+        [/"[^"]*"/, 'string'],
+        // Diagram type on its own line (first meaningful token)
+        [/\b(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|xychart-beta|block-beta|architecture-beta|quadrantChart|requirementDiagram|C4(?:Context|Container|Component|Dynamic|Deployment))\b/,
+          'keyword.control'],
+        // Structural + flow keywords
+        [/\b(subgraph|end|direction|style|classDef|class|linkStyle|click|callback|call|href)\b/, 'keyword'],
+        // Sequence/interaction keywords
+        [/\b(participant|actor|activate|deactivate|note|loop|alt|else|opt|par|and|critical|break|rect|over)\b/, 'keyword'],
+        // Gantt / timeline keywords
+        [/\b(section|title|dateFormat|axisFormat|excludes|includes|todayMarker|accTitle|accDescr)\b/, 'keyword'],
+        // Git graph keywords
+        [/\b(commit|branch|checkout|merge|cherry-pick|reset|revert)\b/, 'keyword'],
+        // Direction tokens
+        [/\b(LR|RL|TB|TD|BT)\b/, 'type'],
+        // Class decorators (:::className)
+        [/:::\w+/, 'type.identifier'],
+        // Arrow / edge operators
+        [/(-{1,3}[>|ox*]|={2,3}[>|ox*]|-\.-[>|ox*]|<(?:-{1,3}|={2,3})|(--[>|x]|===[>|x]))/, 'keyword.operator'],
+        [/(-{2,}|={2,}|-\.-)/, 'keyword.operator'],
+        // Edge labels  |text|
+        [/\|[^|]+\|/, 'string'],
+        // Node shape delimiters
+        [/[(\[{]/, { token: 'delimiter.bracket', bracket: '@open'  }],
+        [/[)\]}]/, { token: 'delimiter.bracket', bracket: '@close' }],
+        // Numbers
+        [/\b\d+(?:\.\d+)?%?(?:d|w|h|m)?\b/, 'number'],
+        // Identifiers / node IDs
+        [/[A-Za-z_$][\w$-]*/, 'identifier'],
+        // Separators
+        [/[;:,]/, 'delimiter'],
+        [/\s+/, 'white'],
+      ],
+    },
+  });
+
+  // Language configuration — comments, bracket-matching, auto-close
+  monaco.languages.setLanguageConfiguration('mermaid', {
+    comments: { lineComment: '%%' },
+    brackets: [['[',']'], ['(',')'], ['{','}']],
+    autoClosingPairs: [
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '{', close: '}' },
+      { open: '"', close: '"' },
+    ],
+    surroundingPairs: [
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '{', close: '}' },
+      { open: '"', close: '"' },
+    ],
+  });
+
+  // Completion provider — diagram type snippets + keywords
+  monaco.languages.registerCompletionItemProvider('mermaid', {
+    provideCompletionItems(model, position) {
+      const word  = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,        endColumn: word.endColumn,
+      };
+      const Snippet  = monaco.languages.CompletionItemKind.Snippet;
+      const Keyword  = monaco.languages.CompletionItemKind.Keyword;
+      const InsertAs = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
+
+      const snippets = [
+        { label:'flowchart', kind:Snippet,
+          insertText:'flowchart ${1|LR,TB,RL,BT|}\n    A[${2:Start}] --> B{${3:Decision?}}\n    B -- Yes --> C[${4:Action A}]\n    B -- No  --> D[${5:Action B}]\n    C --> E[${6:End}]\n    D --> E',
+          insertTextRules:InsertAs, detail:'Flowchart diagram', range },
+        { label:'sequenceDiagram', kind:Snippet,
+          insertText:'sequenceDiagram\n    participant ${1:A} as ${2:Alice}\n    participant ${3:B} as ${4:Bob}\n    ${1}->>+${3}: ${5:Hello!}\n    ${3}-->>-${1}: ${6:Hi there!}',
+          insertTextRules:InsertAs, detail:'Sequence diagram', range },
+        { label:'classDiagram', kind:Snippet,
+          insertText:'classDiagram\n    class ${1:Animal} {\n        +${2:String} name\n        +${3:makeSound}() void\n    }\n    class ${4:Dog} {\n        +fetch() void\n    }\n    ${1} <|-- ${4}',
+          insertTextRules:InsertAs, detail:'Class diagram', range },
+        { label:'erDiagram', kind:Snippet,
+          insertText:'erDiagram\n    ${1:CUSTOMER} ||--o{ ${2:ORDER} : places\n    ${2} ||--|{ ${3:LINE-ITEM} : contains\n    ${1} {\n        string name\n        string email\n    }',
+          insertTextRules:InsertAs, detail:'Entity-Relationship diagram', range },
+        { label:'stateDiagram-v2', kind:Snippet,
+          insertText:'stateDiagram-v2\n    [*] --> ${1:Idle}\n    ${1} --> ${2:Running} : ${3:start}\n    ${2} --> ${1} : ${4:stop}\n    ${2} --> [*] : finish',
+          insertTextRules:InsertAs, detail:'State diagram', range },
+        { label:'gantt', kind:Snippet,
+          insertText:'gantt\n    title ${1:Project Timeline}\n    dateFormat YYYY-MM-DD\n    section ${2:Planning}\n        ${3:Research}  :a1, ${4:2024-01-01}, ${5:7d}\n        ${6:Design}    :a2, after a1, ${7:5d}\n    section ${8:Development}\n        ${9:Coding}    :a3, after a2, ${10:14d}',
+          insertTextRules:InsertAs, detail:'Gantt chart', range },
+        { label:'pie', kind:Snippet,
+          insertText:'pie title ${1:Distribution}\n    "${2:Category A}" : ${3:40}\n    "${4:Category B}" : ${5:30}\n    "${6:Category C}" : ${7:20}\n    "${8:Other}"      : ${9:10}',
+          insertTextRules:InsertAs, detail:'Pie chart', range },
+        { label:'mindmap', kind:Snippet,
+          insertText:'mindmap\n  root((${1:Main Topic}))\n    ${2:Branch 1}\n      ${3:Leaf A}\n      ${4:Leaf B}\n    ${5:Branch 2}\n      ${6:Leaf C}',
+          insertTextRules:InsertAs, detail:'Mindmap', range },
+        { label:'gitGraph', kind:Snippet,
+          insertText:'gitGraph\n   commit id: "${1:init}"\n   branch ${2:develop}\n   checkout ${2}\n   commit id: "${3:feature}"\n   checkout main\n   merge ${2}\n   commit id: "${4:release}"',
+          insertTextRules:InsertAs, detail:'Git graph', range },
+        { label:'timeline', kind:Snippet,
+          insertText:'timeline\n    title ${1:History}\n    section ${2:Early}\n        ${3:2000} : ${4:Event A}\n    section ${5:Modern}\n        ${6:2010} : ${7:Event B}\n        ${8:2020} : ${9:Event C}',
+          insertTextRules:InsertAs, detail:'Timeline', range },
+        { label:'xychart-beta', kind:Snippet,
+          insertText:'xychart-beta\n    title "${1:Sales Chart}"\n    x-axis [${2:jan, feb, mar, apr, may, jun}]\n    y-axis "${3:Revenue}" ${4:4000} --> ${5:11000}\n    bar [${6:5000, 6000, 7500, 8200, 9100, 10000}]\n    line [${6}]',
+          insertTextRules:InsertAs, detail:'XY Chart', range },
+      ];
+
+      // Keyword completions
+      const kws = ['subgraph','end','participant','actor','note','loop','alt','else','opt',
+                   'section','title','dateFormat','classDef','style','linkStyle','LR','RL','TB','TD','BT',
+                   'direction','click','href','activate','deactivate','commit','branch','merge','checkout'];
+      kws.forEach(kw => snippets.push({ label:kw, kind:Keyword, insertText:kw, range }));
+
+      return { suggestions: snippets };
+    },
+  });
+}
 
 // ===== Tab Management =====
 
@@ -275,14 +428,18 @@ function activateTab(id) {
       if (tab.viewState) editor.restoreViewState(tab.viewState);
       editor.focus();
     }
-    // Update preview for the new active tab
-    if (previewOpen) {
+    // Auto-open preview for Mermaid files; update if already open
+    if (tab.language === 'mermaid' && !previewOpen) {
+      openPreview();
+    } else if (previewOpen) {
       if (isPreviewable(tab.language)) {
         updatePreview();
       } else {
         showPreviewPlaceholder();
       }
     }
+    // Show/hide Mermaid toolbar based on active language
+    updateMermaidToolbar(tab.language === 'mermaid');
   }
 
   renderTabs();
@@ -477,6 +634,7 @@ function detectLanguage(fp) {
     xml:'xml',svg:'xml',xaml:'xml',
     json:'json',jsonc:'json',
     yaml:'yaml',yml:'yaml', md:'markdown',mdx:'markdown',
+    mmd:'mermaid', mermaid:'mermaid',
     sql:'sql', sh:'shell',bash:'shell',zsh:'shell',
     ps1:'powershell',psm1:'powershell',
     bat:'bat',cmd:'bat', lua:'lua', r:'r',
@@ -490,7 +648,7 @@ function detectLanguage(fp) {
 
 function getFileEmoji(name) {
   const ext = name.split('.').pop().toLowerCase();
-  const m = { js:'📜',ts:'📘',jsx:'⚛',tsx:'⚛',py:'🐍',java:'☕',c:'©',cpp:'➕',cs:'#',go:'🔵',rs:'🦀',rb:'💎',php:'🐘',html:'🌐',css:'🎨',json:'📋',xml:'📄',md:'📝',sql:'🗄',sh:'🖥',ps1:'💙',bat:'🦇',yaml:'⚙',yml:'⚙',dockerfile:'🐳',svg:'🖼',txt:'📃',log:'📋' };
+  const m = { js:'📜',ts:'📘',jsx:'⚛',tsx:'⚛',py:'🐍',java:'☕',c:'©',cpp:'➕',cs:'#',go:'🔵',rs:'🦀',rb:'💎',php:'🐘',html:'🌐',css:'🎨',json:'📋',xml:'📄',md:'📝',sql:'🗄',sh:'🖥',ps1:'💙',bat:'🦇',yaml:'⚙',yml:'⚙',dockerfile:'🐳',svg:'🖼',txt:'📃',log:'📋',mmd:'📊',mermaid:'📊' };
   return m[ext] || '📄';
 }
 
@@ -576,7 +734,10 @@ function autoDetectLanguage(content, fileName) {
     return 'xml';
   }
 
-  // 5. YAML (must come before general key:value checks)
+  // 5. Mermaid — raw diagram (bare .mmd content pasted into an untitled tab)
+  if (MERMAID_START.test(trimmed) && !(/```/.test(trimmed))) return 'mermaid';
+
+  // 6. YAML (must come before general key:value checks)
   if (/^---(\s|$)/m.test(content) || (/^[a-zA-Z_][\w-]*:\s/m.test(head) && !/{/.test(head.slice(0, 200)))) {
     return 'yaml';
   }
@@ -849,7 +1010,7 @@ function updateLanguageStatus() {
     document.getElementById('status-eol').textContent = '—';
     return;
   }
-  const names = { plaintext:'Normal Text',javascript:'JavaScript',typescript:'TypeScript',python:'Python',java:'Java',c:'C',cpp:'C++',csharp:'C#',go:'Go',rust:'Rust',ruby:'Ruby',php:'PHP',html:'HTML',css:'CSS',json:'JSON',xml:'XML',markdown:'Markdown',sql:'SQL',shell:'Shell Script',powershell:'PowerShell',bat:'Batch',yaml:'YAML',lua:'Lua',kotlin:'Kotlin',swift:'Swift',r:'R',dockerfile:'Dockerfile',scss:'SCSS' };
+  const names = { plaintext:'Normal Text',javascript:'JavaScript',typescript:'TypeScript',python:'Python',java:'Java',c:'C',cpp:'C++',csharp:'C#',go:'Go',rust:'Rust',ruby:'Ruby',php:'PHP',html:'HTML',css:'CSS',json:'JSON',xml:'XML',markdown:'Markdown',mermaid:'Mermaid',sql:'SQL',shell:'Shell Script',powershell:'PowerShell',bat:'Batch',yaml:'YAML',lua:'Lua',kotlin:'Kotlin',swift:'Swift',r:'R',dockerfile:'Dockerfile',scss:'SCSS' };
   statusLang.textContent = names[tab.language] || tab.language;
   document.getElementById('status-encoding').textContent = tab.encoding;
   document.getElementById('status-eol').textContent = tab.eol;
@@ -1117,6 +1278,7 @@ function toggleDarkMode() {
   document.body.classList.toggle('theme-light', !isDarkMode);
   monaco.editor.setTheme(isDarkMode ? 'notepp-dark' : 'notepp-light');
   document.getElementById('btn-darkmode').classList.toggle('active', isDarkMode);
+  syncMermaidThemeToAppMode(); // keep diagram theme in sync
 }
 
 // ===== Zoom =====
@@ -1635,12 +1797,15 @@ function setupToolbar() {
   statusLang.addEventListener('click', () => {
     const tab = getActiveTab();
     if (!tab || tab.type === 'game') return;
-    const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
+    const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','mermaid','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
     showFloatingMenu(statusLang.getBoundingClientRect().left, window.innerHeight - 30,
       langs.map(lang => [lang, () => {
         tab.language = lang;
         monaco.editor.setModelLanguage(tab.model, lang);
         updateLanguageStatus();
+        updateMermaidToolbar(lang === 'mermaid');
+        if (lang === 'mermaid' && !previewOpen) openPreview();
+        else if (previewOpen) updatePreview();
         editor.focus();
       }])
     );
@@ -1733,6 +1898,9 @@ function setupMenuListeners() {
     tab.language = lang;
     monaco.editor.setModelLanguage(tab.model, lang);
     updateLanguageStatus();
+    updateMermaidToolbar(lang === 'mermaid');
+    if (lang === 'mermaid' && !previewOpen) openPreview();
+    else if (previewOpen) updatePreview();
   });
 
   m('menu-encoding', enc => { const tab = getActiveTab(); if (tab) { tab.encoding = enc; updateLanguageStatus(); } });
@@ -1915,11 +2083,12 @@ function showToast(msg) {
 }
 
 // ===== AI Assistant Panel =====
-let aiPanelOpen   = false;
-let aiGenerating  = false;
-let aiResponse    = '';          // accumulated response text
-let aiModel       = '';          // currently selected model
+let aiPanelOpen    = false;
+let aiGenerating   = false;
+let aiResponse     = '';          // accumulated response text
+let aiModel        = '';          // currently selected model
 let aiResizeActive = false;
+let aiRefreshing   = false;       // prevents concurrent refreshAiModelList() calls
 
 const RECOMMENDED_MODELS = [
   { name: 'phi3:mini',             size: '~2.3 GB', desc: 'Best for writing & markdown' },
@@ -2007,7 +2176,17 @@ function setupAiPanel() {
     document.getElementById('ai-action-bar').classList.remove('hidden');
     document.getElementById('btn-ai-send').disabled = false;
     document.getElementById('btn-ai-send').textContent = 'Send ↵';
-    setAiStatus('online');
+    // Only restore 'online' dot if the model dropdown still has a valid selection.
+    // If the dropdown was reset to an error state by a concurrent refresh, don't
+    // overwrite the dot with 'online' — that would cause the green-dot + "Ollama not
+    // running" inconsistency the user reported.
+    const modelSel = document.getElementById('ai-model-select');
+    if (modelSel?.value) {
+      setAiStatus('online');
+    } else {
+      // Dropdown lost its model — re-check to sync both indicators correctly
+      refreshAiModelList();
+    }
   });
 
   // Load saved model on startup
@@ -2023,33 +2202,42 @@ async function loadAiState() {
 }
 
 async function refreshAiModelList() {
-  const result = await window.electronAPI.aiCheck();
-  const modelSel = document.getElementById('ai-model-select');
-  modelSel.innerHTML = '';
+  // Guard against concurrent calls — last caller wins
+  if (aiRefreshing) return;
+  aiRefreshing = true;
+  try {
+    const result = await window.electronAPI.aiCheck();
+    const modelSel = document.getElementById('ai-model-select');
+    modelSel.innerHTML = '';
 
-  if (!result.running) {
-    setAiStatus('offline');
-    modelSel.innerHTML = '<option value="">Ollama not running</option>';
-    document.getElementById('btn-ai-send').disabled = true;
-    return;
+    if (!result.running) {
+      // Always set dot + dropdown together so they can never disagree
+      setAiStatus('offline');
+      modelSel.innerHTML = '<option value="">Ollama not running</option>';
+      document.getElementById('btn-ai-send').disabled = true;
+      return;
+    }
+
+    if (result.models.length === 0) {
+      setAiStatus('online'); // Connected, just nothing installed yet
+      modelSel.innerHTML = '<option value="">No models — download one in Settings ⚙</option>';
+      document.getElementById('btn-ai-send').disabled = true;
+      return;
+    }
+
+    result.models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      if (m === aiModel || (!aiModel && result.models.length === 1)) opt.selected = true;
+      modelSel.appendChild(opt);
+    });
+    aiModel = modelSel.value;
+    document.getElementById('btn-ai-send').disabled = false;
+    // Set green dot AFTER dropdown is fully populated — never before
+    setAiStatus('online');
+  } finally {
+    aiRefreshing = false;
   }
-
-  setAiStatus('online');
-
-  if (result.models.length === 0) {
-    modelSel.innerHTML = '<option value="">No models — download one in Settings ⚙</option>';
-    document.getElementById('btn-ai-send').disabled = true;
-    return;
-  }
-
-  result.models.forEach(m => {
-    const opt = document.createElement('option');
-    opt.value = m; opt.textContent = m;
-    if (m === aiModel || (!aiModel && result.models.length === 1)) opt.selected = true;
-    modelSel.appendChild(opt);
-  });
-  aiModel = modelSel.value;
-  document.getElementById('btn-ai-send').disabled = false;
 }
 
 function setAiStatus(state) {
@@ -2304,7 +2492,12 @@ function setupAiTokenListeners() {
     document.getElementById('ai-action-bar').classList.remove('hidden');
     document.getElementById('btn-ai-send').disabled = false;
     document.getElementById('btn-ai-send').textContent = 'Send ↵';
-    setAiStatus('online');
+    const modelSel = document.getElementById('ai-model-select');
+    if (modelSel?.value) {
+      setAiStatus('online');
+    } else {
+      refreshAiModelList();
+    }
   });
 }
 
@@ -2373,12 +2566,13 @@ async function sha256(text) {
 
 // ===== Preview Panel =====
 function isPreviewable(lang) {
-  return lang === 'html' || lang === 'markdown';
+  return lang === 'html' || lang === 'markdown' || lang === 'mermaid';
 }
 
 function setupPreview() {
   document.getElementById('btn-preview-close').addEventListener('click', closePreview);
   document.getElementById('btn-preview-refresh').addEventListener('click', () => updatePreview());
+  setupMermaidToolbar();
 
   // Horizontal resize handle
   const handle = document.getElementById('preview-resize-handle');
@@ -2413,7 +2607,7 @@ function togglePreview() {
     closePreview();
   } else {
     if (!tab || !isPreviewable(tab.language)) {
-      showToast('Preview is only available for HTML and Markdown files');
+      showToast('Preview available for HTML, Markdown and Mermaid (.mmd) files');
       return;
     }
     openPreview();
@@ -2459,26 +2653,37 @@ function updatePreview() {
   }
 
   const content = editor.getValue();
-  const mdEl  = document.getElementById('preview-md-content');
-  const frame = document.getElementById('preview-html-frame');
+  const mdEl    = document.getElementById('preview-md-content');
+  const frame   = document.getElementById('preview-html-frame');
+  const mmdEl   = document.getElementById('preview-mermaid-content');
+
+  // Hide all, then show the right one
+  mdEl.classList.add('hidden');
+  frame.classList.add('hidden');
+  mmdEl.classList.add('hidden');
 
   if (tab.language === 'markdown') {
     mdEl.classList.remove('hidden');
-    frame.classList.add('hidden');
     renderMarkdownPreview(content, mdEl);
   } else if (tab.language === 'html') {
-    mdEl.classList.add('hidden');
     frame.classList.remove('hidden');
     renderHtmlPreview(content, frame, tab);
+  } else if (tab.language === 'mermaid') {
+    mmdEl.classList.remove('hidden');
+    updateMermaidToolbar(true);
+    renderMermaidPreview(content);
   }
 }
 
 function showPreviewPlaceholder() {
   const mdEl  = document.getElementById('preview-md-content');
   const frame = document.getElementById('preview-html-frame');
+  const mmdEl = document.getElementById('preview-mermaid-content');
   frame.classList.add('hidden');
+  mmdEl.classList.add('hidden');
+  updateMermaidToolbar(false);
   mdEl.classList.remove('hidden');
-  mdEl.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.5;font-size:13px;">No preview available for this file type.<br>Open an HTML or Markdown file to use preview.</div>';
+  mdEl.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.5;font-size:13px;">No preview available for this file type.<br>Open an HTML, Markdown or Mermaid (.mmd) file to use preview.</div>';
 }
 
 // Detect if content is a raw Mermaid diagram (no markdown code fences)
@@ -2560,6 +2765,351 @@ function runMermaidInContainer(container) {
     });
   } catch (e) {
     console.warn('Mermaid error:', e);
+  }
+}
+
+// ===== Mermaid Live Editor =====
+let mermaidZoom        = 1.0;
+let mermaidRenderId    = 0;
+let mermaidLastContent = '';      // tracks last successfully rendered content
+let mermaidTheme       = 'default'; // current diagram theme
+let mermaidSketch      = false;   // hand-drawn look toggle
+let mermaidPanning     = false;   // pan-drag active
+let mermaidPanStart    = { x: 0, y: 0, sl: 0, st: 0 }; // pan anchor
+
+const MERMAID_TEMPLATES = {
+  flowchart:
+    'flowchart LR\n    A[Start] --> B{Decision?}\n    B -- Yes --> C[Do this]\n    B -- No  --> D[Do that]\n    C --> E[End]\n    D --> E',
+  sequence:
+    'sequenceDiagram\n    participant A as Client\n    participant B as Server\n    A->>+B: GET /api/data\n    B-->>-A: 200 OK { data }',
+  class:
+    'classDiagram\n    class Animal {\n        +String name\n        +makeSound() void\n    }\n    class Dog {\n        +fetch() void\n    }\n    Animal <|-- Dog',
+  er:
+    'erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE-ITEM : contains\n    CUSTOMER {\n        string name\n        string email\n    }',
+  state:
+    'stateDiagram-v2\n    [*] --> Idle\n    Idle --> Running : start\n    Running --> Idle : stop\n    Running --> [*] : finish',
+  gantt:
+    'gantt\n    title Project Timeline\n    dateFormat YYYY-MM-DD\n    section Planning\n        Research      :a1, 2024-01-01, 7d\n        Design        :a2, after a1, 5d\n    section Development\n        Coding        :a3, after a2, 14d\n        Testing       :a4, after a3, 7d',
+  pie:
+    'pie title Distribution\n    "Frontend"  : 35\n    "Backend"   : 45\n    "DevOps"    : 20',
+  mindmap:
+    'mindmap\n  root((Project))\n    Requirements\n      Functional\n      Non-Functional\n    Design\n      UX\n      Architecture\n    Development\n      Frontend\n      Backend',
+  git:
+    'gitGraph\n   commit id: "init"\n   branch develop\n   checkout develop\n   commit id: "feature-A"\n   commit id: "feature-B"\n   checkout main\n   merge develop\n   commit id: "v1.0"',
+  timeline:
+    'timeline\n    title Company History\n    section Founded\n        2010 : Company started\n    section Growth\n        2015 : First product\n        2018 : Series A\n    section Present\n        2024 : 100 employees',
+  xychart:
+    'xychart-beta\n    title "Monthly Revenue"\n    x-axis [jan, feb, mar, apr, may, jun]\n    y-axis "Revenue ($k)" 4000 --> 11000\n    bar [5000, 6000, 7500, 8200, 9100, 10200]\n    line [5000, 6000, 7500, 8200, 9100, 10200]',
+  quadrant:
+    'quadrantChart\n    title Prioritization Matrix\n    x-axis Low Effort --> High Effort\n    y-axis Low Impact --> High Impact\n    quadrant-1 Quick Wins\n    quadrant-2 Major Projects\n    quadrant-3 Fill Ins\n    quadrant-4 Hard Slogs\n    Task A: [0.3, 0.8]\n    Task B: [0.7, 0.7]\n    Task C: [0.2, 0.3]',
+};
+
+async function renderMermaidPreview(content) {
+  const diagramEl  = document.getElementById('mermaid-diagram');
+  const errorBox   = document.getElementById('mermaid-error-box');
+  const errorText  = document.getElementById('mermaid-error-text');
+  if (!diagramEl) return;
+
+  const text = (content || '').trim();
+
+  if (!text) {
+    diagramEl.innerHTML = '<div class="mmd-empty">Start typing a Mermaid diagram…<br><span style="font-size:11px;opacity:0.6">e.g. <code>flowchart LR</code></span></div>';
+    errorBox.classList.add('hidden');
+    return;
+  }
+
+  if (!window.mermaid) {
+    diagramEl.innerHTML = '<div style="padding:20px;color:#c00000">Mermaid library not loaded — restart the app.</div>';
+    return;
+  }
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: mermaidTheme,
+    look: mermaidSketch ? 'handDrawn' : 'classic',
+    securityLevel: 'loose',
+    fontFamily: "'Segoe UI', Tahoma, sans-serif",
+  });
+
+  const id = `mmd-r${++mermaidRenderId}`;
+
+  try {
+    const { svg, bindFunctions } = await mermaid.render(id, text);
+    diagramEl.innerHTML = svg;
+    if (typeof bindFunctions === 'function') bindFunctions(diagramEl);
+    errorBox.classList.add('hidden');
+    mermaidLastContent = text;
+    applyMermaidZoom();
+  } catch (err) {
+    // Keep the last valid SVG; just surface the error
+    const raw = err?.message || String(err);
+    // Strip any HTML tags Mermaid injects into the error
+    errorText.textContent = raw.replace(/<[^>]*>/g, '').slice(0, 400);
+    errorBox.classList.remove('hidden');
+  }
+}
+
+function setupMermaidToolbar() {
+  // Templates
+  document.getElementById('mmd-template-select').addEventListener('change', e => {
+    const type = e.target.value;
+    e.target.value = '';
+    if (!type) return;
+    insertMermaidTemplate(type);
+  });
+
+  // Theme selector
+  const themeSel = document.getElementById('mmd-theme-select');
+  themeSel.addEventListener('change', e => {
+    mermaidTheme = e.target.value;
+    renderMermaidPreview(editor.getValue());
+  });
+  // Initialise theme to match app dark mode
+  mermaidTheme = isDarkMode ? 'dark' : 'default';
+  themeSel.value = mermaidTheme;
+
+  // Sketch / hand-drawn toggle
+  document.getElementById('btn-mmde-sketch').addEventListener('click', () => {
+    mermaidSketch = !mermaidSketch;
+    document.getElementById('btn-mmde-sketch').classList.toggle('active', mermaidSketch);
+    renderMermaidPreview(editor.getValue());
+  });
+
+  // Download buttons
+  document.getElementById('btn-mmde-svg').addEventListener('click', exportMermaidSvg);
+  document.getElementById('btn-mmde-png').addEventListener('click', exportMermaidPng);
+
+  // Copy-to-clipboard buttons
+  document.getElementById('btn-mmde-copy-svg').addEventListener('click', copyMermaidSvgToClipboard);
+  document.getElementById('btn-mmde-copy-png').addEventListener('click', copyMermaidPngToClipboard);
+
+  // Open in mermaid.live
+  document.getElementById('btn-mmde-live').addEventListener('click', openInMermaidLive);
+
+  // Zoom controls
+  document.getElementById('btn-mmde-zoomin').addEventListener('click',  mermaidZoomIn);
+  document.getElementById('btn-mmde-zoomout').addEventListener('click', mermaidZoomOut);
+  document.getElementById('btn-mmde-zoomfit').addEventListener('click', mermaidZoomFit);
+
+  const zoomArea = document.getElementById('mermaid-zoom-area');
+
+  // Ctrl+scroll → zoom
+  zoomArea.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    e.deltaY < 0 ? mermaidZoomIn() : mermaidZoomOut();
+  }, { passive: false });
+
+  // Middle-mouse or Alt+drag → pan
+  zoomArea.addEventListener('mousedown', e => {
+    if (e.button !== 1 && !(e.button === 0 && e.altKey)) return;
+    e.preventDefault();
+    mermaidPanning = true;
+    mermaidPanStart = { x: e.clientX, y: e.clientY, sl: zoomArea.scrollLeft, st: zoomArea.scrollTop };
+    zoomArea.style.cursor = 'grabbing';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!mermaidPanning) return;
+    zoomArea.scrollLeft = mermaidPanStart.sl - (e.clientX - mermaidPanStart.x);
+    zoomArea.scrollTop  = mermaidPanStart.st - (e.clientY - mermaidPanStart.y);
+  });
+  document.addEventListener('mouseup', e => {
+    if (!mermaidPanning) return;
+    mermaidPanning = false;
+    zoomArea.style.cursor = '';
+  });
+}
+
+// ── Theme sync with dark mode toggle ─────────────────────────────────────────
+// Called from toggleDarkMode so the diagram re-renders with the matching theme
+function syncMermaidThemeToAppMode() {
+  const themeSel = document.getElementById('mmd-theme-select');
+  if (!themeSel) return;
+  // Only auto-sync if the user is still on default or dark (not a custom pick like forest)
+  if (mermaidTheme === 'default' || mermaidTheme === 'dark') {
+    mermaidTheme = isDarkMode ? 'dark' : 'default';
+    themeSel.value = mermaidTheme;
+    if (previewOpen) renderMermaidPreview(editor.getValue());
+  }
+}
+
+// ── Copy to clipboard ─────────────────────────────────────────────────────────
+function copyMermaidSvgToClipboard() {
+  const svgEl = document.querySelector('#mermaid-diagram svg');
+  if (!svgEl) { showToast('No diagram to copy'); return; }
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const text = clone.outerHTML;
+  navigator.clipboard.writeText(text)
+    .then(() => showToast('SVG copied to clipboard ✓'))
+    .catch(() => showToast('Copy failed — clipboard permission denied'));
+}
+
+async function copyMermaidPngToClipboard() {
+  const svgEl = document.querySelector('#mermaid-diagram svg');
+  if (!svgEl) { showToast('No diagram to copy'); return; }
+
+  try {
+    const canvas = await mermaidSvgToCanvas(svgEl, 2);
+    await new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('canvas.toBlob returned null')); return; }
+        navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+          .then(() => { showToast('PNG copied to clipboard ✓'); resolve(); })
+          .catch(err => reject(err));
+      }, 'image/png');
+    });
+  } catch (err) {
+    showToast('PNG copy failed: ' + (err?.message || 'clipboard permission denied'));
+  }
+}
+
+// ── Open in mermaid.live ──────────────────────────────────────────────────────
+async function openInMermaidLive() {
+  const content = editor?.getValue().trim();
+  if (!content) { showToast('Nothing to open'); return; }
+
+  const state = JSON.stringify({
+    code: content,
+    mermaid: JSON.stringify({ theme: mermaidTheme }),
+    updateEditor: false,
+    autoSync: true,
+    updateDiagram: true,
+  });
+
+  try {
+    // CompressionStream('deflate-raw') == pako.deflateRaw — both produce RFC 1951 raw deflate
+    const encoder  = new TextEncoder();
+    const stream   = new CompressionStream('deflate-raw');
+    const writer   = stream.writable.getWriter();
+    writer.write(encoder.encode(state));
+    writer.close();
+    const buf    = await new Response(stream.readable).arrayBuffer();
+    const bytes  = new Uint8Array(buf);
+    let   binary = '';
+    bytes.forEach(b => { binary += String.fromCharCode(b); });
+    const base64 = btoa(binary);
+    window.electronAPI.openUrl(`https://mermaid.live/edit#pako:${base64}`);
+    showToast('Opening in mermaid.live…');
+  } catch {
+    // Fallback if CompressionStream unavailable
+    window.electronAPI.openUrl('https://mermaid.live');
+    showToast('Opened mermaid.live (encoding unavailable)');
+  }
+}
+
+function updateMermaidToolbar(show) {
+  const tb = document.getElementById('mermaid-toolbar');
+  if (!tb) return;
+  if (show) tb.classList.remove('hidden');
+  else       tb.classList.add('hidden');
+}
+
+function insertMermaidTemplate(type) {
+  const text = MERMAID_TEMPLATES[type];
+  if (!text) return;
+  const model     = editor.getModel();
+  const lastLine  = model.getLineCount();
+  const lastCol   = model.getLineMaxColumn(lastLine);
+  const isEmpty   = model.getValue().trim() === '';
+  if (isEmpty || confirm('Replace the current diagram with this template? (Ctrl+Z to undo)')) {
+    editor.executeEdits('mermaid-template', [{
+      range: new monaco.Range(1, 1, lastLine, lastCol),
+      text,
+    }]);
+    editor.focus();
+    showToast(`Template inserted — Ctrl+Z to undo`);
+  }
+}
+
+function applyMermaidZoom() {
+  const el    = document.getElementById('mermaid-diagram');
+  const label = document.getElementById('mmde-zoom-label');
+  if (!el) return;
+  el.style.transform       = `scale(${mermaidZoom})`;
+  el.style.transformOrigin = 'top center';
+  if (label) label.textContent = Math.round(mermaidZoom * 100) + '%';
+}
+
+function mermaidZoomIn()  { mermaidZoom = Math.min(+(mermaidZoom + 0.25).toFixed(2), 4.0); applyMermaidZoom(); }
+function mermaidZoomOut() { mermaidZoom = Math.max(+(mermaidZoom - 0.25).toFixed(2), 0.25); applyMermaidZoom(); }
+function mermaidZoomFit() { mermaidZoom = 1.0; applyMermaidZoom(); }
+
+async function exportMermaidSvg() {
+  const svgEl = document.querySelector('#mermaid-diagram svg');
+  if (!svgEl) { showToast('No diagram rendered yet'); return; }
+
+  // Ensure SVG namespace is present
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const svgText = '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
+
+  const tab = getActiveTab();
+  const defaultName = (tab?.name || 'diagram').replace(/\.(mmd|mermaid)$/i, '') + '.svg';
+
+  const result = await window.electronAPI.saveDialog({
+    title: 'Export as SVG',
+    defaultPath: defaultName,
+    filters: [{ name: 'SVG Image', extensions: ['svg'] }, { name: 'All Files', extensions: ['*'] }]
+  });
+  if (result.canceled || !result.filePath) return;
+
+  const wr = await window.electronAPI.writeFile(result.filePath, svgText);
+  showToast(wr.success ? 'SVG exported ✓' : 'Export failed: ' + wr.error);
+}
+
+// Shared helper: renders the Mermaid SVG to an offscreen canvas and resolves with it.
+// Uses a data: URI instead of blob: to avoid the tainted-canvas SecurityError
+// that Chromium throws when an SVG containing <foreignObject> is drawn via blob: URL.
+function mermaidSvgToCanvas(svgEl, scale = 2) {
+  return new Promise((resolve, reject) => {
+    const vb = svgEl.viewBox.baseVal;
+    const W  = vb.width  || svgEl.getBoundingClientRect().width  || 800;
+    const H  = vb.height || svgEl.getBoundingClientRect().height || 600;
+
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    // data: URI avoids the cross-origin tainted-canvas issue caused by <foreignObject>
+    const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData);
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = Object.assign(document.createElement('canvas'), {
+        width: W * scale, height: H * scale
+      });
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.fillStyle = isDarkMode ? '#1e1e1e' : '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.drawImage(img, 0, 0, W, H);
+      resolve(canvas);
+    };
+    img.onerror = () => reject(new Error('SVG image failed to load'));
+    img.src = svgUrl;
+  });
+}
+
+async function exportMermaidPng() {
+  const svgEl = document.querySelector('#mermaid-diagram svg');
+  if (!svgEl) { showToast('No diagram rendered yet'); return; }
+
+  const tab = getActiveTab();
+  const defaultName = (tab?.name || 'diagram').replace(/\.(mmd|mermaid)$/i, '') + '.png';
+
+  const result = await window.electronAPI.saveDialog({
+    title: 'Export as PNG',
+    defaultPath: defaultName,
+    filters: [{ name: 'PNG Image', extensions: ['png'] }, { name: 'All Files', extensions: ['*'] }]
+  });
+  if (result.canceled || !result.filePath) return;
+
+  try {
+    const canvas  = await mermaidSvgToCanvas(svgEl, 2);
+    const dataUrl = canvas.toDataURL('image/png');
+    const base64  = dataUrl.replace(/^data:image\/png;base64,/, '');
+    const wr = await window.electronAPI.writeFileBinary(result.filePath, base64);
+    showToast(wr.success ? 'PNG exported at 2× resolution ✓' : 'Export failed: ' + wr.error);
+  } catch (err) {
+    showToast('PNG export failed: ' + err.message);
   }
 }
 

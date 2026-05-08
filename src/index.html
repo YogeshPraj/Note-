@@ -138,6 +138,57 @@
             <div id="preview-header-left">
               <span id="preview-title">PREVIEW</span>
             </div>
+            <!-- Mermaid-specific toolbar (shown only for .mmd / .mermaid files) -->
+            <div id="mermaid-toolbar" class="hidden">
+              <!-- Templates -->
+              <select id="mmd-template-select" title="Insert a diagram template">
+                <option value="">📋 Templates…</option>
+                <optgroup label="Common">
+                  <option value="flowchart">Flowchart</option>
+                  <option value="sequence">Sequence Diagram</option>
+                  <option value="class">Class Diagram</option>
+                  <option value="er">ER Diagram</option>
+                  <option value="state">State Diagram</option>
+                </optgroup>
+                <optgroup label="Data / Time">
+                  <option value="gantt">Gantt Chart</option>
+                  <option value="pie">Pie Chart</option>
+                  <option value="xychart">XY Chart</option>
+                  <option value="quadrant">Quadrant Chart</option>
+                  <option value="timeline">Timeline</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="mindmap">Mindmap</option>
+                  <option value="git">Git Graph</option>
+                </optgroup>
+              </select>
+              <!-- Theme -->
+              <select id="mmd-theme-select" title="Diagram theme">
+                <option value="default">☀ Default</option>
+                <option value="dark">🌙 Dark</option>
+                <option value="forest">🌲 Forest</option>
+                <option value="neutral">⬜ Neutral</option>
+                <option value="base">🔷 Base</option>
+              </select>
+              <!-- Sketch mode toggle -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-sketch" title="Toggle hand-drawn sketch look">✏ Sketch</button>
+              <div class="mmde-divider"></div>
+              <!-- Download -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-svg" title="Download as SVG file">↓SVG</button>
+              <button class="tb-btn mmde-btn" id="btn-mmde-png" title="Download as PNG file">↓PNG</button>
+              <!-- Copy to clipboard -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-copy-svg" title="Copy SVG to clipboard">📋SVG</button>
+              <button class="tb-btn mmde-btn" id="btn-mmde-copy-png" title="Copy PNG to clipboard">📋PNG</button>
+              <div class="mmde-divider"></div>
+              <!-- Open in mermaid.live -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-live" title="Open in mermaid.live (browser)">🌐 Live</button>
+              <div class="mmde-divider"></div>
+              <!-- Zoom -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-zoomin"  title="Zoom In (Ctrl+Scroll)">＋</button>
+              <button class="tb-btn mmde-btn" id="btn-mmde-zoomout" title="Zoom Out (Ctrl+Scroll)">－</button>
+              <button class="tb-btn mmde-btn" id="btn-mmde-zoomfit" title="Reset Zoom">⊞</button>
+              <span id="mmde-zoom-label">100%</span>
+            </div>
             <div id="preview-header-btns">
               <button class="tb-btn" id="btn-preview-refresh" title="Refresh Preview">↺</button>
               <button class="tb-btn" id="btn-preview-close" title="Close Preview">×</button>
@@ -146,6 +197,16 @@
           <div id="preview-body">
             <div id="preview-md-content" class="md-preview hidden"></div>
             <iframe id="preview-html-frame" class="hidden" sandbox="allow-scripts allow-same-origin"></iframe>
+            <!-- Mermaid live editor preview pane -->
+            <div id="preview-mermaid-content" class="hidden">
+              <div id="mermaid-zoom-area">
+                <div id="mermaid-diagram"></div>
+              </div>
+              <div id="mermaid-error-box" class="hidden">
+                <span class="mmd-err-icon">⚠</span>
+                <span id="mermaid-error-text"></span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

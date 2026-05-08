@@ -231,6 +231,7 @@ function buildMenu() {
         { label: 'Kotlin', click: () => send('menu-lang', 'kotlin') },
         { label: 'Lua', click: () => send('menu-lang', 'lua') },
         { label: 'Markdown', click: () => send('menu-lang', 'markdown') },
+        { label: 'Mermaid', click: () => send('menu-lang', 'mermaid') },
         { label: 'PHP', click: () => send('menu-lang', 'php') },
         { label: 'PowerShell', click: () => send('menu-lang', 'powershell') },
         { label: 'Python', click: () => send('menu-lang', 'python') },
@@ -337,6 +338,16 @@ ipcMain.handle('read-file', async (e, filePath) => {
 ipcMain.handle('write-file', async (e, filePath, content) => {
   try { fs.writeFileSync(filePath, content, 'utf-8'); return { success: true }; }
   catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('write-file-binary', async (e, filePath, base64content) => {
+  try {
+    const buf = Buffer.from(base64content, 'base64');
+    fs.writeFileSync(filePath, buf);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('list-dir', async (e, dirPath) => {

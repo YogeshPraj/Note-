@@ -502,12 +502,14 @@ html, body {
 #preview-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 26px;
-  padding: 0 4px 0 10px;
+  gap: 4px;
+  min-height: 30px;
+  height: auto;
+  padding: 2px 4px 2px 10px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--toolbar-border);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 #preview-title {
@@ -548,6 +550,137 @@ html, body {
   font-size: 14px;
   line-height: 1.65;
 }
+
+/* ===== Mermaid Live Editor Toolbar ===== */
+#mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+#mmd-template-select,
+#mmd-theme-select {
+  font-size: 11px;
+  padding: 2px 5px;
+  height: 22px;
+  background: var(--find-input-bg);
+  color: var(--tab-text);
+  border: 1px solid var(--find-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+#mmd-template-select { max-width: 150px; }
+#mmd-theme-select    { max-width: 110px; }
+#mmd-template-select:hover,
+#mmd-theme-select:hover { border-color: #0078d4; }
+
+/* Sketch toggle active state */
+#btn-mmde-sketch.active {
+  background: #6f42c1 !important;
+  color: #fff !important;
+  border-color: #6f42c1 !important;
+}
+
+.mmde-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--toolbar-border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.mmde-btn { font-size: 11px !important; padding: 2px 5px !important; }
+
+#mmde-zoom-label {
+  font-size: 11px;
+  opacity: 0.7;
+  min-width: 34px;
+  text-align: center;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  user-select: none;
+}
+
+/* ===== Mermaid Preview Content ===== */
+#preview-mermaid-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+#mermaid-zoom-area {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px 16px;
+  background: var(--editor-bg);
+  cursor: default;
+}
+/* Alt+drag or middle-mouse pan hint */
+#mermaid-zoom-area:hover { cursor: default; }
+
+
+#mermaid-diagram {
+  display: inline-block;
+  transform-origin: top center;
+  transition: transform 0.12s ease;
+}
+
+#mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.mmd-empty {
+  text-align: center;
+  padding: 60px 20px;
+  opacity: 0.45;
+  font-size: 13px;
+  font-family: 'Segoe UI', sans-serif;
+  line-height: 2;
+}
+.mmd-empty code {
+  background: var(--find-bg);
+  border: 1px solid var(--find-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+}
+
+/* Mermaid Error Box */
+#mermaid-error-box {
+  padding: 7px 14px;
+  background: rgba(180, 30, 30, 0.12);
+  border-top: 1px solid rgba(180, 30, 30, 0.4);
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  color: #e07070;
+  max-height: 90px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.light-theme #mermaid-error-box {
+  background: #fff3f3;
+  border-top-color: #f5c0c0;
+  color: #b00000;
+}
+
+.mmd-err-icon { flex-shrink: 0; font-style: normal; }
+#mermaid-error-text { flex: 1; }
 
 /* ===== Markdown Preview Typography ===== */
 .md-preview { max-width: 100%; }

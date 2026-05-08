@@ -182,8 +182,10 @@
               <button class="tb-btn mmde-btn" id="btn-mmde-copy-svg" title="Copy SVG to clipboard">📋SVG</button>
               <button class="tb-btn mmde-btn" id="btn-mmde-copy-png" title="Copy PNG to clipboard">📋PNG</button>
               <div class="mmde-divider"></div>
-              <!-- Open in mermaid.live -->
-              <button class="tb-btn mmde-btn" id="btn-mmde-live" title="Open in mermaid.live (browser)">🌐 Live</button>
+              <!-- Live view: embed mermaid.live in-app (toggle) -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-live" title="🌐 Embed mermaid.live preview in-app (toggle)">🌐 Live</button>
+              <!-- Open mermaid.live in the system browser (edit mode) -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-open-browser" title="Open in mermaid.live editor (browser)">↗</button>
               <div class="mmde-divider"></div>
               <!-- Zoom -->
               <button class="tb-btn mmde-btn" id="btn-mmde-zoomin"  title="Zoom In (Ctrl+Scroll)">＋</button>
@@ -236,6 +238,13 @@
                 </div>
               </div>
             </div>
+            <!-- Mermaid Live View — embeds mermaid.live/view via Electron webview.
+                 Shown when the user clicks "🌐 Live"; hidden by default.
+                 webviewTag: true must be set in BrowserWindow webPreferences. -->
+            <webview id="mmd-live-webview"
+              class="hidden"
+              src="about:blank"
+              allowpopups></webview>
           </div>
         </div>
       </div>

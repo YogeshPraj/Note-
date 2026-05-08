@@ -42,7 +42,8 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      webviewTag: true,           // needed for <webview> (mermaid live preview)
     },
     backgroundColor: '#1e1e1e',
     show: false

@@ -526,6 +526,7 @@ html, body {
 #preview-body {
   flex: 1;
   overflow: hidden;
+  position: relative;   /* anchor for absolutely-positioned children (e.g. #mmd-live-webview) */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -604,15 +605,17 @@ html, body {
 
 /* Suppress any Mermaid render containers / error bombs leaked to document.body.
    Belt-and-suspenders fallback in case the JS finally-block sweep ever misses one. */
+/* Mermaid temp render containers — hidden off-screen but NOT display:none.
+   display:none breaks mermaid's layout math → NaN transform coordinates.
+   visibility:hidden + position:fixed keeps layout intact while hiding visually. */
 body > [id^="mmd-r"],
 body > [id^="dmmd-r"],
-body > [id^="mmd-scratch-"],
 body > [id^="d"] > svg.mermaid-error,
 body > svg[id^="mmd-r"] {
-  display: none !important;
-  visibility: hidden !important;
-  position: absolute !important;
+  position: fixed !important;
   top: -9999px !important;
+  left: -9999px !important;
+  visibility: hidden !important;
   pointer-events: none !important;
 }
 
@@ -695,6 +698,21 @@ body > svg[id^="mmd-r"] {
 
 .mmd-err-icon { flex-shrink: 0; font-style: normal; }
 #mermaid-error-text { flex: 1; }
+
+/* ── Mermaid Live Webview (embedded mermaid.live/view) ───────────────────────── */
+/* Absolutely overlays #preview-body so the webview covers the full preview area
+   (below the preview header) without disrupting the flex column layout. */
+#mmd-live-webview {
+  position: absolute;
+  inset: 0;              /* top:0 right:0 bottom:0 left:0 */
+  border: none;
+  z-index: 5;            /* above mermaid-content, below modal overlays */
+  background: var(--editor-bg);
+  display: none;         /* hidden by default; JS removes hidden class → display:block */
+}
+#mmd-live-webview:not(.hidden) {
+  display: block;
+}
 
 /* ── Mermaid Visual Editor ──────────────────────────────────────────────────── */
 

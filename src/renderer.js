@@ -2632,6 +2632,14 @@ function closePreview() {
   document.getElementById('preview-resize-handle').classList.add('hidden');
   previewOpen = false;
   document.getElementById('btn-preview').classList.remove('active');
+  // If live view was active, reset it so it doesn't linger on next open
+  if (mmdLiveViewActive) {
+    mmdLiveViewActive = false;
+    const wv = document.getElementById('mmd-live-webview');
+    if (wv) { wv.src = 'about:blank'; wv.classList.add('hidden'); }
+    const btn = document.getElementById('btn-mmde-live');
+    if (btn) { btn.classList.remove('active'); btn.title = '🌐 Embed mermaid.live preview in-app'; }
+  }
   editor?.layout();
   editor?.focus();
 }
@@ -2774,23 +2782,35 @@ let mermaidRenderId    = 0;
 let mermaidLastContent = '';      // tracks last successfully rendered content
 let mermaidTheme       = 'default'; // current diagram theme
 let mermaidSketch      = false;   // hand-drawn look toggle
+let mmdLiveViewActive  = false;   // true = webview showing mermaid.live/view instead of local render
 
 // Guard against Mermaid bomb-SVGs leaking into document.body.
 // Mermaid appends temporary render containers (e.g. #dmmd-r1, #mmd-r1) directly
+// IMPORTANT: We HIDE but do NOT remove — Mermaid still needs to access these nodes
+// during its async render. Removal happens in the renderMermaidPreview finally block.
 // to document.body. On parse/render errors it may not clean them up, causing the
 // huge "Syntax error in text / mermaid version X" bomb icons to appear on screen.
 // A MutationObserver fires synchronously for each childList change so we can
 // remove stale containers before they are ever painted.
 (function installMermaidBodyGuard() {
-  const MMD_ID_RE = /^d?mmd-r\d|^mmd-scratch-/;
+  // Matches Mermaid's temporary render roots: dmmd-r1, mmd-r1, etc.
+  // We intentionally do NOT schedule removal here — removing elements while
+  // mermaid.render() is still running (awaiting internally) causes
+  // "Cannot read properties of null (reading 'getAttribute')" errors.
+  // Instead we just hide them visually; renderMermaidPreview's finally block
+  // removes them after the render promise settles.
+  const MMD_ID_RE = /^d?mmd-r\d/;
   const obs = new MutationObserver(mutations => {
     for (const mut of mutations) {
       for (const node of mut.addedNodes) {
         if (node.nodeType === 1 && MMD_ID_RE.test(node.id || '')) {
-          // Hide immediately, then remove after current microtask so Mermaid's
-          // own cleanup code (removeTempElements) can still run if it wants to.
-          node.style.cssText += ';display:none!important;visibility:hidden!important;';
-          Promise.resolve().then(() => { if (node.parentNode) node.parentNode.removeChild(node); });
+          // Use visibility:hidden + position:fixed (off-screen) NOT display:none.
+          // display:none removes the element from layout → mermaid's coordinate
+          // calculations produce NaN → "translate(undefined,NaN)" SVG errors.
+          // visibility:hidden keeps the element laid out (with real dimensions)
+          // while preventing it from painting on screen.
+          node.style.cssText += ';position:fixed!important;top:-9999px!important;' +
+            'left:-9999px!important;visibility:hidden!important;pointer-events:none!important;';
         }
       }
     }
@@ -2828,6 +2848,9 @@ const MERMAID_TEMPLATES = {
 };
 
 async function renderMermaidPreview(content) {
+  // If the embedded mermaid.live webview is active, update it instead of rendering locally
+  if (mmdLiveViewActive) { updateMmdLiveWebview(); return; }
+
   const diagramEl  = document.getElementById('mermaid-diagram');
   const errorBox   = document.getElementById('mermaid-error-box');
   const errorText  = document.getElementById('mermaid-error-text');
@@ -2859,32 +2882,25 @@ async function renderMermaidPreview(content) {
 
   const id = `mmd-r${++mermaidRenderId}`;
 
-  // Create a hidden scratch container and pass it to mermaid.render() so
-  // Mermaid never appends anything to document.body (which causes bomb-SVG overflow).
-  const scratch = Object.assign(document.createElement('div'), {
-    id: `mmd-scratch-${id}`,
-    style: 'visibility:hidden;position:absolute;top:-9999px;left:-9999px;',
-  });
-  document.body.appendChild(scratch);
-
+  // Note: mermaid.min.js does NOT support the optional 3rd arg (svgContainingElement),
+  // so we call render with two args only. The MutationObserver (above) hides any
+  // temp elements Mermaid appends to document.body; the finally block removes them
+  // AFTER the promise settles (removing earlier causes 'getAttribute of null' errors).
   try {
-    const { svg, bindFunctions } = await mermaid.render(id, text, scratch);
+    const { svg, bindFunctions } = await mermaid.render(id, text);
     diagramEl.innerHTML = svg;
     if (typeof bindFunctions === 'function') bindFunctions(diagramEl);
     errorBox.classList.add('hidden');
     mermaidLastContent = text;
     applyMermaidZoom();
   } catch (err) {
-    // Keep the last valid SVG; just surface the error
+    // Keep the last valid SVG; just surface the error in the error box
     const raw = err?.message || String(err);
-    // Strip any HTML tags Mermaid injects into the error
     errorText.textContent = raw.replace(/<[^>]*>/g, '').slice(0, 400);
     errorBox.classList.remove('hidden');
   } finally {
-    // Always remove the scratch element regardless of success or failure.
-    scratch.remove();
-    // Belt-and-suspenders: sweep any other stray Mermaid render roots in the body.
-    document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"],[id^="mmd-scratch-"]').forEach(el => {
+    // Now that the render promise has settled, safe to sweep temp body elements.
+    document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"]').forEach(el => {
       if (el.parentElement === document.body) el.remove();
     });
   }
@@ -2924,8 +2940,10 @@ function setupMermaidToolbar() {
   document.getElementById('btn-mmde-copy-svg').addEventListener('click', copyMermaidSvgToClipboard);
   document.getElementById('btn-mmde-copy-png').addEventListener('click', copyMermaidPngToClipboard);
 
-  // Open in mermaid.live
-  document.getElementById('btn-mmde-live').addEventListener('click', openInMermaidLive);
+  // Toggle embedded mermaid.live live view (webview)
+  document.getElementById('btn-mmde-live').addEventListener('click', toggleMmdLiveView);
+  // Open mermaid.live /edit in the system browser
+  document.getElementById('btn-mmde-open-browser').addEventListener('click', openInMermaidLive);
 
   // Zoom controls
   document.getElementById('btn-mmde-zoomin').addEventListener('click',  mermaidZoomIn);
@@ -3208,37 +3226,103 @@ async function copyMermaidPngToClipboard() {
   }
 }
 
-// ── Open in mermaid.live ──────────────────────────────────────────────────────
-async function openInMermaidLive() {
-  const content = editor?.getValue().trim();
-  if (!content) { showToast('Nothing to open'); return; }
-
+// ── Encode Mermaid state → pako: URL hash (shared by live view & open-in-browser) ────
+// Uses the browser's built-in CompressionStream (deflate-raw ≡ RFC 1951 raw deflate),
+// the same algorithm as pako.deflateRaw that mermaid.live's serde.ts expects.
+async function encodeMermaidState(code) {
   const state = JSON.stringify({
-    code: content,
+    code: (code || '').trim(),
     mermaid: JSON.stringify({ theme: mermaidTheme }),
     updateEditor: false,
     autoSync: true,
     updateDiagram: true,
   });
+  const ds = new CompressionStream('deflate-raw');
+  const w  = ds.writable.getWriter();
+  w.write(new TextEncoder().encode(state));
+  w.close();
+  const buf = await new Response(ds.readable).arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  return 'pako:' + btoa(binary);
+}
 
+// ── Open in mermaid.live (external browser, /edit route) ─────────────────────
+async function openInMermaidLive() {
+  const content = editor?.getValue().trim();
+  if (!content) { showToast('Nothing to open'); return; }
   try {
-    // CompressionStream('deflate-raw') == pako.deflateRaw — both produce RFC 1951 raw deflate
-    const encoder  = new TextEncoder();
-    const stream   = new CompressionStream('deflate-raw');
-    const writer   = stream.writable.getWriter();
-    writer.write(encoder.encode(state));
-    writer.close();
-    const buf    = await new Response(stream.readable).arrayBuffer();
-    const bytes  = new Uint8Array(buf);
-    let   binary = '';
-    bytes.forEach(b => { binary += String.fromCharCode(b); });
-    const base64 = btoa(binary);
-    window.electronAPI.openUrl(`https://mermaid.live/edit#pako:${base64}`);
+    const hash = await encodeMermaidState(content);
+    window.electronAPI.openUrl(`https://mermaid.live/edit#${hash}`);
     showToast('Opening in mermaid.live…');
   } catch {
-    // Fallback if CompressionStream unavailable
     window.electronAPI.openUrl('https://mermaid.live');
     showToast('Opened mermaid.live (encoding unavailable)');
+  }
+}
+
+// ── Embedded mermaid.live live view (Electron <webview>) ──────────────────────
+// Updates the webview URL to reflect the current Monaco content.
+async function updateMmdLiveWebview() {
+  if (!mmdLiveViewActive) return;
+  const code = editor?.getValue()?.trim();
+  const webview = document.getElementById('mmd-live-webview');
+  if (!webview) return;
+
+  if (!code) {
+    webview.src = 'about:blank';
+    return;
+  }
+
+  let hash;
+  try { hash = await encodeMermaidState(code); }
+  catch { return; }  // CompressionStream unavailable — leave webview as-is
+
+  const newSrc = `https://mermaid.live/view#${hash}`;
+
+  // If already on mermaid.live, update hash via JS to avoid a full page reload.
+  // This lets the SvelteKit router react to the hash change in-place (faster).
+  const isSamePage = webview.src && webview.src.startsWith('https://mermaid.live/');
+  if (isSamePage) {
+    try {
+      // Escape the hash string safely; hash contains only base64 chars + 'pako:'
+      await webview.executeJavaScript(`window.location.hash = '${hash}'`);
+      return;
+    } catch { /* fall through to full navigation */ }
+  }
+  webview.src = newSrc;
+}
+
+// Toggle the embedded mermaid.live webview in the preview pane.
+async function toggleMmdLiveView() {
+  mmdLiveViewActive = !mmdLiveViewActive;
+  const webview  = document.getElementById('mmd-live-webview');
+  const zoomArea = document.getElementById('mermaid-zoom-area');
+  const errorBox = document.getElementById('mermaid-error-box');
+  const nodeEd   = document.getElementById('mmd-node-editor');
+  const btn      = document.getElementById('btn-mmde-live');
+
+  if (mmdLiveViewActive) {
+    // ── Switch TO live view ──────────────────────────────────────────────
+    btn.classList.add('active');
+    btn.title = '🖥 Switch back to local preview';
+    zoomArea.classList.add('hidden');
+    errorBox.classList.add('hidden');
+    if (nodeEd) nodeEd.classList.add('hidden');
+    webview.classList.remove('hidden');
+    await updateMmdLiveWebview();
+    showToast('🌐 Live view — mermaid.live embedded (needs internet)');
+  } else {
+    // ── Switch BACK to local render ──────────────────────────────────────
+    btn.classList.remove('active');
+    btn.title = '🌐 Embed mermaid.live preview in-app';
+    webview.classList.add('hidden');
+    webview.src = 'about:blank';
+    zoomArea.classList.remove('hidden');
+    hideMmdNodeEditor();
+    renderMermaidPreview(editor?.getValue() ?? '');
+    showToast('Returned to local preview');
   }
 }
 

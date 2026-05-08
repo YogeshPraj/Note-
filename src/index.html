@@ -172,6 +172,8 @@
               </select>
               <!-- Sketch mode toggle -->
               <button class="tb-btn mmde-btn" id="btn-mmde-sketch" title="Toggle hand-drawn sketch look">✏ Sketch</button>
+              <!-- Visual edit mode toggle -->
+              <button class="tb-btn mmde-btn" id="btn-mmde-edit" title="Visual editing — click nodes to rename, reshape or delete">⌖ Edit</button>
               <div class="mmde-divider"></div>
               <!-- Download -->
               <button class="tb-btn mmde-btn" id="btn-mmde-svg" title="Download as SVG file">↓SVG</button>
@@ -205,6 +207,33 @@
               <div id="mermaid-error-box" class="hidden">
                 <span class="mmd-err-icon">⚠</span>
                 <span id="mermaid-error-text"></span>
+              </div>
+              <!-- Visual node editor popup (shown when a node is clicked in edit mode) -->
+              <div id="mmd-node-editor" class="hidden">
+                <div class="mmd-ne-header">
+                  <span class="mmd-ne-title">✏ Edit Node</span>
+                  <button class="mmd-ne-close" id="btn-mmd-ne-close">×</button>
+                </div>
+                <div class="mmd-ne-section">
+                  <label class="mmd-ne-label">Label</label>
+                  <input type="text" id="mmd-ne-label" class="mmd-ne-input" placeholder="Node label" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="mmd-ne-section">
+                  <label class="mmd-ne-label">Shape</label>
+                  <div class="mmd-ne-shapes">
+                    <button class="mmd-ne-shape active" data-s="rect"        title="Rectangle [ ]">[ ]</button>
+                    <button class="mmd-ne-shape"        data-s="round"       title="Rounded ( )"  >( )</button>
+                    <button class="mmd-ne-shape"        data-s="diamond"     title="Diamond { }"  >{ }</button>
+                    <button class="mmd-ne-shape"        data-s="circle"      title="Circle (( ))" >(( ))</button>
+                    <button class="mmd-ne-shape"        data-s="stadium"     title="Stadium ([ ])">([  ])</button>
+                    <button class="mmd-ne-shape"        data-s="hex"         title="Hexagon {{ }}">{{ }}</button>
+                    <button class="mmd-ne-shape"        data-s="subroutine"  title="Subroutine [[ ]]">[[ ]]</button>
+                  </div>
+                </div>
+                <div class="mmd-ne-actions">
+                  <button class="mmd-ne-btn mmd-ne-primary" id="btn-mmd-ne-apply">↵ Apply</button>
+                  <button class="mmd-ne-btn mmd-ne-danger"  id="btn-mmd-ne-delete" title="Remove node and its connections">🗑 Delete</button>
+                </div>
               </div>
             </div>
           </div>

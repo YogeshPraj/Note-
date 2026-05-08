@@ -77,11 +77,18 @@ In `renderer.js`, the require config uses `'../node_modules/monaco-editor/min/vs
 - **Markdown preview**: `marked.parse()` with custom `renderer.code` override for Mermaid fences; result injected into `#preview-md-content`
 - **Mermaid**: bare Mermaid files (no code fences, starts with `graph`/`flowchart`/etc.) are detected by `isBareRawMermaid()` and rendered directly
 - **HTML preview**: rendered in sandboxed `<iframe srcdoc="...">` with mermaid script injected into `<head>`
+- **Mermaid Live Editor** (`.mmd` / `.mermaid`): dedicated split-pane editor — Monaco left, live diagram right. Auto-opens preview. Toolbar: templates, SVG/PNG export, zoom controls (Ctrl+scroll too). Error box shows parse failures while preserving last valid diagram. Uses `mermaid.render()` API for direct SVG injection.
 
 ### Mermaid (v11) API
 ```javascript
+// For Markdown/HTML preview (run on all .mermaid divs):
 mermaid.initialize({ startOnLoad: false, theme: 'default'|'dark', securityLevel: 'loose' });
 mermaid.run({ nodes: Array.from(container.querySelectorAll('.mermaid')) });
+
+// For Mermaid Live Editor (direct SVG render):
+const { svg, bindFunctions } = await mermaid.render(uniqueId, diagramText);
+container.innerHTML = svg;
+if (bindFunctions) bindFunctions(container);
 ```
 
 ---
@@ -97,6 +104,7 @@ mermaid.run({ nodes: Array.from(container.querySelectorAll('.mermaid')) });
 - [x] Quick Open (`Ctrl+P`)
 - [x] File tree sidebar
 - [x] Live preview for HTML and Markdown (`Ctrl+Shift+V`)
+- [x] Mermaid Live Editor for `.mmd` / `.mermaid` files — auto-opens split pane, templates, SVG/PNG export, zoom
 - [x] Mermaid diagram rendering in preview
 - [x] Dark/light mode toggle
 - [x] Cloud session sync (Google Drive, OneDrive, Dropbox)

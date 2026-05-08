@@ -2918,6 +2918,9 @@ function setupMermaidToolbar() {
     mermaidPanning = false;
     zoomArea.style.cursor = '';
   });
+
+  // Wire up visual node editor
+  setupMermaidVisualEditor();
 }
 
 // ── Theme sync with dark mode toggle ─────────────────────────────────────────
@@ -2931,6 +2934,206 @@ function syncMermaidThemeToAppMode() {
     themeSel.value = mermaidTheme;
     if (previewOpen) renderMermaidPreview(editor.getValue());
   }
+}
+
+// ── Mermaid Visual Node Editor ───────────────────────────────────────────────
+let mmdEditMode         = false;
+let mmdSelectedNodeId   = null;
+let mmdSelectedShape    = 'rect';
+
+// Maps shape-key → open/close delimiters (longest first for safe parsing)
+const MMD_SHAPES = {
+  circle:     { open: '((',  close: '))'  },
+  stadium:    { open: '([',  close: '])'  },
+  hex:        { open: '{{',  close: '}}'  },
+  subroutine: { open: '[[',  close: ']]'  },
+  rect:       { open: '[',   close: ']'   },
+  round:      { open: '(',   close: ')'   },
+  diamond:    { open: '{',   close: '}'   },
+};
+
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Parse current label + shape of a node from mermaid flowchart code
+function parseMmdNodeDef(code, nodeId) {
+  const eid = escapeRe(nodeId);
+  const tries = [
+    { re: new RegExp(`\\b${eid}\\(\\(([^)]+?)\\)\\)`),     shape: 'circle'     },
+    { re: new RegExp(`\\b${eid}\\(\\[([^\\]]+?)\\]\\)`),   shape: 'stadium'    },
+    { re: new RegExp(`\\b${eid}\\{\\{([^}]+?)\\}\\}`),     shape: 'hex'        },
+    { re: new RegExp(`\\b${eid}\\[\\[([^\\]]+?)\\]\\]`),   shape: 'subroutine' },
+    { re: new RegExp(`\\b${eid}\\[([^\\]]+?)\\]`),         shape: 'rect'       },
+    { re: new RegExp(`\\b${eid}\\(([^)]+?)\\)`),           shape: 'round'      },
+    { re: new RegExp(`\\b${eid}\\{([^}]+?)\\}`),           shape: 'diamond'    },
+  ];
+  for (const { re, shape } of tries) {
+    const m = re.exec(code);
+    if (m) return { label: m[1].trim(), shape };
+  }
+  return null;
+}
+
+// Replace a node definition in the code (longest pattern wins to avoid partial match)
+function replaceMmdNodeDef(code, nodeId, newDef) {
+  const eid = escapeRe(nodeId);
+  const pats = [
+    new RegExp(`\\b${eid}\\(\\([^)]*?\\)\\)`, 'g'),
+    new RegExp(`\\b${eid}\\(\\[[^\\]]*?\\]\\)`, 'g'),
+    new RegExp(`\\b${eid}\\{\\{[^}]*?\\}\\}`, 'g'),
+    new RegExp(`\\b${eid}\\[\\[[^\\]]*?\\]\\]`, 'g'),
+    new RegExp(`\\b${eid}\\[[^\\]]*?\\]`, 'g'),
+    new RegExp(`\\b${eid}\\([^)]*?\\)`, 'g'),
+    new RegExp(`\\b${eid}\\{[^}]*?\\}`, 'g'),
+  ];
+  for (const re of pats) {
+    if (re.test(code)) return code.replace(re, newDef);
+  }
+  return code;
+}
+
+function showMmdNodeEditor(nodeId, nodeEl) {
+  const tab = getActiveTab();
+  if (!tab) return;
+  const def = parseMmdNodeDef(tab.model.getValue(), nodeId);
+  if (!def) return; // not a shaped node (bare ID used only in edges)
+
+  mmdSelectedNodeId  = nodeId;
+  mmdSelectedShape   = def.shape;
+
+  // Populate popup
+  document.getElementById('mmd-ne-label').value = def.label;
+  document.querySelectorAll('.mmd-ne-shape').forEach(b =>
+    b.classList.toggle('active', b.dataset.s === def.shape));
+
+  // Highlight node
+  document.querySelectorAll('.mmd-ve-selected').forEach(el => el.classList.remove('mmd-ve-selected'));
+  nodeEl.classList.add('mmd-ve-selected');
+
+  // Position popup below the clicked node
+  const zoomArea = document.getElementById('mermaid-zoom-area');
+  const zRect    = zoomArea.getBoundingClientRect();
+  const nRect    = nodeEl.getBoundingClientRect();
+  const popup    = document.getElementById('mmd-node-editor');
+
+  popup.classList.remove('hidden');
+  const popW = popup.offsetWidth || 220;
+
+  let left = (nRect.left - zRect.left) + zoomArea.scrollLeft;
+  let top  = (nRect.bottom - zRect.top) + zoomArea.scrollTop + 8;
+  left = Math.max(4, Math.min(left, zRect.width - popW - 4));
+
+  popup.style.left = left + 'px';
+  popup.style.top  = top  + 'px';
+
+  const inp = document.getElementById('mmd-ne-label');
+  inp.focus(); inp.select();
+}
+
+function hideMmdNodeEditor() {
+  document.getElementById('mmd-node-editor').classList.add('hidden');
+  document.querySelectorAll('.mmd-ve-selected').forEach(el => el.classList.remove('mmd-ve-selected'));
+  mmdSelectedNodeId = null;
+}
+
+function applyMmdNodeEdit() {
+  if (!mmdSelectedNodeId) return;
+  const tab = getActiveTab();
+  if (!tab) return;
+  const newLabel = document.getElementById('mmd-ne-label').value.trim();
+  if (!newLabel) return;
+
+  const d       = MMD_SHAPES[mmdSelectedShape] || MMD_SHAPES.rect;
+  const newDef  = `${mmdSelectedNodeId}${d.open}${newLabel}${d.close}`;
+  const newCode = replaceMmdNodeDef(tab.model.getValue(), mmdSelectedNodeId, newDef);
+
+  if (newCode !== tab.model.getValue()) {
+    tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: newCode }], () => null);
+  }
+  hideMmdNodeEditor();
+}
+
+function deleteMmdNode() {
+  if (!mmdSelectedNodeId) return;
+  const tab = getActiveTab();
+  if (!tab) return;
+  const eid = escapeRe(mmdSelectedNodeId);
+  // Remove lines where this node is a source/standalone definition;
+  // lines where it appears only as a target are also cleaned to avoid dangling refs.
+  const newCode = tab.model.getValue().split('\n')
+    .filter(line => !new RegExp(`\\b${eid}\\b`).test(line))
+    .join('\n');
+  tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: newCode }], () => null);
+  hideMmdNodeEditor();
+}
+
+function setupMermaidVisualEditor() {
+  const zoomArea = document.getElementById('mermaid-zoom-area');
+
+  // Click on a diagram node
+  zoomArea.addEventListener('click', e => {
+    if (!mmdEditMode) return;
+
+    // Walk up to the node <g> whose id matches the mermaid node pattern
+    let el = e.target;
+    let nodeGroupEl = null;
+    while (el && el !== zoomArea) {
+      if (el.id && /-(flowchart)-([^-]+)-\d+$/.test(el.id)) {
+        nodeGroupEl = el;
+        break;
+      }
+      el = el.parentElement;
+    }
+
+    if (!nodeGroupEl) { hideMmdNodeEditor(); return; }
+
+    const m = nodeGroupEl.id.match(/-(flowchart)-([^-]+)-\d+$/);
+    if (!m) { hideMmdNodeEditor(); return; }
+
+    showMmdNodeEditor(m[2], nodeGroupEl);
+    e.stopPropagation();
+  });
+
+  // Dismiss popup when clicking outside
+  document.addEventListener('click', e => {
+    const popup = document.getElementById('mmd-node-editor');
+    if (popup.classList.contains('hidden')) return;
+    if (!popup.contains(e.target) && !e.target.closest('#mermaid-zoom-area')) {
+      hideMmdNodeEditor();
+    }
+  });
+
+  // Toggle visual edit mode button
+  document.getElementById('btn-mmde-edit').addEventListener('click', () => {
+    mmdEditMode = !mmdEditMode;
+    document.getElementById('btn-mmde-edit').classList.toggle('active', mmdEditMode);
+    zoomArea.classList.toggle('mmd-edit-mode', mmdEditMode);
+    if (!mmdEditMode) hideMmdNodeEditor();
+    showToast(mmdEditMode ? '✏ Visual editing ON — click a node to edit' : 'Visual editing OFF');
+  });
+
+  // Popup: Apply button
+  document.getElementById('btn-mmd-ne-apply').addEventListener('click', applyMmdNodeEdit);
+
+  // Popup: Delete button
+  document.getElementById('btn-mmd-ne-delete').addEventListener('click', deleteMmdNode);
+
+  // Popup: Close button
+  document.getElementById('btn-mmd-ne-close').addEventListener('click', hideMmdNodeEditor);
+
+  // Popup: Enter = apply, Escape = close
+  document.getElementById('mmd-ne-label').addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); applyMmdNodeEdit(); }
+    if (e.key === 'Escape') hideMmdNodeEditor();
+  });
+
+  // Popup: Shape selector
+  document.querySelectorAll('.mmd-ne-shape').forEach(btn => {
+    btn.addEventListener('click', () => {
+      mmdSelectedShape = btn.dataset.s;
+      document.querySelectorAll('.mmd-ne-shape').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
 }
 
 // ── Copy to clipboard ─────────────────────────────────────────────────────────

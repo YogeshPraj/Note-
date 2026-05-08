@@ -2634,10 +2634,9 @@ function closePreview() {
   document.getElementById('btn-preview').classList.remove('active');
   // If live view was active, reset it so it doesn't linger on next open
   if (mmdLiveViewActive) {
-    mmdLiveViewActive  = false;
-    mmdWebviewReady    = false;
-    const wv = document.getElementById('mmd-live-webview');
-    if (wv) { wv.src = 'about:blank'; wv.classList.add('hidden'); }
+    mmdLiveViewActive = false;
+    const lv = document.getElementById('mmd-live-view');
+    if (lv) { lv.classList.add('hidden'); }
     const btn = document.getElementById('btn-mmde-live');
     if (btn) { btn.classList.remove('active'); btn.title = '🌐 Embed live preview in-app (auto-updates)'; }
   }
@@ -2783,8 +2782,7 @@ let mermaidRenderId    = 0;
 let mermaidLastContent = '';      // tracks last successfully rendered content
 let mermaidTheme       = 'default'; // current diagram theme
 let mermaidSketch      = false;   // hand-drawn look toggle
-let mmdLiveViewActive  = false;   // true = webview showing local mermaid-live-view.html instead of local render
-let mmdWebviewReady    = false;   // true once mermaid-live-view.html has fully loaded in the webview
+let mmdLiveViewActive  = false;   // true = fullscreen live-view div showing instead of zoom/edit panel
 
 // Guard against Mermaid bomb-SVGs leaking into document.body.
 // Mermaid appends temporary render containers (e.g. #dmmd-r1, #mmd-r1) directly
@@ -2850,8 +2848,8 @@ const MERMAID_TEMPLATES = {
 };
 
 async function renderMermaidPreview(content) {
-  // If the embedded mermaid.live webview is active, update it instead of rendering locally
-  if (mmdLiveViewActive) { updateMmdLiveWebview(); return; }
+  // If the fullscreen live view is active, render there instead
+  if (mmdLiveViewActive) { renderMmdLiveView(content); return; }
 
   const diagramEl  = document.getElementById('mermaid-diagram');
   const errorBox   = document.getElementById('mermaid-error-box');
@@ -2921,7 +2919,7 @@ function setupMermaidToolbar() {
   const themeSel = document.getElementById('mmd-theme-select');
   themeSel.addEventListener('change', e => {
     mermaidTheme = e.target.value;
-    if (mmdLiveViewActive) updateMmdLiveWebview();
+    if (mmdLiveViewActive) renderMmdLiveView(editor.getValue());
     else renderMermaidPreview(editor.getValue());
   });
   // Initialise theme to match app dark mode
@@ -2943,10 +2941,11 @@ function setupMermaidToolbar() {
   document.getElementById('btn-mmde-copy-svg').addEventListener('click', copyMermaidSvgToClipboard);
   document.getElementById('btn-mmde-copy-png').addEventListener('click', copyMermaidPngToClipboard);
 
-  // Toggle embedded mermaid.live live view (webview)
+  // Toggle embedded mermaid live view (webview)
   document.getElementById('btn-mmde-live').addEventListener('click', toggleMmdLiveView);
   // Open mermaid.live /edit in the system browser
   document.getElementById('btn-mmde-open-browser').addEventListener('click', openInMermaidLive);
+
 
   // Zoom controls
   document.getElementById('btn-mmde-zoomin').addEventListener('click',  mermaidZoomIn);
@@ -2995,7 +2994,7 @@ function syncMermaidThemeToAppMode() {
     mermaidTheme = isDarkMode ? 'dark' : 'default';
     themeSel.value = mermaidTheme;
     if (previewOpen) {
-      if (mmdLiveViewActive) updateMmdLiveWebview();
+      if (mmdLiveViewActive) renderMmdLiveView(editor.getValue());
       else renderMermaidPreview(editor.getValue());
     }
   }
@@ -3268,31 +3267,63 @@ async function openInMermaidLive() {
   }
 }
 
-// ── Embedded Mermaid live view (local webview → src/mermaid-live-view.html) ───
-// Instead of loading mermaid.live remotely (which shows a tiny diagram),
-// we load a local HTML page that renders full-screen using our local mermaid.js.
-// Communication is via webview.executeJavaScript() → window.renderDiagram().
+// ── Mermaid Live (Fullscreen) View ────────────────────────────────────────────
+// Renders the diagram into a fullscreen overlay div using the already-loaded
+// global mermaid library — no webview, no IPC, no timing issues.
 
-async function updateMmdLiveWebview() {
-  if (!mmdLiveViewActive || !mmdWebviewReady) return;
-  const webview = document.getElementById('mmd-live-webview');
-  if (!webview) return;
+let mmdLiveRenderId = 0;
 
-  const code  = editor?.getValue() ?? '';
-  const theme = mermaidTheme || 'default';
+async function renderMmdLiveView(content) {
+  if (!mmdLiveViewActive) return;
+
+  const diagramDiv = document.getElementById('mmd-live-diagram');
+  const errorDiv   = document.getElementById('mmd-live-error');
+  const emptyDiv   = document.getElementById('mmd-live-empty');
+  if (!diagramDiv) return;
+
+  const text = (content ?? editor?.getValue() ?? '').trim();
+
+  if (!text) {
+    diagramDiv.innerHTML = '';
+    if (errorDiv) { errorDiv.classList.add('hidden'); }
+    if (emptyDiv) { emptyDiv.style.display = 'block'; }
+    return;
+  }
+  if (emptyDiv) emptyDiv.style.display = 'none';
+
+  mermaid.initialize({ startOnLoad: false, theme: mermaidTheme || 'default', securityLevel: 'loose' });
+
+  const id = 'mmlv-' + (++mmdLiveRenderId);
   try {
-    const codeJson  = JSON.stringify(code);
-    const themeJson = JSON.stringify(theme);
-    await webview.executeJavaScript(`window.renderDiagram(${codeJson}, ${themeJson})`);
+    const { svg, bindFunctions } = await mermaid.render(id, text);
+    // Strip hard-coded width/height so CSS max-width:100% can control sizing
+    diagramDiv.innerHTML = svg;
+    if (typeof bindFunctions === 'function') bindFunctions(diagramDiv);
+    // Make the SVG fill the panel width while preserving aspect ratio.
+    // We keep the original width/height attributes (needed for correct layout)
+    // and override them via style so CSS max-width can do the constraining.
+    const svgEl = diagramDiv.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.width    = '100%';
+      svgEl.style.height   = 'auto';
+      svgEl.style.maxWidth = '100%';
+    }
+    if (errorDiv) errorDiv.classList.add('hidden');
   } catch (err) {
-    console.warn('[mmd-live-view] executeJavaScript failed:', err);
+    const msg = String(err?.message || err).replace(/<[^>]*>/g, '').slice(0, 600);
+    if (errorDiv) { errorDiv.textContent = msg; errorDiv.classList.remove('hidden'); }
+    diagramDiv.innerHTML = '';
+  } finally {
+    document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"]').forEach(el => {
+      if (el.parentElement === document.body) el.remove();
+    });
   }
 }
 
-// Toggle the embedded mermaid live view (local webview) in the preview pane.
-function toggleMmdLiveView() {
+// Toggle the Mermaid live fullscreen view.
+async function toggleMmdLiveView() {
   mmdLiveViewActive = !mmdLiveViewActive;
-  const webview  = document.getElementById('mmd-live-webview');
+  const liveView = document.getElementById('mmd-live-view');
   const zoomArea = document.getElementById('mermaid-zoom-area');
   const errorBox = document.getElementById('mermaid-error-box');
   const nodeEd   = document.getElementById('mmd-node-editor');
@@ -3305,25 +3336,14 @@ function toggleMmdLiveView() {
     zoomArea.classList.add('hidden');
     errorBox.classList.add('hidden');
     if (nodeEd) nodeEd.classList.add('hidden');
-    webview.classList.remove('hidden');
-
-    if (!mmdWebviewReady) {
-      // First time: load the local renderer page; render once it's ready.
-      webview.addEventListener('did-finish-load', () => {
-        mmdWebviewReady = true;
-        updateMmdLiveWebview();
-      }, { once: true });
-      webview.src = './mermaid-live-view.html';
-    } else {
-      // Page already loaded — just push the current content.
-      updateMmdLiveWebview();
-    }
-    showToast('🖥 Live view — auto-updates as you type (offline)');
+    liveView.classList.remove('hidden');
+    await renderMmdLiveView(editor?.getValue() ?? '');
+    showToast('🖥 Fullscreen live preview — auto-updates as you type');
   } else {
-    // ── Switch BACK to local render ─────────────────────────────────────
+    // ── Switch BACK to local preview ─────────────────────────────────────
     btn.classList.remove('active');
     btn.title = '🌐 Embed live preview in-app (auto-updates)';
-    webview.classList.add('hidden');
+    liveView.classList.add('hidden');
     zoomArea.classList.remove('hidden');
     hideMmdNodeEditor();
     renderMermaidPreview(editor?.getValue() ?? '');

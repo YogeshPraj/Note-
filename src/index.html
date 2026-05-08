@@ -238,13 +238,14 @@
                 </div>
               </div>
             </div>
-            <!-- Mermaid Live View — embeds mermaid.live/view via Electron webview.
-                 Shown when the user clicks "🌐 Live"; hidden by default.
-                 webviewTag: true must be set in BrowserWindow webPreferences. -->
-            <webview id="mmd-live-webview"
-              class="hidden"
-              src="about:blank"
-              allowpopups></webview>
+            <!-- Mermaid Live (Fullscreen) View — plain div overlay rendered directly
+                 by the main renderer using the in-process mermaid library.
+                 Shown when the user clicks "🌐 Live"; hidden by default. -->
+            <div id="mmd-live-view" class="hidden">
+              <div id="mmd-live-diagram"></div>
+              <div id="mmd-live-error" class="hidden"></div>
+              <div id="mmd-live-empty">No diagram content</div>
+            </div>
           </div>
         </div>
       </div>

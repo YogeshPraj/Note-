@@ -201,6 +201,25 @@ html, body {
 
 .tab-icon { width: 14px; height: 14px; flex-shrink: 0; }
 
+/* Whiteboard-tab badge — small pill between icon and filename */
+.tab-wb-badge {
+  font-size: 8px;
+  padding: 1px 4px;
+  background: #dbe4ff;
+  color: #4263eb;
+  border-radius: 3px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  line-height: 1.6;
+  align-self: center;
+  text-transform: uppercase;
+}
+body.theme-dark .tab-wb-badge {
+  background: #1a255e;
+  color: #89b4fa;
+}
+
 #tab-new-btn {
   width: 26px; height: 23px;
   border: none; background: transparent;

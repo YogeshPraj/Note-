@@ -360,7 +360,12 @@ ipcMain.handle('read-file', async (e, filePath) => {
 });
 
 ipcMain.handle('write-file', async (e, filePath, content) => {
-  try { fs.writeFileSync(filePath, content, 'utf-8'); return { success: true }; }
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { success: true };
+  }
   catch (err) { return { success: false, error: err.message }; }
 });
 

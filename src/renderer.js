@@ -32,6 +32,7 @@ let gameTabId = null;
 // Whiteboard state
 let wbReady = false;
 let wbPendingContent = null;
+const wbFileSaveTimers = new Map(); // tabId → timer handle
 
 // ===== DOM =====
 const tabBar       = document.getElementById('tab-bar');
@@ -400,6 +401,48 @@ function openGameTab() {
 }
 
 // ── Whiteboard ────────────────────────────────────────────────────────────────
+
+// Lowest integer N ≥ 1 not already used by an existing whiteboard tab name
+function nextWbTabNumber() {
+  const used = new Set(
+    tabs
+      .filter(t => t.type === 'whiteboard')
+      .map(t => { const m = t.name.match(/^whiteboard-(\d+)\.json$/); return m ? parseInt(m[1], 10) : null; })
+      .filter(n => n !== null)
+  );
+  for (let n = 1; ; n++) if (!used.has(n)) return n;
+}
+
+// Auto-create the backing file for a new (unsaved) whiteboard tab
+async function initWbFile(tab) {
+  try {
+    const userData = await window.electronAPI.getUserDataPath();
+    const filePath = userData + '\\Whiteboards\\' + tab.name;
+    const initContent = JSON.stringify({
+      __wb__: true, version: 1,
+      elements: [], idCounter: 0, camera: { x: 0, y: 0, zoom: 1 }
+    });
+    const res = await window.electronAPI.writeFile(filePath, initContent);
+    if (res.success) {
+      tab.filePath = filePath;
+      tab.content  = initContent;
+      renderTabs();    // update tooltip (shows filePath)
+      updateTitle();
+    }
+  } catch (e) { console.warn('initWbFile failed:', e); }
+}
+
+// Debounced per-tab file write — 1.5 s after last stroke
+function scheduleWbFileSave(tab) {
+  clearTimeout(wbFileSaveTimers.get(tab.id));
+  wbFileSaveTimers.set(tab.id, setTimeout(async () => {
+    wbFileSaveTimers.delete(tab.id);
+    if (!tab.filePath || !tab.content) return;
+    const res = await window.electronAPI.writeFile(tab.filePath, tab.content);
+    if (res.success) { tab.dirty = false; renderTabs(); updateTitle(); }
+  }, 1500));
+}
+
 function sendToWhiteboard(msg) {
   const frame = document.getElementById('whiteboard-frame');
   if (frame && frame.contentWindow) {
@@ -415,9 +458,11 @@ function createWhiteboardTab(filePath, content) {
   }
   tabCounter++;
   const id = tabCounter;
-  const name = filePath ? filePath.split(/[\\/]/).pop() : 'new whiteboard.whiteboard';
+  // Name follows the same convention as editor tabs but with .json extension
+  const name = filePath ? filePath.split(/[\\/]/).pop() : `whiteboard-${nextWbTabNumber()}.json`;
   const tab = {
-    id, name, filePath,
+    id, name,
+    filePath: filePath || null,
     content: content || '',
     dirty: false,
     language: 'whiteboard',
@@ -427,6 +472,8 @@ function createWhiteboardTab(filePath, content) {
     type: 'whiteboard'
   };
   tabs.push(tab);
+  // New unsaved whiteboard: auto-create backing file in userData/Whiteboards/
+  if (!filePath) initWbFile(tab);
   activateTab(id);
   renderTabs();
   return tab;
@@ -533,6 +580,13 @@ function renderTabs() {
     close.addEventListener('click', (e) => { e.stopPropagation(); closeTab(tab.id); });
 
     el.appendChild(icon);
+    // Extra badge on whiteboard tabs so it's visually clear even with a .json filename
+    if (tab.type === 'whiteboard') {
+      const badge = document.createElement('span');
+      badge.className = 'tab-wb-badge';
+      badge.textContent = 'wb';
+      el.appendChild(badge);
+    }
     el.appendChild(name);
     el.appendChild(close);
     el.addEventListener('click', () => activateTab(tab.id));
@@ -561,6 +615,14 @@ async function closeTab(id) {
     return;
   }
   if (tab.type === 'whiteboard') {
+    // Flush any pending debounced file write immediately
+    clearTimeout(wbFileSaveTimers.get(tab.id));
+    wbFileSaveTimers.delete(tab.id);
+    if (tab.dirty && tab.filePath && tab.content) {
+      await window.electronAPI.writeFile(tab.filePath, tab.content);
+      tab.dirty = false;
+    }
+    // Edge case: no backing file yet (initWbFile still in flight) — ask
     if (tab.dirty) {
       const r = await window.electronAPI.messageDialog({
         type: 'question', title: 'Save',
@@ -663,6 +725,7 @@ async function openFile(filePaths) {
         { name: 'Source Code', extensions: ['js','ts','py','java','c','cpp','cs','go','rs','rb','php','swift','kt'] },
         { name: 'Web', extensions: ['html','htm','css','scss','xml','json'] },
         { name: 'Text', extensions: ['txt','md','log','yaml','yml','toml','ini'] },
+        { name: 'Whiteboard JSON', extensions: ['json','whiteboard'] },
       ]
     });
     if (r.canceled) return;
@@ -673,9 +736,14 @@ async function openFile(filePaths) {
     if (existing) { activateTab(existing.id); continue; }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
-    // Route .whiteboard files to the whiteboard tab type
+    // Route .whiteboard files and whiteboard-format JSON files to the whiteboard tab
     if (fp.toLowerCase().endsWith('.whiteboard')) {
       createWhiteboardTab(fp, res.content);
+    } else if (fp.toLowerCase().endsWith('.json')) {
+      let isWb = false;
+      try { isWb = JSON.parse(res.content).__wb__ === true; } catch (e) {}
+      if (isWb) createWhiteboardTab(fp, res.content);
+      else       createTab(fp, res.content);
     } else {
       createTab(fp, res.content);
     }
@@ -692,7 +760,11 @@ async function saveTabFile(tab, forceAs = false) {
     if (!tab.filePath || forceAs) {
       const r = await window.electronAPI.saveDialog({
         defaultPath: tab.name,
-        filters: [{ name: 'Whiteboard', extensions: ['whiteboard'] }, { name: 'All Files', extensions: ['*'] }]
+        filters: [
+          { name: 'Whiteboard JSON', extensions: ['json'] },
+          { name: 'Whiteboard (legacy)', extensions: ['whiteboard'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
       });
       if (r.canceled) return false;
       tab.filePath = r.filePath;
@@ -2203,8 +2275,8 @@ async function restoreSession() {
     if (s.type === 'whiteboard' || s.language === 'whiteboard') {
       tabCounter++;
       const id = tabCounter;
-      // Re-read from disk if saved with path
-      if (s.filePath && !s.content) {
+      // Always prefer the on-disk file (auto-save keeps it current)
+      if (s.filePath) {
         const r = await window.electronAPI.readFile(s.filePath);
         if (r.success) content = r.content;
       }
@@ -3683,7 +3755,8 @@ window.addEventListener('message', (e) => {
       tab.content = m.content || '';
       tab.dirty = true;
       if (wasClean) { renderTabs(); updateTitle(); }
-      scheduleAutoSave();
+      scheduleAutoSave();       // persist to session
+      scheduleWbFileSave(tab);  // persist to .json file on disk
     }
   }
 

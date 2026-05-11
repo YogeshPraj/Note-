@@ -270,7 +270,7 @@ function redo() {
 function notifyState() {
   window.parent?.postMessage({
     type: 'wb-state',
-    content: JSON.stringify({ elements, idCounter:idCtr, camera, version:1 })
+    content: JSON.stringify({ __wb__:true, version:1, elements, idCounter:idCtr, camera })
   }, '*');
 }
 
@@ -287,7 +287,7 @@ window.addEventListener('message', e => {
   }
   if (m.type==='wb-theme') setDark(m.dark);
   if (m.type==='wb-get-data') {
-    window.parent?.postMessage({ type:'wb-data', content:JSON.stringify({elements,idCounter:idCtr,camera,version:1}) },'*');
+    window.parent?.postMessage({ type:'wb-data', content:JSON.stringify({__wb__:true,version:1,elements,idCounter:idCtr,camera}) },'*');
   }
 });
 

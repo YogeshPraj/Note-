@@ -10,10 +10,11 @@ const terminalProcesses = new Map();
 // When source files change, Electron's V8 cache can serve stale compiled JS.
 // In dev mode (npx electron .) we always wipe it so edits take effect immediately.
 if (!app.isPackaged) {
-  try {
-    const cacheDir = path.join(app.getPath('userData'), 'Code Cache');
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-  } catch (_) { /* ignore if cache dir doesn't exist yet */ }
+  // Clear stale Chromium caches (Code Cache, disk Cache) so every run sees fresh files
+  for (const dir of ['Code Cache', 'Cache', 'DawnCache', 'GPUCache']) {
+    try { fs.rmSync(path.join(app.getPath('userData'), dir), { recursive: true, force: true }); }
+    catch (_) { /* ignore */ }
+  }
 }
 
 // ── Single-instance lock ──────────────────────────────────────────────────
@@ -65,6 +66,18 @@ function createWindow() {
     // Open file passed via command line (e.g. double-click or "Open with")
     const file = fileFromArgv(process.argv);
     if (file) mainWindow.webContents.send('open-files', [file]);
+    // F12 → toggle DevTools (dev mode only)
+    if (!app.isPackaged) {
+      mainWindow.webContents.on('before-input-event', (_e, input) => {
+        if (input.key === 'F12' && input.type === 'keyDown') {
+          if (mainWindow.webContents.isDevToolsOpened()) {
+            mainWindow.webContents.closeDevTools();
+          } else {
+            mainWindow.webContents.openDevTools({ mode: 'bottom' });
+          }
+        }
+      });
+    }
   });
 
   mainWindow.on('close', (e) => {

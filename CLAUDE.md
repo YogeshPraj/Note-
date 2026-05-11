@@ -173,6 +173,17 @@ if (bindFunctions) bindFunctions(container);
 - Removed `openDevTools({ mode: 'detach' })` from `main.js`
 - Removed all debug instrumentation (`document.title='DBG...'`, `showToast('DBG...')`) from preview functions
 
+### Session 4 (continued from Session 3)
+- **Whiteboard feature**: Full canvas whiteboard implemented as a lazy-loaded iframe tab (`whiteboard.html` + `whiteboard.js`)
+- **Root cause of JS not running**: Electron disk cache (`AppData/notepp/Cache/`) was serving the OLD `whiteboard.html` containing a `drawEl` variable name conflict (`let drawEl = null` + `function drawEl(el)`). Fixed by: (a) renaming in-progress element to `drawEl_active`, (b) clearing all Chromium caches on dev startup in `main.js`
+- **Cache clearing**: `main.js` now clears `Code Cache`, `Cache`, `DawnCache`, `GPUCache` on every non-packaged run
+- **F12 DevTools**: Added `before-input-event` handler so F12 toggles DevTools in dev mode; existing `? > Developer Tools` menu item also works
+- **`showFloatingMenu` overflow fix**: Menu was positioned with `top: window.innerHeight - 30`, going off-screen. Fixed with overflow detection — flips upward when near bottom edge; also fixes horizontal overflow. Status bar language picker now correctly opens above the bar.
+- **Language picker Y position**: Changed from `window.innerHeight - 30` to `statusLang.getBoundingClientRect().bottom` for accurate anchoring
+- **Whiteboard iframe CSP**: `whiteboard.html` has its own permissive CSP meta tag (`default-src * 'unsafe-inline' 'unsafe-eval' data: blob:`) so it runs independently of the parent page's CSP
+- **`webSecurity: false`**: Was temporarily added for diagnosis; removed once confirmed the cache was the real issue
+- **Confirmed working**: Drawing (rectangle, diamond, ellipse, arrow, line, pencil, text), color palette (12 swatches), fill modes (none/solid/hatch), stroke widths, undo/redo, export PNG, clear all, zoom/pan
+
 ---
 
 ## How to Run

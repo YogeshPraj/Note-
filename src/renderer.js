@@ -29,6 +29,10 @@ const PREVIEW_DELAY = 400;
 // Game state
 let gameTabId = null;
 
+// Whiteboard state
+let wbReady = false;
+let wbPendingContent = null;
+
 // ===== DOM =====
 const tabBar       = document.getElementById('tab-bar');
 const findPanel    = document.getElementById('find-replace-panel');
@@ -395,19 +399,58 @@ function openGameTab() {
   createGameTab();
 }
 
+// ── Whiteboard ────────────────────────────────────────────────────────────────
+function sendToWhiteboard(msg) {
+  const frame = document.getElementById('whiteboard-frame');
+  if (frame && frame.contentWindow) {
+    frame.contentWindow.postMessage(msg, '*');
+  }
+}
+
+function createWhiteboardTab(filePath, content) {
+  // If a whiteboard for this filePath already exists, just activate it
+  if (filePath) {
+    const existing = tabs.find(t => t.filePath === filePath && t.type === 'whiteboard');
+    if (existing) { activateTab(existing.id); return existing; }
+  }
+  tabCounter++;
+  const id = tabCounter;
+  const name = filePath ? filePath.split(/[\\/]/).pop() : 'new whiteboard.whiteboard';
+  const tab = {
+    id, name, filePath,
+    content: content || '',
+    dirty: false,
+    language: 'whiteboard',
+    encoding: 'UTF-8',
+    eol: 'Windows (CR LF)',
+    model: null, viewState: null,
+    type: 'whiteboard'
+  };
+  tabs.push(tab);
+  activateTab(id);
+  renderTabs();
+  return tab;
+}
+
 function activateTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   const prev = getActiveTab();
-  if (prev && editor && prev.type !== 'game') {
+  if (prev && editor && prev.type !== 'game' && prev.type !== 'whiteboard') {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
   }
   activeTabId = id;
 
-  const gameContainer = document.getElementById('game-container');
-  const monacoEl     = document.getElementById('monaco-editor');
-  const gameFrame    = document.getElementById('game-frame');
+  const gameContainer  = document.getElementById('game-container');
+  const wbContainer    = document.getElementById('whiteboard-container');
+  const wbFrame        = document.getElementById('whiteboard-frame');
+  const monacoEl       = document.getElementById('monaco-editor');
+  const gameFrame      = document.getElementById('game-frame');
+
+  // Always hide all special containers first, then show the right one
+  gameContainer.classList.add('hidden');
+  wbContainer.classList.add('hidden');
 
   if (tab.type === 'game') {
     // Show game container, hide monaco editor
@@ -419,10 +462,30 @@ function activateTab(id) {
       gameFrame.src = base + 'games/launcher.html';
     }
     if (previewOpen) closePreview();
+  } else if (tab.type === 'whiteboard') {
+    // Show whiteboard container, hide monaco editor
+    monacoEl.style.display = 'none';
+    wbContainer.classList.remove('hidden');
+    if (previewOpen) closePreview();
+    // Lazy-load the iframe on first activation
+    const base = window.location.href.replace(/[^/]*$/, '');
+    const wbSrc = base + 'whiteboard.html';
+    if (!wbFrame.src || !wbFrame.src.includes('whiteboard.html')) {
+      wbReady = false;
+      wbPendingContent = tab.content || null;
+      wbFrame.src = wbSrc;
+    } else {
+      // Already loaded — just send load + theme
+      if (wbReady) {
+        if (tab.content) sendToWhiteboard({ type: 'wb-load', content: tab.content });
+        sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });
+      } else {
+        wbPendingContent = tab.content || null;
+      }
+    }
   } else {
-    // Show editor, hide game container
+    // Show editor, hide special containers
     monacoEl.style.display = '';
-    gameContainer.classList.add('hidden');
     if (editor) {
       editor.setModel(tab.model);
       if (tab.viewState) editor.restoreViewState(tab.viewState);
@@ -457,7 +520,7 @@ function renderTabs() {
 
     const icon = document.createElement('span');
     icon.className = 'tab-icon';
-    icon.textContent = tab.type === 'game' ? '🎮' : getFileEmoji(tab.name);
+    icon.textContent = tab.type === 'game' ? '🎮' : tab.type === 'whiteboard' ? '🖼' : getFileEmoji(tab.name);
 
     const name = document.createElement('span');
     name.className = 'tab-name';
@@ -492,6 +555,33 @@ async function closeTab(id) {
     document.getElementById('game-container').classList.add('hidden');
     document.getElementById('monaco-editor').style.display = '';
     tabs.splice(idx, 1);
+    if (tabs.length === 0) createTab();
+    else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+    renderTabs();
+    return;
+  }
+  if (tab.type === 'whiteboard') {
+    if (tab.dirty) {
+      const r = await window.electronAPI.messageDialog({
+        type: 'question', title: 'Save',
+        message: `Save "${tab.name}"?`,
+        buttons: ['Save', "Don't Save", 'Cancel'],
+        defaultId: 0, cancelId: 2
+      });
+      if (r.response === 2) return;
+      if (r.response === 0) { const ok = await saveTabFile(tab); if (!ok) return; }
+    }
+    const idx = tabs.findIndex(t => t.id === id);
+    tabs.splice(idx, 1);
+    // If no more whiteboard tabs exist, unload the iframe to free memory
+    if (!tabs.some(t => t.type === 'whiteboard')) {
+      const wbFrame = document.getElementById('whiteboard-frame');
+      if (wbFrame) wbFrame.src = '';
+      wbReady = false;
+      wbPendingContent = null;
+    }
+    document.getElementById('whiteboard-container').classList.add('hidden');
+    document.getElementById('monaco-editor').style.display = '';
     if (tabs.length === 0) createTab();
     else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
     renderTabs();
@@ -539,7 +629,7 @@ function showTabContextMenu(e, tabId) {
 
 function showFloatingMenu(x, y, items) {
   const menu = document.createElement('div');
-  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2000;background:var(--ctx-bg);border:1px solid var(--ctx-border);padding:2px 0;min-width:200px;box-shadow:2px 2px 8px rgba(0,0,0,0.25);font-size:12px;`;
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2000;background:var(--ctx-bg);border:1px solid var(--ctx-border);padding:2px 0;min-width:200px;box-shadow:2px 2px 8px rgba(0,0,0,0.25);font-size:12px;max-height:80vh;overflow-y:auto;`;
   items.forEach(item => {
     if (!item) { const sep = document.createElement('div'); sep.className = 'ctx-sep'; menu.appendChild(sep); return; }
     const el = document.createElement('div');
@@ -549,6 +639,14 @@ function showFloatingMenu(x, y, items) {
     menu.appendChild(el);
   });
   document.body.appendChild(menu);
+  // Flip horizontally if overflowing right edge
+  if (menu.getBoundingClientRect().right > window.innerWidth) {
+    menu.style.left = Math.max(0, window.innerWidth - menu.offsetWidth - 4) + 'px';
+  }
+  // Flip vertically if overflowing bottom edge — open upward instead
+  if (menu.getBoundingClientRect().bottom > window.innerHeight) {
+    menu.style.top = Math.max(0, y - menu.offsetHeight) + 'px';
+  }
   const hide = () => { if (menu.parentNode) document.body.removeChild(menu); document.removeEventListener('click', hide); };
   setTimeout(() => document.addEventListener('click', hide), 0);
 }
@@ -575,7 +673,12 @@ async function openFile(filePaths) {
     if (existing) { activateTab(existing.id); continue; }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
-    createTab(fp, res.content);
+    // Route .whiteboard files to the whiteboard tab type
+    if (fp.toLowerCase().endsWith('.whiteboard')) {
+      createWhiteboardTab(fp, res.content);
+    } else {
+      createTab(fp, res.content);
+    }
   }
 }
 
@@ -584,6 +687,24 @@ async function saveFileAs() { const tab = getActiveTab(); if (tab) await saveTab
 async function saveAll() { for (const tab of tabs) { if (tab.dirty) await saveTabFile(tab); } }
 
 async function saveTabFile(tab, forceAs = false) {
+  // ── Whiteboard: content is already in tab.content (synced via postMessage) ──
+  if (tab.type === 'whiteboard') {
+    if (!tab.filePath || forceAs) {
+      const r = await window.electronAPI.saveDialog({
+        defaultPath: tab.name,
+        filters: [{ name: 'Whiteboard', extensions: ['whiteboard'] }, { name: 'All Files', extensions: ['*'] }]
+      });
+      if (r.canceled) return false;
+      tab.filePath = r.filePath;
+      tab.name = r.filePath.split(/[\\/]/).pop();
+    }
+    const res = await window.electronAPI.writeFile(tab.filePath, tab.content || '');
+    if (!res.success) { showToast('Error saving: ' + res.error); return false; }
+    tab.dirty = false;
+    renderTabs();
+    updateTitle();
+    return true;
+  }
   if (!tab.filePath || forceAs) {
     const r = await window.electronAPI.saveDialog({ defaultPath: tab.name, filters: [{ name: 'All Files', extensions: ['*'] }] });
     if (r.canceled) return false;
@@ -635,6 +756,7 @@ function detectLanguage(fp) {
     json:'json',jsonc:'json',
     yaml:'yaml',yml:'yaml', md:'markdown',mdx:'markdown',
     mmd:'mermaid', mermaid:'mermaid',
+    whiteboard:'whiteboard',
     sql:'sql', sh:'shell',bash:'shell',zsh:'shell',
     ps1:'powershell',psm1:'powershell',
     bat:'bat',cmd:'bat', lua:'lua', r:'r',
@@ -648,7 +770,7 @@ function detectLanguage(fp) {
 
 function getFileEmoji(name) {
   const ext = name.split('.').pop().toLowerCase();
-  const m = { js:'📜',ts:'📘',jsx:'⚛',tsx:'⚛',py:'🐍',java:'☕',c:'©',cpp:'➕',cs:'#',go:'🔵',rs:'🦀',rb:'💎',php:'🐘',html:'🌐',css:'🎨',json:'📋',xml:'📄',md:'📝',sql:'🗄',sh:'🖥',ps1:'💙',bat:'🦇',yaml:'⚙',yml:'⚙',dockerfile:'🐳',svg:'🖼',txt:'📃',log:'📋',mmd:'📊',mermaid:'📊' };
+  const m = { js:'📜',ts:'📘',jsx:'⚛',tsx:'⚛',py:'🐍',java:'☕',c:'©',cpp:'➕',cs:'#',go:'🔵',rs:'🦀',rb:'💎',php:'🐘',html:'🌐',css:'🎨',json:'📋',xml:'📄',md:'📝',sql:'🗄',sh:'🖥',ps1:'💙',bat:'🦇',yaml:'⚙',yml:'⚙',dockerfile:'🐳',svg:'🖼',txt:'📃',log:'📋',mmd:'📊',mermaid:'📊',whiteboard:'🖼' };
   return m[ext] || '📄';
 }
 
@@ -980,6 +1102,12 @@ function updateStatusBar() {
     statusLength.textContent = 'length: —';
     return;
   }
+  if (activeTab && activeTab.type === 'whiteboard') {
+    statusLnCol.textContent = `🖼 Whiteboard`;
+    statusLines.textContent = 'lines: —';
+    statusLength.textContent = 'length: —';
+    return;
+  }
   const pos = editor.getPosition();
   const sel = editor.getSelection();
   const model = editor.getModel();
@@ -998,6 +1126,10 @@ function updateTitle() {
     window.electronAPI.setTitle('🎮 Dev Arcade - Note++');
     return;
   }
+  if (tab.type === 'whiteboard') {
+    window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`);
+    return;
+  }
   window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`);
 }
 
@@ -1006,6 +1138,12 @@ function updateLanguageStatus() {
   if (!tab) return;
   if (tab.type === 'game') {
     statusLang.textContent = '🎮 Game';
+    document.getElementById('status-encoding').textContent = '—';
+    document.getElementById('status-eol').textContent = '—';
+    return;
+  }
+  if (tab.type === 'whiteboard') {
+    statusLang.textContent = '🖼 Whiteboard';
     document.getElementById('status-encoding').textContent = '—';
     document.getElementById('status-eol').textContent = '—';
     return;
@@ -1279,6 +1417,7 @@ function toggleDarkMode() {
   monaco.editor.setTheme(isDarkMode ? 'notepp-dark' : 'notepp-light');
   document.getElementById('btn-darkmode').classList.toggle('active', isDarkMode);
   syncMermaidThemeToAppMode(); // keep diagram theme in sync
+  sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode }); // keep whiteboard in sync
 }
 
 // ===== Zoom =====
@@ -1796,10 +1935,12 @@ function setupToolbar() {
 
   statusLang.addEventListener('click', () => {
     const tab = getActiveTab();
-    if (!tab || tab.type === 'game') return;
+    if (!tab || tab.type === 'game' || tab.type === 'whiteboard') return;
     const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','mermaid','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
-    showFloatingMenu(statusLang.getBoundingClientRect().left, window.innerHeight - 30,
-      langs.map(lang => [lang, () => {
+    const items = [
+      ['🖼 New Whiteboard Tab', () => createWhiteboardTab(null, '')],
+      null,
+      ...langs.map(lang => [lang, () => {
         tab.language = lang;
         monaco.editor.setModelLanguage(tab.model, lang);
         updateLanguageStatus();
@@ -1808,7 +1949,9 @@ function setupToolbar() {
         else if (previewOpen) updatePreview();
         editor.focus();
       }])
-    );
+    ];
+    const langRect = statusLang.getBoundingClientRect();
+    showFloatingMenu(langRect.left, langRect.bottom, items);
   });
 
   document.getElementById('file-tree-close').addEventListener('click', () => document.getElementById('file-tree').classList.add('hidden'));
@@ -2020,6 +2163,15 @@ function scheduleAutoSave() {
 
 async function saveSession() {
   const sessionTabs = tabs.filter(tab => tab.type !== 'game').map(tab => {
+    // Whiteboard tabs store content directly (JSON state synced via postMessage)
+    if (tab.type === 'whiteboard') {
+      return {
+        id: tab.id, name: tab.name, filePath: tab.filePath || null,
+        content: tab.content || '',
+        language: 'whiteboard', encoding: tab.encoding, eol: tab.eol,
+        active: tab.id === activeTabId, type: 'whiteboard',
+      };
+    }
     const content = tab.model.getValue();
     return {
       id: tab.id,
@@ -2046,6 +2198,26 @@ async function restoreSession() {
 
   for (const s of saved) {
     let content = s.content ?? '';
+
+    // Restore whiteboard tabs without a Monaco model
+    if (s.type === 'whiteboard' || s.language === 'whiteboard') {
+      tabCounter++;
+      const id = tabCounter;
+      // Re-read from disk if saved with path
+      if (s.filePath && !s.content) {
+        const r = await window.electronAPI.readFile(s.filePath);
+        if (r.success) content = r.content;
+      }
+      const tab = {
+        id, name: s.name, filePath: s.filePath || null,
+        content, dirty: false, language: 'whiteboard',
+        encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
+        model: null, viewState: null, type: 'whiteboard',
+      };
+      tabs.push(tab);
+      if (s.active) activeId = id;
+      continue;
+    }
 
     // Re-read from disk if we only stored the path
     if (s.filePath && s.content === null) {
@@ -3487,3 +3659,37 @@ function renderHtmlPreview(content, frame, tab) {
 
   frame.srcdoc = html;
 }
+
+// ── Whiteboard postMessage bridge ─────────────────────────────────────────────
+window.addEventListener('message', (e) => {
+  const m = e.data;
+  if (!m || !m.type || !m.type.startsWith('wb-')) return;
+
+  if (m.type === 'wb-ready') {
+    // iframe finished initialising — send pending content + current theme
+    wbReady = true;
+    if (wbPendingContent) {
+      sendToWhiteboard({ type: 'wb-load', content: wbPendingContent });
+      wbPendingContent = null;
+    }
+    sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });
+  }
+
+  if (m.type === 'wb-state') {
+    // Whiteboard pushes full serialised state after every committed action
+    const tab = tabs.find(t => t.type === 'whiteboard' && t.id === activeTabId);
+    if (tab) {
+      const wasClean = !tab.dirty;
+      tab.content = m.content || '';
+      tab.dirty = true;
+      if (wasClean) { renderTabs(); updateTitle(); }
+      scheduleAutoSave();
+    }
+  }
+
+  if (m.type === 'wb-save-request') {
+    // Whiteboard requested an explicit save (Ctrl+S inside iframe)
+    const tab = tabs.find(t => t.type === 'whiteboard' && t.id === activeTabId);
+    if (tab) saveTabFile(tab);
+  }
+});

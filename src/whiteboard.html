@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+<title>Note++ Whiteboard</title>
+<style>
+:root {
+  --bg:       #f8f9fa;
+  --tb-bg:    #ffffff;
+  --border:   #e9ecef;
+  --text:     #212529;
+  --hover:    #f1f3f5;
+  --act-bg:   #dbe4ff;
+  --act-text: #4263eb;
+  --sel:      #4263eb;
+  --hud-bg:   rgba(255,255,255,0.93);
+  --dot:      #d0d5db;
+}
+.dark {
+  --bg:       #121212;
+  --tb-bg:    #1e1e2e;
+  --border:   #2d2d3a;
+  --text:     #cdd6f4;
+  --hover:    #2a2a3a;
+  --act-bg:   #1a255e;
+  --act-text: #89b4fa;
+  --sel:      #89b4fa;
+  --hud-bg:   rgba(30,30,46,0.93);
+  --dot:      #2a2a3a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px; user-select: none;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+#toolbar {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 12px; background: var(--tb-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; flex-wrap: wrap; z-index: 10;
+}
+.sep { width:1px; height:26px; background:var(--border); flex-shrink:0; margin:0 2px; }
+
+button.tool {
+  width:34px; height:34px; border:none; border-radius:8px;
+  background:transparent; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px; color:var(--text);
+  transition:background .12s;
+}
+button.tool:hover  { background:var(--hover); }
+button.tool.active { background:var(--act-bg); color:var(--act-text); }
+
+/* Keyboard hint badges on tools */
+button.tool[data-key]::after {
+  content: attr(data-key);
+  position: absolute; bottom: 1px; right: 3px;
+  font-size: 8px; opacity: .5; font-family: monospace;
+}
+button.tool { position: relative; }
+
+/* Colour swatches */
+.swatch {
+  width:22px; height:22px; border-radius:50%;
+  border:2.5px solid transparent; cursor:pointer; flex-shrink:0;
+  transition: transform .1s, border-color .1s;
+}
+.swatch:hover  { transform: scale(1.25); }
+.swatch.active { border-color: var(--sel); transform: scale(1.15); }
+.swatch.white-border { box-shadow: 0 0 0 1px var(--border); }
+
+/* Property buttons (fill, stroke width, actions) */
+button.pb {
+  height:28px; padding:0 8px; border:1.5px solid var(--border);
+  border-radius:6px; background:transparent; cursor:pointer;
+  font-size:12px; font-weight:600; color:var(--text);
+  display:flex; align-items:center; gap:3px;
+  transition:background .12s;
+}
+button.pb:hover  { background:var(--hover); }
+button.pb.active { border-color:var(--act-text); background:var(--act-bg); color:var(--act-text); }
+button.pb.danger { color:#e03131; }
+button.pb.danger:hover { background:#fff0f0; }
+.dark button.pb.danger:hover { background:#3a1010; }
+
+/* ── Canvas wrapper ──────────────────────────────────────────────────────── */
+#wrap { flex:1; position:relative; overflow:hidden; }
+#canvas { position:absolute; inset:0; cursor:crosshair; display:block; }
+
+/* ── Inline text editor ──────────────────────────────────────────────────── */
+#tinp {
+  position:absolute; z-index:20;
+  border:2px dashed var(--sel); border-radius:3px;
+  background:transparent; resize:none; outline:none;
+  font-family:'Segoe Print','Comic Sans MS',cursive,sans-serif;
+  color:var(--text); padding:2px 5px;
+  min-width:80px; min-height:28px; overflow:hidden; line-height:1.4;
+}
+#tinp.hidden { display:none; }
+
+/* ── Zoom HUD ────────────────────────────────────────────────────────────── */
+#hud {
+  position:absolute; bottom:14px; right:16px;
+  display:flex; align-items:center; gap:2px;
+  background:var(--hud-bg); border:1px solid var(--border);
+  border-radius:8px; padding:4px 6px;
+  backdrop-filter:blur(4px); z-index:10;
+}
+#hud button {
+  width:22px; height:22px; border:none; border-radius:4px;
+  background:transparent; cursor:pointer;
+  font-size:15px; color:var(--text);
+  display:flex; align-items:center; justify-content:center;
+}
+#hud button:hover { background:var(--hover); }
+#zoom-val { min-width:42px; text-align:center; font-weight:600; font-size:12px; }
+
+/* ── Keyboard hint ───────────────────────────────────────────────────────── */
+#hint {
+  position:absolute; bottom:14px; left:14px;
+  font-size:11px; color:#888; pointer-events:none;
+}
+</style>
+</head>
+<body>
+<!-- ══ Toolbar ══════════════════════════════════════════════════════════════ -->
+<div id="toolbar">
+  <!-- Drawing tools -->
+  <button class="tool active" data-tool="select"    data-key="V" title="Select / Move  (V)">↖</button>
+  <button class="tool"        data-tool="rectangle" data-key="R" title="Rectangle  (R)">▭</button>
+  <button class="tool"        data-tool="diamond"   data-key="D" title="Diamond  (D)">◇</button>
+  <button class="tool"        data-tool="ellipse"   data-key="E" title="Ellipse  (E)">⬭</button>
+  <button class="tool"        data-tool="arrow"     data-key="A" title="Arrow  (A)">↗</button>
+  <button class="tool"        data-tool="line"      data-key="L" title="Line  (L)">/</button>
+  <button class="tool"        data-tool="pencil"    data-key="P" title="Pencil  (P)">✏</button>
+  <button class="tool"        data-tool="text"      data-key="T" title="Text  (T)">T</button>
+  <button class="tool"        data-tool="eraser"    data-key="X" title="Eraser  (X)">⌫</button>
+
+  <div class="sep"></div>
+
+  <!-- Stroke colour palette (filled by JS) -->
+  <div id="palette" style="display:flex;gap:3px;align-items:center;"></div>
+
+  <div class="sep"></div>
+
+  <!-- Fill style -->
+  <button class="pb active" data-fill="none"  title="No fill">∅ None</button>
+  <button class="pb"        data-fill="solid" title="Solid fill">■ Solid</button>
+  <button class="pb"        data-fill="hatch" title="Hatch fill">▦ Hatch</button>
+
+  <div class="sep"></div>
+
+  <!-- Stroke width -->
+  <button class="pb active" data-width="1"   title="Thin stroke">
+    <svg width="24" height="6"><line x1="1" y1="3" x2="23" y2="3" stroke="currentColor" stroke-width="1"/></svg>
+  </button>
+  <button class="pb"        data-width="2.5" title="Medium stroke">
+    <svg width="24" height="8"><line x1="1" y1="4" x2="23" y2="4" stroke="currentColor" stroke-width="2.5"/></svg>
+  </button>
+  <button class="pb"        data-width="5"   title="Thick stroke">
+    <svg width="24" height="10"><line x1="1" y1="5" x2="23" y2="5" stroke="currentColor" stroke-width="5"/></svg>
+  </button>
+
+  <div class="sep"></div>
+
+  <!-- Actions -->
+  <button class="pb" id="btn-undo"   title="Undo (Ctrl+Z)">↩ Undo</button>
+  <button class="pb" id="btn-redo"   title="Redo (Ctrl+Y)">↪ Redo</button>
+  <button class="pb" id="btn-export" title="Export as PNG">🖼 PNG</button>
+  <button class="pb danger" id="btn-clear" title="Clear all">🗑 Clear</button>
+</div>
+
+<!-- ══ Canvas ═══════════════════════════════════════════════════════════════ -->
+<div id="wrap">
+  <canvas id="canvas"></canvas>
+  <textarea id="tinp" class="hidden"></textarea>
+
+  <div id="hud">
+    <button id="z-out" title="Zoom out (-)">−</button>
+    <span   id="zoom-val">100%</span>
+    <button id="z-in"  title="Zoom in (+)">+</button>
+    <button id="z-rst" title="Reset zoom (0)">⟳</button>
+  </div>
+  <div id="hint">Space+drag to pan · Ctrl+Scroll to zoom · Del to delete selected</div>
+</div>
+
+<script src="whiteboard.js"></script>
+</body>
+</html>

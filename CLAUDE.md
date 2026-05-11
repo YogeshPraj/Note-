@@ -38,12 +38,14 @@ D:\NewNotepad\
 ├── CLAUDE.md             ← this file
 ├── node_modules/
 └── src/
-    ├── main.js           ← Electron main process (509 lines)
+    ├── main.js           ← Electron main process (~520 lines)
     ├── preload.js        ← IPC bridge (window.electronAPI)
     ├── index.html        ← renderer entry point
-    ├── renderer.js       ← all UI logic (~2050 lines)
+    ├── renderer.js       ← all UI logic (~2200 lines)
     ├── style.css         ← all styles
     ├── monaco-worker.js  ← Monaco web worker helper
+    ├── whiteboard.html   ← whiteboard iframe page (with permissive CSP)
+    ├── whiteboard.js     ← canvas drawing engine (loaded by whiteboard.html)
     └── assets/           ← 21 SVG toolbar icons
 ```
 
@@ -120,6 +122,8 @@ if (bindFunctions) bindFunctions(container);
 - [x] Zoom in/out
 - [x] Bookmark navigation
 - [x] Run file (F5)
+- [x] Whiteboard canvas tab — draw, select, erase, undo/redo, pan/zoom, export PNG
+- [x] Whiteboard auto-saves as `whiteboard-N.json` (auto-created in `userData/Whiteboards/`)
 
 ---
 
@@ -141,6 +145,10 @@ if (bindFunctions) bindFunctions(container);
 | `renderMermaidPreview(content)` | Renders Mermaid SVG into `#mermaid-diagram` via `mermaid.render()` |
 | `renderMmdLiveView(content)` | Renders Mermaid SVG into `#mmd-live-view` overlay (fullscreen) |
 | `toggleMmdLiveView()` | Toggles between local zoom-panel and fullscreen `#mmd-live-view` overlay |
+| `createWhiteboardTab(filePath, content)` | Creates whiteboard tab; auto-names `whiteboard-N.json`; kicks off `initWbFile` if new |
+| `initWbFile(tab)` | Async: resolves userData path, creates `Whiteboards/` dir + initial JSON file, sets `tab.filePath` |
+| `scheduleWbFileSave(tab)` | Per-tab debounced (1.5 s) write of `tab.content` to `tab.filePath` |
+| `nextWbTabNumber()` | Returns lowest unused N for `whiteboard-N.json` naming |
 
 ---
 
@@ -184,6 +192,15 @@ if (bindFunctions) bindFunctions(container);
 - **`webSecurity: false`**: Was temporarily added for diagnosis; removed once confirmed the cache was the real issue
 - **Confirmed working**: Drawing (rectangle, diamond, ellipse, arrow, line, pencil, text), color palette (12 swatches), fill modes (none/solid/hatch), stroke widths, undo/redo, export PNG, clear all, zoom/pan
 
+### Session 5 (continued from Session 4)
+- **Whiteboard JSON auto-save**: New whiteboard tabs auto-named `whiteboard-N.json` (lowest unused N, same gap-fill convention as editor tabs `new N`). On creation, `initWbFile()` immediately creates `%AppData%\notepp\Whiteboards\whiteboard-N.json` with a blank canvas JSON. Every committed drawing action triggers `scheduleWbFileSave(tab)` — a **per-tab** 1.5 s debounced write (stored in `wbFileSaveTimers: Map<tabId, timer>`) so multiple open whiteboard tabs each have independent timers. Closing a tab flushes its timer synchronously; no "Save?" dialog since the file is always current.
+- **`write-file` IPC updated**: `main.js` now runs `mkdirSync({ recursive: true })` on the parent directory before writing, so `Whiteboards/` is auto-created without a separate IPC call.
+- **`__wb__` format signature**: `whiteboard.js` embeds `{ __wb__: true, version: 1, ... }` in every `wb-state` and `wb-get-data` postMessage. Opening a `.json` file whose parsed content has `__wb__ === true` routes it directly to a whiteboard tab instead of Monaco.
+- **`wb` pill badge in tab**: A small "wb" pill (blue, dark-mode aware) is inserted between the 🖼 icon and filename in every whiteboard tab so `.json` whiteboard files are visually distinct from regular JSON tabs. Style: `.tab-wb-badge` in `style.css`.
+- **Save As dialog**: Primary filter is now `Whiteboard JSON (.json)`; `.whiteboard` kept as legacy option.
+- **Session restore**: Whiteboard tabs with a `filePath` now always re-read from disk (file is authoritative since auto-save keeps it current).
+- **Known issue (not yet fixed)**: Whiteboard text toolbar behaviour needs investigation — reported at the start of the next session.
+
 ---
 
 ## How to Run
@@ -208,3 +225,35 @@ npm run build      # electron-builder (needs electron-builder in devDeps)
 - [ ] No diff view / git integration in editor yet
 - [ ] No LSP server connections (only Monaco's built-in JS/TS IntelliSense)
 - [ ] `pref-new-doc` and `pref-backup` preference pages in Preferences dialog are stubs (UI exists, no logic)
+- [ ] Whiteboard text tool toolbar interaction needs investigation (reported end of Session 5)
+
+## Whiteboard Architecture
+
+### File Format
+Whiteboard files are plain JSON with a magic marker field:
+```json
+{ "__wb__": true, "version": 1, "elements": [...], "idCounter": 5, "camera": { "x": 0, "y": 0, "zoom": 1 } }
+```
+`__wb__: true` is used by `openFile()` in renderer.js to route any `.json` file to the whiteboard tab instead of Monaco.
+
+### postMessage Protocol (parent renderer ↔ whiteboard iframe)
+| Direction | Message type | Payload |
+|---|---|---|
+| renderer → wb | `wb-load` | `{ content: string }` — full JSON state to restore |
+| renderer → wb | `wb-theme` | `{ dark: bool }` |
+| renderer → wb | `wb-get-data` | (no payload) — requests current state |
+| wb → renderer | `wb-ready` | (no payload) — iframe finished init |
+| wb → renderer | `wb-state` | `{ content: string }` — full JSON state after every `pushHist()` |
+| wb → renderer | `wb-data` | `{ content: string }` — response to `wb-get-data` |
+| wb → renderer | `wb-save-request` | (no payload) — Ctrl+S inside iframe |
+
+### Auto-save Flow
+1. User commits a drawing action → `pushHist()` → `notifyState()` → `wb-state` postMessage
+2. Renderer `wb-state` handler → updates `tab.content`, sets `tab.dirty = true`
+3. `scheduleAutoSave()` → 1.5 s → `saveSession()` (session JSON in AppData)
+4. `scheduleWbFileSave(tab)` → 1.5 s → `writeFile(tab.filePath, tab.content)` → `tab.dirty = false`
+
+### Storage Paths
+- Session (all tabs): `%AppData%\notepp\autosave\session.json`
+- New whiteboard backing files: `%AppData%\notepp\Whiteboards\whiteboard-N.json`
+- User-chosen save path: wherever the user picks via Save As dialog

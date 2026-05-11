@@ -3296,18 +3296,12 @@ async function renderMmdLiveView(content) {
   const id = 'mmlv-' + (++mmdLiveRenderId);
   try {
     const { svg, bindFunctions } = await mermaid.render(id, text);
-    // Strip hard-coded width/height so CSS max-width:100% can control sizing
     diagramDiv.innerHTML = svg;
     if (typeof bindFunctions === 'function') bindFunctions(diagramDiv);
-    // Make the SVG fill the panel width while preserving aspect ratio.
-    // We keep the original width/height attributes (needed for correct layout)
-    // and override them via style so CSS max-width can do the constraining.
+    // Override Mermaid's hard-coded pixel dimensions so the SVG scales to
+    // fill the panel width (CSS on #mmd-live-diagram svg handles the rest).
     const svgEl = diagramDiv.querySelector('svg');
-    if (svgEl) {
-      svgEl.style.width    = '100%';
-      svgEl.style.height   = 'auto';
-      svgEl.style.maxWidth = '100%';
-    }
+    if (svgEl) { svgEl.style.width = '100%'; svgEl.style.height = 'auto'; }
     if (errorDiv) errorDiv.classList.add('hidden');
   } catch (err) {
     const msg = String(err?.message || err).replace(/<[^>]*>/g, '').slice(0, 600);

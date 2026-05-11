@@ -6,6 +6,16 @@ const { spawn } = require('child_process');
 let mainWindow;
 const terminalProcesses = new Map();
 
+// ── Dev-mode: clear stale V8 code cache on every startup ─────────────────
+// When source files change, Electron's V8 cache can serve stale compiled JS.
+// In dev mode (npx electron .) we always wipe it so edits take effect immediately.
+if (!app.isPackaged) {
+  try {
+    const cacheDir = path.join(app.getPath('userData'), 'Code Cache');
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  } catch (_) { /* ignore if cache dir doesn't exist yet */ }
+}
+
 // ── Single-instance lock ──────────────────────────────────────────────────
 // If another instance launches, focus the existing window and open the file.
 const gotTheLock = app.requestSingleInstanceLock();

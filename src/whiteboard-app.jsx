@@ -1,0 +1,295 @@
+// =============================================================================
+// Note++ Whiteboard — Excalidraw-powered React app (runs inside whiteboard.html)
+// =============================================================================
+// Bridged to the parent renderer via postMessage. Protocol (unchanged from v1):
+//
+//   parent → iframe : wb-load {content}, wb-theme {dark}, wb-get-data
+//   iframe → parent : wb-ready, wb-state {content}, wb-data {content},
+//                     wb-save-request
+//
+// File format envelope (always sent to / received from parent):
+//   { __wb__: true, version: 2, source: 'excalidraw',
+//     elements: [...],            // Excalidraw scene elements
+//     appState: { ... },          // Excalidraw appState subset
+//     files:    { ... } }         // Excalidraw binary files (images)
+//
+// Legacy v1 payloads (`version: 1`, custom canvas shapes) are converted to v2
+// on load via `legacyV1ToV2()` so old whiteboard-N.json files keep working.
+// =============================================================================
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw';
+import '@excalidraw/excalidraw/index.css';
+
+// Self-host fonts under ./excalidraw-fonts/  (avoids any CDN call)
+if (typeof window !== 'undefined') {
+  window.EXCALIDRAW_ASSET_PATH = './excalidraw-fonts/';
+}
+
+// ─── v1 (legacy custom whiteboard) → v2 (Excalidraw) converter ───────────────
+// Old format produced by previous whiteboard.js. Best-effort migration so users
+// don't lose existing drawings.
+function legacyV1ToV2(v1) {
+  const out = [];
+  let seq = 0;
+  const mkId = () => `legacy_${++seq}_${Date.now().toString(36)}`;
+  const baseProps = (el) => ({
+    id: mkId(),
+    seed: Math.floor(Math.random() * 2 ** 31),
+    version: 1,
+    versionNonce: Math.floor(Math.random() * 2 ** 31),
+    isDeleted: false,
+    fillStyle: el.fill === 'hatch' ? 'hachure' : (el.fill === 'solid' ? 'solid' : 'hachure'),
+    strokeWidth: Math.round(el.sw || 1.5),
+    strokeStyle: 'solid',
+    roughness: el.ro != null ? el.ro : 1,
+    opacity: 100,
+    angle: 0,
+    strokeColor: el.sc || '#1e1e1e',
+    backgroundColor: (el.fc && el.fc !== 'none') ? el.fc : 'transparent',
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    boundElements: null,
+    updated: Date.now(),
+    link: null,
+    locked: false,
+  });
+  for (const el of (v1.elements || [])) {
+    try {
+      if (el.type === 'rectangle' || el.type === 'ellipse' || el.type === 'diamond') {
+        out.push({ ...baseProps(el), type: el.type, x: el.x, y: el.y, width: el.w || 0, height: el.h || 0 });
+      } else if (el.type === 'arrow' || el.type === 'line') {
+        const [a, b] = el.pts || [[0,0],[0,0]];
+        out.push({
+          ...baseProps(el),
+          type: el.type,
+          x: a[0], y: a[1],
+          width: b[0] - a[0], height: b[1] - a[1],
+          points: [[0, 0], [b[0] - a[0], b[1] - a[1]]],
+          lastCommittedPoint: null, startBinding: null, endBinding: null,
+          startArrowhead: null,
+          endArrowhead: el.type === 'arrow' ? 'arrow' : null,
+        });
+      } else if (el.type === 'pencil') {
+        const pts = el.pts || [];
+        const ox = pts.length ? pts[0][0] : 0;
+        const oy = pts.length ? pts[0][1] : 0;
+        const local = pts.map(p => [p[0] - ox, p[1] - oy]);
+        const xs = local.map(p => p[0]); const ys = local.map(p => p[1]);
+        out.push({
+          ...baseProps(el),
+          type: 'freedraw',
+          x: ox, y: oy,
+          width: Math.max(...xs, 0) - Math.min(...xs, 0),
+          height: Math.max(...ys, 0) - Math.min(...ys, 0),
+          points: local,
+          pressures: [],
+          simulatePressure: true,
+          lastCommittedPoint: null,
+        });
+      } else if (el.type === 'text') {
+        out.push({
+          ...baseProps(el),
+          type: 'text',
+          x: el.x, y: el.y,
+          width: el.w || 100, height: el.h || (el.fs || 20) * 1.4,
+          text: el.text || '',
+          fontSize: el.fs || 20,
+          fontFamily: 1, // Virgil (Excalidraw's hand-drawn font)
+          textAlign: 'left',
+          verticalAlign: 'top',
+          baseline: (el.fs || 20) * 0.9,
+          containerId: null,
+          originalText: el.text || '',
+          lineHeight: 1.25,
+          autoResize: true,
+        });
+      }
+    } catch (e) {
+      console.warn('[wb] legacy element skipped:', el, e);
+    }
+  }
+  return { elements: out, appState: { viewBackgroundColor: '#ffffff' }, files: {} };
+}
+
+// Robustly parse whatever the parent sent and produce an Excalidraw scene.
+function parseIncoming(jsonStr) {
+  if (!jsonStr || typeof jsonStr !== 'string') return null;
+  let data;
+  try { data = JSON.parse(jsonStr); } catch { return null; }
+  if (!data || typeof data !== 'object') return null;
+
+  // v2: our Excalidraw-flavoured envelope
+  if (data.__wb__ === true && data.version === 2 && Array.isArray(data.elements)) {
+    return {
+      elements: data.elements,
+      appState: data.appState || {},
+      files: data.files || {},
+    };
+  }
+  // v1: legacy custom-canvas envelope
+  if (data.__wb__ === true && data.version === 1 && Array.isArray(data.elements)) {
+    return legacyV1ToV2(data);
+  }
+  // Raw Excalidraw `.excalidraw` file (no envelope, with `type: "excalidraw"`)
+  if (data.type === 'excalidraw' && Array.isArray(data.elements)) {
+    return {
+      elements: data.elements,
+      appState: data.appState || {},
+      files: data.files || {},
+    };
+  }
+  return null;
+}
+
+// Build the envelope we send back to the parent.
+function buildEnvelope(elements, appState, files) {
+  // Strip volatile/large fields from appState so the saved file stays small
+  // and reproducible across sessions.
+  const slim = appState ? {
+    viewBackgroundColor: appState.viewBackgroundColor,
+    gridSize: appState.gridSize,
+    currentItemStrokeColor: appState.currentItemStrokeColor,
+    currentItemBackgroundColor: appState.currentItemBackgroundColor,
+    currentItemFillStyle: appState.currentItemFillStyle,
+    currentItemStrokeWidth: appState.currentItemStrokeWidth,
+    currentItemStrokeStyle: appState.currentItemStrokeStyle,
+    currentItemRoughness: appState.currentItemRoughness,
+    currentItemOpacity: appState.currentItemOpacity,
+    currentItemFontFamily: appState.currentItemFontFamily,
+    currentItemFontSize: appState.currentItemFontSize,
+    currentItemTextAlign: appState.currentItemTextAlign,
+    currentItemStartArrowhead: appState.currentItemStartArrowhead,
+    currentItemEndArrowhead: appState.currentItemEndArrowhead,
+    scrollX: appState.scrollX,
+    scrollY: appState.scrollY,
+    zoom: appState.zoom,
+  } : {};
+  return JSON.stringify({
+    __wb__: true,
+    version: 2,
+    source: 'excalidraw',
+    elements: elements || [],
+    appState: slim,
+    files: files || {},
+  });
+}
+
+function App() {
+  const [api, setApi] = useState(null);
+  const [theme, setTheme] = useState('light');
+  // Debounce parent-state notifications: Excalidraw onChange fires *very*
+  // often. We only need committed snapshots, not every pointer move.
+  const stateTimer = useRef(null);
+  const lastSerialized = useRef('');
+
+  const sendState = useCallback((elements, appState, files) => {
+    const payload = buildEnvelope(elements, appState, files);
+    if (payload === lastSerialized.current) return;
+    lastSerialized.current = payload;
+    window.parent?.postMessage({ type: 'wb-state', content: payload }, '*');
+  }, []);
+
+  const scheduleSendState = useCallback((elements, appState, files) => {
+    clearTimeout(stateTimer.current);
+    stateTimer.current = setTimeout(() => sendState(elements, appState, files), 350);
+  }, [sendState]);
+
+  // Wire postMessage listener
+  useEffect(() => {
+    const onMsg = (e) => {
+      const m = e.data;
+      if (!m || !m.type) return;
+
+      if (m.type === 'wb-load') {
+        const scene = parseIncoming(m.content);
+        if (scene && api) {
+          // Suppress the immediate onChange that updateScene triggers so we
+          // don't echo the load back to the parent as a "user edit".
+          api.updateScene({
+            elements: scene.elements,
+            appState: scene.appState,
+            commitToHistory: false,
+          });
+          if (scene.files && Object.keys(scene.files).length) {
+            api.addFiles(Object.values(scene.files));
+          }
+          // Prime the dedup guard so the next onChange that *isn't* a real
+          // user edit gets ignored.
+          lastSerialized.current = buildEnvelope(scene.elements, scene.appState, scene.files);
+        }
+        return;
+      }
+
+      if (m.type === 'wb-theme') {
+        setTheme(m.dark ? 'dark' : 'light');
+        return;
+      }
+
+      if (m.type === 'wb-get-data') {
+        if (!api) return;
+        const els = api.getSceneElements();
+        const app = api.getAppState();
+        const files = api.getFiles();
+        window.parent?.postMessage({
+          type: 'wb-data',
+          content: buildEnvelope(els, app, files),
+        }, '*');
+        return;
+      }
+    };
+    window.addEventListener('message', onMsg);
+    // Announce ready as soon as the api is available so the parent can flush
+    // any queued wb-load.
+    if (api) {
+      window.parent?.postMessage({ type: 'wb-ready' }, '*');
+    }
+    return () => window.removeEventListener('message', onMsg);
+  }, [api]);
+
+  // Ctrl+S → ask parent to save
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        window.parent?.postMessage({ type: 'wb-save-request' }, '*');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleChange = useCallback((elements, appState, files) => {
+    scheduleSendState(elements, appState, files);
+  }, [scheduleSendState]);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0 }}>
+      <Excalidraw
+        excalidrawAPI={(a) => setApi(a)}
+        onChange={handleChange}
+        theme={theme}
+        UIOptions={{
+          canvasActions: {
+            // Hide cloud / library / share buttons that don't apply to a
+            // desktop-embedded use case.
+            loadScene: false,
+            saveAsImage: true,
+            saveToActiveFile: false,
+            export: { saveFileToDisk: false },
+          },
+        }}
+      />
+    </div>
+  );
+}
+
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
+
+// Remove the static "Loading whiteboard…" placeholder now that React is mounted.
+// (It sits behind Excalidraw's transparent middle area otherwise.)
+const bootMsg = document.getElementById('boot-msg');
+if (bootMsg) bootMsg.remove();

@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runCommand:     (cmd, cwd)   => ipcRenderer.invoke('run-command', cmd, cwd),
 
   getUserDataPath:   () => ipcRenderer.invoke('get-user-data-path'),
+  backupFiles:       (files, opts) => ipcRenderer.invoke('backup-files', files, opts),
+  getBackupRoot:     (customPath)  => ipcRenderer.invoke('get-backup-root', customPath),
   writeSession:      (data) => ipcRenderer.invoke('write-session', data),
   readSession:       () => ipcRenderer.invoke('read-session'),
   readSettings:      () => ipcRenderer.invoke('read-settings'),

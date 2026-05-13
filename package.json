@@ -5,11 +5,14 @@
   "main": "src/main.js",
   "author": "Yogesh Prajapati",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --win",
-    "build:win": "electron-builder --win nsis --publish never",
-    "build:msi": "electron-builder --win msi --publish never",
-    "build:dir": "electron-builder --dir"
+    "start": "npm run build:wb && electron .",
+    "build:wb": "node build-whiteboard.js",
+    "build:wb:watch": "node build-whiteboard.js --watch",
+    "postinstall": "node build-whiteboard.js",
+    "build": "npm run build:wb && electron-builder --win",
+    "build:win": "npm run build:wb && electron-builder --win nsis --publish never",
+    "build:msi": "npm run build:wb && electron-builder --win msi --publish never",
+    "build:dir": "npm run build:wb && electron-builder --dir"
   },
   "build": {
     "appId": "com.yogeshpraj.notepp",
@@ -21,62 +24,317 @@
     },
     "files": [
       "src/**/*",
+      "build-whiteboard.js",
       "node_modules/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
     "fileAssociations": [
-      { "ext": "txt",      "name": "Text Document",         "description": "Open with Note++", "role": "Editor" },
-      { "ext": "log",      "name": "Log File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "md",       "name": "Markdown File",          "description": "Open with Note++", "role": "Editor" },
-      { "ext": "markdown", "name": "Markdown File",          "description": "Open with Note++", "role": "Editor" },
-      { "ext": "ini",      "name": "INI Configuration",      "description": "Open with Note++", "role": "Editor" },
-      { "ext": "cfg",      "name": "Config File",            "description": "Open with Note++", "role": "Editor" },
-      { "ext": "conf",     "name": "Config File",            "description": "Open with Note++", "role": "Editor" },
-      { "ext": "js",       "name": "JavaScript File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "jsx",      "name": "JavaScript File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "mjs",      "name": "JavaScript Module",      "description": "Open with Note++", "role": "Editor" },
-      { "ext": "cjs",      "name": "JavaScript File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "ts",       "name": "TypeScript File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "tsx",      "name": "TypeScript File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "json",     "name": "JSON File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "jsonc",    "name": "JSON File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "html",     "name": "HTML File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "htm",      "name": "HTML File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "css",      "name": "CSS File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "scss",     "name": "SCSS File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "less",     "name": "LESS File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "xml",      "name": "XML File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "svg",      "name": "SVG File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "yaml",     "name": "YAML File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "yml",      "name": "YAML File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "toml",     "name": "TOML File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "py",       "name": "Python File",            "description": "Open with Note++", "role": "Editor" },
-      { "ext": "rb",       "name": "Ruby File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "php",      "name": "PHP File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "java",     "name": "Java File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "c",        "name": "C Source File",          "description": "Open with Note++", "role": "Editor" },
-      { "ext": "h",        "name": "C Header File",          "description": "Open with Note++", "role": "Editor" },
-      { "ext": "cpp",      "name": "C++ Source File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "hpp",      "name": "C++ Header File",        "description": "Open with Note++", "role": "Editor" },
-      { "ext": "cs",       "name": "C# File",                "description": "Open with Note++", "role": "Editor" },
-      { "ext": "go",       "name": "Go File",                "description": "Open with Note++", "role": "Editor" },
-      { "ext": "rs",       "name": "Rust File",              "description": "Open with Note++", "role": "Editor" },
-      { "ext": "swift",    "name": "Swift File",             "description": "Open with Note++", "role": "Editor" },
-      { "ext": "kt",       "name": "Kotlin File",            "description": "Open with Note++", "role": "Editor" },
-      { "ext": "lua",      "name": "Lua File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "sh",       "name": "Shell Script",           "description": "Open with Note++", "role": "Editor" },
-      { "ext": "bat",      "name": "Batch File",             "description": "Open with Note++", "role": "Editor" },
-      { "ext": "cmd",      "name": "Command File",           "description": "Open with Note++", "role": "Editor" },
-      { "ext": "ps1",      "name": "PowerShell Script",      "description": "Open with Note++", "role": "Editor" },
-      { "ext": "sql",      "name": "SQL File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "csv",      "name": "CSV File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "tsv",      "name": "TSV File",               "description": "Open with Note++", "role": "Editor" },
-      { "ext": "env",      "name": "Environment File",       "description": "Open with Note++", "role": "Editor" },
-      { "ext": "gitignore","name": "Git Ignore File",        "description": "Open with Note++", "role": "Editor" }
+      {
+        "ext": "txt",
+        "name": "Text Document",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "log",
+        "name": "Log File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "md",
+        "name": "Markdown File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "ini",
+        "name": "INI Configuration",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "cfg",
+        "name": "Config File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "conf",
+        "name": "Config File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "js",
+        "name": "JavaScript File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "jsx",
+        "name": "JavaScript File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "mjs",
+        "name": "JavaScript Module",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "cjs",
+        "name": "JavaScript File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "ts",
+        "name": "TypeScript File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "tsx",
+        "name": "TypeScript File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "json",
+        "name": "JSON File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "excalidraw",
+        "name": "Excalidraw Whiteboard",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "jsonc",
+        "name": "JSON File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "html",
+        "name": "HTML File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "htm",
+        "name": "HTML File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "css",
+        "name": "CSS File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "scss",
+        "name": "SCSS File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "less",
+        "name": "LESS File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "xml",
+        "name": "XML File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "svg",
+        "name": "SVG File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "yaml",
+        "name": "YAML File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "yml",
+        "name": "YAML File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "toml",
+        "name": "TOML File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "py",
+        "name": "Python File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "rb",
+        "name": "Ruby File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "php",
+        "name": "PHP File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "java",
+        "name": "Java File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "c",
+        "name": "C Source File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "h",
+        "name": "C Header File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "cpp",
+        "name": "C++ Source File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "hpp",
+        "name": "C++ Header File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "cs",
+        "name": "C# File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "go",
+        "name": "Go File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "rs",
+        "name": "Rust File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "swift",
+        "name": "Swift File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "kt",
+        "name": "Kotlin File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "lua",
+        "name": "Lua File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "sh",
+        "name": "Shell Script",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "bat",
+        "name": "Batch File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "cmd",
+        "name": "Command File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "ps1",
+        "name": "PowerShell Script",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "sql",
+        "name": "SQL File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "csv",
+        "name": "CSV File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "tsv",
+        "name": "TSV File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "env",
+        "name": "Environment File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
+        "ext": "gitignore",
+        "name": "Git Ignore File",
+        "description": "Open with Note++",
+        "role": "Editor"
+      }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "src/assets/icon.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
@@ -99,12 +357,17 @@
   },
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "esbuild": "^0.24.2"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "marked": "^18.0.3",
     "mermaid": "^11.14.0",
     "monaco-editor": "^0.45.0",
+    "node-pty": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0"
   }

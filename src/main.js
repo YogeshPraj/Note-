@@ -3,6 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 
+// node-pty for true PTY terminal (proper resize, colours, interactive programs)
+let pty;
+try { pty = require('node-pty'); } catch { pty = null; }
+
 let mainWindow;
 const terminalProcesses = new Map();
 
@@ -369,6 +373,48 @@ ipcMain.handle('write-file', async (e, filePath, content) => {
   catch (err) { return { success: false, error: err.message }; }
 });
 
+// ---- Backup ----
+ipcMain.handle('backup-files', async (e, files, opts) => {
+  try {
+    const backupRoot = (opts.backupPath && opts.backupPath.trim())
+      ? opts.backupPath.trim()
+      : path.join(app.getPath('userData'), 'backups');
+
+    const ts = new Date().toISOString().slice(0, 19).replace(/:/g, '-'); // 2025-05-11T14-30-00
+    const keepN = Math.max(1, opts.versionsToKeep || 5);
+    let count = 0;
+
+    for (const file of files) {
+      if (!file.filePath || !file.content) continue;
+      const base = path.basename(file.filePath);
+      const ext  = path.extname(base);
+      const stem = path.basename(base, ext);
+      const dir  = path.join(backupRoot, base);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      fs.writeFileSync(path.join(dir, `${stem}_${ts}${ext}`), file.content, 'utf-8');
+      count++;
+
+      // Prune old versions — keep only the N most recent
+      const versions = fs.readdirSync(dir)
+        .filter(f => f.startsWith(stem + '_'))
+        .sort()
+        .reverse();
+      versions.slice(keepN).forEach(v => {
+        try { fs.unlinkSync(path.join(dir, v)); } catch {}
+      });
+    }
+
+    return { success: true, count, backupRoot };
+  } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('get-backup-root', (e, customPath) => {
+  return (customPath && customPath.trim())
+    ? customPath.trim()
+    : path.join(app.getPath('userData'), 'backups');
+});
+
 ipcMain.handle('write-file-binary', async (e, filePath, base64content) => {
   try {
     const buf = Buffer.from(base64content, 'base64');
@@ -495,31 +541,52 @@ ipcMain.handle('read-session', async () => {
   } catch { return { success: false }; }
 });
 
-// Terminal IPC
-ipcMain.handle('terminal-create', async (e, id) => {
-  const isWin = process.platform === 'win32';
-  const sh = isWin ? 'powershell.exe' : (process.env.SHELL || 'bash');
-  const args = isWin ? ['-NoLogo'] : [];
+// ── Terminal IPC (node-pty for true PTY; fallback to child_process) ──────────
+function getShell(settings) {
+  const saved = settings?.terminal?.shell;
+  if (saved && saved.trim()) return saved.trim();
+  return process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash');
+}
+
+ipcMain.handle('terminal-create', async (e, id, opts) => {
+  const settings = readSettings();
+  const sh   = getShell(settings);
+  const cols  = opts?.cols  || 80;
+  const rows  = opts?.rows  || 24;
+  const cwd   = process.env.USERPROFILE || process.env.HOME || '.';
 
   try {
-    const proc = spawn(sh, args, {
-      env: { ...process.env, TERM: 'xterm-256color' },
-      cwd: process.env.USERPROFILE || process.env.HOME || '.',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
+    if (pty) {
+      // ── True PTY via node-pty ──────────────────────────────────────────────
+      const isWin = process.platform === 'win32';
+      const ptyArgs = isWin ? ['-NoLogo'] : [];
+      const proc = pty.spawn(sh, ptyArgs, {
+        name: 'xterm-256color',
+        cols, rows, cwd,
+        env: process.env,
+      });
 
-    terminalProcesses.set(id, proc);
-
-    proc.stdout.on('data', (d) => send('terminal-output', id, d.toString()));
-    proc.stderr.on('data', (d) => send('terminal-output', id, d.toString()));
-    proc.on('exit', (code) => {
-      send('terminal-exit', id, code);
-      terminalProcesses.delete(id);
-    });
-    proc.on('error', (err) => send('terminal-output', id, `\r\nError: ${err.message}\r\n`));
-
-    return { success: true, pid: proc.pid };
+      terminalProcesses.set(id, proc);
+      proc.onData(d   => send('terminal-output', id, d));
+      proc.onExit(({ exitCode }) => { send('terminal-exit', id, exitCode); terminalProcesses.delete(id); });
+      return { success: true, pid: proc.pid, pty: true };
+    } else {
+      // ── Fallback: plain child_process ─────────────────────────────────────
+      const isWin = process.platform === 'win32';
+      const args  = isWin ? ['-NoLogo'] : [];
+      const proc  = spawn(sh, args, {
+        env: { ...process.env, TERM: 'xterm-256color' },
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      terminalProcesses.set(id, proc);
+      proc.stdout.on('data', d => send('terminal-output', id, d.toString()));
+      proc.stderr.on('data', d => send('terminal-output', id, d.toString()));
+      proc.on('exit', code => { send('terminal-exit', id, code); terminalProcesses.delete(id); });
+      proc.on('error', err => send('terminal-output', id, `\r\nError: ${err.message}\r\n`));
+      return { success: true, pid: proc.pid, pty: false };
+    }
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -527,16 +594,27 @@ ipcMain.handle('terminal-create', async (e, id) => {
 
 ipcMain.handle('terminal-input', (e, id, data) => {
   const proc = terminalProcesses.get(id);
-  if (proc && !proc.stdin.destroyed) proc.stdin.write(data);
+  if (!proc) return;
+  if (pty && proc.write) {
+    proc.write(data);           // node-pty
+  } else if (proc.stdin && !proc.stdin.destroyed) {
+    proc.stdin.write(data);     // child_process fallback
+  }
 });
 
 ipcMain.handle('terminal-kill', (e, id) => {
   const proc = terminalProcesses.get(id);
-  if (proc) { proc.kill(); terminalProcesses.delete(id); }
+  if (!proc) return;
+  if (pty && proc.kill) proc.kill();
+  else try { proc.kill(); } catch {}
+  terminalProcesses.delete(id);
 });
 
 ipcMain.handle('terminal-resize', (e, id, cols, rows) => {
-  // node-pty would be needed for true PTY resize; skip silently without it
+  const proc = terminalProcesses.get(id);
+  if (proc && pty && proc.resize) {
+    try { proc.resize(Math.max(1, cols), Math.max(1, rows)); } catch {}
+  }
 });
 
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────

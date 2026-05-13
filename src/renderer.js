@@ -14,6 +14,12 @@ let findReplaceMode = 'find';
 let autoSaveTimer = null;
 const AUTO_SAVE_DELAY = 1500; // ms after last keystroke
 
+// New-document defaults (loaded from settings)
+let newDocDefaults = { encoding: 'UTF-8', eol: 'Windows (CR LF)', language: 'plaintext', template: '' };
+
+// Auto-backup
+let autoBackupTimer = null;
+
 // Terminal state
 let term = null;
 let fitAddon = null;
@@ -140,6 +146,18 @@ require(['vs/editor/editor.main'], () => {
   });
 
   registerMermaidLanguage();
+  // Load persisted preferences before restoring session
+  window.electronAPI.readSettings().then(s => {
+    const nd = s.newDoc || {};
+    newDocDefaults = {
+      encoding: nd.encoding || 'UTF-8',
+      eol:      nd.eol      || 'Windows (CR LF)',
+      language: nd.language || 'plaintext',
+      template: nd.template || '',
+    };
+    const bkp = s.backup || {};
+    startAutoBackup(!!bkp.enabled, (bkp.intervalMin || 5) * 60 * 1000);
+  });
   restoreSession().then(restored => { if (!restored) createTab(); });
 
   // Events
@@ -371,9 +389,16 @@ function createTab(filePath = null, content = '') {
   tabCounter++;
   const id = tabCounter;
   const name = filePath ? filePath.split(/[\\/]/).pop() : `new ${nextNewTabNumber()}`;
-  const language = filePath ? detectLanguage(filePath) : 'plaintext';
-  const model = monaco.editor.createModel(content, language);
-  const tab = { id, name, filePath, content, dirty: false, language, encoding: 'UTF-8', eol: 'Windows (CR LF)', model, viewState: null, type: 'editor' };
+  const language = filePath ? detectLanguage(filePath) : (newDocDefaults.language || 'plaintext');
+  // Apply template only for brand-new empty tabs (no filePath, no explicit content)
+  const body = filePath ? content : (content || newDocDefaults.template || '');
+  const model = monaco.editor.createModel(body, language);
+  const tab = {
+    id, name, filePath, content: body, dirty: false, language,
+    encoding: filePath ? 'UTF-8' : (newDocDefaults.encoding || 'UTF-8'),
+    eol:      filePath ? 'Windows (CR LF)' : (newDocDefaults.eol || 'Windows (CR LF)'),
+    model, viewState: null, type: 'editor'
+  };
   tabs.push(tab);
   activateTab(id);
   renderTabs();
@@ -418,9 +443,12 @@ async function initWbFile(tab) {
   try {
     const userData = await window.electronAPI.getUserDataPath();
     const filePath = userData + '\\Whiteboards\\' + tab.name;
+    // v2 envelope — Excalidraw-flavoured. The iframe still accepts legacy
+    // v1 files for backward compat, but new files are written in v2 from
+    // the start. See src/whiteboard-app.jsx for the consumer.
     const initContent = JSON.stringify({
-      __wb__: true, version: 1,
-      elements: [], idCounter: 0, camera: { x: 0, y: 0, zoom: 1 }
+      __wb__: true, version: 2, source: 'excalidraw',
+      elements: [], appState: {}, files: {}
     });
     const res = await window.electronAPI.writeFile(filePath, initContent);
     if (res.success) {
@@ -618,11 +646,11 @@ async function closeTab(id) {
     // Flush any pending debounced file write immediately
     clearTimeout(wbFileSaveTimers.get(tab.id));
     wbFileSaveTimers.delete(tab.id);
-    if (tab.dirty && tab.filePath && tab.content) {
-      await window.electronAPI.writeFile(tab.filePath, tab.content);
-      tab.dirty = false;
-    }
-    // Edge case: no backing file yet (initWbFile still in flight) — ask
+    // Match the text-tab UX: if there are unsaved changes, ask the user.
+    // "Save"      → write current content to tab.filePath (or Save As if none)
+    // "Don't Save"→ close without flushing; whatever the last auto-save wrote
+    //               to disk remains there
+    // "Cancel"    → abort the close
     if (tab.dirty) {
       const r = await window.electronAPI.messageDialog({
         type: 'question', title: 'Save',
@@ -631,7 +659,18 @@ async function closeTab(id) {
         defaultId: 0, cancelId: 2
       });
       if (r.response === 2) return;
-      if (r.response === 0) { const ok = await saveTabFile(tab); if (!ok) return; }
+      if (r.response === 0) {
+        // If the tab is still backed only by its auto-created AppData file
+        // (initWbFile() puts files under %AppData%\notepp\Whiteboards\),
+        // treat "Save" as "Save As" so the user picks a real location —
+        // same UX as saving a "new N" editor tab. If they've already done
+        // a Save As before, just write to that path.
+        const isAutoBacking =
+          !tab.filePath ||
+          /\\Whiteboards\\whiteboard-\d+\.json$/i.test(tab.filePath);
+        const ok = await saveTabFile(tab, /* forceAs */ isAutoBacking);
+        if (!ok) return;
+      }
     }
     const idx = tabs.findIndex(t => t.id === id);
     tabs.splice(idx, 1);
@@ -725,7 +764,7 @@ async function openFile(filePaths) {
         { name: 'Source Code', extensions: ['js','ts','py','java','c','cpp','cs','go','rs','rb','php','swift','kt'] },
         { name: 'Web', extensions: ['html','htm','css','scss','xml','json'] },
         { name: 'Text', extensions: ['txt','md','log','yaml','yml','toml','ini'] },
-        { name: 'Whiteboard JSON', extensions: ['json','whiteboard'] },
+        { name: 'Whiteboard JSON', extensions: ['json','whiteboard','excalidraw'] },
       ]
     });
     if (r.canceled) return;
@@ -736,12 +775,18 @@ async function openFile(filePaths) {
     if (existing) { activateTab(existing.id); continue; }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
-    // Route .whiteboard files and whiteboard-format JSON files to the whiteboard tab
-    if (fp.toLowerCase().endsWith('.whiteboard')) {
+    // Route .whiteboard / .excalidraw / whiteboard-format JSON to the whiteboard tab.
+    // Detection accepts our envelope (`__wb__: true`) AND raw Excalidraw files
+    // (`type: "excalidraw"` produced by Excalidraw's own Save-As).
+    const lower = fp.toLowerCase();
+    if (lower.endsWith('.whiteboard') || lower.endsWith('.excalidraw')) {
       createWhiteboardTab(fp, res.content);
-    } else if (fp.toLowerCase().endsWith('.json')) {
+    } else if (lower.endsWith('.json')) {
       let isWb = false;
-      try { isWb = JSON.parse(res.content).__wb__ === true; } catch (e) {}
+      try {
+        const parsed = JSON.parse(res.content);
+        isWb = parsed && (parsed.__wb__ === true || parsed.type === 'excalidraw');
+      } catch (e) {}
       if (isWb) createWhiteboardTab(fp, res.content);
       else       createTab(fp, res.content);
     } else {
@@ -762,6 +807,7 @@ async function saveTabFile(tab, forceAs = false) {
         defaultPath: tab.name,
         filters: [
           { name: 'Whiteboard JSON', extensions: ['json'] },
+          { name: 'Excalidraw', extensions: ['excalidraw'] },
           { name: 'Whiteboard (legacy)', extensions: ['whiteboard'] },
           { name: 'All Files', extensions: ['*'] }
         ]
@@ -1199,7 +1245,10 @@ function updateTitle() {
     return;
   }
   if (tab.type === 'whiteboard') {
-    window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`);
+    // Use the tab name (e.g. "whiteboard-1.json"), not tab.filePath — the
+    // AppData backing file is an implementation detail; users expect the
+    // same "name - Note++" pattern as a "new 1" editor tab.
+    window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.name} - Note++`);
     return;
   }
   window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`);
@@ -1279,15 +1328,25 @@ async function openTerminal(force = false) {
     term.loadAddon(fitAddon);
     term.open(document.getElementById('xterm-container'));
 
-    setTimeout(() => { try { fitAddon.fit(); } catch {} }, 50);
+    // Apply font size from prefs if saved
+    const savedFontSize = parseInt(document.getElementById('pref-term-fontsize')?.value) || 13;
+    if (savedFontSize !== 13) term.options.fontSize = savedFontSize;
 
-    const res = await window.electronAPI.terminalCreate(terminalId);
-    if (!res.success) {
-      term.writeln('\x1b[31mFailed to start terminal: ' + (res.error || 'unknown error') + '\x1b[0m');
-    } else {
-      term.writeln('\x1b[32mNote++ Terminal\x1b[0m — PowerShell');
-      term.writeln('');
-    }
+    setTimeout(() => {
+      try { fitAddon.fit(); } catch {}
+      // Pass actual cols/rows to main process so PTY is sized correctly
+      const dims = fitAddon.proposeDimensions?.() || { cols: 80, rows: 24 };
+      window.electronAPI.terminalCreate(terminalId, { cols: dims.cols || 80, rows: dims.rows || 24 })
+        .then(res => {
+          if (!res.success) {
+            term.writeln('\x1b[31mFailed to start terminal: ' + (res.error || 'unknown error') + '\x1b[0m');
+          } else {
+            const shell = document.getElementById('pref-shell')?.value?.trim() || 'PowerShell';
+            term.writeln(`\x1b[32mNote++ Terminal\x1b[0m — ${shell}`);
+            term.writeln('');
+          }
+        });
+    }, 50);
 
     // Handle user input
     term.onData(data => {
@@ -1344,14 +1403,27 @@ function setupTerminalResize() {
     const delta = startY - e.clientY;
     const newH = Math.max(80, Math.min(startH + delta, window.innerHeight * 0.7));
     panel.style.height = newH + 'px';
-    try { fitAddon?.fit(); } catch {}
+    fitTerminal();
   });
 
   document.addEventListener('mouseup', () => {
+    if (dragging) fitTerminal();
     dragging = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   });
+}
+
+// Fit the xterm viewport and relay new cols/rows to the PTY
+function fitTerminal() {
+  if (!fitAddon || !term) return;
+  try {
+    fitAddon.fit();
+    const dims = fitAddon.proposeDimensions?.() || { cols: term.cols, rows: term.rows };
+    const cols = dims?.cols || term.cols;
+    const rows = dims?.rows || term.rows;
+    window.electronAPI.terminalResize(terminalId, cols, rows);
+  } catch {}
 }
 
 // ===== File Tree Resize =====
@@ -1841,9 +1913,8 @@ function setupModals() {
 
   setupCloudPrefButtons();
   setupAiPrefsPage();
-
-  // Open AI settings page when prefs dialog opens from AI settings button
-  document.getElementById('prefs-dialog').addEventListener('transitionend', () => {});
+  setupNewDocPrefsPage();
+  setupBackupPrefsPage();
 }
 
 function applyPreferences() {
@@ -1875,11 +1946,24 @@ function applyPreferences() {
   const theme = document.querySelector('input[name="pref-theme"]:checked')?.value || 'light';
   if (theme === 'dark' && !isDarkMode) toggleDarkMode();
   else if (theme === 'light' && isDarkMode) toggleDarkMode();
+
+  // New-document defaults
+  newDocDefaults.encoding = document.querySelector('input[name="pref-encoding"]:checked')?.value || 'UTF-8';
+  newDocDefaults.eol      = document.querySelector('input[name="pref-eol"]:checked')?.value || 'Windows (CR LF)';
+  newDocDefaults.language = document.getElementById('pref-default-lang')?.value || 'plaintext';
+  newDocDefaults.template = document.getElementById('pref-new-template')?.value || '';
+
+  // Auto-backup settings — restart timer if changed
+  const bkpEnabled  = document.getElementById('pref-backup-enable')?.checked || false;
+  const bkpInterval = parseInt(document.getElementById('pref-backup-interval')?.value || '5') * 60 * 1000;
+  startAutoBackup(bkpEnabled, bkpInterval);
 }
 
 async function openPreferences() {
   document.getElementById('prefs-dialog').classList.remove('hidden');
   await loadCloudPrefs();
+  await loadNewDocPrefs();
+  await loadBackupPrefs();
 }
 
 // ===== Cloud Storage Prefs =====
@@ -1912,6 +1996,8 @@ async function saveCloudPrefs() {
     };
   }
 
+  await saveNewDocPrefs(settings);
+  await saveBackupPrefs(settings);
   await window.electronAPI.writeSettings({ ...settings, cloud });
 }
 
@@ -2742,6 +2828,106 @@ function setupAiTokenListeners() {
     } else {
       refreshAiModelList();
     }
+  });
+}
+
+// ===== New Document Preferences =====
+function setupNewDocPrefsPage() {
+  // Populate from saved settings on dialog open
+  document.getElementById('prefs-dialog').addEventListener('show-prefs', loadNewDocPrefs);
+}
+
+async function loadNewDocPrefs() {
+  const s = await window.electronAPI.readSettings();
+  const nd = s.newDoc || {};
+  const enc = nd.encoding || 'UTF-8';
+  const eol = nd.eol || 'Windows (CR LF)';
+  const lang = nd.language || 'plaintext';
+  const tmpl = nd.template || '';
+
+  document.querySelectorAll('input[name="pref-encoding"]').forEach(r => { r.checked = r.value === enc; });
+  document.querySelectorAll('input[name="pref-eol"]').forEach(r => { r.checked = r.value === eol; });
+  const langEl = document.getElementById('pref-default-lang');
+  if (langEl) langEl.value = lang;
+  const tmplEl = document.getElementById('pref-new-template');
+  if (tmplEl) tmplEl.value = tmpl;
+
+  // Apply into in-memory defaults
+  newDocDefaults = { encoding: enc, eol, language: lang, template: tmpl };
+}
+
+async function saveNewDocPrefs(settings) {
+  settings.newDoc = {
+    encoding: document.querySelector('input[name="pref-encoding"]:checked')?.value || 'UTF-8',
+    eol:      document.querySelector('input[name="pref-eol"]:checked')?.value || 'Windows (CR LF)',
+    language: document.getElementById('pref-default-lang')?.value || 'plaintext',
+    template: document.getElementById('pref-new-template')?.value || '',
+  };
+}
+
+// ===== Backup Preferences =====
+function setupBackupPrefsPage() {
+  document.getElementById('btn-backup-now').addEventListener('click', async () => {
+    const result = await runBackup();
+    document.getElementById('backup-last-status').textContent =
+      result.success ? `✓ Backed up ${result.count} file(s) at ${new Date().toLocaleTimeString()}` : `✗ Error: ${result.error}`;
+  });
+
+  document.getElementById('btn-backup-open').addEventListener('click', async () => {
+    const customPath = document.getElementById('pref-backup-path')?.value?.trim() || '';
+    const root = await window.electronAPI.getBackupRoot(customPath);
+    window.electronAPI.shellOpen(root);
+  });
+
+  document.getElementById('btn-backup-browse').addEventListener('click', async () => {
+    // openFolderPicker returns a string path or null (see main.js)
+    const chosen = await window.electronAPI.openFolderPicker();
+    if (chosen) {
+      document.getElementById('pref-backup-path').value = chosen;
+    }
+  });
+}
+
+async function loadBackupPrefs() {
+  const s = await window.electronAPI.readSettings();
+  const bkp = s.backup || {};
+  const enableEl   = document.getElementById('pref-backup-enable');
+  const intervalEl = document.getElementById('pref-backup-interval');
+  const versionsEl = document.getElementById('pref-backup-versions');
+  const pathEl     = document.getElementById('pref-backup-path');
+  if (enableEl)   enableEl.checked     = !!bkp.enabled;
+  if (intervalEl) intervalEl.value     = bkp.intervalMin || 5;
+  if (versionsEl) versionsEl.value     = bkp.versions    || 5;
+  if (pathEl)     pathEl.value         = bkp.path        || '';
+  startAutoBackup(!!bkp.enabled, (bkp.intervalMin || 5) * 60 * 1000);
+}
+
+async function saveBackupPrefs(settings) {
+  settings.backup = {
+    enabled:     document.getElementById('pref-backup-enable')?.checked || false,
+    intervalMin: parseInt(document.getElementById('pref-backup-interval')?.value || '5'),
+    versions:    parseInt(document.getElementById('pref-backup-versions')?.value  || '5'),
+    path:        document.getElementById('pref-backup-path')?.value?.trim() || '',
+  };
+}
+
+function startAutoBackup(enabled, intervalMs) {
+  clearInterval(autoBackupTimer);
+  if (enabled && intervalMs > 0) {
+    autoBackupTimer = setInterval(runBackup, intervalMs);
+  }
+}
+
+async function runBackup() {
+  const s = await window.electronAPI.readSettings();
+  const bkp = s.backup || {};
+  const files = tabs
+    .filter(t => t.filePath && t.type === 'editor' && t.model)
+    .map(t => ({ filePath: t.filePath, content: t.model.getValue() }));
+  if (!files.length) return { success: true, count: 0 };
+  return window.electronAPI.backupFiles(files, {
+    versionsToKeep: bkp.versions || 5,
+    backupPath: bkp.path || '',
   });
 }
 

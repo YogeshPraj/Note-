@@ -1,3 +1,5 @@
+
+'use strict';
 // ══════════════════════════════════════════════════════════════════════════════
 //  Note++ Whiteboard  ·  Lazy-loaded canvas whiteboard (Excalidraw-inspired)
 //  All rendering via Canvas 2D API with seeded-random hand-drawn line style.
@@ -270,7 +272,7 @@ function redo() {
 function notifyState() {
   window.parent?.postMessage({
     type: 'wb-state',
-    content: JSON.stringify({ __wb__:true, version:1, elements, idCounter:idCtr, camera })
+    content: JSON.stringify({ elements, idCounter:idCtr, camera, version:1 })
   }, '*');
 }
 
@@ -287,7 +289,7 @@ window.addEventListener('message', e => {
   }
   if (m.type==='wb-theme') setDark(m.dark);
   if (m.type==='wb-get-data') {
-    window.parent?.postMessage({ type:'wb-data', content:JSON.stringify({__wb__:true,version:1,elements,idCounter:idCtr,camera}) },'*');
+    window.parent?.postMessage({ type:'wb-data', content:JSON.stringify({elements,idCounter:idCtr,camera,version:1}) },'*');
   }
 });
 
@@ -554,3 +556,4 @@ document.addEventListener('keyup', e=>{
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 resize();
+

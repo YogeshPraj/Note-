@@ -496,6 +496,44 @@
             <label><input type="radio" name="pref-theme" value="dark" id="pref-theme-dark"> Dark mode</label><br>
             <label><input type="radio" name="pref-theme" value="system" id="pref-theme-system"> Follow Windows</label>
           </div>
+          <!-- New Document -->
+          <div class="pref-page" id="pref-new-doc">
+            <h3>New Document</h3>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Default encoding:</label><br>
+              <label><input type="radio" name="pref-encoding" value="UTF-8" id="pref-enc-utf8" checked> UTF-8</label><br>
+              <label><input type="radio" name="pref-encoding" value="UTF-16 LE" id="pref-enc-utf16le"> UTF-16 LE</label><br>
+              <label><input type="radio" name="pref-encoding" value="UTF-16 BE" id="pref-enc-utf16be"> UTF-16 BE</label><br>
+              <label><input type="radio" name="pref-encoding" value="ANSI" id="pref-enc-ansi"> ANSI</label>
+            </div>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Default line ending:</label><br>
+              <label><input type="radio" name="pref-eol" value="Windows (CR LF)" id="pref-eol-crlf" checked> Windows (CR LF)</label><br>
+              <label><input type="radio" name="pref-eol" value="Unix (LF)" id="pref-eol-lf"> Unix (LF)</label><br>
+              <label><input type="radio" name="pref-eol" value="Mac (CR)" id="pref-eol-cr"> Mac (CR)</label>
+            </div>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Default language:<br>
+                <select id="pref-default-lang" style="margin-top:4px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;padding:3px 6px;width:180px">
+                  <option value="plaintext">Plain Text</option>
+                  <option value="javascript">JavaScript</option>
+                  <option value="typescript">TypeScript</option>
+                  <option value="python">Python</option>
+                  <option value="html">HTML</option>
+                  <option value="css">CSS</option>
+                  <option value="json">JSON</option>
+                  <option value="markdown">Markdown</option>
+                  <option value="sql">SQL</option>
+                  <option value="shell">Shell</option>
+                </select>
+              </label>
+            </div>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">New document template:<br>
+                <textarea id="pref-new-template" rows="5" placeholder="Content to insert in every new document…" style="width:100%;margin-top:4px;font-family:monospace;font-size:11px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);padding:6px;resize:vertical;border-radius:4px"></textarea>
+              </label>
+            </div>
+          </div>
           <!-- Cloud Storage -->
           <div class="pref-page" id="pref-cloud">
             <h3>Cloud Storage</h3>
@@ -555,6 +593,38 @@
             <div style="margin-top:16px;font-size:11px;color:#888">
               Session file will be saved as <code>Note++/session.json</code> inside each enabled folder.
             </div>
+          </div>
+
+          <!-- Backup -->
+          <div class="pref-page" id="pref-backup">
+            <h3>Backup</h3>
+            <div class="pref-group">
+              <label><input type="checkbox" id="pref-backup-enable"> Enable automatic backup</label>
+            </div>
+            <div class="pref-group">
+              <label style="font-size:12px">Backup every
+                <input type="number" id="pref-backup-interval" value="5" min="1" max="120" style="width:50px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;padding:2px 4px"> minutes
+              </label>
+            </div>
+            <div class="pref-group">
+              <label style="font-size:12px">Keep
+                <input type="number" id="pref-backup-versions" value="5" min="1" max="100" style="width:50px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;padding:2px 4px"> versions per file
+              </label>
+            </div>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Backup folder:<br>
+                <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+                  <input type="text" id="pref-backup-path" placeholder="(default: AppData\notepp\backups)" style="flex:1;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;padding:4px 6px;font-size:12px">
+                  <button class="fr-btn" id="btn-backup-browse">Browse…</button>
+                </div>
+              </label>
+              <div id="backup-path-status" style="font-size:11px;color:#888;margin-top:4px">Using default AppData location.</div>
+            </div>
+            <div class="pref-group" style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="fr-btn" id="btn-backup-now">💾 Backup Now</button>
+              <button class="fr-btn" id="btn-backup-open">📂 Open Backup Folder</button>
+            </div>
+            <div id="backup-last-status" style="font-size:11px;color:#888;margin-top:6px"></div>
           </div>
 
           <div class="pref-page" id="pref-ai">

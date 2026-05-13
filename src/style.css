@@ -220,6 +220,19 @@ body.theme-dark .tab-wb-badge {
   color: #89b4fa;
 }
 
+/* Encrypted-tab lock badge — small inline marker on the tab name */
+.tab-enc-badge {
+  font-size: 10px;
+  flex-shrink: 0;
+  align-self: center;
+  margin: 0 2px;
+  opacity: 0.85;
+}
+
+/* Status bar encryption indicator */
+#status-enc { font-size: 11px; }
+#status-enc:hover { opacity: 1; cursor: pointer; }
+
 #tab-new-btn {
   width: 26px; height: 23px;
   border: none; background: transparent;

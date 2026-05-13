@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shellShowItem: (p)    => ipcRenderer.invoke('shell-show-item', p),
 
   // Terminal
-  terminalCreate: (id)         => ipcRenderer.invoke('terminal-create', id),
+  terminalCreate: (id, opts)   => ipcRenderer.invoke('terminal-create', id, opts),
   terminalInput:  (id, data)   => ipcRenderer.invoke('terminal-input', id, data),
   terminalKill:   (id)         => ipcRenderer.invoke('terminal-kill', id),
   terminalResize: (id, c, r)   => ipcRenderer.invoke('terminal-resize', id, c, r),

@@ -56,6 +56,7 @@
       <button class="tb-btn" title="Toggle Terminal (Ctrl+`)" data-action="terminal" id="btn-terminal">⌨</button>
       <button class="tb-btn" title="Run File (F5)" data-action="run-file">▶</button>
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
+      <button class="tb-btn" title="Encrypt / decrypt this file" data-action="encrypt-toggle" id="btn-encrypt">🔒</button>
       <button class="tb-btn" title="AI Writing Assistant (Ctrl+Shift+A)" data-action="ai" id="btn-ai">🤖</button>
       <button class="tb-btn" title="Dev Arcade — take a break! (Ctrl+Shift+G)" data-action="games" id="btn-games">🎮</button>
     </div>
@@ -332,6 +333,8 @@
       <span id="status-lang" class="status-item clickable" title="Language">Normal Text</span>
       <span class="status-sep">|</span>
       <span id="status-insert" class="status-item clickable" title="Insert/Overwrite">INS</span>
+      <span class="status-sep">|</span>
+      <span id="status-enc" class="status-item clickable hidden" title="Encryption status">🔒</span>
     </div>
   </div>
 
@@ -401,6 +404,8 @@
         <p>Syntax highlighting for 50+ languages</p>
         <br>
         <p>For Software Developers</p>
+        <br>
+        <p style="font-size:12px;color:#888">Created by <strong>Yogesh Prajapati</strong></p>
       </div>
       <div class="modal-footer">
         <button class="modal-btn" data-modal="about-dialog">OK</button>
@@ -443,6 +448,7 @@
           <div class="prefs-item" data-pref="cloud">☁ Cloud Storage</div>
           <div class="prefs-item" data-pref="backup">Backup</div>
           <div class="prefs-item" data-pref="terminal">Terminal</div>
+          <div class="prefs-item" data-pref="encryption">🔒 Encryption</div>
           <div class="prefs-item" data-pref="ai">🤖 AI Assistant</div>
         </div>
         <div class="prefs-content">
@@ -477,7 +483,7 @@
               <label><input type="checkbox" id="pref-intellisense" checked> Enable IntelliSense / suggestions</label><br>
               <label><input type="checkbox" id="pref-bracket-color" checked> Bracket pair colorization</label><br>
               <label><input type="checkbox" id="pref-minimap" checked> Show minimap</label><br>
-              <label><input type="checkbox" id="pref-ligatures" checked> Font ligatures</label><br>
+              <label><input type="checkbox" id="pref-ligatures"> Font ligatures (renders <code>!=</code> as ≠, <code>-&gt;</code> as →, etc.)</label><br>
               <label><input type="checkbox" id="pref-param-hints" checked> Parameter hints</label><br>
               <label><input type="checkbox" id="pref-hover" checked> Hover documentation</label><br>
               <label><input type="checkbox" id="pref-codelen" checked> Code lens</label><br>
@@ -672,11 +678,185 @@
               <label>Font size: <input type="number" id="pref-term-fontsize" value="13" min="8" max="24" style="width:50px"> px</label>
             </div>
           </div>
+          <!-- ──────────── Encryption preferences page ──────────── -->
+          <div class="pref-page" id="pref-encryption">
+            <h3>🔒 Encryption</h3>
+            <div class="pref-group">
+              <div><strong>Status: <span id="enc-status-text">Not configured</span></strong></div>
+              <div id="enc-fingerprint-line" class="hidden" style="margin-top:4px;font-size:12px;color:#888">
+                Profile fingerprint: <code id="enc-fingerprint-text">—</code>
+              </div>
+            </div>
+            <!-- Shown when encryption is NOT configured -->
+            <div class="pref-group" id="enc-not-configured-section">
+              <p style="font-size:12px;color:#888;margin-bottom:8px">
+                Set up an encryption profile to protect notes with a password. The same profile
+                unlocks every encrypted file. You can add a recovery key to recover access if you
+                forget your password.
+              </p>
+              <button class="fr-btn" id="btn-enc-setup">Set up encryption…</button>
+              <p style="margin-top:10px;font-size:12px">
+                Already have a profile elsewhere?
+                <a href="#" id="link-enc-restore">Restore from recovery key</a>
+              </p>
+            </div>
+            <!-- Shown when encryption IS configured -->
+            <div class="pref-group hidden" id="enc-configured-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="fr-btn" id="btn-enc-unlock">🔓 Unlock…</button>
+                <button class="fr-btn" id="btn-enc-lock">🔒 Lock now</button>
+                <button class="fr-btn" id="btn-enc-change-pw">Change password…</button>
+                <button class="fr-btn" id="btn-enc-regen-recovery">New recovery key…</button>
+              </div>
+              <p style="margin-top:10px;font-size:12px;color:#888">
+                Lost your password? <a href="#" id="link-enc-use-recovery">Reset using recovery key</a>
+              </p>
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
         <button class="modal-btn" id="btn-prefs-ok">OK</button>
         <button class="modal-btn" data-modal="prefs-dialog">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       Encryption modals — setup, unlock, change password, recovery display
+       ═══════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Setup wizard (used for first-time setup, change password, restore-via-recovery) -->
+  <div id="enc-setup-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:480px">
+      <div class="modal-header">
+        <span id="enc-setup-title">Set up Note++ encryption</span>
+        <button class="modal-close" data-modal="enc-setup-dialog">×</button>
+      </div>
+      <div class="modal-body" style="padding:14px">
+        <div id="enc-setup-warning" style="background:#fff4e6;border:1px solid #ffd591;color:#874d00;padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px;line-height:1.4">
+          <strong>⚠ Important.</strong> If you forget your password <em>and</em> lose your recovery
+          key, your encrypted notes are <strong>gone forever</strong>. Note++ has no backdoor.
+        </div>
+        <label style="font-size:12px;color:#888">Choose a strong password</label>
+        <input type="password" id="enc-setup-pw" placeholder="Password" autocomplete="new-password"
+               style="width:100%;margin-top:4px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        <input type="password" id="enc-setup-pw2" placeholder="Confirm password" autocomplete="new-password"
+               style="width:100%;margin-top:6px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        <div id="enc-setup-strength" style="margin-top:6px;font-size:11px;color:#888"></div>
+        <div id="enc-setup-error" class="hidden" style="margin-top:8px;color:#e03131;font-size:12px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-enc-setup-ok">Create profile</button>
+        <button class="modal-btn" data-modal="enc-setup-dialog">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Unlock dialog -->
+  <div id="enc-unlock-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:400px">
+      <div class="modal-header">
+        <span>🔒 Unlock Note++ encryption</span>
+        <button class="modal-close" data-modal="enc-unlock-dialog" id="btn-enc-unlock-cancel-x">×</button>
+      </div>
+      <div class="modal-body" style="padding:14px">
+        <div style="font-size:12px;color:#888;margin-bottom:8px">
+          Profile fingerprint: <code id="enc-unlock-fingerprint">—</code>
+        </div>
+        <input type="password" id="enc-unlock-pw" placeholder="Password" autocomplete="current-password"
+               style="width:100%;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        <div id="enc-unlock-error" class="hidden" style="margin-top:8px;color:#e03131;font-size:12px"></div>
+        <div style="margin-top:10px;font-size:12px">
+          Forgot it? <a href="#" id="link-enc-unlock-recovery">Use recovery key instead</a>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-enc-unlock-ok">Unlock</button>
+        <button class="modal-btn" data-modal="enc-unlock-dialog" id="btn-enc-unlock-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change password dialog -->
+  <div id="enc-changepw-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:420px">
+      <div class="modal-header">
+        <span>Change password</span>
+        <button class="modal-close" data-modal="enc-changepw-dialog">×</button>
+      </div>
+      <div class="modal-body" style="padding:14px">
+        <label style="font-size:12px;color:#888">Current password</label>
+        <input type="password" id="enc-changepw-old" autocomplete="current-password"
+               style="width:100%;margin-top:4px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        <label style="font-size:12px;color:#888;margin-top:8px;display:block">New password</label>
+        <input type="password" id="enc-changepw-new" autocomplete="new-password"
+               style="width:100%;margin-top:4px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        <input type="password" id="enc-changepw-new2" placeholder="Confirm new password" autocomplete="new-password"
+               style="width:100%;margin-top:6px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        <div id="enc-changepw-error" class="hidden" style="margin-top:8px;color:#e03131;font-size:12px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-enc-changepw-ok">Change password</button>
+        <button class="modal-btn" data-modal="enc-changepw-dialog">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recovery key display dialog (shown after setup or after regenerate) -->
+  <div id="enc-recovery-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:520px">
+      <div class="modal-header">
+        <span>🔑 Recovery key</span>
+        <button class="modal-close" data-modal="enc-recovery-dialog" id="btn-enc-recovery-x">×</button>
+      </div>
+      <div class="modal-body" style="padding:14px">
+        <div style="background:#fff4e6;border:1px solid #ffd591;color:#874d00;padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px;line-height:1.4">
+          <strong>Save this key in a safe place</strong> (password manager, fireproof safe).
+          Anyone with this key can decrypt your protected notes. Note++ <strong>cannot show
+          this key again</strong> — you'd have to generate a new one.
+        </div>
+        <div style="font-size:12px;color:#888">Profile fingerprint: <code id="enc-recovery-fingerprint">—</code></div>
+        <pre id="enc-recovery-key-display" style="margin-top:8px;padding:14px;background:var(--find-input-bg);border:1px solid var(--find-border);border-radius:4px;font-family:'Cascadia Code','Consolas',monospace;font-size:14px;font-weight:600;text-align:center;letter-spacing:1px;word-break:break-all;white-space:pre-wrap;color:var(--tab-text)"></pre>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="fr-btn" id="btn-enc-recovery-copy">📋 Copy</button>
+          <button class="fr-btn" id="btn-enc-recovery-download">💾 Save as recovery.json</button>
+        </div>
+        <label style="margin-top:14px;display:block;font-size:12px">
+          <input type="checkbox" id="enc-recovery-saved-ack"> I've saved my recovery key.
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-enc-recovery-done" disabled>Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recovery-key entry dialog (used to unlock or restore via recovery key) -->
+  <div id="enc-recovery-entry-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:480px">
+      <div class="modal-header">
+        <span id="enc-recovery-entry-title">🔑 Enter recovery key</span>
+        <button class="modal-close" data-modal="enc-recovery-entry-dialog">×</button>
+      </div>
+      <div class="modal-body" style="padding:14px">
+        <p style="font-size:12px;color:#888;margin-bottom:8px">
+          Paste your 32-character recovery key (dashes optional).
+        </p>
+        <textarea id="enc-recovery-entry-input" rows="3" placeholder="ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567"
+                  style="width:100%;font-family:monospace;font-size:13px;padding:8px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;resize:vertical"></textarea>
+        <div id="enc-recovery-entry-error" class="hidden" style="margin-top:8px;color:#e03131;font-size:12px"></div>
+        <div id="enc-recovery-entry-newpw-block" class="hidden" style="margin-top:12px">
+          <label style="font-size:12px;color:#888">Set a new password</label>
+          <input type="password" id="enc-recovery-entry-newpw" autocomplete="new-password"
+                 style="width:100%;margin-top:4px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+          <input type="password" id="enc-recovery-entry-newpw2" placeholder="Confirm new password" autocomplete="new-password"
+                 style="width:100%;margin-top:6px;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-enc-recovery-entry-ok">Continue</button>
+        <button class="modal-btn" data-modal="enc-recovery-entry-dialog">Cancel</button>
       </div>
     </div>
   </div>
@@ -743,6 +923,7 @@
       });
     }
   </script>
+  <script src="crypto.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

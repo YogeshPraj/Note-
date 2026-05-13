@@ -40,6 +40,17 @@ let wbReady = false;
 let wbPendingContent = null;
 const wbFileSaveTimers = new Map(); // tabId → timer handle
 
+// ===== Encryption state =====
+// `appEnc.profile` is the loaded profile JSON (or null if encryption not yet set up).
+// `appEnc.rawDek` is the unlocked DEK as Uint8Array (or null when locked).
+// Helpers: `isEncConfigured()`, `isEncUnlocked()`.
+const appEnc = {
+  profile: null,
+  rawDek: null,
+};
+function isEncConfigured() { return appEnc.profile != null; }
+function isEncUnlocked()   { return appEnc.profile != null && appEnc.rawDek != null; }
+
 // ===== DOM =====
 const tabBar       = document.getElementById('tab-bar');
 const findPanel    = document.getElementById('find-replace-panel');
@@ -94,7 +105,11 @@ require(['vs/editor/editor.main'], () => {
     theme: 'notepp-light',
     fontSize: 13,
     fontFamily: "'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
-    fontLigatures: true,
+    // ── Snappy-defaults: disable ligatures + caret animations.
+    // Devs typically want `!=` to stay `!=` (not render as ≠), and the cursor
+    // to snap to position instantly with a classic blink. Users who prefer the
+    // animated/ligated look can opt back in via Preferences → Developer.
+    fontLigatures: false,
     lineNumbers: 'on',
     renderWhitespace: 'selection',
     scrollBeyondLastLine: false,
@@ -107,8 +122,8 @@ require(['vs/editor/editor.main'], () => {
     glyphMargin: true,
     lineDecorationsWidth: 10,
     renderLineHighlight: 'line',
-    cursorBlinking: 'smooth',
-    cursorSmoothCaretAnimation: 'on',
+    cursorBlinking: 'blink',                 // was 'smooth' (faded in/out)
+    cursorSmoothCaretAnimation: 'off',       // was 'on' (slid between positions)
     cursorStyle: 'line',
     tabSize: 4,
     insertSpaces: true,
@@ -129,19 +144,19 @@ require(['vs/editor/editor.main'], () => {
     acceptSuggestionOnEnter: 'on',
     parameterHints: { enabled: true },
     wordBasedSuggestions: 'currentDocument',
-    hover: { enabled: true, delay: 300 },
+    hover: { enabled: true, delay: 200 },     // was 300 — snappier tooltip
     contextmenu: false,
-    smoothScrolling: true,
+    smoothScrolling: false,                   // was true — Page-Down jumps instantly
     mouseWheelZoom: true,
     multiCursorModifier: 'alt',
     snippetSuggestions: 'inline',
     occurrencesHighlight: 'singleFile',
     selectionHighlight: true,
     renderControlCharacters: false,
-    colorDecorators: true,
+    colorDecorators: false,                   // was true — no inline colour swatches
     inlayHints: { enabled: 'on' },
-    lightbulb: { enabled: 'on' },
-    stickyScroll: { enabled: true },
+    lightbulb: { enabled: 'off' },            // was 'on' — kills the random 💡 popup
+    stickyScroll: { enabled: false },         // was true — no floating header while scrolling
     padding: { top: 4, bottom: 4 },
   });
 
@@ -157,7 +172,17 @@ require(['vs/editor/editor.main'], () => {
     };
     const bkp = s.backup || {};
     startAutoBackup(!!bkp.enabled, (bkp.intervalMin || 5) * 60 * 1000);
+    // Pre-populate terminal pref elements so they're ready when the terminal opens
+    const t = s.terminal || {};
+    const shellEl    = document.getElementById('pref-shell');
+    const fontSizeEl = document.getElementById('pref-term-fontsize');
+    if (shellEl    && t.shell)    shellEl.value    = t.shell;
+    if (fontSizeEl && t.fontSize) fontSizeEl.value = t.fontSize;
   });
+
+  // Load encryption profile (if previously configured). Doesn't unlock — just
+  // detects "is this install set up?". Unlocking happens on demand.
+  loadEncryptionProfile().then(() => updateEncryptionStatusIndicator());
   restoreSession().then(restored => { if (!restored) createTab(); });
 
   // Events
@@ -397,7 +422,8 @@ function createTab(filePath = null, content = '') {
     id, name, filePath, content: body, dirty: false, language,
     encoding: filePath ? 'UTF-8' : (newDocDefaults.encoding || 'UTF-8'),
     eol:      filePath ? 'Windows (CR LF)' : (newDocDefaults.eol || 'Windows (CR LF)'),
-    model, viewState: null, type: 'editor'
+    model, viewState: null, type: 'editor',
+    encrypted: false, protectedBy: null,    // see ENCRYPTION.md
   };
   tabs.push(tab);
   activateTab(id);
@@ -584,6 +610,18 @@ function activateTab(id) {
   updateStatusBar();
   updateTitle();
   updateLanguageStatus();
+  updateEncryptToolbarButton();
+  updateEncryptionStatusIndicator();
+}
+
+// Reflect active-tab encryption state on the toolbar 🔒 button.
+function updateEncryptToolbarButton() {
+  const btn = document.getElementById('btn-encrypt');
+  if (!btn) return;
+  const tab = getActiveTab();
+  const isEnc = !!(tab && tab.encrypted);
+  btn.classList.toggle('active', isEnc);
+  btn.title = isEnc ? 'Remove encryption from this file' : 'Encrypt this file';
 }
 
 function renderTabs() {
@@ -614,6 +652,14 @@ function renderTabs() {
       badge.className = 'tab-wb-badge';
       badge.textContent = 'wb';
       el.appendChild(badge);
+    }
+    // Lock badge on encrypted text tabs
+    if (tab.encrypted) {
+      const lock = document.createElement('span');
+      lock.className = 'tab-enc-badge';
+      lock.textContent = '🔒';
+      lock.title = 'Encrypted file';
+      el.appendChild(lock);
     }
     el.appendChild(name);
     el.appendChild(close);
@@ -759,12 +805,16 @@ async function openFile(filePaths) {
   if (!filePaths) {
     const r = await window.electronAPI.openDialog({
       properties: ['openFile', 'multiSelections'],
+      // "All Files" is the default so .txt, .json, .xml, .ini and everything
+      // else is visible the moment the dialog opens. The named category
+      // filters below let the user narrow when they want to.
       filters: [
         { name: 'All Files', extensions: ['*'] },
-        { name: 'Source Code', extensions: ['js','ts','py','java','c','cpp','cs','go','rs','rb','php','swift','kt'] },
-        { name: 'Web', extensions: ['html','htm','css','scss','xml','json'] },
-        { name: 'Text', extensions: ['txt','md','log','yaml','yml','toml','ini'] },
-        { name: 'Whiteboard JSON', extensions: ['json','whiteboard','excalidraw'] },
+        { name: 'Text', extensions: ['txt','md','markdown','log','rtf'] },
+        { name: 'Config / Data', extensions: ['json','xml','ini','conf','cfg','yaml','yml','toml','env','csv','tsv','properties'] },
+        { name: 'Source Code', extensions: ['js','jsx','ts','tsx','py','java','c','cpp','cs','go','rs','rb','php','swift','kt','scala','dart','sh','bash','ps1','bat','sql'] },
+        { name: 'Web', extensions: ['html','htm','css','scss','sass','less','xml','json'] },
+        { name: 'Whiteboard / Diagrams', extensions: ['mmd','mermaid','whiteboard','excalidraw','json'] },
       ]
     });
     if (r.canceled) return;
@@ -775,6 +825,15 @@ async function openFile(filePaths) {
     if (existing) { activateTab(existing.id); continue; }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
+
+    // ── Encrypted file? — detect, unlock, decrypt, then open as editor tab.
+    const envelope = window.NotePPCrypto.detectEncrypted(res.content);
+    if (envelope) {
+      const ok = await openEncryptedFile(fp, envelope);
+      if (!ok) continue; // user cancelled or wrong profile
+      continue;
+    }
+
     // Route .whiteboard / .excalidraw / whiteboard-format JSON to the whiteboard tab.
     // Detection accepts our envelope (`__wb__: true`) AND raw Excalidraw files
     // (`type: "excalidraw"` produced by Excalidraw's own Save-As).
@@ -793,6 +852,65 @@ async function openFile(filePaths) {
       createTab(fp, res.content);
     }
   }
+}
+
+// Open an already-detected encrypted file: validate profile, prompt unlock if
+// needed, decrypt, create an editor tab. Returns true on success, false on
+// user cancel / wrong profile / decryption error.
+async function openEncryptedFile(fp, envelope) {
+  // Profile not configured at all
+  if (!isEncConfigured()) {
+    await window.electronAPI.messageDialog({
+      type: 'warning',
+      title: 'Encrypted file',
+      message: 'This file is a Note++ encrypted document, but no encryption profile is set up on this installation.',
+      detail: 'Use Preferences → Encryption to set up a profile, or restore one using your recovery key.',
+      buttons: ['OK'],
+    });
+    return false;
+  }
+  // Profile fingerprint mismatch
+  if (envelope.profile && envelope.profile !== appEnc.profile.fingerprint) {
+    await window.electronAPI.messageDialog({
+      type: 'warning',
+      title: 'Different encryption profile',
+      message: `This file was encrypted with profile "${envelope.profile}", but the active profile is "${appEnc.profile.fingerprint}".`,
+      detail: 'Restore the other profile or use its recovery key to access this file.',
+      buttons: ['OK'],
+    });
+    return false;
+  }
+  // Unlock if needed
+  if (!isEncUnlocked()) {
+    const unlocked = await promptUnlockDialog();
+    if (!unlocked) return false;
+  }
+  // Decrypt
+  let plaintext;
+  try {
+    plaintext = await window.NotePPCrypto.decryptFile(envelope, appEnc.rawDek);
+  } catch (e) {
+    showToast('Failed to decrypt file: ' + (e.message || e));
+    return false;
+  }
+  // Create the tab using the original extension for syntax highlighting
+  const tab = createTab(fp, plaintext);
+  tab.encrypted = true;
+  tab.protectedBy = envelope.profile || appEnc.profile.fingerprint;
+  // If originalExt differs from the file's actual extension, prefer the
+  // original for language detection (so a `secret-notes.md.enc` style scheme
+  // would still get markdown highlighting).
+  if (envelope.originalExt) {
+    const langForExt = detectLanguage('x.' + envelope.originalExt);
+    if (langForExt && langForExt !== 'plaintext') {
+      tab.language = langForExt;
+      if (tab.model) monaco.editor.setModelLanguage(tab.model, langForExt);
+    }
+  }
+  renderTabs();
+  updateTitle();
+  updateEncryptionStatusIndicator();
+  return true;
 }
 
 async function saveFile() { const tab = getActiveTab(); if (tab) await saveTabFile(tab); }
@@ -832,7 +950,33 @@ async function saveTabFile(tab, forceAs = false) {
     monaco.editor.setModelLanguage(tab.model, tab.language);
   }
   const content = tab.model.getValue();
-  const res = await window.electronAPI.writeFile(tab.filePath, content);
+
+  // ── Encrypted save path: gzip → AES-GCM → JSON envelope. ──────────────────
+  // tab.encrypted = true on tabs that opted in via "Encrypt this file" or that
+  // were opened from an already-encrypted file. Requires an unlocked profile.
+  let bytesToWrite = content;
+  if (tab.encrypted) {
+    if (!isEncConfigured()) {
+      showToast('Encryption not configured — open Preferences → Encryption');
+      return false;
+    }
+    if (!isEncUnlocked()) {
+      const unlocked = await promptUnlockDialog();
+      if (!unlocked) return false;
+    }
+    try {
+      const originalExt = (tab.filePath.match(/\.([^.\\/]+)$/) || [, ''])[1].toLowerCase();
+      const envelope = await window.NotePPCrypto.encryptFile(
+        content, appEnc.rawDek, appEnc.profile.fingerprint, originalExt
+      );
+      tab.protectedBy = appEnc.profile.fingerprint;
+      bytesToWrite = JSON.stringify(envelope, null, 2);
+    } catch (e) {
+      showToast('Encryption failed: ' + (e.message || e));
+      return false;
+    }
+  }
+  const res = await window.electronAPI.writeFile(tab.filePath, bytesToWrite);
   if (!res.success) { showToast('Error saving: ' + res.error); return false; }
   tab.dirty = false;
   tab.content = content;
@@ -840,6 +984,100 @@ async function saveTabFile(tab, forceAs = false) {
   updateTitle();
   updateLanguageStatus();
   return true;
+}
+
+// Toggle encryption on the active tab (or specified tab). For new/unsaved tabs,
+// triggers a Save As first and writes the file as encrypted immediately.
+async function toggleTabEncryption(tab) {
+  tab = tab || getActiveTab();
+  if (!tab) return;
+  // Only text editor tabs can be encrypted (excludes game / whiteboard).
+  // Note: tabs created via createTab() have type:'editor', but legacy tabs
+  // restored from older sessions may have no `type` field — treat those as editors.
+  if (tab.type === 'whiteboard' || tab.type === 'game') {
+    showToast('Encryption is only available for text files');
+    return;
+  }
+
+  if (tab.encrypted) {
+    const r = await window.electronAPI.messageDialog({
+      type: 'question', title: 'Remove encryption',
+      message: `Remove encryption from "${tab.name}"?`,
+      detail: 'The file will be saved as plaintext on the next save.',
+      buttons: ['Remove encryption', 'Cancel'], defaultId: 0, cancelId: 1,
+    });
+    if (r.response !== 0) return;
+    tab.encrypted = false;
+    tab.protectedBy = null;
+    if (!tab.dirty) tab.dirty = true;
+    renderTabs();
+    updateTitle();
+    updateEncryptToolbarButton();
+    updateEncryptionStatusIndicator();
+    return;
+  }
+
+  // Encrypting — needs a configured + unlocked profile
+  if (!isEncConfigured()) {
+    const r = await window.electronAPI.messageDialog({
+      type: 'info', title: 'Set up encryption',
+      message: 'You need to set up an encryption profile first.',
+      detail: 'Open Preferences → Encryption to create one.',
+      buttons: ['Open Preferences', 'Cancel'], defaultId: 0, cancelId: 1,
+    });
+    if (r.response === 0) openPreferences();
+    return;
+  }
+  if (!isEncUnlocked()) {
+    const ok = await promptUnlockDialog();
+    if (!ok) return;
+  }
+
+  // ── Unsaved tab (no filePath yet) → "Save and Encrypt" flow ──
+  // The user wants the Save As dialog up front, then the file is written
+  // straight to disk in encrypted form (no intermediate plaintext save).
+  if (!tab.filePath) {
+    const confirm = await window.electronAPI.messageDialog({
+      type: 'question', title: 'Save and encrypt',
+      message: `"${tab.name}" hasn't been saved yet.`,
+      detail: 'Note++ will open the Save As dialog, then write the file in encrypted form.',
+      buttons: ['Save and Encrypt…', 'Cancel'], defaultId: 0, cancelId: 1,
+    });
+    if (confirm.response !== 0) return;
+    // Mark the tab as encrypted BEFORE calling saveTabFile so the save path
+    // writes the JSON envelope directly. If the user cancels the Save As
+    // dialog, revert the flag.
+    tab.encrypted = true;
+    tab.protectedBy = appEnc.profile.fingerprint;
+    const ok = await saveTabFile(tab, /* forceAs */ true);
+    if (!ok) {
+      tab.encrypted = false;
+      tab.protectedBy = null;
+      return;
+    }
+    showToast('🔒 File saved as encrypted');
+    renderTabs();
+    updateTitle();
+    updateEncryptToolbarButton();
+    updateEncryptionStatusIndicator();
+    return;
+  }
+
+  // ── Already-saved tab → confirm, then mark; next save writes envelope ──
+  const r = await window.electronAPI.messageDialog({
+    type: 'question', title: 'Encrypt this file',
+    message: `Encrypt "${tab.name}" with the active Note++ profile?`,
+    detail: 'The file will be encrypted on the next save. Anyone with the profile password (or the recovery key) can decrypt it.',
+    buttons: ['Encrypt', 'Cancel'], defaultId: 0, cancelId: 1,
+  });
+  if (r.response !== 0) return;
+  tab.encrypted = true;
+  tab.protectedBy = appEnc.profile.fingerprint;
+  if (!tab.dirty) tab.dirty = true;
+  renderTabs();
+  updateTitle();
+  updateEncryptToolbarButton();
+  updateEncryptionStatusIndicator();
 }
 
 async function reloadFile() {
@@ -1915,6 +2153,7 @@ function setupModals() {
   setupAiPrefsPage();
   setupNewDocPrefsPage();
   setupBackupPrefsPage();
+  setupEncryptionPrefsPage();
 }
 
 function applyPreferences() {
@@ -1938,7 +2177,7 @@ function applyPreferences() {
     fontFamily: font,
     quickSuggestions: intellisense ? { other: 'on', comments: 'off', strings: 'off' } : false,
     parameterHints: { enabled: paramHints },
-    hover: { enabled: hover },
+    hover: { enabled: hover, delay: 200 },
     bracketPairColorization: { enabled: bracketColor },
     renderWhitespace: whitespace ? 'all' : 'selection',
   });
@@ -1964,6 +2203,8 @@ async function openPreferences() {
   await loadCloudPrefs();
   await loadNewDocPrefs();
   await loadBackupPrefs();
+  await loadTerminalPrefs();
+  refreshEncryptionPrefsPage();
 }
 
 // ===== Cloud Storage Prefs =====
@@ -1998,6 +2239,7 @@ async function saveCloudPrefs() {
 
   await saveNewDocPrefs(settings);
   await saveBackupPrefs(settings);
+  await saveTerminalPrefs(settings);
   await window.electronAPI.writeSettings({ ...settings, cloud });
 }
 
@@ -2085,10 +2327,23 @@ function setupToolbar() {
         'preview': togglePreview,
         'games': openGameTab,
         'ai': toggleAiPanel,
+        'encrypt-toggle': () => toggleTabEncryption(),
       };
       map[a]?.();
-      if (a !== 'games' && a !== 'ai') editor.focus();
+      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle') editor.focus();
     });
+  });
+
+  // Status-bar lock indicator: click to toggle session lock. Only visible when
+  // the active tab is encrypted (see updateEncryptionStatusIndicator).
+  document.getElementById('status-enc')?.addEventListener('click', async () => {
+    if (isEncUnlocked()) {
+      lockEncryption();
+      showToast('🔒 Encryption locked');
+    } else {
+      const ok = await promptUnlockDialog();
+      if (ok) showToast('🔓 Encryption unlocked');
+    }
   });
 
   statusLang.addEventListener('click', () => {
@@ -2331,6 +2586,18 @@ async function saveSession() {
       };
     }
     const content = tab.model.getValue();
+    // Encrypted tabs: NEVER persist plaintext to session.json. Save just the
+    // path + flag; on restore we re-read the encrypted file from disk, which
+    // re-triggers the unlock flow.
+    if (tab.encrypted) {
+      return {
+        id: tab.id, name: tab.name, filePath: tab.filePath || null,
+        content: null,
+        language: tab.language, encoding: tab.encoding, eol: tab.eol,
+        active: tab.id === activeTabId,
+        encrypted: true, protectedBy: tab.protectedBy || null,
+      };
+    }
     return {
       id: tab.id,
       name: tab.name,
@@ -2377,10 +2644,31 @@ async function restoreSession() {
       continue;
     }
 
+    // Encrypted tab: re-route through openFile so the user gets the unlock
+    // prompt and the file is properly decrypted (or skipped on cancel).
+    if (s.encrypted && s.filePath) {
+      // Defer to next tick so all session tabs get processed before unlock
+      // dialogs queue up. openFile reads + decrypts + creates the tab.
+      await openFile([s.filePath]);
+      const newTab = tabs[tabs.length - 1];
+      if (newTab && s.active) activeId = newTab.id;
+      continue;
+    }
+
     // Re-read from disk if we only stored the path
     if (s.filePath && s.content === null) {
       const r = await window.electronAPI.readFile(s.filePath);
-      if (r.success) content = r.content;
+      if (r.success) {
+        // Detect encrypted file even if the session record didn't flag it
+        // (e.g., user encrypted the file in another app session).
+        if (window.NotePPCrypto.detectEncrypted(r.content)) {
+          await openFile([s.filePath]);
+          const newTab = tabs[tabs.length - 1];
+          if (newTab && s.active) activeId = newTab.id;
+          continue;
+        }
+        content = r.content;
+      }
     }
 
     tabCounter++;
@@ -2390,7 +2678,8 @@ async function restoreSession() {
       id, name: s.name, filePath: s.filePath || null,
       content, dirty: false, language: s.language || 'plaintext',
       encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
-      model, viewState: null,
+      model, viewState: null, type: 'editor',
+      encrypted: false, protectedBy: null,
     };
     tabs.push(tab);
     if (s.active) activeId = id;
@@ -2833,8 +3122,7 @@ function setupAiTokenListeners() {
 
 // ===== New Document Preferences =====
 function setupNewDocPrefsPage() {
-  // Populate from saved settings on dialog open
-  document.getElementById('prefs-dialog').addEventListener('show-prefs', loadNewDocPrefs);
+  // loadNewDocPrefs() is called directly from openPreferences(); nothing else needed here.
 }
 
 async function loadNewDocPrefs() {
@@ -2911,6 +3199,23 @@ async function saveBackupPrefs(settings) {
   };
 }
 
+// ===== Terminal Preferences =====
+async function loadTerminalPrefs() {
+  const s = await window.electronAPI.readSettings();
+  const t = s.terminal || {};
+  const shellEl    = document.getElementById('pref-shell');
+  const fontSizeEl = document.getElementById('pref-term-fontsize');
+  if (shellEl)    shellEl.value    = t.shell    || 'powershell.exe';
+  if (fontSizeEl) fontSizeEl.value = t.fontSize || 13;
+}
+
+async function saveTerminalPrefs(settings) {
+  settings.terminal = {
+    shell:    document.getElementById('pref-shell')?.value?.trim()        || 'powershell.exe',
+    fontSize: parseInt(document.getElementById('pref-term-fontsize')?.value || '13'),
+  };
+}
+
 function startAutoBackup(enabled, intervalMs) {
   clearInterval(autoBackupTimer);
   if (enabled && intervalMs > 0) {
@@ -2921,14 +3226,421 @@ function startAutoBackup(enabled, intervalMs) {
 async function runBackup() {
   const s = await window.electronAPI.readSettings();
   const bkp = s.backup || {};
-  const files = tabs
-    .filter(t => t.filePath && t.type === 'editor' && t.model)
-    .map(t => ({ filePath: t.filePath, content: t.model.getValue() }));
+  // For encrypted tabs we must NOT back up the in-memory plaintext — instead
+  // copy the encrypted form already on disk. For everything else, snapshot
+  // from the Monaco model so unsaved changes get backed up too.
+  const files = [];
+  for (const t of tabs) {
+    if (!t.filePath || t.type !== 'editor' || !t.model) continue;
+    if (t.encrypted) {
+      // Skip if the file isn't on disk yet (e.g., never saved)
+      const r = await window.electronAPI.readFile(t.filePath);
+      if (r.success) files.push({ filePath: t.filePath, content: r.content });
+    } else {
+      files.push({ filePath: t.filePath, content: t.model.getValue() });
+    }
+  }
   if (!files.length) return { success: true, count: 0 };
   return window.electronAPI.backupFiles(files, {
     versionsToKeep: bkp.versions || 5,
     backupPath: bkp.path || '',
   });
+}
+
+// =============================================================================
+// Encryption — profile manager + file I/O integration
+// =============================================================================
+// See ENCRYPTION.md for the full spec. The profile lives at
+// `%AppData%\notepp\encryption\profile.json` and contains the DEK wrapped by
+// each enabled auth method (password, recovery key). Plaintext DEK is held in
+// memory only (`appEnc.rawDek`); never written to disk.
+
+async function encryptionProfilePath() {
+  const userData = await window.electronAPI.getUserDataPath();
+  return userData + '\\encryption\\profile.json';
+}
+
+// Read profile.json from disk into `appEnc.profile`. Returns the parsed profile,
+// or null if not configured / unreadable / malformed.
+async function loadEncryptionProfile() {
+  try {
+    const p = await encryptionProfilePath();
+    const res = await window.electronAPI.readFile(p);
+    if (!res.success) { appEnc.profile = null; return null; }
+    const parsed = window.NotePPCrypto.parseProfile(res.content);
+    appEnc.profile = parsed;
+    return parsed;
+  } catch (e) {
+    appEnc.profile = null;
+    return null;
+  }
+}
+
+async function saveEncryptionProfile(profile) {
+  const p = await encryptionProfilePath();
+  // write-file IPC auto-creates parent dirs (mkdirSync recursive)
+  return await window.electronAPI.writeFile(p, JSON.stringify(profile, null, 2));
+}
+
+// First-time setup. Creates a new profile + DEK + recovery key and writes the
+// profile file. The recovery key is returned to the caller to display once.
+async function createEncryptionProfile(password) {
+  const { profile, rawDek, recoveryKey } = await window.NotePPCrypto.createProfile(password);
+  const res = await saveEncryptionProfile(profile);
+  if (!res.success) throw new Error('Failed to write profile: ' + (res.error || 'unknown'));
+  appEnc.profile = profile;
+  appEnc.rawDek = rawDek;       // session starts unlocked right after setup
+  return { profile, recoveryKey };
+}
+
+// Unlock with password. Returns true on success, false on wrong password.
+async function unlockEncryptionWithPassword(password) {
+  if (!appEnc.profile) return false;
+  try {
+    const dek = await window.NotePPCrypto.unlockWithPassword(appEnc.profile, password);
+    appEnc.rawDek = dek;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Unlock with recovery key. Returns true on success, false otherwise.
+async function unlockEncryptionWithRecoveryKey(recoveryKey) {
+  if (!appEnc.profile) return false;
+  try {
+    const dek = await window.NotePPCrypto.unlockWithRecoveryKey(appEnc.profile, recoveryKey);
+    appEnc.rawDek = dek;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Best-effort: clear the DEK from memory. Doesn't guarantee the bytes are gone
+// (V8 may have moved copies), but it's the most we can do from JS.
+function lockEncryption() {
+  if (appEnc.rawDek) { try { appEnc.rawDek.fill(0); } catch {} }
+  appEnc.rawDek = null;
+  updateEncryptionStatusIndicator();
+}
+
+// Change password. Requires the profile to already be unlocked (rawDek in memory).
+// Re-wraps the DEK with a new password KEK — files on disk don't need to change.
+async function changeEncryptionPassword(newPassword) {
+  if (!isEncUnlocked()) throw new Error('Profile is locked');
+  await window.NotePPCrypto.setPasswordOnProfile(appEnc.profile, appEnc.rawDek, newPassword);
+  const res = await saveEncryptionProfile(appEnc.profile);
+  if (!res.success) throw new Error('Failed to save profile: ' + (res.error || 'unknown'));
+  return true;
+}
+
+// Generate a fresh recovery key, replacing the existing one. Profile must be unlocked.
+async function regenerateEncryptionRecoveryKey() {
+  if (!isEncUnlocked()) throw new Error('Profile is locked');
+  const { recoveryKey } = await window.NotePPCrypto.regenerateRecoveryKey(appEnc.profile, appEnc.rawDek);
+  const res = await saveEncryptionProfile(appEnc.profile);
+  if (!res.success) throw new Error('Failed to save profile: ' + (res.error || 'unknown'));
+  return recoveryKey;
+}
+
+// ── Unlock prompt (modal built in Phase 4) ────────────────────────────────
+// Resolves to true if profile is unlocked after the call, false if user cancelled.
+// If already unlocked, resolves true immediately.
+function promptUnlockDialog() {
+  if (isEncUnlocked()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const dlg = document.getElementById('enc-unlock-dialog');
+    if (!dlg) { // Modal not present yet — fall back to a synchronous prompt.
+      const pw = window.prompt('Enter your Note++ encryption password:');
+      if (!pw) return resolve(false);
+      unlockEncryptionWithPassword(pw).then(ok => {
+        if (!ok) showToast('Wrong password');
+        else updateEncryptionStatusIndicator();
+        resolve(ok);
+      });
+      return;
+    }
+    // Modal-based flow — pending resolver picked up by btn-enc-unlock-ok handler.
+    document.getElementById('enc-unlock-error').classList.add('hidden');
+    document.getElementById('enc-unlock-pw').value = '';
+    dlg.classList.remove('hidden');
+    setTimeout(() => document.getElementById('enc-unlock-pw').focus(), 50);
+    appEnc._unlockResolver = resolve;
+  });
+}
+
+// Status-bar indicator: only shown when the ACTIVE TAB is encrypted (so users
+// who haven't applied encryption to any file don't see a session-level pill).
+// When the encrypted tab is unlocked → "🔓 Unlocked"; when the session is
+// locked → "🔒 Locked". Click toggles the session lock.
+function updateEncryptionStatusIndicator() {
+  const el = document.getElementById('status-enc');
+  if (!el) return;
+  const tab = getActiveTab();
+  if (!tab || !tab.encrypted) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+  el.textContent = isEncUnlocked() ? '🔓 Unlocked' : '🔒 Locked';
+  const fp = tab.protectedBy || appEnc.profile?.fingerprint || '—';
+  el.title = `Encrypted (profile ${fp}) — click to ${isEncUnlocked() ? 'lock' : 'unlock'}`;
+}
+
+// ── Encryption settings page (refresh + button wiring) ────────────────────
+function refreshEncryptionPrefsPage() {
+  const statusText = document.getElementById('enc-status-text');
+  const fpLine     = document.getElementById('enc-fingerprint-line');
+  const fpText     = document.getElementById('enc-fingerprint-text');
+  const notSection = document.getElementById('enc-not-configured-section');
+  const okSection  = document.getElementById('enc-configured-section');
+  if (!statusText) return; // page not in DOM yet
+  if (!isEncConfigured()) {
+    statusText.textContent = 'Not configured';
+    fpLine.classList.add('hidden');
+    notSection.classList.remove('hidden');
+    okSection.classList.add('hidden');
+    return;
+  }
+  statusText.textContent = isEncUnlocked() ? '🔓 Unlocked' : '🔒 Locked';
+  fpText.textContent = appEnc.profile.fingerprint;
+  fpLine.classList.remove('hidden');
+  notSection.classList.add('hidden');
+  okSection.classList.remove('hidden');
+  // Toggle the relevant action buttons
+  document.getElementById('btn-enc-unlock').classList.toggle('hidden', isEncUnlocked());
+  document.getElementById('btn-enc-lock').classList.toggle('hidden', !isEncUnlocked());
+  // Change-password and regen-recovery require unlocked profile
+  document.getElementById('btn-enc-change-pw').disabled       = !isEncUnlocked();
+  document.getElementById('btn-enc-regen-recovery').disabled  = !isEncUnlocked();
+}
+
+function setupEncryptionPrefsPage() {
+  // Setup wizard
+  document.getElementById('btn-enc-setup').addEventListener('click', () => openEncSetupDialog('setup'));
+  // Unlock
+  document.getElementById('btn-enc-unlock').addEventListener('click', () => openEncUnlockDialog());
+  // Lock now
+  document.getElementById('btn-enc-lock').addEventListener('click', () => {
+    lockEncryption();
+    refreshEncryptionPrefsPage();
+    showToast('🔒 Encryption locked');
+  });
+  // Change password
+  document.getElementById('btn-enc-change-pw').addEventListener('click', () => openEncChangePwDialog());
+  // Regenerate recovery key
+  document.getElementById('btn-enc-regen-recovery').addEventListener('click', async () => {
+    if (!isEncUnlocked()) { showToast('Unlock the profile first'); return; }
+    const r = await window.electronAPI.messageDialog({
+      type: 'warning', title: 'Generate new recovery key',
+      message: 'This invalidates your current recovery key.',
+      detail: 'Anyone holding the old recovery key will no longer be able to decrypt your files. The new key replaces it.',
+      buttons: ['Generate new key', 'Cancel'], defaultId: 0, cancelId: 1,
+    });
+    if (r.response !== 0) return;
+    try {
+      const newKey = await regenerateEncryptionRecoveryKey();
+      openEncRecoveryDisplayDialog(newKey);
+    } catch (e) {
+      showToast('Failed: ' + (e.message || e));
+    }
+  });
+  // Restore from recovery key (when not configured)
+  document.getElementById('link-enc-restore').addEventListener('click', (e) => {
+    e.preventDefault();
+    showToast('Open the encrypted file directly — Note++ will offer to set up a profile from its recovery key.');
+  });
+  // Reset using recovery key
+  document.getElementById('link-enc-use-recovery').addEventListener('click', (e) => {
+    e.preventDefault();
+    openEncRecoveryEntryDialog('reset');
+  });
+
+  // ── Setup dialog wiring ───────────────────────────────────────────────────
+  document.getElementById('btn-enc-setup-ok').addEventListener('click', async () => {
+    const pw  = document.getElementById('enc-setup-pw').value;
+    const pw2 = document.getElementById('enc-setup-pw2').value;
+    const err = document.getElementById('enc-setup-error');
+    err.classList.add('hidden');
+    if (pw.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.classList.remove('hidden'); return; }
+    if (pw !== pw2)    { err.textContent = 'Passwords do not match.'; err.classList.remove('hidden'); return; }
+    try {
+      const { recoveryKey } = await createEncryptionProfile(pw);
+      document.getElementById('enc-setup-dialog').classList.add('hidden');
+      refreshEncryptionPrefsPage();
+      updateEncryptionStatusIndicator();
+      openEncRecoveryDisplayDialog(recoveryKey);
+    } catch (e) {
+      err.textContent = 'Failed: ' + (e.message || e);
+      err.classList.remove('hidden');
+    }
+  });
+
+  // ── Unlock dialog wiring ──────────────────────────────────────────────────
+  document.getElementById('btn-enc-unlock-ok').addEventListener('click', async () => {
+    const pw  = document.getElementById('enc-unlock-pw').value;
+    const err = document.getElementById('enc-unlock-error');
+    err.classList.add('hidden');
+    if (!pw) { err.textContent = 'Enter your password.'; err.classList.remove('hidden'); return; }
+    const ok = await unlockEncryptionWithPassword(pw);
+    if (!ok) { err.textContent = 'Wrong password.'; err.classList.remove('hidden'); return; }
+    document.getElementById('enc-unlock-dialog').classList.add('hidden');
+    refreshEncryptionPrefsPage();
+    updateEncryptionStatusIndicator();
+    if (appEnc._unlockResolver) { appEnc._unlockResolver(true); appEnc._unlockResolver = null; }
+  });
+  document.getElementById('enc-unlock-pw').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-enc-unlock-ok').click();
+  });
+  // Cancel buttons resolve the unlock-promise as false
+  ['btn-enc-unlock-cancel', 'btn-enc-unlock-cancel-x'].forEach(id => {
+    document.getElementById(id).addEventListener('click', () => {
+      if (appEnc._unlockResolver) { appEnc._unlockResolver(false); appEnc._unlockResolver = null; }
+    });
+  });
+  // "Use recovery key instead"
+  document.getElementById('link-enc-unlock-recovery').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('enc-unlock-dialog').classList.add('hidden');
+    if (appEnc._unlockResolver) { appEnc._unlockResolver(false); appEnc._unlockResolver = null; }
+    openEncRecoveryEntryDialog('unlock');
+  });
+
+  // ── Change-password dialog wiring ─────────────────────────────────────────
+  document.getElementById('btn-enc-changepw-ok').addEventListener('click', async () => {
+    const oldPw  = document.getElementById('enc-changepw-old').value;
+    const newPw  = document.getElementById('enc-changepw-new').value;
+    const newPw2 = document.getElementById('enc-changepw-new2').value;
+    const err    = document.getElementById('enc-changepw-error');
+    err.classList.add('hidden');
+    if (newPw.length < 8) { err.textContent = 'New password must be at least 8 characters.'; err.classList.remove('hidden'); return; }
+    if (newPw !== newPw2) { err.textContent = 'New passwords do not match.'; err.classList.remove('hidden'); return; }
+    // Verify old password
+    const verifyOk = await unlockEncryptionWithPassword(oldPw);
+    if (!verifyOk) { err.textContent = 'Current password is incorrect.'; err.classList.remove('hidden'); return; }
+    try {
+      await changeEncryptionPassword(newPw);
+      document.getElementById('enc-changepw-dialog').classList.add('hidden');
+      refreshEncryptionPrefsPage();
+      showToast('Password changed');
+    } catch (e) {
+      err.textContent = 'Failed: ' + (e.message || e);
+      err.classList.remove('hidden');
+    }
+  });
+
+  // ── Recovery display dialog wiring (shows recovery key once) ──────────────
+  document.getElementById('enc-recovery-saved-ack').addEventListener('change', (e) => {
+    document.getElementById('btn-enc-recovery-done').disabled = !e.target.checked;
+  });
+  document.getElementById('btn-enc-recovery-done').addEventListener('click', () => {
+    document.getElementById('enc-recovery-dialog').classList.add('hidden');
+  });
+  document.getElementById('btn-enc-recovery-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(document.getElementById('enc-recovery-key-display').textContent.trim());
+      showToast('Recovery key copied to clipboard');
+    } catch { showToast('Copy failed'); }
+  });
+  document.getElementById('btn-enc-recovery-download').addEventListener('click', async () => {
+    const key = document.getElementById('enc-recovery-key-display').textContent.trim();
+    const fingerprint = appEnc.profile?.fingerprint || '';
+    const json = JSON.stringify({
+      _notepp_recovery: true, version: 1, fingerprint,
+      createdAt: new Date().toISOString(), recoveryKey: key,
+    }, null, 2);
+    const r = await window.electronAPI.saveDialog({
+      defaultPath: `notepp-recovery-${fingerprint}.json`,
+      filters: [{ name: 'Recovery file', extensions: ['json'] }],
+    });
+    if (r.canceled) return;
+    const w = await window.electronAPI.writeFile(r.filePath, json);
+    if (w.success) showToast('Recovery file saved');
+    else showToast('Save failed: ' + w.error);
+  });
+
+  // ── Recovery-entry dialog wiring (paste recovery key to unlock or reset) ──
+  document.getElementById('btn-enc-recovery-entry-ok').addEventListener('click', async () => {
+    const key   = document.getElementById('enc-recovery-entry-input').value.trim();
+    const err   = document.getElementById('enc-recovery-entry-error');
+    const mode  = document.getElementById('enc-recovery-entry-dialog').dataset.mode || 'unlock';
+    err.classList.add('hidden');
+    if (!key) { err.textContent = 'Paste your recovery key.'; err.classList.remove('hidden'); return; }
+    const ok = await unlockEncryptionWithRecoveryKey(key);
+    if (!ok) { err.textContent = 'Recovery key is invalid or does not match the active profile.'; err.classList.remove('hidden'); return; }
+    if (mode === 'reset') {
+      // Also require new password
+      const npw  = document.getElementById('enc-recovery-entry-newpw').value;
+      const npw2 = document.getElementById('enc-recovery-entry-newpw2').value;
+      if (npw.length < 8) { err.textContent = 'New password must be at least 8 characters.'; err.classList.remove('hidden'); return; }
+      if (npw !== npw2)   { err.textContent = 'New passwords do not match.'; err.classList.remove('hidden'); return; }
+      try {
+        await changeEncryptionPassword(npw);
+      } catch (e) {
+        err.textContent = 'Failed: ' + (e.message || e);
+        err.classList.remove('hidden');
+        return;
+      }
+      showToast('Password reset');
+    }
+    document.getElementById('enc-recovery-entry-dialog').classList.add('hidden');
+    refreshEncryptionPrefsPage();
+    updateEncryptionStatusIndicator();
+  });
+}
+
+// ── Modal openers ─────────────────────────────────────────────────────────
+function openEncSetupDialog() {
+  document.getElementById('enc-setup-pw').value = '';
+  document.getElementById('enc-setup-pw2').value = '';
+  document.getElementById('enc-setup-error').classList.add('hidden');
+  document.getElementById('enc-setup-dialog').classList.remove('hidden');
+  setTimeout(() => document.getElementById('enc-setup-pw').focus(), 50);
+}
+
+function openEncUnlockDialog() {
+  document.getElementById('enc-unlock-pw').value = '';
+  document.getElementById('enc-unlock-error').classList.add('hidden');
+  document.getElementById('enc-unlock-fingerprint').textContent = appEnc.profile?.fingerprint || '—';
+  document.getElementById('enc-unlock-dialog').classList.remove('hidden');
+  setTimeout(() => document.getElementById('enc-unlock-pw').focus(), 50);
+}
+
+function openEncChangePwDialog() {
+  if (!isEncUnlocked()) { showToast('Unlock the profile first'); return; }
+  document.getElementById('enc-changepw-old').value = '';
+  document.getElementById('enc-changepw-new').value = '';
+  document.getElementById('enc-changepw-new2').value = '';
+  document.getElementById('enc-changepw-error').classList.add('hidden');
+  document.getElementById('enc-changepw-dialog').classList.remove('hidden');
+  setTimeout(() => document.getElementById('enc-changepw-old').focus(), 50);
+}
+
+function openEncRecoveryDisplayDialog(recoveryKey) {
+  document.getElementById('enc-recovery-key-display').textContent = recoveryKey;
+  document.getElementById('enc-recovery-fingerprint').textContent = appEnc.profile?.fingerprint || '—';
+  document.getElementById('enc-recovery-saved-ack').checked = false;
+  document.getElementById('btn-enc-recovery-done').disabled = true;
+  document.getElementById('enc-recovery-dialog').classList.remove('hidden');
+}
+
+// mode = 'unlock' (just unlock) or 'reset' (unlock + set new password)
+function openEncRecoveryEntryDialog(mode) {
+  const dlg = document.getElementById('enc-recovery-entry-dialog');
+  dlg.dataset.mode = mode;
+  document.getElementById('enc-recovery-entry-input').value = '';
+  document.getElementById('enc-recovery-entry-error').classList.add('hidden');
+  document.getElementById('enc-recovery-entry-newpw-block').classList.toggle('hidden', mode !== 'reset');
+  if (mode === 'reset') {
+    document.getElementById('enc-recovery-entry-title').textContent = '🔑 Reset password using recovery key';
+    document.getElementById('enc-recovery-entry-newpw').value = '';
+    document.getElementById('enc-recovery-entry-newpw2').value = '';
+  } else {
+    document.getElementById('enc-recovery-entry-title').textContent = '🔑 Unlock with recovery key';
+  }
+  dlg.classList.remove('hidden');
+  setTimeout(() => document.getElementById('enc-recovery-entry-input').focus(), 50);
 }
 
 // Preferences AI page events (wired up in setupModals)

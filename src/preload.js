@@ -36,10 +36,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeMenuListener: (ch) => ipcRenderer.removeAllListeners(ch),
 
   // AI Assistant (Ollama)
-  aiCheck:      ()               => ipcRenderer.invoke('ai-check'),
-  aiGenerate:   (opts)           => ipcRenderer.invoke('ai-generate', opts),
-  aiAbort:      ()               => ipcRenderer.invoke('ai-abort'),
-  aiPull:       (model)          => ipcRenderer.invoke('ai-pull', model),
+  aiCheck:           ()              => ipcRenderer.invoke('ai-check'),
+  aiDetectInstalled: ()              => ipcRenderer.invoke('ai-detect-installed'),
+  aiStartServer:     (path)          => ipcRenderer.invoke('ai-start-server', path),
+  aiGenerate:        (opts)          => ipcRenderer.invoke('ai-generate', opts),
+  aiChat:            (opts)          => ipcRenderer.invoke('ai-chat', opts),
+  aiAbort:           ()              => ipcRenderer.invoke('ai-abort'),
+  aiPull:            (model)         => ipcRenderer.invoke('ai-pull', model),
   onAiToken:    (cb)             => ipcRenderer.on('ai-token',        (e, t)    => cb(t)),
   onAiDone:     (cb)             => ipcRenderer.on('ai-done',         ()        => cb()),
   onAiProgress: (cb)             => ipcRenderer.on('ai-pull-progress',(e, d)    => cb(d)),
@@ -49,4 +52,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('ai-pull-progress');
   },
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
+
+  // Git integration — see GIT.md
+  git: {
+    findRepo:     (path)            => ipcRenderer.invoke('git-find-repo', path),
+    status:       (root)            => ipcRenderer.invoke('git-status', root),
+    stage:        (root, paths)     => ipcRenderer.invoke('git-stage', root, paths),
+    unstage:      (root, paths)     => ipcRenderer.invoke('git-unstage', root, paths),
+    discard:      (root, paths)     => ipcRenderer.invoke('git-discard', root, paths),
+    clean:        (root, paths)     => ipcRenderer.invoke('git-clean', root, paths),
+    commit:       (root, msg)       => ipcRenderer.invoke('git-commit', root, msg),
+    commitAmend:  (root, msg)       => ipcRenderer.invoke('git-commit-amend', root, msg),
+    fetch:        (root)            => ipcRenderer.invoke('git-fetch', root),
+    pull:         (root)            => ipcRenderer.invoke('git-pull', root),
+    push:         (root)            => ipcRenderer.invoke('git-push', root),
+    pushUpstream: (root, r, b)      => ipcRenderer.invoke('git-push-upstream', root, r, b),
+    sync:         (root)            => ipcRenderer.invoke('git-sync', root),
+    branchList:   (root)            => ipcRenderer.invoke('git-branch-list', root),
+    branchSwitch: (root, name)      => ipcRenderer.invoke('git-branch-switch', root, name),
+    branchCreate: (root, n, f)      => ipcRenderer.invoke('git-branch-create', root, n, f),
+    installed:    ()                => ipcRenderer.invoke('git-installed'),
+  },
 });

@@ -183,6 +183,10 @@ require(['vs/editor/editor.main'], () => {
   // Load encryption profile (if previously configured). Doesn't unlock — just
   // detects "is this install set up?". Unlocking happens on demand.
   loadEncryptionProfile().then(() => updateEncryptionStatusIndicator());
+
+  // Initialise git integration (detects `git` on PATH, attaches focus + fetch timers)
+  setupSourceControlPanel();
+  initGitIntegration();
   restoreSession().then(restored => { if (!restored) createTab(); });
 
   // Events
@@ -219,7 +223,8 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => formatWithAutoDetect());
   editor.addCommand(monaco.KeyCode.F5, () => runCurrentFile());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyV, () => togglePreview());
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => openGameTab());
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => openGameTab());
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => toggleSourceControlPanel());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, () => toggleAiPanel());
   editor.addCommand(monaco.KeyCode.F12, () => editor.getAction('editor.action.revealDefinition')?.run());
   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F12, () => editor.getAction('editor.action.goToReferences')?.run());
@@ -612,6 +617,7 @@ function activateTab(id) {
   updateLanguageStatus();
   updateEncryptToolbarButton();
   updateEncryptionStatusIndicator();
+  updateActiveGitRepo();        // Git status follows the active tab's repo
 }
 
 // Reflect active-tab encryption state on the toolbar 🔒 button.
@@ -983,6 +989,8 @@ async function saveTabFile(tab, forceAs = false) {
   renderTabs();
   updateTitle();
   updateLanguageStatus();
+  // Saving may move the file in/out of git tracking — refresh repo status.
+  if (activeGitRepo) refreshGitStatus(activeGitRepo);
   return true;
 }
 
@@ -2328,9 +2336,10 @@ function setupToolbar() {
         'games': openGameTab,
         'ai': toggleAiPanel,
         'encrypt-toggle': () => toggleTabEncryption(),
+        'source-control': () => toggleSourceControlPanel(),
       };
       map[a]?.();
-      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle') editor.focus();
+      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control') editor.focus();
     });
   });
 
@@ -2547,7 +2556,25 @@ async function renderTreeDir(container, dirPath, depth) {
     row.className = 'tree-item';
     row.style.paddingLeft = (8 + depth * 16) + 'px';
     row.title = fullPath;
-    row.textContent = (entry.isDir ? '📁 ' : getFileEmoji(entry.name) + ' ') + entry.name;
+
+    // Build content (icon + name + optional git badge) using DOM nodes so the
+    // badge can be coloured + tooltipped independently.
+    const label = document.createElement('span');
+    label.textContent = (entry.isDir ? '📁 ' : getFileEmoji(entry.name) + ' ') + entry.name;
+    row.appendChild(label);
+
+    // Git decoration for files (skip dirs — VS Code shows aggregate badges
+    // for folders, but that's expensive to compute per render; defer to v1.1)
+    if (!entry.isDir) {
+      const dec = lookupGitDecoration(fullPath);
+      if (dec) {
+        const badge = document.createElement('span');
+        badge.className = 'tree-git-badge sc-status-' + dec.cls;
+        badge.textContent = dec.ch;
+        badge.title = dec.label;
+        row.appendChild(badge);
+      }
+    }
 
     if (entry.isDir) {
       let expanded = false, child = null;
@@ -2564,6 +2591,24 @@ async function renderTreeDir(container, dirPath, depth) {
     }
     container.appendChild(row);
   }
+}
+
+// Given an absolute file path, return { ch, cls, label } for the git decoration
+// (or null if the file isn't inside the active repo / isn't dirty).
+function lookupGitDecoration(absPath) {
+  if (!activeGitRepo) return null;
+  const s = gitRepos.get(activeGitRepo);
+  if (!s || !s.files?.length) return null;
+  // Normalise to forward slashes and strip the repo root prefix
+  const norm = absPath.replace(/\\/g, '/');
+  const rootNorm = activeGitRepo.replace(/\\/g, '/').replace(/\/$/, '');
+  if (!norm.startsWith(rootNorm + '/')) return null;
+  const rel = norm.slice(rootNorm.length + 1);
+  const f = s.files.find(x => x.path === rel);
+  if (!f) return null;
+  const g = scStatusGlyph(f, f.x !== ' ' && f.x !== '?' ? 'staged' : 'unstaged');
+  const labels = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', U: 'Conflict', Q: 'Untracked' };
+  return { ch: g.ch, cls: g.cls, label: labels[g.cls] || 'Changed' };
 }
 
 // ===== Auto-Save Session =====
@@ -2704,10 +2749,22 @@ function showToast(msg) {
 // ===== AI Assistant Panel =====
 let aiPanelOpen    = false;
 let aiGenerating   = false;
-let aiResponse     = '';          // accumulated response text
+let aiResponse     = '';          // last assistant message (used by Insert/Replace actions)
 let aiModel        = '';          // currently selected model
 let aiResizeActive = false;
 let aiRefreshing   = false;       // prevents concurrent refreshAiModelList() calls
+
+// Multi-turn chat history. The first entry (when present) is the system
+// prompt that includes file context — set at the start of each conversation.
+// Subsequent entries alternate user / assistant.
+let aiMessages = [];               // [{ role: 'system'|'user'|'assistant', content }]
+
+// Agent mode — when true, AI's response is treated as the new file/selection
+// content and shown in a Monaco diff modal for Apply/Reject. Per-session only.
+let aiAgentMode = false;
+// When agent mode is generating, we capture context here so we can wire the
+// diff modal correctly when the response is done.
+let aiAgentTurn = null;            // { originalContent, isSelection, selRange, snapshotText }
 
 const RECOMMENDED_MODELS = [
   { name: 'phi3:mini',             size: '~2.3 GB', desc: 'Best for writing & markdown' },
@@ -2727,6 +2784,19 @@ function setupAiPanel() {
 
   // Wire close/settings buttons
   document.getElementById('btn-ai-close').addEventListener('click', closeAiPanel);
+  document.getElementById('btn-ai-new-chat').addEventListener('click', newAiConversation);
+  document.getElementById('btn-ai-mode-toggle').addEventListener('click', toggleAgentMode);
+
+  // Diff modal — Apply / Reject / Esc / × close
+  document.getElementById('ai-diff-apply').addEventListener('click', applyAgentDiff);
+  document.getElementById('ai-diff-reject').addEventListener('click', hideAgentDiff);
+  document.getElementById('ai-diff-x').addEventListener('click', hideAgentDiff);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !document.getElementById('ai-diff-dialog').classList.contains('hidden')) {
+      hideAgentDiff();
+    }
+  });
+
   document.getElementById('btn-ai-settings').addEventListener('click', () => {
     document.getElementById('prefs-dialog').classList.remove('hidden');
     // Switch to AI settings pane
@@ -2776,34 +2846,50 @@ function setupAiPanel() {
   });
   document.addEventListener('mouseup', () => { aiResizeActive = false; });
 
-  // Token streaming: append to response text
+  // Token streaming: append to the LAST assistant message in the chat thread
   window.electronAPI.onAiToken(token => {
     aiResponse += token;
-    const el = document.getElementById('ai-response-text');
-    el.classList.remove('hidden');
-    document.getElementById('ai-response-placeholder').classList.add('hidden');
-    // Show text + blinking cursor
-    el.innerHTML = escapeHtml(aiResponse) + '<span class="ai-cursor"></span>';
-    el.parentElement.scrollTop = el.parentElement.scrollHeight;
+    // Mirror into aiMessages so render reflects the live state
+    if (aiMessages.length && aiMessages[aiMessages.length - 1].role === 'assistant') {
+      aiMessages[aiMessages.length - 1].content = aiResponse;
+    }
+    renderAiConversation(true);
   });
 
   window.electronAPI.onAiDone(() => {
     aiGenerating = false;
-    // Remove cursor, show action bar
-    const el = document.getElementById('ai-response-text');
-    el.textContent = aiResponse;
-    document.getElementById('ai-action-bar').classList.remove('hidden');
-    document.getElementById('btn-ai-send').disabled = false;
+    const lastMsg = aiMessages[aiMessages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') lastMsg.content = aiResponse;
+
+    // Agent mode: route the response to the diff modal (don't show the
+    // suggest-and-apply action bar; the diff modal handles Apply/Reject).
+    if (lastMsg && lastMsg.agent && aiAgentTurn) {
+      const tab = getActiveTab();
+      const language = tab?.language || 'plaintext';
+      // Snapshot the diff so the "Review diff →" link can re-open it later
+      lastMsg.diffSnapshot = {
+        originalContent: aiAgentTurn.originalContent,
+        newContent: aiResponse,
+        language,
+        isSelection: aiAgentTurn.isSelection,
+        selRange: aiAgentTurn.selRange,
+      };
+      renderAiConversation(false);
+      showAgentDiff(lastMsg.diffSnapshot);
+      // Action bar is for chat mode only — keep hidden in agent mode
+      document.getElementById('ai-action-bar').classList.add('hidden');
+    } else {
+      renderAiConversation(false);
+      document.getElementById('ai-action-bar').classList.remove('hidden');
+    }
+    document.getElementById('btn-ai-send').disabled = !document.getElementById('ai-prompt')?.value.trim();
     document.getElementById('btn-ai-send').textContent = 'Send ↵';
-    // Only restore 'online' dot if the model dropdown still has a valid selection.
-    // If the dropdown was reset to an error state by a concurrent refresh, don't
-    // overwrite the dot with 'online' — that would cause the green-dot + "Ollama not
-    // running" inconsistency the user reported.
+    // Refocus the input so user can immediately type a follow-up
+    setTimeout(() => document.getElementById('ai-prompt')?.focus(), 50);
     const modelSel = document.getElementById('ai-model-select');
     if (modelSel?.value) {
       setAiStatus('online');
     } else {
-      // Dropdown lost its model — re-check to sync both indicators correctly
       refreshAiModelList();
     }
   });
@@ -2887,58 +2973,279 @@ async function sendAiPrompt() {
   const model    = modelSel.value;
   if (!model) { showToast('Select a model first'); return; }
 
-  aiGenerating = true;
-  aiResponse   = '';
-  resetAiResponse(false);
+  // Snapshot the current scope (selection or whole file) for agent mode so
+  // the diff modal can compare against the user's CURRENT content, not the
+  // version captured at conversation start (file may have changed since).
+  if (aiAgentMode) {
+    const editorModel = editor.getModel();
+    const sel = editor.getSelection();
+    const isSelection = sel && !sel.isEmpty();
+    aiAgentTurn = {
+      isSelection,
+      selRange: isSelection ? sel : null,
+      originalContent: isSelection ? editorModel.getValueInRange(sel) : editorModel.getValue(),
+    };
+  }
 
+  // System message: agent mode rebuilds it every turn (current file may
+  // have changed via a previous Apply); chat mode builds it once.
+  if (aiAgentMode) {
+    const sys = await buildAgentSystemPrompt(tab, aiAgentTurn);
+    if (aiMessages.length && aiMessages[0].role === 'system') aiMessages[0].content = sys;
+    else aiMessages.unshift({ role: 'system', content: sys });
+  } else if (aiMessages.length === 0) {
+    aiMessages.push({ role: 'system', content: await buildAiSystemPrompt(tab, userPrompt) });
+  }
+
+  // Append the user message and render the thread
+  aiMessages.push({ role: 'user', content: userPrompt });
+  renderAiConversation();
+
+  // Clear the input so the user can immediately type a follow-up
+  promptEl.value = '';
+  promptEl.style.height = 'auto';
+
+  // Start the assistant turn (empty placeholder; tokens will fill it in)
+  aiResponse = '';
+  aiMessages.push({ role: 'assistant', content: '', agent: aiAgentMode });
+  aiGenerating = true;
   document.getElementById('btn-ai-send').disabled = true;
   document.getElementById('btn-ai-send').textContent = '…';
+  document.getElementById('ai-action-bar').classList.add('hidden');
   setAiStatus('busy');
+  renderAiConversation(true);
 
-  // Build context-aware system prompt
+  // Send to Ollama via the multi-turn chat endpoint
+  window.electronAPI.aiChat({ model, messages: aiMessages.slice(0, -1) /* exclude the empty assistant placeholder */ });
+}
+
+// Builds the per-conversation system prompt (file context, language hints, output rules).
+// Called only on the FIRST turn of a conversation. The resulting string is
+// frozen into aiMessages[0] so subsequent turns share the same context.
+async function buildAiSystemPrompt(tab, firstUserPrompt) {
   const settings    = await window.electronAPI.readSettings();
   const userSystem  = settings?.ai?.systemPrompt || '';
   const langName    = tab.language || 'plaintext';
   const fileName    = tab.name || 'untitled';
   const editorModel = editor.getModel();
   const fullContent = editorModel.getValue();
-
-  // Selected text takes priority; otherwise send full file (capped at 6000 chars)
-  const selection = editor.getSelection();
-  const selText   = selection && !selection.isEmpty()
+  const selection   = editor.getSelection();
+  const selText     = selection && !selection.isEmpty()
     ? editorModel.getValueInRange(selection) : '';
-
   const MAX_CONTENT = 6000;
   const fileContext = fullContent.length <= MAX_CONTENT
     ? fullContent
     : fullContent.slice(0, MAX_CONTENT) + '\n…[file truncated]';
 
-  // Detect "fix" / "correct" / "rewrite" intent — AI should replace the whole selection or file section
-  const fixIntent = /\b(fix|correct|repair|rewrite|improve|clean|refactor|error|bug|wrong|broken|syntax)\b/i.test(userPrompt);
-
-  const system = [
+  return [
     userSystem,
     `You are an expert writing and coding assistant embedded in a text editor called Note++.`,
     `The user is editing a ${langName} file named "${fileName}".`,
     ``,
-    `Your task: output ONLY the corrected/generated text — no explanations, no preamble, no "Here is..." intro.`,
-    `Rules:`,
-    `- Output raw content only, ready to paste directly into the editor`,
-    `- Do NOT add markdown code fences (triple backticks) UNLESS the file is .md or .markdown`,
+    `When the user asks you to GENERATE or REWRITE content for the file:`,
+    `- Output the raw content only — ready to paste directly into the editor`,
+    `- Do NOT add markdown code fences UNLESS the file is .md or .markdown`,
     `- For Markdown files: use correct Markdown + Mermaid syntax; Mermaid goes inside \`\`\`mermaid fences`,
     `- In Mermaid diagrams: use only valid Mermaid syntax — no if/else, no programming constructs`,
     `- Match the indentation and style of the file`,
-    `- If asked to fix/correct: output the fully corrected version of the relevant section`,
+    ``,
+    `When the user asks a QUESTION or for a brief explanation, answer concisely in plain prose.`,
+    `Use your judgement: if the user wants text to insert into the file, output just the text; if they want clarification, answer the question.`,
     ``,
     selText
       ? `The user has SELECTED this text (operate on it):\n\`\`\`\n${selText}\n\`\`\``
       : `Full file content (${fullContent.length} chars):\n\`\`\`\n${fileContext}\n\`\`\``,
-    fixIntent && !selText
-      ? `\nThe user wants you to FIX something in the file above. Output the corrected version of the relevant section only.`
-      : '',
-  ].filter(s => s !== undefined).join('\n');
+  ].filter(Boolean).join('\n');
+}
 
-  window.electronAPI.aiGenerate({ model, prompt: userPrompt, system });
+// Build the system prompt for AGENT mode. Includes the entire current
+// scope (selection or whole file) so the model has full context for the
+// rewrite, and instructs it to output ONLY the replacement content.
+async function buildAgentSystemPrompt(tab, turn) {
+  const langName = tab.language || 'plaintext';
+  const fileName = tab.name || 'untitled';
+  const scope = turn.isSelection ? 'the selected text' : 'the entire file';
+
+  return [
+    `You are an expert coding assistant in AGENT MODE inside the Note++ editor.`,
+    ``,
+    `RULES (critical):`,
+    `- Your output IS the new content. It will REPLACE ${scope}.`,
+    `- Output ONLY the complete updated content — no explanations, no preamble, no markdown code fences (unless the file is .md/.markdown and fences are part of its content).`,
+    `- Preserve everything you weren't asked to change. Match indentation, style, and language conventions exactly.`,
+    `- If the user asks a clarifying question, output the current content unchanged.`,
+    ``,
+    `File: ${fileName}    Language: ${langName}    Scope: ${scope}`,
+    ``,
+    `Current ${scope.toUpperCase()} (your output replaces this):`,
+    '```',
+    turn.originalContent,
+    '```',
+  ].join('\n');
+}
+
+// Toggle agent mode on/off. Visual: button text + colour change.
+function toggleAgentMode() {
+  aiAgentMode = !aiAgentMode;
+  const btn = document.getElementById('btn-ai-mode-toggle');
+  if (aiAgentMode) {
+    btn.textContent = '⚡ Agent';
+    btn.classList.add('agent-active');
+  } else {
+    btn.textContent = '🤖 Chat';
+    btn.classList.remove('agent-active');
+  }
+  // Update the input placeholder so users know what to type
+  const promptEl = document.getElementById('ai-prompt');
+  if (promptEl) {
+    promptEl.placeholder = aiAgentMode
+      ? '⚡ Agent mode: tell AI what to change… (Enter to send · Shift+Enter for newline)'
+      : 'Describe what to write… (Enter to send · Shift+Enter for newline)';
+  }
+}
+
+// ── Diff modal (Monaco diff editor) ──────────────────────────────────────
+let aiDiffEditor = null;            // Monaco diff editor instance (lazy)
+let aiDiffOriginalModel = null;     // text models for left/right
+let aiDiffModifiedModel = null;
+let aiCurrentDiff = null;           // { originalContent, newContent, language, isSelection, selRange }
+
+function ensureDiffEditor() {
+  if (aiDiffEditor) return aiDiffEditor;
+  const container = document.getElementById('ai-diff-container');
+  aiDiffEditor = monaco.editor.createDiffEditor(container, {
+    readOnly: true,
+    automaticLayout: true,
+    renderSideBySide: true,
+    fontSize: 13,
+    fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    theme: isDarkMode ? 'vs-dark' : 'vs',
+  });
+  return aiDiffEditor;
+}
+
+function showAgentDiff({ originalContent, newContent, language, isSelection, selRange }) {
+  aiCurrentDiff = { originalContent, newContent, language, isSelection, selRange };
+  const dlg = document.getElementById('ai-diff-dialog');
+  dlg.classList.remove('hidden');
+
+  const ed = ensureDiffEditor();
+  // Dispose old models then create fresh ones in the right language
+  if (aiDiffOriginalModel) try { aiDiffOriginalModel.dispose(); } catch {}
+  if (aiDiffModifiedModel) try { aiDiffModifiedModel.dispose(); } catch {}
+  aiDiffOriginalModel = monaco.editor.createModel(originalContent || '', language || 'plaintext');
+  aiDiffModifiedModel = monaco.editor.createModel(newContent || '',     language || 'plaintext');
+  ed.setModel({ original: aiDiffOriginalModel, modified: aiDiffModifiedModel });
+
+  // Summary line
+  const before = (originalContent || '').split('\n').length;
+  const after  = (newContent || '').split('\n').length;
+  const delta  = after - before;
+  const scopeStr = isSelection ? 'selection' : 'whole file';
+  document.getElementById('ai-diff-summary').textContent =
+    `Scope: ${scopeStr} · ${before} → ${after} lines (${delta >= 0 ? '+' : ''}${delta}) · review and Apply or Reject`;
+
+  // Trigger a layout pass after the modal becomes visible
+  setTimeout(() => { try { ed.layout(); } catch {} }, 50);
+}
+
+function hideAgentDiff() {
+  document.getElementById('ai-diff-dialog').classList.add('hidden');
+}
+
+function applyAgentDiff() {
+  if (!aiCurrentDiff) return;
+  const { newContent, isSelection, selRange } = aiCurrentDiff;
+  const tab = getActiveTab();
+  if (!tab || tab.type === 'game' || tab.type === 'whiteboard') return;
+  const model = editor.getModel();
+  editor.pushUndoStop();
+  if (isSelection && selRange) {
+    editor.executeEdits('ai-agent', [{ range: selRange, text: newContent, forceMoveMarkers: true }]);
+  } else {
+    const fullRange = model.getFullModelRange();
+    editor.executeEdits('ai-agent', [{ range: fullRange, text: newContent, forceMoveMarkers: true }]);
+  }
+  editor.pushUndoStop();
+  showToast('✓ Applied AI change');
+  hideAgentDiff();
+  editor.focus();
+}
+
+// Render the chat thread inside #ai-response-area. Highlights the streaming
+// assistant turn while in progress.
+function renderAiConversation(isStreaming) {
+  const ph  = document.getElementById('ai-response-placeholder');
+  const out = document.getElementById('ai-response-text');
+  // Hide the friendly intro, show the chat container
+  ph.classList.add('hidden');
+  out.classList.remove('hidden');
+
+  // Skip the system message in the visible thread — it's just context for the model
+  const visible = aiMessages.filter(m => m.role !== 'system');
+  if (!visible.length) {
+    out.innerHTML = '';
+    out.classList.add('hidden');
+    ph.classList.remove('hidden');
+    return;
+  }
+
+  out.innerHTML = visible.map((m, i) => {
+    const isLast = i === visible.length - 1;
+    const role = m.role === 'user' ? 'You' : '🤖 Assistant';
+    const cls = m.role === 'user' ? 'ai-msg-user' : 'ai-msg-assistant';
+    const cursor = (isStreaming && m.role === 'assistant' && isLast)
+      ? '<span class="ai-cursor"></span>' : '';
+    // Agent-mode assistant turns are shown as a summary line — the raw
+    // file-content reply would flood the chat thread otherwise.
+    const isAgentReply = m.role === 'assistant' && (m.agent === true);
+    let bodyHtml;
+    if (isAgentReply) {
+      const lines = (m.content || '').split('\n').length;
+      const reviewable = (m.content || '').length > 0 && !isStreaming;
+      bodyHtml = `<div class="ai-agent-summary">⚡ Proposed change — ${lines} lines${
+        reviewable ? ` · <span class="ai-agent-summary-link" data-msg-idx="${i}">Review diff →</span>` : ' · generating…'
+      }${cursor}</div>`;
+    } else {
+      bodyHtml = `<div class="ai-msg-content">${escapeHtml(m.content || (isStreaming && isLast ? '' : ''))}${cursor}</div>`;
+    }
+    return `
+      <div class="ai-msg ${cls}">
+        <div class="ai-msg-role">${role}</div>
+        ${bodyHtml}
+      </div>`;
+  }).join('');
+  // Wire the "Review diff →" links so users can re-open a closed diff modal
+  out.querySelectorAll('.ai-agent-summary-link').forEach(link => {
+    link.addEventListener('click', () => {
+      const idx = parseInt(link.dataset.msgIdx, 10);
+      const msg = visible[idx];
+      if (!msg || !msg.diffSnapshot) return;
+      showAgentDiff(msg.diffSnapshot);
+    });
+  });
+  out.parentElement.scrollTop = out.parentElement.scrollHeight;
+}
+
+// Reset the conversation. Called from the "+" New chat button.
+function newAiConversation() {
+  if (aiGenerating) { window.electronAPI.aiAbort(); aiGenerating = false; }
+  aiMessages = [];
+  aiResponse = '';
+  document.getElementById('ai-response-text').innerHTML = '';
+  document.getElementById('ai-response-text').classList.add('hidden');
+  document.getElementById('ai-action-bar').classList.add('hidden');
+  const ph = document.getElementById('ai-response-placeholder');
+  ph.classList.remove('hidden');
+  ph.innerHTML = `
+    <span>Ask AI to write, continue, or transform text in this file.</span><br>
+    <span style="font-size:0.72rem;color:#484f58">e.g. "write a mermaid user-login flow" · "add JSDoc to this function" · "convert to TypeScript"</span>`;
+  document.getElementById('btn-ai-send').disabled = !document.getElementById('ai-prompt').value.trim();
+  document.getElementById('btn-ai-send').textContent = 'Send ↵';
+  setAiStatus('online');
+  document.getElementById('ai-prompt')?.focus();
 }
 
 function applyAiResponse(mode) {
@@ -3008,8 +3315,149 @@ function openAiPanel() {
   document.getElementById('ai-panel').classList.remove('hidden');
   document.getElementById('ai-resize-handle').classList.remove('hidden');
   document.getElementById('btn-ai').classList.add('active');
-  refreshAiModelList();
+  // Run the auto-magic setup: detect Ollama → auto-start daemon → auto-pull
+  // a default model if none installed → finally settle on a usable state.
+  // refreshAiModelList() runs at the end of aiAutoSetup() to populate UI.
+  aiAutoSetup();
   setTimeout(() => document.getElementById('ai-prompt').focus(), 50);
+}
+
+// One model auto-pulled on first launch when the user has no models. Picked
+// for being small (~1 GB), code-aware, and present in our recommended list.
+const AI_AUTO_PULL_MODEL = 'qwen2.5-coder:1.5b';
+
+// Render a friendly status line in the AI placeholder area while we work.
+function setAiSetupStatus(text, isError = false) {
+  const ph = document.getElementById('ai-response-placeholder');
+  if (!ph) return;
+  ph.classList.remove('hidden');
+  document.getElementById('ai-response-text').classList.add('hidden');
+  ph.innerHTML = `
+    <div style="text-align:center;padding:30px 16px">
+      <div style="font-size:14px;${isError ? 'color:#e03131' : ''}">${escapeHtml(text)}</div>
+    </div>`;
+}
+
+// Update progress for the qwen download — called repeatedly via onAiProgress.
+let aiAutoPullActive = false;
+function setAiPullProgress(model, completed, total, status) {
+  const ph = document.getElementById('ai-response-placeholder');
+  if (!ph) return;
+  const pct = total > 0 ? Math.floor((completed / total) * 100) : 0;
+  const mb  = (n) => (n / 1024 / 1024).toFixed(1) + ' MB';
+  ph.classList.remove('hidden');
+  document.getElementById('ai-response-text').classList.add('hidden');
+  ph.innerHTML = `
+    <div style="text-align:center;padding:24px 16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">⬇ Downloading ${escapeHtml(model)}…</div>
+      <div style="font-size:11px;color:#888;margin-bottom:10px">${escapeHtml(status || '')}</div>
+      <div style="height:6px;background:#2d2d2d;border-radius:3px;overflow:hidden;max-width:320px;margin:0 auto">
+        <div style="height:100%;background:#3fb950;width:${pct}%;transition:width 0.2s"></div>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:6px">
+        ${total > 0 ? `${mb(completed)} / ${mb(total)} (${pct}%)` : 'Preparing…'}
+      </div>
+    </div>`;
+}
+
+// The orchestrator. Runs every time the panel is opened — cheap when already
+// healthy, helpful when not.
+async function aiAutoSetup() {
+  setAiSetupStatus('Checking Ollama…');
+  let r = await window.electronAPI.aiCheck();
+
+  // ── Step 1: ensure daemon is running ─────────────────────────────────
+  if (!r.running) {
+    setAiSetupStatus('Starting Ollama…');
+    const detect = await window.electronAPI.aiDetectInstalled();
+    if (!detect.installed) {
+      // Ollama isn't installed — offer to open the download page
+      const ph = document.getElementById('ai-response-placeholder');
+      ph.classList.remove('hidden');
+      document.getElementById('ai-response-text').classList.add('hidden');
+      ph.innerHTML = `
+        <div style="text-align:center;padding:30px 16px">
+          <div style="font-size:14px;margin-bottom:8px">🤖 Ollama is not installed</div>
+          <div style="font-size:12px;color:#888;margin-bottom:14px">
+            Note++ uses Ollama to run AI locally on your machine. Install it once and Note++ will handle the rest.
+          </div>
+          <button class="ai-btn ai-btn-primary" id="btn-ai-install-ollama">Open Ollama download page</button>
+          <div style="margin-top:10px;font-size:11px;color:#888">After installing, click 🤖 again.</div>
+        </div>`;
+      document.getElementById('btn-ai-install-ollama')?.addEventListener('click', () => {
+        window.electronAPI.openUrl('https://ollama.com/download');
+      });
+      setAiStatus('offline');
+      return;
+    }
+    // Ollama is installed but not running — start the daemon
+    const start = await window.electronAPI.aiStartServer(detect.path);
+    if (!start.success) {
+      setAiSetupStatus('Failed to start Ollama: ' + (start.error || 'unknown'), true);
+      setAiStatus('offline');
+      return;
+    }
+    // Poll for the HTTP server to come up (up to 15 s)
+    let waited = 0;
+    while (waited < 15000) {
+      await new Promise(res => setTimeout(res, 500));
+      waited += 500;
+      r = await window.electronAPI.aiCheck();
+      if (r.running) break;
+      setAiSetupStatus(`Starting Ollama… ${(waited / 1000).toFixed(1)}s`);
+    }
+    if (!r.running) {
+      setAiSetupStatus('Ollama did not respond. Check that it started, then click 🤖 again.', true);
+      setAiStatus('offline');
+      return;
+    }
+  }
+
+  // ── Step 2: ensure at least one model is installed ───────────────────
+  if (!r.models || r.models.length === 0) {
+    if (aiAutoPullActive) {
+      setAiSetupStatus(`Already downloading ${AI_AUTO_PULL_MODEL}…`);
+      return;
+    }
+    aiAutoPullActive = true;
+    setAiPullProgress(AI_AUTO_PULL_MODEL, 0, 0, 'Starting download…');
+    // Wire progress events so the user sees the bar move
+    window.electronAPI.onAiProgress(d => {
+      if (d.model !== AI_AUTO_PULL_MODEL) return;
+      setAiPullProgress(d.model, d.completed || 0, d.total || 0, d.status);
+    });
+    const pull = await window.electronAPI.aiPull(AI_AUTO_PULL_MODEL);
+    aiAutoPullActive = false;
+    // Tear down the pull-specific listeners and reattach the streaming ones
+    window.electronAPI.removeAiListeners();
+    setupAiTokenListeners();
+    if (!pull.success) {
+      setAiSetupStatus(`Download failed: ${pull.error || 'unknown'}`, true);
+      setAiStatus('offline');
+      return;
+    }
+    // Re-check
+    r = await window.electronAPI.aiCheck();
+  }
+
+  // ── Step 3: select a model and we're done ────────────────────────────
+  if (r.models && r.models.length > 0) {
+    if (!aiModel || !r.models.includes(aiModel)) {
+      // Prefer the auto-pull model if present, else the first installed
+      aiModel = r.models.includes(AI_AUTO_PULL_MODEL) ? AI_AUTO_PULL_MODEL : r.models[0];
+      saveSetting('ai.model', aiModel);
+    }
+    await refreshAiModelList();
+    // Reset placeholder back to the friendly intro
+    const ph = document.getElementById('ai-response-placeholder');
+    if (ph && !aiResponse) {
+      ph.innerHTML = `
+        <span>Ask AI to write, continue, or transform text in this file.</span><br>
+        <span style="font-size:0.72rem;color:#484f58">e.g. "write a mermaid user-login flow" · "add JSDoc to this function" · "convert to TypeScript"</span>`;
+    }
+  } else {
+    setAiSetupStatus('No models available.', true);
+  }
 }
 
 function closeAiPanel() {
@@ -3096,21 +3544,39 @@ async function pullAiModel(modelName) {
   await window.electronAPI.aiPull(modelName);
 }
 
+// Re-attaches the same chat-thread listeners used in setupAiPanel().
+// Called after pull-progress listeners temporarily replace them during auto-download.
 function setupAiTokenListeners() {
   window.electronAPI.onAiToken(token => {
     aiResponse += token;
-    const el = document.getElementById('ai-response-text');
-    el.classList.remove('hidden');
-    document.getElementById('ai-response-placeholder').classList.add('hidden');
-    el.innerHTML = escapeHtml(aiResponse) + '<span class="ai-cursor"></span>';
-    el.parentElement.scrollTop = el.parentElement.scrollHeight;
+    if (aiMessages.length && aiMessages[aiMessages.length - 1].role === 'assistant') {
+      aiMessages[aiMessages.length - 1].content = aiResponse;
+    }
+    renderAiConversation(true);
   });
   window.electronAPI.onAiDone(() => {
     aiGenerating = false;
-    document.getElementById('ai-response-text').textContent = aiResponse;
-    document.getElementById('ai-action-bar').classList.remove('hidden');
-    document.getElementById('btn-ai-send').disabled = false;
+    const lastMsg = aiMessages[aiMessages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') lastMsg.content = aiResponse;
+    if (lastMsg && lastMsg.agent && aiAgentTurn) {
+      const tab = getActiveTab();
+      lastMsg.diffSnapshot = {
+        originalContent: aiAgentTurn.originalContent,
+        newContent: aiResponse,
+        language: tab?.language || 'plaintext',
+        isSelection: aiAgentTurn.isSelection,
+        selRange: aiAgentTurn.selRange,
+      };
+      renderAiConversation(false);
+      showAgentDiff(lastMsg.diffSnapshot);
+      document.getElementById('ai-action-bar').classList.add('hidden');
+    } else {
+      renderAiConversation(false);
+      document.getElementById('ai-action-bar').classList.remove('hidden');
+    }
+    document.getElementById('btn-ai-send').disabled = !document.getElementById('ai-prompt')?.value.trim();
     document.getElementById('btn-ai-send').textContent = 'Send ↵';
+    setTimeout(() => document.getElementById('ai-prompt')?.focus(), 50);
     const modelSel = document.getElementById('ai-model-select');
     if (modelSel?.value) {
       setAiStatus('online');
@@ -3248,8 +3714,481 @@ async function runBackup() {
 }
 
 // =============================================================================
-// Encryption — profile manager + file I/O integration
+// Git integration — see GIT.md
 // =============================================================================
+// State model:
+//   gitRepos = Map<repoRoot, { branch, upstream, ahead, behind, files: [...] }>
+//   gitFileToRepo = Map<filePath, repoRoot>   // memoise per-file detection
+//   activeGitRepo = the repoRoot for the active tab, or null
+// Refresh triggers: tab activation, file save, after any git op, window focus,
+// 3-min auto-fetch timer.
+
+const gitRepos = new Map();
+const gitFileToRepo = new Map();
+let activeGitRepo = null;
+let gitAutoFetchTimer = null;
+let gitInstalled = null;          // null until first check; true/false after
+const GIT_AUTO_FETCH_MS = 3 * 60 * 1000;
+
+// Find (and cache) the repo root for a given file path.
+async function detectGitRepoForFile(filePath) {
+  if (!filePath) return null;
+  if (gitFileToRepo.has(filePath)) return gitFileToRepo.get(filePath);
+  if (gitInstalled === false) return null;
+  const root = await window.electronAPI.git.findRepo(filePath);
+  gitFileToRepo.set(filePath, root);
+  return root;
+}
+
+// Refresh git status for a repo. Updates gitRepos and any UI that depends on it.
+async function refreshGitStatus(repoRoot) {
+  if (!repoRoot) return null;
+  const s = await window.electronAPI.git.status(repoRoot);
+  if (!s.success) {
+    gitRepos.delete(repoRoot);
+    if (activeGitRepo === repoRoot) renderGitStatusBar();
+    return null;
+  }
+  gitRepos.set(repoRoot, s);
+  if (activeGitRepo === repoRoot) {
+    renderGitStatusBar();
+    renderSourceControlPanel();
+    refreshFileTreeDecorations();
+  }
+  return s;
+}
+
+// Re-render the visible file tree to update git badges. Cheap because the
+// tree only renders expanded folders, and we just walk the already-built DOM.
+function refreshFileTreeDecorations() {
+  const content = document.getElementById('file-tree-content');
+  if (!content || content.classList.contains('hidden')) return;
+  // Strip existing badges, then re-attach for every visible row
+  content.querySelectorAll('.tree-git-badge').forEach(b => b.remove());
+  content.querySelectorAll('.tree-item').forEach(row => {
+    const fp = row.title;
+    if (!fp) return;
+    const dec = lookupGitDecoration(fp);
+    if (!dec) return;
+    const badge = document.createElement('span');
+    badge.className = 'tree-git-badge sc-status-' + dec.cls;
+    badge.textContent = dec.ch;
+    badge.title = dec.label;
+    row.appendChild(badge);
+  });
+}
+
+// Called whenever the active tab changes — figure out which repo (if any) it belongs to.
+async function updateActiveGitRepo() {
+  if (gitInstalled === false) return;
+  const tab = getActiveTab();
+  const fp = tab?.filePath;
+  let root = null;
+  if (fp) root = await detectGitRepoForFile(fp);
+  activeGitRepo = root;
+  if (root) {
+    if (!gitRepos.has(root)) await refreshGitStatus(root);
+    renderGitStatusBar();
+    renderSourceControlPanel();
+  } else {
+    renderGitStatusBar();    // hides the pill
+    renderSourceControlPanel();
+  }
+}
+
+// Render the status-bar git pill: "⎇ branch ↑n ↓m ●k"
+function renderGitStatusBar() {
+  const el = document.getElementById('status-git');
+  if (!el) return;
+  const s = activeGitRepo ? gitRepos.get(activeGitRepo) : null;
+  if (!s || !s.success) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const dirty = (s.files || []).length;
+  const aheadBehind = (s.ahead || s.behind)
+    ? `  ↑${s.ahead} ↓${s.behind}` : '';
+  const dirtyMark = dirty ? `  ●${dirty}` : '';
+  el.textContent = `⎇ ${s.branch || 'detached'}${aheadBehind}${dirtyMark}`;
+  el.title = `Branch ${s.branch}${s.upstream ? ` → ${s.upstream}` : ''}${dirty ? ` · ${dirty} change${dirty===1?'':'s'}` : ''} · click for Source Control`;
+}
+
+// Toggle the Source Control side panel. Visibility lives entirely in the
+// `hidden` class — when opened we trigger a fresh status fetch.
+function toggleSourceControlPanel() {
+  const el = document.getElementById('sc-panel');
+  if (!el) return;
+  const willShow = el.classList.contains('hidden');
+  el.classList.toggle('hidden');
+  if (willShow) {
+    renderSourceControlPanel();
+    if (activeGitRepo) refreshGitStatus(activeGitRepo);
+  }
+}
+
+// ── Source Control panel rendering ────────────────────────────────────────
+// Pulls from gitRepos[activeGitRepo] and rebuilds the visible DOM.
+function renderSourceControlPanel() {
+  const panel = document.getElementById('sc-panel');
+  if (!panel || panel.classList.contains('hidden')) return;
+
+  const noRepoMsg = document.getElementById('sc-no-repo');
+  const emptyMsg  = document.getElementById('sc-empty');
+  const stagedSec = document.getElementById('sc-staged-section');
+  const changesSec= document.getElementById('sc-changes-section');
+  const branchName = document.getElementById('sc-branch-name');
+  const branchArrows = document.getElementById('sc-branch-arrows');
+
+  const s = activeGitRepo ? gitRepos.get(activeGitRepo) : null;
+
+  if (!activeGitRepo || !s || !s.success) {
+    noRepoMsg.classList.remove('hidden');
+    emptyMsg.classList.add('hidden');
+    stagedSec.style.display = 'none';
+    changesSec.style.display = 'none';
+    branchName.textContent = '—';
+    branchArrows.textContent = '';
+    return;
+  }
+  noRepoMsg.classList.add('hidden');
+
+  branchName.textContent = s.branch || 'detached';
+  branchArrows.textContent = (s.ahead || s.behind)
+    ? ` ↑${s.ahead} ↓${s.behind}` : '';
+
+  // Partition files into staged (index status) and unstaged (worktree status).
+  // A file can appear in BOTH sections if it has staged AND further worktree
+  // changes (e.g. status code "MM").
+  const staged = [];
+  const changes = [];
+  for (const f of (s.files || [])) {
+    if (f.x !== ' ' && f.x !== '?') staged.push(f);
+    if (f.y !== ' ' || (f.x === '?' && f.y === '?')) changes.push(f);
+  }
+
+  document.getElementById('sc-staged-count').textContent  = String(staged.length);
+  document.getElementById('sc-changes-count').textContent = String(changes.length);
+
+  if (staged.length + changes.length === 0) {
+    emptyMsg.classList.remove('hidden');
+    stagedSec.style.display = 'none';
+    changesSec.style.display = 'none';
+    return;
+  }
+  emptyMsg.classList.add('hidden');
+  stagedSec.style.display = staged.length ? '' : 'none';
+  changesSec.style.display = changes.length ? '' : 'none';
+
+  renderScFileList('sc-staged-list',  staged,  'staged');
+  renderScFileList('sc-changes-list', changes, 'unstaged');
+}
+
+// Status code → display char + class suffix (for colouring)
+function scStatusGlyph(f, side) {
+  // For staged side, look at f.x (index). For unstaged side, look at f.y.
+  const c = side === 'staged' ? f.x : f.y;
+  if (f.x === '?' && f.y === '?') return { ch: '?', cls: 'Q' }; // untracked
+  if (c === 'M') return { ch: 'M', cls: 'M' };
+  if (c === 'A') return { ch: 'A', cls: 'A' };
+  if (c === 'D') return { ch: 'D', cls: 'D' };
+  if (c === 'R') return { ch: 'R', cls: 'R' };
+  if (c === 'C') return { ch: 'C', cls: 'R' };
+  if (c === 'U' || f.x === 'U' || f.y === 'U' || (f.x === 'A' && f.y === 'A') || (f.x === 'D' && f.y === 'D')) {
+    return { ch: '!', cls: 'U' }; // conflict
+  }
+  return { ch: c, cls: 'M' };
+}
+
+function renderScFileList(containerId, files, side) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  for (const f of files) {
+    const row = document.createElement('div');
+    row.className = 'sc-file';
+    row.title = f.path;
+
+    const { ch, cls } = scStatusGlyph(f, side);
+    const status = document.createElement('span');
+    status.className = `sc-file-status sc-status-${cls}`;
+    status.textContent = ch;
+
+    const name = document.createElement('span');
+    name.className = 'sc-file-path';
+    name.textContent = f.path;
+    name.addEventListener('click', () => openScFile(f.path));
+    name.style.cursor = 'pointer';
+
+    const actions = document.createElement('span');
+    actions.className = 'sc-file-actions';
+
+    if (side === 'staged') {
+      const unstage = makeIconBtn('−', 'Unstage', () => doScAction('unstage', [f.path]));
+      actions.appendChild(unstage);
+    } else {
+      const stage = makeIconBtn('+', 'Stage', () => doScAction('stage', [f.path]));
+      const discard = makeIconBtn('↶', f.x === '?' ? 'Delete untracked' : 'Discard changes',
+        () => doScAction(f.x === '?' && f.y === '?' ? 'clean' : 'discard', [f.path]));
+      actions.appendChild(stage);
+      actions.appendChild(discard);
+    }
+
+    row.appendChild(status);
+    row.appendChild(name);
+    row.appendChild(actions);
+    el.appendChild(row);
+  }
+}
+
+function makeIconBtn(label, title, fn) {
+  const b = document.createElement('button');
+  b.className = 'sc-icon-btn';
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+  return b;
+}
+
+// Open the file in the editor (or focus it if already open).
+async function openScFile(relPath) {
+  if (!activeGitRepo) return;
+  const fullPath = activeGitRepo + (activeGitRepo.endsWith('\\') || activeGitRepo.endsWith('/') ? '' : '\\') + relPath.replace(/\//g, '\\');
+  await openFile([fullPath]);
+}
+
+// Common dispatcher for stage/unstage/discard/clean. Refreshes status after.
+async function doScAction(action, paths) {
+  if (!activeGitRepo) return;
+  const api = window.electronAPI.git;
+  let r;
+  if (action === 'stage')    r = await api.stage(activeGitRepo, paths);
+  else if (action === 'unstage') r = await api.unstage(activeGitRepo, paths);
+  else if (action === 'discard') r = await api.discard(activeGitRepo, paths);
+  else if (action === 'clean')   r = await api.clean(activeGitRepo, paths);
+  if (r && !r.success) showToast('git ' + action + ' failed: ' + (r.error || 'unknown'));
+  await refreshGitStatus(activeGitRepo);
+}
+
+// Wire all the Source Control panel buttons. Called once at startup from setupSourceControl().
+function setupSourceControlPanel() {
+  const api = window.electronAPI.git;
+  const onClick = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+
+  onClick('sc-close-btn',   () => document.getElementById('sc-panel').classList.add('hidden'));
+  onClick('sc-refresh-btn', () => { if (activeGitRepo) refreshGitStatus(activeGitRepo); });
+
+  onClick('sc-stage-all-btn',   async () => {
+    const s = gitRepos.get(activeGitRepo);
+    const paths = (s?.files || [])
+      .filter(f => f.y !== ' ' || (f.x === '?' && f.y === '?'))
+      .map(f => f.path);
+    if (paths.length) await doScAction('stage', paths);
+  });
+  onClick('sc-unstage-all-btn', async () => {
+    const s = gitRepos.get(activeGitRepo);
+    const paths = (s?.files || [])
+      .filter(f => f.x !== ' ' && f.x !== '?')
+      .map(f => f.path);
+    if (paths.length) await doScAction('unstage', paths);
+  });
+  onClick('sc-discard-all-btn', async () => {
+    const s = gitRepos.get(activeGitRepo);
+    if (!s || !s.files.length) return;
+    const r = await window.electronAPI.messageDialog({
+      type: 'warning', title: 'Discard all changes',
+      message: `Discard all uncommitted changes in this repository?`,
+      detail: 'This cannot be undone.',
+      buttons: ['Discard All', 'Cancel'], defaultId: 1, cancelId: 1,
+    });
+    if (r.response !== 0) return;
+    const tracked   = s.files.filter(f => f.y !== ' ' && !(f.x === '?' && f.y === '?')).map(f => f.path);
+    const untracked = s.files.filter(f => f.x === '?' && f.y === '?').map(f => f.path);
+    if (tracked.length)   await api.discard(activeGitRepo, tracked);
+    if (untracked.length) await api.clean(activeGitRepo, untracked);
+    await refreshGitStatus(activeGitRepo);
+  });
+
+  onClick('sc-commit-btn',      async () => doScCommit(false));
+  onClick('sc-commit-amend-btn', async () => doScCommit(true));
+
+  onClick('sc-push-btn',  async () => doScRemoteOp('push',  'Push'));
+  onClick('sc-pull-btn',  async () => doScRemoteOp('pull',  'Pull'));
+  onClick('sc-sync-btn',  async () => doScRemoteOp('sync',  'Sync'));
+  onClick('sc-fetch-btn', async () => doScRemoteOp('fetch', 'Fetch'));
+
+  onClick('sc-branch-switch-btn', () => openBranchPicker('switch'));
+  onClick('sc-branch-create-btn', () => openBranchPicker('create'));
+
+  // Commit on Ctrl+Enter inside the message textarea
+  document.getElementById('sc-commit-msg')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      doScCommit(false);
+    }
+  });
+
+  // Status-bar git pill → toggle panel
+  document.getElementById('status-git')?.addEventListener('click', () => toggleSourceControlPanel());
+
+  // Panel resize drag
+  setupScPanelResize();
+}
+
+async function doScCommit(amend) {
+  if (!activeGitRepo) return;
+  const msgEl = document.getElementById('sc-commit-msg');
+  const msg = (msgEl?.value || '').trim();
+  if (!amend && !msg) { showToast('Enter a commit message'); msgEl?.focus(); return; }
+  const r = amend
+    ? await window.electronAPI.git.commitAmend(activeGitRepo, msg)
+    : await window.electronAPI.git.commit(activeGitRepo, msg);
+  if (!r || !r.success) { showToast('Commit failed: ' + (r?.error || 'unknown')); return; }
+  msgEl.value = '';
+  showToast(amend ? 'Amended last commit' : 'Committed');
+  await refreshGitStatus(activeGitRepo);
+}
+
+async function doScRemoteOp(op, label) {
+  if (!activeGitRepo) return;
+  showToast(`${label}ing…`);
+  const r = await window.electronAPI.git[op](activeGitRepo);
+  if (!r || !r.success) {
+    showToast(`${label} failed: ` + (r?.error || 'unknown'));
+  } else {
+    showToast(`${label} done`);
+  }
+  await refreshGitStatus(activeGitRepo);
+}
+
+// Generic single-line input prompt — Electron suppresses window.prompt(), so we
+// roll our own modal. Resolves to the trimmed string, or null if cancelled.
+function promptInput({ title = 'Input', message = '', placeholder = '', defaultValue = '', validate = null } = {}) {
+  return new Promise((resolve) => {
+    const dlg   = document.getElementById('prompt-input-dialog');
+    const field = document.getElementById('prompt-input-field');
+    const err   = document.getElementById('prompt-input-error');
+    document.getElementById('prompt-input-title').textContent = title;
+    document.getElementById('prompt-input-message').textContent = message;
+    field.value = defaultValue || '';
+    field.placeholder = placeholder || '';
+    err.classList.add('hidden');
+    dlg.classList.remove('hidden');
+    setTimeout(() => field.focus(), 50);
+
+    const cleanup = () => {
+      dlg.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      xBtn.removeEventListener('click', onCancel);
+      field.removeEventListener('keydown', onKey);
+    };
+    const onOk = () => {
+      const v = (field.value || '').trim();
+      if (validate) {
+        const msg = validate(v);
+        if (msg) { err.textContent = msg; err.classList.remove('hidden'); return; }
+      }
+      cleanup();
+      resolve(v || null);
+    };
+    const onCancel = () => { cleanup(); resolve(null); };
+    const onKey = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    };
+
+    const okBtn     = document.getElementById('prompt-input-ok');
+    const cancelBtn = document.getElementById('prompt-input-cancel');
+    const xBtn      = document.getElementById('prompt-input-x');
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    xBtn.addEventListener('click', onCancel);
+    field.addEventListener('keydown', onKey);
+  });
+}
+
+// Branch picker: 'switch' lists local branches and switches; 'create' prompts for a name.
+async function openBranchPicker(mode) {
+  if (!activeGitRepo) return;
+  if (mode === 'create') {
+    const name = await promptInput({
+      title: 'Create new branch',
+      message: `Branch off ${gitRepos.get(activeGitRepo)?.branch || 'HEAD'}`,
+      placeholder: 'feature/my-branch',
+      validate: (v) => {
+        if (!v) return 'Branch name cannot be empty';
+        if (/[\s~^:?*\[\]\\]/.test(v)) return 'Branch name contains invalid characters';
+        if (v.startsWith('-')) return 'Branch name cannot start with "-"';
+        if (v.endsWith('.')) return 'Branch name cannot end with "."';
+        return null;
+      },
+    });
+    if (!name) return;
+    const r = await window.electronAPI.git.branchCreate(activeGitRepo, name, null);
+    if (!r.success) { showToast('Create branch failed: ' + (r.error || 'unknown')); return; }
+    showToast('Switched to ' + name);
+    await refreshGitStatus(activeGitRepo);
+    return;
+  }
+  // mode === 'switch'
+  const list = await window.electronAPI.git.branchList(activeGitRepo);
+  if (!list.success) { showToast('Cannot list branches: ' + list.error); return; }
+  const items = list.locals.map(b => [b + (b === list.current ? '  (current)' : ''), async () => {
+    if (b === list.current) return;
+    const r = await window.electronAPI.git.branchSwitch(activeGitRepo, b);
+    if (!r.success) showToast('Switch failed: ' + (r.error || 'unknown'));
+    else            showToast('Switched to ' + b);
+    await refreshGitStatus(activeGitRepo);
+  }]);
+  if (!items.length) { showToast('No local branches found'); return; }
+  const btn = document.getElementById('sc-branch-switch-btn');
+  const rect = btn.getBoundingClientRect();
+  showFloatingMenu(rect.left, rect.bottom, items);
+}
+
+// Panel resize handle (mirrors file-tree resize approach)
+function setupScPanelResize() {
+  const handle = document.getElementById('sc-panel-resize');
+  const panel = document.getElementById('sc-panel');
+  if (!handle || !panel) return;
+  let dragging = false, startX = 0, startW = 0;
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const w = Math.max(220, Math.min(600, startW + (e.clientX - startX)));
+    panel.style.width = w + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+}
+
+// Initial setup: check if git is installed, then wire periodic auto-fetch.
+async function initGitIntegration() {
+  try {
+    gitInstalled = await window.electronAPI.git.installed();
+  } catch { gitInstalled = false; }
+  if (!gitInstalled) return; // No git on PATH — silently disable git UI
+  await updateActiveGitRepo();
+  if (gitAutoFetchTimer) clearInterval(gitAutoFetchTimer);
+  gitAutoFetchTimer = setInterval(() => {
+    if (activeGitRepo) {
+      window.electronAPI.git.fetch(activeGitRepo).then(() => refreshGitStatus(activeGitRepo));
+    }
+  }, GIT_AUTO_FETCH_MS);
+
+  // Refresh when window regains focus
+  window.addEventListener('focus', () => {
+    if (activeGitRepo) refreshGitStatus(activeGitRepo);
+  });
+}
+
+
 // See ENCRYPTION.md for the full spec. The profile lives at
 // `%AppData%\notepp\encryption\profile.json` and contains the DEK wrapped by
 // each enabled auth method (password, recovery key). Plaintext DEK is held in

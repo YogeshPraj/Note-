@@ -233,6 +233,249 @@ body.theme-dark .tab-wb-badge {
 #status-enc { font-size: 11px; }
 #status-enc:hover { opacity: 1; cursor: pointer; }
 
+/* ── Status bar git pill ──────────────────────────────────────────────── */
+#status-git { font-size: 11px; font-family: 'Cascadia Code', Consolas, monospace; }
+#status-git:hover { opacity: 1; cursor: pointer; }
+
+/* ── Source Control side panel ───────────────────────────────────────── */
+#sc-panel {
+  width: 280px;
+  min-width: 220px;
+  max-width: 600px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--tab-bg, #f5f5f5);
+  color: var(--tab-text, #333);
+  border-right: 1px solid var(--toolbar-border, #ddd);
+  font-size: 12px;
+  user-select: none;
+  position: relative;
+}
+#sc-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--toolbar-bg, #eaeaea);
+  border-bottom: 1px solid var(--toolbar-border, #ddd);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+#sc-panel-title { text-transform: uppercase; font-size: 11px; }
+#sc-panel-header-btns { display: flex; gap: 2px; }
+.sc-icon-btn {
+  width: 22px; height: 22px;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--tab-text, #333);
+  border-radius: 3px;
+  font-size: 14px; line-height: 1;
+}
+.sc-icon-btn:hover { background: var(--btn-hover, #e5e5e5); }
+#sc-panel-body { flex: 1; overflow-y: auto; padding: 8px 10px; }
+
+#sc-branch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--toolbar-border, #ddd);
+  margin-bottom: 6px;
+}
+#sc-branch-info { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+#sc-branch-name { font-family: 'Cascadia Code', Consolas, monospace; }
+.sc-muted { color: #888; font-weight: normal; font-family: 'Cascadia Code', Consolas, monospace; font-size: 11px; }
+#sc-branch-actions { display: flex; gap: 4px; }
+
+#sc-remote-row {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--toolbar-border, #ddd);
+  margin-bottom: 8px;
+}
+.sc-btn {
+  border: 1px solid var(--toolbar-border, #ccc);
+  background: var(--find-input-bg, #fff);
+  color: var(--tab-text, #333);
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sc-btn:hover { background: var(--btn-hover, #eee); }
+.sc-btn-sm { padding: 2px 6px; font-size: 10px; }
+.sc-btn-primary {
+  background: #2563eb; color: #fff; border-color: #2563eb;
+}
+.sc-btn-primary:hover { background: #1e4fc4; }
+.sc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#sc-commit-block {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--toolbar-border, #ddd);
+  margin-bottom: 8px;
+}
+#sc-commit-msg {
+  width: 100%;
+  background: var(--find-input-bg, #fff);
+  color: var(--tab-text, #333);
+  border: 1px solid var(--toolbar-border, #ccc);
+  border-radius: 3px;
+  padding: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+#sc-commit-actions { display: flex; gap: 4px; margin-top: 4px; }
+
+.sc-section { margin-bottom: 6px; }
+.sc-section-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 0; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: #888;
+}
+.sc-section-title { flex: 1; }
+.sc-section-count {
+  background: #ccc; color: #333;
+  border-radius: 10px; padding: 0 6px; font-size: 10px;
+  min-width: 18px; text-align: center;
+}
+.sc-section-actions { display: flex; gap: 1px; }
+.sc-file-list { display: flex; flex-direction: column; gap: 1px; }
+.sc-file {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 4px;
+  border-radius: 3px;
+  cursor: default;
+  white-space: nowrap;
+}
+.sc-file:hover { background: var(--btn-hover, #e5e5e5); }
+.sc-file-status {
+  width: 14px; flex-shrink: 0;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-weight: 700;
+  text-align: center;
+  font-size: 11px;
+}
+.sc-file-path {
+  flex: 1; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px;
+}
+.sc-file-actions {
+  display: none;
+  gap: 0;
+}
+.sc-file:hover .sc-file-actions { display: flex; }
+.sc-file-actions .sc-icon-btn { width: 18px; height: 18px; font-size: 12px; }
+
+/* File status colours */
+.sc-status-M { color: #d97706; }   /* Modified — orange */
+.sc-status-A { color: #16a34a; }   /* Added/Staged — green */
+.sc-status-D { color: #dc2626; }   /* Deleted — red */
+.sc-status-R { color: #2563eb; }   /* Renamed — blue */
+.sc-status-U { color: #7c3aed; }   /* Conflict — purple */
+.sc-status-Q { color: #6b7280; }   /* Untracked (?) — grey */
+
+#sc-panel-resize {
+  position: absolute; right: -3px; top: 0; bottom: 0;
+  width: 6px; cursor: col-resize;
+  z-index: 5;
+}
+
+/* Dark mode overrides */
+body.theme-dark #sc-panel { background: #1e1e1e; color: #d4d4d4; border-right-color: #2d2d2d; }
+body.theme-dark #sc-panel-header { background: #252526; border-bottom-color: #2d2d2d; }
+body.theme-dark .sc-section-count { background: #3a3a3a; color: #ddd; }
+body.theme-dark .sc-btn { background: #2d2d2d; color: #ddd; border-color: #3a3a3a; }
+body.theme-dark .sc-btn:hover { background: #3a3a3a; }
+body.theme-dark .sc-btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+body.theme-dark #sc-commit-msg { background: #2d2d2d; color: #ddd; border-color: #3a3a3a; }
+body.theme-dark .sc-file:hover { background: #2d2d2d; }
+
+/* File-tree git-decoration badge */
+.tree-git-badge {
+  margin-left: auto;
+  padding-right: 6px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-weight: 700;
+  font-size: 11px;
+}
+.tree-item { display: flex; align-items: center; }
+.tree-item > span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* AI chat bubbles — multi-turn conversation thread inside #ai-response-text */
+#ai-response-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  white-space: normal;          /* override <pre>'s default */
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ai-msg {
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.ai-msg-user {
+  background: rgba(80, 120, 200, 0.12);
+  border-left: 3px solid #5078c8;
+}
+.ai-msg-assistant {
+  background: rgba(80, 200, 120, 0.08);
+  border-left: 3px solid #3fb950;
+}
+.ai-msg-role {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 4px;
+}
+.ai-msg-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 13px;
+}
+body.theme-dark .ai-msg-user      { background: rgba(80, 120, 200, 0.18); }
+body.theme-dark .ai-msg-assistant { background: rgba(80, 200, 120, 0.12); }
+
+/* Agent-mode toggle button — visually distinct when active.
+   Override .tb-btn's fixed 26px width so the label ("⚡ Agent" / "🤖 Chat")
+   isn't clipped. */
+#btn-ai-mode-toggle {
+  width: auto;
+  min-width: 70px;
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#btn-ai-mode-toggle.agent-active {
+  background: #d97706 !important;
+  color: #fff !important;
+  border-color: #b45309 !important;
+}
+#btn-ai-mode-toggle.agent-active:hover { background: #b45309 !important; }
+
+/* Agent summary line in chat thread (shown in place of the raw assistant content) */
+.ai-agent-summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #888;
+}
+.ai-agent-summary-link {
+  color: #58a6ff;
+  cursor: pointer;
+  text-decoration: underline;
+  font-weight: 600;
+}
+.ai-agent-summary-link:hover { color: #79b8ff; }
+
 #tab-new-btn {
   width: 26px; height: 23px;
   border: none; background: transparent;

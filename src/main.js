@@ -617,6 +617,28 @@ ipcMain.handle('terminal-resize', (e, id, cols, rows) => {
   }
 });
 
+// ── Git integration (CLI wrapper) ─────────────────────────────────────────
+// All handlers delegate to src/git-service.js. See GIT.md for the design.
+const gitService = require('./git-service');
+
+ipcMain.handle('git-find-repo',     (e, p)             => gitService.findRepoRoot(p));
+ipcMain.handle('git-status',        (e, root)          => gitService.status(root));
+ipcMain.handle('git-stage',         (e, root, paths)   => gitService.stage(root, paths));
+ipcMain.handle('git-unstage',       (e, root, paths)   => gitService.unstage(root, paths));
+ipcMain.handle('git-discard',       (e, root, paths)   => gitService.discard(root, paths));
+ipcMain.handle('git-clean',         (e, root, paths)   => gitService.cleanUntracked(root, paths));
+ipcMain.handle('git-commit',        (e, root, msg)     => gitService.commit(root, msg));
+ipcMain.handle('git-commit-amend',  (e, root, msg)     => gitService.commitAmend(root, msg));
+ipcMain.handle('git-fetch',         (e, root)          => gitService.fetch(root));
+ipcMain.handle('git-pull',          (e, root)          => gitService.pull(root));
+ipcMain.handle('git-push',          (e, root)          => gitService.push(root));
+ipcMain.handle('git-push-upstream', (e, root, r2, b)   => gitService.pushSetUpstream(root, r2, b));
+ipcMain.handle('git-sync',          (e, root)          => gitService.sync(root));
+ipcMain.handle('git-branch-list',   (e, root)          => gitService.branchList(root));
+ipcMain.handle('git-branch-switch', (e, root, name)    => gitService.branchSwitch(root, name));
+ipcMain.handle('git-branch-create', (e, root, n, f)    => gitService.branchCreate(root, n, f));
+ipcMain.handle('git-installed',     ()                 => gitService.isGitInstalled());
+
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────
 const http = require('http');
 let currentAiReq = null; // active streaming request (for abort)
@@ -672,7 +694,7 @@ ipcMain.handle('ai-check', async () => {
   }
 });
 
-// Stream generation — tokens sent via 'ai-token' event
+// Stream generation (legacy single-shot endpoint) — tokens via 'ai-token'
 ipcMain.handle('ai-generate', async (event, { model, prompt, system }) => {
   try {
     if (currentAiReq) { try { currentAiReq.destroy(); } catch {} currentAiReq = null; }
@@ -690,10 +712,91 @@ ipcMain.handle('ai-generate', async (event, { model, prompt, system }) => {
   }
 });
 
+// Multi-turn chat using Ollama's /api/chat endpoint. `messages` is an array
+// of { role: 'system' | 'user' | 'assistant', content: string }. Streams
+// reply tokens via the same 'ai-token' / 'ai-done' channel as ai-generate
+// so the renderer can use a single set of listeners.
+ipcMain.handle('ai-chat', async (event, { model, messages }) => {
+  try {
+    if (currentAiReq) { try { currentAiReq.destroy(); } catch {} currentAiReq = null; }
+    await ollamaRequest('/api/chat', 'POST',
+      { model, messages, stream: true },
+      (d) => {
+        // /api/chat shape: { message: { role, content }, done }
+        if (d.message?.content) event.sender.send('ai-token', d.message.content);
+        if (d.done)             event.sender.send('ai-done');
+      }
+    );
+    return { success: true };
+  } catch (err) {
+    event.sender.send('ai-done');
+    return { success: false, error: err.message };
+  }
+});
+
 // Abort current generation
 ipcMain.handle('ai-abort', () => {
   if (currentAiReq) { try { currentAiReq.destroy(); } catch {} currentAiReq = null; }
   return { success: true };
+});
+
+// Detect whether the `ollama` binary is on PATH (or in the standard Windows
+// install location). Returns { installed: bool, version: string | null,
+// path: string | null }.
+ipcMain.handle('ai-detect-installed', async () => {
+  // Try common install locations on top of $PATH so detection works even
+  // when the installer didn't reach the current shell's PATH yet.
+  const candidates = [
+    'ollama', // PATH lookup (any platform)
+    process.platform === 'win32' && process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe')
+      : null,
+    process.platform === 'darwin' ? '/usr/local/bin/ollama' : null,
+    process.platform === 'darwin' ? '/opt/homebrew/bin/ollama' : null,
+    process.platform === 'linux' ? '/usr/local/bin/ollama' : null,
+    process.platform === 'linux' ? '/usr/bin/ollama' : null,
+  ].filter(Boolean);
+
+  for (const cand of candidates) {
+    const found = await new Promise((resolve) => {
+      try {
+        const proc = spawn(cand, ['--version'], { windowsHide: true });
+        let out = '';
+        proc.stdout.on('data', d => out += d.toString());
+        proc.on('error', () => resolve(null));
+        proc.on('close', (code) => {
+          if (code === 0) resolve({ path: cand, version: out.trim() });
+          else resolve(null);
+        });
+      } catch { resolve(null); }
+    });
+    if (found) return { installed: true, version: found.version, path: found.path };
+  }
+  return { installed: false, version: null, path: null };
+});
+
+// Spawn `ollama serve` detached so it lives independent of Note++. Returns
+// { success, pid } or { success: false, error }. Does NOT wait for the
+// HTTP server to come up — caller polls `ai-check` until it's ready.
+let ollamaServerProc = null;
+ipcMain.handle('ai-start-server', async (e, ollamaPath) => {
+  if (ollamaServerProc && !ollamaServerProc.killed) {
+    return { success: true, pid: ollamaServerProc.pid, alreadyRunning: true };
+  }
+  try {
+    const bin = ollamaPath || 'ollama';
+    const proc = spawn(bin, ['serve'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: process.env,
+    });
+    proc.unref(); // let it outlive Note++
+    ollamaServerProc = proc;
+    return { success: true, pid: proc.pid };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 // Pull (download) a model — progress events sent via 'ai-pull-progress'

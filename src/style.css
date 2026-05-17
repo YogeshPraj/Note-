@@ -476,6 +476,29 @@ body.theme-dark .ai-msg-assistant { background: rgba(80, 200, 120, 0.12); }
 }
 .ai-agent-summary-link:hover { color: #79b8ff; }
 
+/* AI quick-action chips — one-click pre-canned Agent-mode prompts */
+#ai-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px 0;
+}
+.ai-quick-btn {
+  border: 1px solid var(--toolbar-border, #ccc);
+  background: var(--find-input-bg, #fff);
+  color: var(--tab-text, #333);
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: none;
+}
+.ai-quick-btn:hover { background: var(--btn-hover, #eef); border-color: #2563eb; }
+body.theme-dark .ai-quick-btn { background: #2d2d2d; color: #ddd; border-color: #3a3a3a; }
+body.theme-dark .ai-quick-btn:hover { background: #3a3a3a; border-color: #58a6ff; }
+
+
 #tab-new-btn {
   width: 26px; height: 23px;
   border: none; background: transparent;
@@ -797,6 +820,33 @@ body.theme-dark .ai-msg-assistant { background: rgba(80, 200, 120, 0.12); }
 }
 
 #preview-header-btns { display: flex; align-items: center; gap: 1px; }
+
+/* Zoom label in the preview header */
+#preview-zoom-label {
+  font-size: 11px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  color: var(--tab-text);
+  opacity: 0.75;
+  padding: 0 6px;
+  cursor: pointer;
+  user-select: none;
+  min-width: 38px;
+  text-align: center;
+}
+#preview-zoom-label:hover { opacity: 1; }
+
+/* Maximised preview — takes the full editor row, hides the editor + resize handle */
+#editor-preview-row.preview-maximized #editor-container,
+#editor-preview-row.preview-maximized #preview-resize-handle { display: none !important; }
+#editor-preview-row.preview-maximized #preview-panel {
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 1 100%;
+}
+#btn-preview-maximize.active { background: var(--btn-active); border-color: #316ac5; }
+
+/* Zoom is set via JS on `#preview-body` as the Chromium `zoom` property —
+   it reflows content cleanly across markdown / iframe / mermaid surfaces. */
 
 #preview-body {
   flex: 1;
@@ -1397,14 +1447,329 @@ body.theme-dark .md-preview .mermaid svg { filter: invert(0.85) hue-rotate(180de
 
 .fr-label { width: 90px; font-size: 12px; flex-shrink: 0; text-align: right; }
 
-.fr-input {
-  width: 250px; height: 22px;
-  border: 1px solid var(--find-border);
-  background: var(--find-input-bg);
-  color: var(--tab-text);
-  padding: 2px 4px; font-size: 12px; outline: none;
+/* Find / Replace input — same look in BOTH themes (Notepad++ style):
+   pure white background + solid black text. Stays unambiguously readable
+   regardless of whether the app chrome is light or dark. */
+.fr-input,
+input.fr-input[type="text"],
+body.theme-dark .fr-input,
+body.theme-dark input.fr-input[type="text"] {
+  width: 250px; height: 24px;
+  border: 1px solid #6b7280 !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  border-radius: 3px;
+  caret-color: #2563eb;
 }
-.fr-input:focus { border-color: #316ac5; }
+.fr-input:focus,
+body.theme-dark .fr-input:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 1px #2563eb inset !important;
+}
+.fr-input::placeholder,
+body.theme-dark .fr-input::placeholder { color: #9ca3af; font-weight: 400; }
+
+/* ── Find match decorations — bright + visible in both themes ─────────── */
+
+/* Inline text background for every match */
+.find-highlight {
+  background: rgba(250, 204, 21, 0.35);        /* soft yellow */
+  border: 1px solid rgba(250, 204, 21, 0.6);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+.find-highlight-inline { color: inherit; font-weight: 600; }
+
+/* The CURRENT match is the boldest — orange, animated subtle pulse */
+.find-highlight-current {
+  background: rgba(249, 115, 22, 0.55);        /* vivid orange */
+  border: 1px solid #f97316;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+.find-highlight-inline-current {
+  color: #000 !important;
+  font-weight: 700;
+}
+
+/* Yellow band in the line-decorations gutter — beefier so it's actually visible */
+.find-line-marker {
+  background: #facc15 !important;                /* solid yellow */
+  width: 5px !important;
+  margin-left: 2px;
+}
+.find-line-marker-current {
+  background: #f97316 !important;                /* solid orange */
+  width: 6px !important;
+  margin-left: 2px;
+  box-shadow: 0 0 4px #f97316;
+}
+
+/* ● dot in the glyph margin (leftmost gutter) — show on EVERY match line.
+   Current match gets a bigger / brighter orange dot. */
+.find-glyph::before {
+  content: "●";
+  color: #facc15;
+  font-size: 11px;
+  display: inline-block;
+  margin-left: 2px;
+  line-height: 1;
+}
+.find-glyph-current::before {
+  content: "●";
+  color: #f97316;
+  font-size: 16px;
+  display: inline-block;
+  margin-left: 0;
+  line-height: 1;
+  text-shadow: 0 0 4px #f97316;
+}
+
+/* Dark-mode tweaks: keep colours visible against dark editor background */
+body.theme-dark .find-highlight {
+  background: rgba(250, 204, 21, 0.28);
+  border-color: rgba(250, 204, 21, 0.5);
+}
+body.theme-dark .find-highlight-current {
+  background: rgba(249, 115, 22, 0.65);
+  border-color: #fb923c;
+}
+body.theme-dark .find-highlight-inline-current { color: #fff !important; }
+
+/* ── Search results panel (Notepad++ "Find All in Current Document") ──── */
+#search-results-panel {
+  background: var(--find-bg);
+  border-top: 1px solid var(--find-border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 35vh;
+  min-height: 100px;
+  overflow: hidden;
+}
+#search-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+body.theme-dark #search-results-header { background: #15803d; }
+#search-results-actions { display: flex; gap: 2px; }
+.sr-btn {
+  height: 20px; padding: 0 8px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  border-radius: 2px;
+}
+.sr-btn:hover { background: rgba(255,255,255,0.2); }
+#search-results-body {
+  flex: 1;
+  overflow-y: auto;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  background: #ffffff;
+  color: #111;
+  padding: 4px 0;
+}
+body.theme-dark #search-results-body { background: #1e1e1e; color: #e8e8e8; }
+.sr-file-header {
+  padding: 4px 10px;
+  font-weight: 700;
+  color: #0d6efd;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  user-select: none;
+}
+body.theme-dark .sr-file-header {
+  color: #58a6ff;
+  background: #252526;
+  border-bottom-color: #2d2d2d;
+}
+.sr-file-header::before { content: "▾  "; font-weight: 400; color: #6b7280; }
+.sr-file-header.collapsed::before { content: "▸  "; }
+.sr-row {
+  display: flex;
+  padding: 2px 10px 2px 28px;
+  cursor: pointer;
+  line-height: 1.6;
+  white-space: pre;
+  overflow: hidden;
+}
+.sr-row:hover { background: rgba(13, 110, 253, 0.12); }
+body.theme-dark .sr-row:hover { background: rgba(88, 166, 255, 0.18); }
+.sr-row-line {
+  color: #6b7280;
+  margin-right: 10px;
+  min-width: 60px;
+  text-align: right;
+  flex-shrink: 0;
+  user-select: none;
+}
+body.theme-dark .sr-row-line { color: #8b949e; }
+.sr-row-content {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-row-content mark {
+  background: #facc15;
+  color: #000;
+  padding: 0 1px;
+  font-weight: 700;
+  border-radius: 2px;
+}
+.sr-row.active { background: rgba(13, 110, 253, 0.2); }
+body.theme-dark .sr-row.active { background: rgba(88, 166, 255, 0.3); }
+
+/* ── Mark colour swatches ──────────────────────────────────────────── */
+#mark-color-swatches { display: flex; gap: 4px; align-items: center; }
+.mark-swatch {
+  width: 22px; height: 22px;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.mark-swatch:hover { transform: scale(1.1); }
+.mark-swatch.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #fff inset;
+}
+
+/* Mark decorations — persistent colored highlights independent of Find */
+.mark-yellow { background: rgba(250, 204, 21, 0.45); border-radius: 2px; }
+.mark-cyan   { background: rgba( 34, 211, 238, 0.40); border-radius: 2px; }
+.mark-pink   { background: rgba(244, 114, 182, 0.40); border-radius: 2px; }
+.mark-green  { background: rgba(134, 239, 172, 0.45); border-radius: 2px; }
+.mark-orange { background: rgba(251, 146,  60, 0.50); border-radius: 2px; }
+body.theme-dark .mark-yellow { background: rgba(250, 204, 21, 0.30); }
+body.theme-dark .mark-cyan   { background: rgba( 34, 211, 238, 0.30); }
+body.theme-dark .mark-pink   { background: rgba(244, 114, 182, 0.30); }
+body.theme-dark .mark-green  { background: rgba(134, 239, 172, 0.30); }
+body.theme-dark .mark-orange { background: rgba(251, 146,  60, 0.35); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Compare (file diff + folder diff) — Diff.Net / WinMerge style
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Common diff container layout */
+#diff-container,
+#folder-diff-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--editor-bg);
+  z-index: 5;
+}
+#diff-toolbar,
+#folder-diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.diff-title {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tab-text);
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#diff-monaco {
+  flex: 1;
+  min-height: 0;
+}
+.folder-diff-summary {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+/* Folder-diff tree — two columns of paths, status badge prefix per row */
+#folder-diff-body {
+  flex: 1;
+  overflow: auto;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  background: var(--editor-bg);
+  color: var(--tab-text);
+}
+.fd-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.08);
+  cursor: default;
+}
+.fd-cell {
+  padding: 3px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid rgba(128, 128, 128, 0.15);
+}
+.fd-cell:last-child { border-right: none; }
+.fd-icon { display: inline-block; width: 18px; text-align: center; margin-right: 4px; }
+.fd-name { user-select: text; }
+.fd-meta { font-size: 10px; color: #888; margin-left: 8px; }
+
+/* Status colours (match Diff.Net) */
+.fd-row.added .fd-cell:nth-child(2)    { background: rgba(134, 239, 172, 0.45); }   /* green */
+.fd-row.removed .fd-cell:nth-child(1)  { background: rgba(252, 165, 165, 0.55); }   /* red */
+.fd-row.modified .fd-cell                { background: rgba(253, 224, 71, 0.30); }   /* yellow */
+.fd-row.modified.row-clickable          { cursor: pointer; }
+.fd-row.modified.row-clickable:hover .fd-cell { background: rgba(253, 224, 71, 0.55); }
+.fd-row.removed .fd-cell:nth-child(2)::after,
+.fd-row.added .fd-cell:nth-child(1)::after {
+  content: "—";
+  color: #9ca3af;
+  font-style: italic;
+}
+
+body.theme-dark .fd-row.added .fd-cell:nth-child(2)   { background: rgba(134, 239, 172, 0.25); }
+body.theme-dark .fd-row.removed .fd-cell:nth-child(1) { background: rgba(252, 165, 165, 0.30); }
+body.theme-dark .fd-row.modified .fd-cell             { background: rgba(253, 224, 71, 0.18); }
+body.theme-dark .fd-row.modified.row-clickable:hover .fd-cell { background: rgba(253, 224, 71, 0.32); }
+
+/* Folder rows — slightly different styling */
+.fd-row.is-dir .fd-cell { font-weight: 600; }
+
+/* Tab badge for compare tabs */
+.tab-diff-badge {
+  font-size: 8px;
+  padding: 1px 4px;
+  background: #fed7aa;
+  color: #9a3412;
+  border-radius: 3px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  line-height: 1.6;
+  align-self: center;
+  text-transform: uppercase;
+}
+body.theme-dark .tab-diff-badge { background: #7c2d12; color: #fed7aa; }
 
 .fr-btn {
   height: 22px; padding: 0 8px;

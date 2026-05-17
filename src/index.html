@@ -170,6 +170,31 @@
           <div id="whiteboard-container" class="hidden">
             <iframe id="whiteboard-frame" src="" allowfullscreen></iframe>
           </div>
+          <!-- File Diff Container (Monaco DiffEditor, hidden by default) -->
+          <div id="diff-container" class="hidden">
+            <div id="diff-toolbar">
+              <span id="diff-title" class="diff-title">Compare</span>
+              <div style="flex:1"></div>
+              <button class="fr-btn" id="btn-diff-swap"      title="Swap left ↔ right">⇆ Swap</button>
+              <button class="fr-btn" id="btn-diff-inline"    title="Toggle Inline / Side-by-side">≡ Inline</button>
+              <button class="fr-btn" id="btn-diff-prev"      title="Previous change (Shift+F7)">↑ Prev</button>
+              <button class="fr-btn" id="btn-diff-next"      title="Next change (F7)">↓ Next</button>
+              <button class="fr-btn" id="btn-diff-reload"    title="Re-read both files from disk">↻ Reload</button>
+            </div>
+            <div id="diff-monaco"></div>
+          </div>
+          <!-- Folder Diff Container (custom tree, hidden by default) -->
+          <div id="folder-diff-container" class="hidden">
+            <div id="folder-diff-toolbar">
+              <span id="folder-diff-title" class="diff-title">Compare folders</span>
+              <span id="folder-diff-summary" class="folder-diff-summary"></span>
+              <div style="flex:1"></div>
+              <label class="fr-check"><input type="checkbox" id="folder-diff-only-changes" checked> Show only changes</label>
+              <button class="fr-btn" id="btn-folder-diff-swap"   title="Swap left ↔ right">⇆ Swap</button>
+              <button class="fr-btn" id="btn-folder-diff-reload" title="Re-scan both folders">↻ Reload</button>
+            </div>
+            <div id="folder-diff-body"></div>
+          </div>
           <!-- AI Panel resize handle -->
           <div id="ai-resize-handle" class="hidden"></div>
           <!-- AI Assistant Panel -->
@@ -199,6 +224,14 @@
               <button class="ai-btn" id="btn-ai-replace-all">⟳ Replace entire file</button>
               <div style="flex:1"></div>
               <button class="ai-btn ai-btn-danger" id="btn-ai-discard">✕ Discard</button>
+            </div>
+            <div id="ai-quick-actions">
+              <button class="ai-quick-btn" data-quick="polish"  title="Polish — clean up the file/selection without changing meaning">✨ Polish</button>
+              <button class="ai-quick-btn" data-quick="refactor" title="Refactor — improve structure, names, readability">🔧 Refactor</button>
+              <button class="ai-quick-btn" data-quick="comments" title="Add comments / docstrings">📝 Comments</button>
+              <button class="ai-quick-btn" data-quick="tests"    title="Generate tests for the file or selection">🧪 Tests</button>
+              <button class="ai-quick-btn" data-quick="explain"  title="Explain what this code does (chat mode)">💡 Explain</button>
+              <button class="ai-quick-btn" data-quick="memory"   title="Open .notepp/memory.md to edit project memory">📓 Memory</button>
             </div>
             <div id="ai-input-row">
               <textarea id="ai-prompt" placeholder="Describe what to write… (Enter to send · Shift+Enter for newline)" rows="2" spellcheck="false"></textarea>
@@ -272,8 +305,12 @@
               <span id="mmde-zoom-label">100%</span>
             </div>
             <div id="preview-header-btns">
-              <button class="tb-btn" id="btn-preview-refresh" title="Refresh Preview">↺</button>
-              <button class="tb-btn" id="btn-preview-close" title="Close Preview">×</button>
+              <button class="tb-btn" id="btn-preview-zoomout"  title="Zoom out (Ctrl+−)">−</button>
+              <span id="preview-zoom-label" title="Zoom level — click to reset">100%</span>
+              <button class="tb-btn" id="btn-preview-zoomin"   title="Zoom in (Ctrl++)">＋</button>
+              <button class="tb-btn" id="btn-preview-maximize" title="Maximise preview (hide editor)">⛶</button>
+              <button class="tb-btn" id="btn-preview-refresh"  title="Refresh Preview">↺</button>
+              <button class="tb-btn" id="btn-preview-close"    title="Close Preview">×</button>
             </div>
           </div>
           <div id="preview-body">
@@ -351,6 +388,19 @@
     </div>
   </div>
 
+  <!-- Search-results panel (Notepad++ style) — shown by "Find All in Current Document" -->
+  <div id="search-results-panel" class="hidden">
+    <div id="search-results-header">
+      <span id="search-results-summary">Search results</span>
+      <div id="search-results-actions">
+        <button class="sr-btn" id="btn-sr-collapse" title="Collapse / expand">▾</button>
+        <button class="sr-btn" id="btn-sr-clear" title="Clear results">Clear</button>
+        <button class="sr-btn" id="btn-sr-close" title="Close panel">×</button>
+      </div>
+    </div>
+    <div id="search-results-body"></div>
+  </div>
+
   <!-- Find/Replace Panel -->
   <div id="find-replace-panel" class="hidden">
     <div id="find-replace-header">
@@ -366,10 +416,14 @@
       <div class="fr-row">
         <label class="fr-label">Find what:</label>
         <input type="text" id="find-input" class="fr-input" placeholder="">
-        <button class="fr-btn" id="btn-find-next">Find Next</button>
-        <button class="fr-btn" id="btn-find-prev">Find Previous</button>
-        <button class="fr-btn" id="btn-find-all">Find All in Current Document</button>
-        <button class="fr-btn" id="btn-count">Count</button>
+        <!-- These buttons are only meaningful for Find / Replace modes;
+             hidden when Mark or Find in Files tabs are active. -->
+        <span id="find-action-buttons">
+          <button class="fr-btn" id="btn-find-next">Find Next</button>
+          <button class="fr-btn" id="btn-find-prev">Find Previous</button>
+          <button class="fr-btn" id="btn-find-all">Find All in Current Document</button>
+          <button class="fr-btn" id="btn-count">Count</button>
+        </span>
         <button class="fr-btn" id="btn-close-find">Close</button>
       </div>
       <div class="fr-row" id="replace-row" style="display:none">
@@ -377,6 +431,28 @@
         <input type="text" id="replace-input" class="fr-input" placeholder="">
         <button class="fr-btn" id="btn-replace">Replace</button>
         <button class="fr-btn" id="btn-replace-all">Replace All</button>
+      </div>
+      <!-- Find in Files: Directory + file filter -->
+      <div class="fr-row" id="find-in-files-row" style="display:none">
+        <label class="fr-label">Directory:</label>
+        <input type="text" id="fif-directory" class="fr-input" placeholder="(active file's folder)">
+        <button class="fr-btn" id="btn-fif-browse">Browse…</button>
+        <label class="fr-label" style="width:60px">Filter:</label>
+        <input type="text" id="fif-filter" class="fr-input" style="width:160px" placeholder="*.* (comma-sep, e.g. *.js,*.md)" value="*.*">
+        <button class="fr-btn" id="btn-fif-search">Find in Files</button>
+      </div>
+      <!-- Mark: Highlight all matches with persistent colored backgrounds -->
+      <div class="fr-row" id="mark-row" style="display:none">
+        <label class="fr-label">Mark colour:</label>
+        <div id="mark-color-swatches">
+          <button class="mark-swatch active" data-color="yellow"  style="background:#facc15" title="Yellow"></button>
+          <button class="mark-swatch"        data-color="cyan"    style="background:#22d3ee" title="Cyan"></button>
+          <button class="mark-swatch"        data-color="pink"    style="background:#f472b6" title="Pink"></button>
+          <button class="mark-swatch"        data-color="green"   style="background:#86efac" title="Green"></button>
+          <button class="mark-swatch"        data-color="orange"  style="background:#fb923c" title="Orange"></button>
+        </div>
+        <button class="fr-btn" id="btn-mark-all">Mark All</button>
+        <button class="fr-btn" id="btn-mark-clear">Clear Marks</button>
       </div>
       <div class="fr-options">
         <label class="fr-check"><input type="checkbox" id="opt-match-case"> Match case</label>

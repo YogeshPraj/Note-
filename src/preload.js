@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectCloudPaths:  () => ipcRenderer.invoke('detect-cloud-paths'),
   validatePath:      (p) => ipcRenderer.invoke('validate-path', p),
   openFolderPicker:  () => ipcRenderer.invoke('open-folder-picker'),
+  findInFiles:       (opts) => ipcRenderer.invoke('find-in-files', opts),
+  compareFolders:    (opts) => ipcRenderer.invoke('compare-folders', opts),
 
   // Menu events (main → renderer)
   onMenu: (channel, cb) => ipcRenderer.on(channel, (e, ...args) => cb(...args)),
@@ -52,6 +54,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('ai-pull-progress');
   },
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
+
+  // Renderer signals it has finished wiring listeners — main flushes any
+  // file-open args queued from double-click / "Open with"
+  rendererReady: () => ipcRenderer.invoke('renderer-ready'),
+
+  // Recent Files — main owns the persisted list + menu
+  recentFileOpened: (filePath) => ipcRenderer.invoke('recent-file-opened', filePath),
+  recentFilesGet:   ()         => ipcRenderer.invoke('recent-files-get'),
+  recentFilesClear: ()         => ipcRenderer.invoke('recent-files-clear'),
+
+  // External file-change watcher
+  watchFile:        (filePath) => ipcRenderer.invoke('watch-file', filePath),
+  unwatchFile:      (filePath) => ipcRenderer.invoke('unwatch-file', filePath),
+  fileSavedByApp:   (filePath) => ipcRenderer.invoke('file-saved-by-app', filePath),
+  onFileChangedExternally: (cb) =>
+    ipcRenderer.on('file-changed-externally', (e, data) => cb(data)),
+  removeFileChangedListener: () =>
+    ipcRenderer.removeAllListeners('file-changed-externally'),
+
+  // Project context — AGENTS.md + .notepp/memory.md (auto-injected into AI prompts)
+  projectContext: {
+    find:         (path)            => ipcRenderer.invoke('project-context-find', path),
+    ensureMemory: (folder)          => ipcRenderer.invoke('project-memory-ensure', folder),
+  },
 
   // Git integration — see GIT.md
   git: {

@@ -23,6 +23,25 @@ if (!app.isPackaged) {
 
 // ── Single-instance lock ──────────────────────────────────────────────────
 // If another instance launches, focus the existing window and open the file.
+// Files queued for the renderer to open. Filled by:
+//   - process.argv on first launch (double-click / "Open with")
+//   - second-instance argv on subsequent launches (Windows file-association)
+//   - macOS 'open-file' event
+// Drained when the renderer sends 'renderer-ready' — this avoids a race where
+// IPC sends fire before the renderer has registered its 'open-files' listener.
+const pendingOpenFiles = [];
+let rendererReady = false;
+function queueOpenFiles(files) {
+  if (!files || !files.length) return;
+  for (const f of files) if (f && !pendingOpenFiles.includes(f)) pendingOpenFiles.push(f);
+  flushPendingOpens();
+}
+function flushPendingOpens() {
+  if (!rendererReady || !mainWindow || !pendingOpenFiles.length) return;
+  const files = pendingOpenFiles.splice(0);
+  try { mainWindow.webContents.send('open-files', files); } catch {}
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -33,9 +52,15 @@ if (!gotTheLock) {
       mainWindow.focus();
     }
     const file = fileFromArgv(argv);
-    if (file && mainWindow) mainWindow.webContents.send('open-files', [file]);
+    if (file) queueOpenFiles([file]);
   });
 }
+
+// macOS Finder open-with
+app.on('open-file', (e, filePath) => {
+  e.preventDefault();
+  queueOpenFiles([filePath]);
+});
 
 // Extract the first real file path from a argv array
 function fileFromArgv(argv) {
@@ -67,9 +92,10 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    // Open file passed via command line (e.g. double-click or "Open with")
+    // Queue any file passed on the command line (double-click / "Open with").
+    // It'll be delivered when the renderer sends 'renderer-ready' below.
     const file = fileFromArgv(process.argv);
-    if (file) mainWindow.webContents.send('open-files', [file]);
+    if (file) queueOpenFiles([file]);
     // F12 → toggle DevTools (dev mode only)
     if (!app.isPackaged) {
       mainWindow.webContents.on('before-input-event', (_e, input) => {
@@ -92,6 +118,101 @@ function createWindow() {
   buildMenu();
 }
 
+// ── External file-change watcher ─────────────────────────────────────────
+// Each open editor tab subscribes via `watch-file` so we can notify the
+// renderer when the file is modified outside Note++ (git checkout, another
+// editor, etc.). fs.watch + lightweight debouncing — no chokidar dep.
+const fileWatchers = new Map();      // filePath → { watcher, mtimeMs, debounceTimer }
+
+ipcMain.handle('watch-file', (e, filePath) => {
+  if (!filePath || fileWatchers.has(filePath)) return { success: true };
+  try {
+    const mtimeMs = fs.statSync(filePath).mtimeMs;
+    const entry = { mtimeMs, debounceTimer: null, watcher: null };
+    // fs.watch on the FILE itself (not its directory) — simpler & works for
+    // most editors. For atomic-write editors (e.g. vim default), watching
+    // the dir is more reliable but adds complexity; revisit if reports come.
+    entry.watcher = fs.watch(filePath, { persistent: false }, () => {
+      clearTimeout(entry.debounceTimer);
+      entry.debounceTimer = setTimeout(() => {
+        try {
+          if (!fs.existsSync(filePath)) {
+            if (mainWindow) mainWindow.webContents.send('file-changed-externally', { filePath, deleted: true });
+            return;
+          }
+          const m = fs.statSync(filePath).mtimeMs;
+          if (m === entry.mtimeMs) return; // no real change
+          entry.mtimeMs = m;
+          if (mainWindow) mainWindow.webContents.send('file-changed-externally', { filePath, deleted: false });
+        } catch {}
+      }, 250);  // debounce burst events from "atomic write" editors
+    });
+    fileWatchers.set(filePath, entry);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('unwatch-file', (e, filePath) => {
+  const entry = fileWatchers.get(filePath);
+  if (!entry) return { success: true };
+  try { entry.watcher?.close(); } catch {}
+  clearTimeout(entry.debounceTimer);
+  fileWatchers.delete(filePath);
+  return { success: true };
+});
+
+// When the renderer saves a file we update the cached mtime so the watcher
+// doesn't immediately fire "changed externally" for our own write.
+ipcMain.handle('file-saved-by-app', (e, filePath) => {
+  const entry = fileWatchers.get(filePath);
+  if (entry) {
+    try { entry.mtimeMs = fs.statSync(filePath).mtimeMs; } catch {}
+  }
+  return { success: true };
+});
+
+// ── Recent files persistence ─────────────────────────────────────────────
+// Stored in settings.json under `recentFiles` (most-recent first). Cap 15.
+const RECENT_FILES_MAX = 15;
+function getRecentFiles() {
+  const s = readSettings();
+  const arr = Array.isArray(s.recentFiles) ? s.recentFiles : [];
+  // Drop any that no longer exist on disk so the menu doesn't show ghosts
+  return arr.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
+}
+function addRecentFile(filePath) {
+  if (!filePath) return;
+  const s = readSettings();
+  const cur = Array.isArray(s.recentFiles) ? s.recentFiles : [];
+  // Dedupe case-insensitively on Windows
+  const norm = process.platform === 'win32' ? filePath.toLowerCase() : filePath;
+  const filtered = cur.filter(p => (process.platform === 'win32' ? p.toLowerCase() : p) !== norm);
+  filtered.unshift(filePath);
+  s.recentFiles = filtered.slice(0, RECENT_FILES_MAX);
+  writeSettings(s);
+  buildMenu(); // rebuild so the submenu reflects the new entry
+}
+function clearRecentFiles() {
+  const s = readSettings();
+  s.recentFiles = [];
+  writeSettings(s);
+  buildMenu();
+}
+function buildRecentFilesSubmenu() {
+  const list = getRecentFiles();
+  if (!list.length) return [{ label: 'No recent files', enabled: false }];
+  const truncate = (p, n) => p.length > n ? '…' + p.slice(p.length - n + 1) : p;
+  const items = list.map((p, i) => ({
+    label: (i < 9 ? `&${i + 1}  ` : '    ') + truncate(p, 60),
+    click: () => queueOpenFiles([p]),
+  }));
+  items.push({ type: 'separator' });
+  items.push({ label: 'Clear Recent Files', click: () => clearRecentFiles() });
+  return items;
+}
+
 function buildMenu() {
   const template = [
     {
@@ -101,7 +222,14 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => handleOpen() },
         { label: 'Open Folder...', accelerator: 'CmdOrCtrl+Shift+O', click: () => handleOpenFolder() },
-        { label: 'Open Recent', submenu: [{ label: 'No recent files', enabled: false }] },
+        { label: 'Open Recent', submenu: buildRecentFilesSubmenu() },
+        { type: 'separator' },
+        { label: 'Compare', submenu: [
+          { label: 'Compare Files…',         click: () => send('menu-compare-files') },
+          { label: 'Compare with Saved…',    click: () => send('menu-compare-with-saved') },
+          { type: 'separator' },
+          { label: 'Compare Folders…',       click: () => send('menu-compare-folders') },
+        ]},
         { type: 'separator' },
         { label: 'Reload from Disk', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('menu-reload') },
         { type: 'separator' },
@@ -354,6 +482,19 @@ function send(channel, ...args) {
 }
 
 // IPC handlers
+// Renderer signals it's done wiring listeners — flush any files queued for it
+ipcMain.handle('renderer-ready', () => {
+  rendererReady = true;
+  flushPendingOpens();
+  return { success: true };
+});
+
+// Renderer notifies main when it has successfully opened a file from disk so
+// we can add it to the Recent Files list and refresh the menu.
+ipcMain.handle('recent-file-opened',  (e, filePath) => { addRecentFile(filePath); return { success: true }; });
+ipcMain.handle('recent-files-get',    () => getRecentFiles());
+ipcMain.handle('recent-files-clear',  () => { clearRecentFiles(); return { success: true }; });
+
 ipcMain.handle('dialog-open', async (e, opts) => dialog.showOpenDialog(mainWindow, opts));
 ipcMain.handle('dialog-save', async (e, opts) => dialog.showSaveDialog(mainWindow, opts));
 ipcMain.handle('dialog-message', async (e, opts) => dialog.showMessageBox(mainWindow, opts));
@@ -614,6 +755,213 @@ ipcMain.handle('terminal-resize', (e, id, cols, rows) => {
   const proc = terminalProcesses.get(id);
   if (proc && pty && proc.resize) {
     try { proc.resize(Math.max(1, cols), Math.max(1, rows)); } catch {}
+  }
+});
+
+// ── Project context (AGENTS.md + .notepp/memory.md) ──────────────────────
+// Walk up from a file path looking for context files the AI should always see.
+// AGENTS.md is the cross-vendor standard adopted by Cursor / Codex / Copilot /
+// Cline / Codex / Jules / Gemini etc. (60k+ repos). .notepp/memory.md is our
+// own per-project instructions file (analogous to CLAUDE.md or .cursorrules).
+ipcMain.handle('project-context-find', (e, startPath) => {
+  if (!startPath) return { agentsMd: null, memoryMd: null };
+  let dir = startPath;
+  try {
+    const stat = fs.statSync(dir);
+    if (stat.isFile()) dir = path.dirname(dir);
+  } catch { return { agentsMd: null, memoryMd: null }; }
+  const result = { agentsMd: null, agentsMdPath: null, memoryMd: null, memoryMdPath: null };
+  while (true) {
+    if (!result.agentsMd) {
+      const p = path.join(dir, 'AGENTS.md');
+      if (fs.existsSync(p)) {
+        try { result.agentsMd = fs.readFileSync(p, 'utf-8'); result.agentsMdPath = p; } catch {}
+      }
+    }
+    if (!result.memoryMd) {
+      const p = path.join(dir, '.notepp', 'memory.md');
+      if (fs.existsSync(p)) {
+        try { result.memoryMd = fs.readFileSync(p, 'utf-8'); result.memoryMdPath = p; } catch {}
+      }
+    }
+    // Stop at .git boundary or filesystem root — no point walking past the repo
+    if (fs.existsSync(path.join(dir, '.git'))) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return result;
+});
+
+// Ensure .notepp/memory.md exists for the given workspace, then return its path.
+// Used by the "Edit project memory" button.
+ipcMain.handle('project-memory-ensure', (e, repoOrFolder) => {
+  if (!repoOrFolder) return { success: false, error: 'no folder' };
+  try {
+    const dir = path.join(repoOrFolder, '.notepp');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'memory.md');
+    if (!fs.existsSync(file)) {
+      fs.writeFileSync(file,
+        '# Note++ Project Memory\n\n' +
+        '> The AI Assistant always reads this file when this project is open.\n' +
+        '> Use it for project-specific instructions, conventions, terminology,\n' +
+        '> known gotchas, or anything you want the AI to remember.\n\n' +
+        '## Conventions\n\n- (e.g. "Use 2-space indents", "Prefer arrow functions", "All API calls go through src/api/")\n\n' +
+        '## Glossary\n\n- (e.g. "OBO = On-Behalf-Of OAuth flow")\n', 'utf-8');
+    }
+    return { success: true, path: file };
+  } catch (err) { return { success: false, error: err.message }; }
+});
+
+// ── Folder compare via dir-compare ───────────────────────────────────────
+// Returns a flat list of entries with status:
+//   added    — only on right
+//   removed  — only on left
+//   modified — in both, content differs
+//   equal    — in both, identical
+// Comparison: name + size + content-hash (dir-compare's `compareContent`)
+ipcMain.handle('compare-folders', async (e, { left, right }) => {
+  if (!left || !right) return { success: false, error: 'Both paths required' };
+  try {
+    const dirCompare = require('dir-compare');
+    const SKIP = [
+      'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out',
+      '.next', '.cache', '.vscode', '.idea', '__pycache__',
+    ];
+    const options = {
+      compareContent: true,
+      compareSize: true,
+      compareDate: false,
+      excludeFilter: SKIP.map(s => '/**/' + s).join(','),
+      skipSymlinks: true,
+    };
+    const res = await dirCompare.compare(left, right, options);
+    // Map dir-compare's `diffSet` to our flat schema
+    const entries = (res.diffSet || []).map(d => ({
+      // Path relative to the compared root (uses forward slashes regardless of platform)
+      relPath: (d.relativePath || '').replace(/^[\\/]/, '') + (d.relativePath && !d.relativePath.endsWith('/') && !d.relativePath.endsWith('\\') ? '/' : ''),
+      name:    d.name1 || d.name2 || '',
+      isDir:   d.type1 === 'directory' || d.type2 === 'directory',
+      leftPath:  d.path1 && d.name1 ? path.join(d.path1, d.name1) : null,
+      rightPath: d.path2 && d.name2 ? path.join(d.path2, d.name2) : null,
+      // dir-compare's `state`: 'equal' | 'left' | 'right' | 'distinct'
+      status: d.state === 'equal'  ? 'equal'
+            : d.state === 'left'   ? 'removed'   // only on left → removed from right
+            : d.state === 'right'  ? 'added'     // only on right → added vs left
+            : 'modified',
+      sizeLeft:  d.size1,
+      sizeRight: d.size2,
+    }));
+    return {
+      success: true,
+      entries,
+      summary: {
+        equalCount:    res.equal,
+        distinctCount: res.distinct,
+        leftOnlyCount: res.left,
+        rightOnlyCount: res.right,
+        totalDirs:     res.totalDirs,
+        totalFiles:    res.totalFiles,
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// ── Find in Files — recursive search across a folder ────────────────────
+// Filter is a comma-separated glob list ("*.js,*.md"). "*.*" means any.
+// Returns { success, files: [{ path, hits: [{ line, col, content }] }], totalHits }
+ipcMain.handle('find-in-files', async (e, { root, pattern, filter, matchCase, isRegex, wholeWord }) => {
+  if (!root) return { success: false, error: 'No directory' };
+  if (!pattern) return { success: false, error: 'No pattern' };
+  try {
+    const globs = (filter || '*.*').split(',').map(s => s.trim()).filter(Boolean);
+    const wantAny = globs.includes('*.*') || globs.includes('*');
+    // Build a simple regex per glob: *.js → \.js$, *.md → \.md$
+    const globRegexes = wantAny ? null : globs.map(g => {
+      const escaped = g.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+      return new RegExp('^' + escaped + '$', 'i');
+    });
+    const matchesGlob = (name) => wantAny || globRegexes.some(r => r.test(name));
+
+    // Build the search regex
+    let re;
+    try {
+      const flags = matchCase ? 'g' : 'gi';
+      if (isRegex) {
+        re = new RegExp(pattern, flags);
+      } else {
+        let escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (wholeWord) escaped = '\\b' + escaped + '\\b';
+        re = new RegExp(escaped, flags);
+      }
+    } catch (err) {
+      return { success: false, error: 'Bad regex: ' + err.message };
+    }
+
+    const results = [];
+    let totalHits = 0;
+    const MAX_FILES = 5000;
+    const MAX_TOTAL_HITS = 5000;
+    let filesScanned = 0;
+
+    // Folders we never recurse into — saves time + avoids choking on huge dirs
+    const SKIP_DIRS = new Set([
+      'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out',
+      '.next', '.cache', '.vscode', '.idea', '__pycache__',
+    ]);
+
+    function walk(dir) {
+      if (filesScanned >= MAX_FILES || totalHits >= MAX_TOTAL_HITS) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+      catch { return; }
+      for (const ent of entries) {
+        if (filesScanned >= MAX_FILES || totalHits >= MAX_TOTAL_HITS) return;
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) {
+          if (SKIP_DIRS.has(ent.name)) continue;
+          walk(full);
+        } else if (ent.isFile() && matchesGlob(ent.name)) {
+          filesScanned++;
+          // Skip very large files (>2 MB) — likely binary or generated
+          let stat;
+          try { stat = fs.statSync(full); } catch { continue; }
+          if (stat.size > 2 * 1024 * 1024) continue;
+          let text;
+          try { text = fs.readFileSync(full, 'utf-8'); } catch { continue; }
+          // Quick binary check — bail if a NUL byte in the first 4 KB
+          if (text.slice(0, 4096).indexOf('\0') >= 0) continue;
+          const lines = text.split(/\r?\n/);
+          const hits = [];
+          for (let i = 0; i < lines.length; i++) {
+            re.lastIndex = 0;
+            let m;
+            while ((m = re.exec(lines[i])) !== null) {
+              hits.push({ line: i + 1, col: m.index + 1, content: lines[i] });
+              totalHits++;
+              if (totalHits >= MAX_TOTAL_HITS) break;
+              if (m.index === re.lastIndex) re.lastIndex++; // avoid zero-length loop
+            }
+            if (totalHits >= MAX_TOTAL_HITS) break;
+          }
+          if (hits.length) results.push({ path: full, hits });
+        }
+      }
+    }
+
+    walk(root);
+    return {
+      success: true,
+      files: results,
+      totalHits,
+      filesScanned,
+      capped: filesScanned >= MAX_FILES || totalHits >= MAX_TOTAL_HITS,
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 });
 

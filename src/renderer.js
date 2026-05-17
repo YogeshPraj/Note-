@@ -232,6 +232,7 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backquote, () => toggleTerminal());
 
   setupMenuListeners();
+  setupExternalChangeWatcher();
   setupContextMenu();
   setupDragDrop();
   setupFindReplace();
@@ -245,8 +246,13 @@ require(['vs/editor/editor.main'], () => {
   setupRegexTester();
   setupPreview();
   setupAiPanel();
+  setupDiffToolbars();
   setupGlobalEscape();
   updateStatusBar();
+
+  // Signal main that all our IPC listeners (especially 'open-files') are now
+  // wired up. Main will flush any files queued from double-click / "Open with".
+  try { window.electronAPI.rendererReady(); } catch {}
 });
 
 // ===== Mermaid Language Registration =====
@@ -509,6 +515,303 @@ function sendToWhiteboard(msg) {
   }
 }
 
+// =============================================================================
+// Compare (File diff + Folder diff) — see DIFF.md
+// =============================================================================
+
+// One Monaco DiffEditor instance reused across diff tabs. Tabs swap their
+// (originalModel, modifiedModel) into it on activation.
+let diffEditor = null;
+let diffEditorSideBySide = true;
+
+// Last "Select for Compare" tab — picked from the tab right-click menu
+let compareSelectedTabId = null;
+
+function createFileDiffTab(leftPath, rightPath) {
+  tabCounter++;
+  const id = tabCounter;
+  const leftName  = leftPath  ? leftPath.split(/[\\/]/).pop()  : 'left';
+  const rightName = rightPath ? rightPath.split(/[\\/]/).pop() : 'right';
+  const tab = {
+    id,
+    name: `⇆ ${leftName} ↔ ${rightName}`,
+    filePath: null,                              // not a "real" file tab
+    dirty: false,
+    type: 'diff',
+    diff: {
+      leftPath, rightPath,
+      leftLang: leftPath ? detectLanguage(leftPath) : 'plaintext',
+      rightLang: rightPath ? detectLanguage(rightPath) : 'plaintext',
+      originalModel: null,
+      modifiedModel: null,
+      mounted: false,
+    },
+  };
+  tabs.push(tab);
+  activateTab(id);
+  renderTabs();
+  return tab;
+}
+
+function createFolderDiffTab(leftDir, rightDir) {
+  tabCounter++;
+  const id = tabCounter;
+  const ln = leftDir.split(/[\\/]/).pop();
+  const rn = rightDir.split(/[\\/]/).pop();
+  const tab = {
+    id,
+    name: `⇆ ${ln} ↔ ${rn}`,
+    filePath: null,
+    dirty: false,
+    type: 'folder-diff',
+    folderDiff: {
+      leftDir, rightDir,
+      entries: null,
+      summary: null,
+      onlyChanges: true,
+      mounted: false,
+    },
+  };
+  tabs.push(tab);
+  activateTab(id);
+  renderTabs();
+  return tab;
+}
+
+// Mount + load both files into the Monaco DiffEditor when a diff tab is activated.
+async function mountFileDiffTab(tab) {
+  const host = document.getElementById('diff-monaco');
+  if (!diffEditor) {
+    diffEditor = monaco.editor.createDiffEditor(host, {
+      automaticLayout: true,
+      readOnly: true,
+      renderSideBySide: diffEditorSideBySide,
+      fontSize: 13,
+      fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      theme: isDarkMode ? 'notepp-dark' : 'notepp-light',
+    });
+  }
+  // Update title
+  document.getElementById('diff-title').textContent =
+    `⇆  ${tab.diff.leftPath || '(left)'}   ↔   ${tab.diff.rightPath || '(right)'}`;
+
+  // Lazy-load + cache the models on the tab
+  if (!tab.diff.mounted) {
+    await reloadDiffTab(tab);
+    tab.diff.mounted = true;
+  } else {
+    diffEditor.setModel({ original: tab.diff.originalModel, modified: tab.diff.modifiedModel });
+  }
+  // Trigger a layout pass (container just became visible)
+  setTimeout(() => { try { diffEditor.layout(); } catch {} }, 50);
+}
+
+async function reloadDiffTab(tab) {
+  if (!tab || tab.type !== 'diff') return;
+  let leftContent = '', rightContent = '';
+  if (tab.diff.leftPath) {
+    const r = await window.electronAPI.readFile(tab.diff.leftPath);
+    leftContent = r.success ? r.content : `// failed to read: ${r.error || tab.diff.leftPath}`;
+  }
+  if (tab.diff.rightPath) {
+    const r = await window.electronAPI.readFile(tab.diff.rightPath);
+    rightContent = r.success ? r.content : `// failed to read: ${r.error || tab.diff.rightPath}`;
+  }
+  try { tab.diff.originalModel?.dispose(); } catch {}
+  try { tab.diff.modifiedModel?.dispose(); } catch {}
+  tab.diff.originalModel = monaco.editor.createModel(leftContent,  tab.diff.leftLang);
+  tab.diff.modifiedModel = monaco.editor.createModel(rightContent, tab.diff.rightLang);
+  diffEditor.setModel({ original: tab.diff.originalModel, modified: tab.diff.modifiedModel });
+}
+
+// Wire the diff-tab toolbar buttons (called once at startup from setupModals or similar).
+function setupDiffToolbars() {
+  document.getElementById('btn-diff-swap')?.addEventListener('click', () => {
+    const tab = getActiveTab();
+    if (!tab || tab.type !== 'diff') return;
+    [tab.diff.leftPath,  tab.diff.rightPath]  = [tab.diff.rightPath,  tab.diff.leftPath];
+    [tab.diff.leftLang,  tab.diff.rightLang]  = [tab.diff.rightLang,  tab.diff.leftLang];
+    const ln  = tab.diff.leftPath  ? tab.diff.leftPath.split(/[\\/]/).pop()  : 'left';
+    const rn  = tab.diff.rightPath ? tab.diff.rightPath.split(/[\\/]/).pop() : 'right';
+    tab.name = `⇆ ${ln} ↔ ${rn}`;
+    reloadDiffTab(tab);
+    document.getElementById('diff-title').textContent =
+      `⇆  ${tab.diff.leftPath || '(left)'}   ↔   ${tab.diff.rightPath || '(right)'}`;
+    renderTabs(); updateTitle();
+  });
+  document.getElementById('btn-diff-inline')?.addEventListener('click', () => {
+    diffEditorSideBySide = !diffEditorSideBySide;
+    diffEditor?.updateOptions({ renderSideBySide: diffEditorSideBySide });
+    document.getElementById('btn-diff-inline').textContent =
+      diffEditorSideBySide ? '≡ Inline' : '⫶ Side-by-side';
+  });
+  document.getElementById('btn-diff-next')?.addEventListener('click', () => diffEditor?.getModifiedEditor()?.trigger('toolbar', 'editor.action.diffReview.next', null) ?? null);
+  document.getElementById('btn-diff-prev')?.addEventListener('click', () => diffEditor?.getModifiedEditor()?.trigger('toolbar', 'editor.action.diffReview.prev', null) ?? null);
+  document.getElementById('btn-diff-reload')?.addEventListener('click', () => {
+    const tab = getActiveTab();
+    if (tab?.type === 'diff') reloadDiffTab(tab);
+  });
+
+  // Folder-diff toolbar
+  document.getElementById('btn-folder-diff-swap')?.addEventListener('click', () => {
+    const tab = getActiveTab();
+    if (!tab || tab.type !== 'folder-diff') return;
+    [tab.folderDiff.leftDir, tab.folderDiff.rightDir] = [tab.folderDiff.rightDir, tab.folderDiff.leftDir];
+    const ln = tab.folderDiff.leftDir.split(/[\\/]/).pop();
+    const rn = tab.folderDiff.rightDir.split(/[\\/]/).pop();
+    tab.name = `⇆ ${ln} ↔ ${rn}`;
+    tab.folderDiff.mounted = false;
+    mountFolderDiffTab(tab);
+    renderTabs(); updateTitle();
+  });
+  document.getElementById('btn-folder-diff-reload')?.addEventListener('click', () => {
+    const tab = getActiveTab();
+    if (tab?.type === 'folder-diff') { tab.folderDiff.mounted = false; mountFolderDiffTab(tab); }
+  });
+  document.getElementById('folder-diff-only-changes')?.addEventListener('change', (e) => {
+    const tab = getActiveTab();
+    if (!tab || tab.type !== 'folder-diff') return;
+    tab.folderDiff.onlyChanges = e.target.checked;
+    renderFolderDiffBody(tab);
+  });
+}
+
+// Run dir-compare via IPC, then render the resulting tree.
+async function mountFolderDiffTab(tab) {
+  document.getElementById('folder-diff-title').textContent =
+    `⇆  ${tab.folderDiff.leftDir}   ↔   ${tab.folderDiff.rightDir}`;
+  document.getElementById('folder-diff-only-changes').checked = tab.folderDiff.onlyChanges !== false;
+
+  if (!tab.folderDiff.mounted) {
+    document.getElementById('folder-diff-body').innerHTML = '<div style="padding:20px;color:#888">Comparing folders…</div>';
+    document.getElementById('folder-diff-summary').textContent = '';
+    const r = await window.electronAPI.compareFolders({
+      left:  tab.folderDiff.leftDir,
+      right: tab.folderDiff.rightDir,
+    });
+    if (!r.success) {
+      document.getElementById('folder-diff-body').innerHTML =
+        `<div style="padding:20px;color:#e03131">Compare failed: ${escapeHtml(r.error || 'unknown')}</div>`;
+      return;
+    }
+    tab.folderDiff.entries = r.entries;
+    tab.folderDiff.summary = r.summary;
+    tab.folderDiff.mounted = true;
+  }
+  renderFolderDiffBody(tab);
+}
+
+function renderFolderDiffBody(tab) {
+  const body = document.getElementById('folder-diff-body');
+  const sum  = tab.folderDiff.summary;
+  const summaryEl = document.getElementById('folder-diff-summary');
+  if (sum) {
+    summaryEl.textContent =
+      `${sum.rightOnlyCount} added · ${sum.leftOnlyCount} removed · ${sum.distinctCount} differ · ${sum.equalCount} equal`;
+  }
+  const onlyChanges = tab.folderDiff.onlyChanges !== false;
+  const entries = (tab.folderDiff.entries || [])
+    .filter(e => !onlyChanges || e.status !== 'equal')
+    .sort((a, b) => (a.relPath + a.name).localeCompare(b.relPath + b.name));
+
+  if (!entries.length) {
+    body.innerHTML = `<div style="padding:20px;color:#16a34a">✓ No differences${onlyChanges ? ' (filtering equal entries)' : ''}.</div>`;
+    return;
+  }
+
+  const ICONS = { added: '⊕', removed: '⊖', modified: '✎', equal: '·' };
+  const FILE_ICON = '📄';
+  const DIR_ICON  = '📁';
+  body.innerHTML = entries.map(e => {
+    const icon = e.isDir ? DIR_ICON : FILE_ICON;
+    const status = e.status;
+    const leftHas  = status !== 'added';
+    const rightHas = status !== 'removed';
+    const display  = (path) => `<span class="fd-icon">${icon}</span><span class="fd-name">${escapeHtml(path)}</span>`;
+    const left  = leftHas  ? display((e.relPath || '') + (e.name || '')) : '';
+    const right = rightHas ? display((e.relPath || '') + (e.name || '')) : '';
+    const clickable = (status === 'modified' && !e.isDir) ? 'row-clickable' : '';
+    return `<div class="fd-row ${status} ${clickable} ${e.isDir ? 'is-dir' : ''}"
+                 data-status="${status}"
+                 data-left="${escapeHtml(e.leftPath || '')}"
+                 data-right="${escapeHtml(e.rightPath || '')}">` +
+             `<div class="fd-cell">${left}<span class="fd-icon">${ICONS[status]}</span></div>` +
+             `<div class="fd-cell">${right}</div>` +
+           `</div>`;
+  }).join('');
+
+  // Click a modified file row → open a file-diff tab
+  body.querySelectorAll('.fd-row.row-clickable').forEach(row => {
+    row.addEventListener('click', () => {
+      const left  = row.dataset.left;
+      const right = row.dataset.right;
+      if (left && right) createFileDiffTab(left, right);
+    });
+  });
+}
+
+// ── Menu / picker entry points ───────────────────────────────────────────
+async function compareFilesFlow() {
+  const a = await window.electronAPI.openDialog({
+    title: 'Compare — pick LEFT file',
+    properties: ['openFile'],
+    filters: [{ name: 'All Files', extensions: ['*'] }],
+  });
+  if (a.canceled || !a.filePaths?.length) return;
+  const b = await window.electronAPI.openDialog({
+    title: 'Compare — pick RIGHT file',
+    properties: ['openFile'],
+    filters: [{ name: 'All Files', extensions: ['*'] }],
+  });
+  if (b.canceled || !b.filePaths?.length) return;
+  createFileDiffTab(a.filePaths[0], b.filePaths[0]);
+}
+
+async function compareWithSavedFlow() {
+  const tab = getActiveTab();
+  if (!tab || tab.type !== 'editor' || !tab.filePath) {
+    showToast('Open a saved file first to use Compare with Saved');
+    return;
+  }
+  const b = await window.electronAPI.openDialog({
+    title: `Compare "${tab.name}" with…`,
+    properties: ['openFile'],
+    filters: [{ name: 'All Files', extensions: ['*'] }],
+  });
+  if (b.canceled || !b.filePaths?.length) return;
+  createFileDiffTab(tab.filePath, b.filePaths[0]);
+}
+
+async function compareFoldersFlow() {
+  const a = await window.electronAPI.openDialog({
+    title: 'Compare folders — pick LEFT folder',
+    properties: ['openDirectory'],
+  });
+  if (a.canceled || !a.filePaths?.length) return;
+  const b = await window.electronAPI.openDialog({
+    title: 'Compare folders — pick RIGHT folder',
+    properties: ['openDirectory'],
+  });
+  if (b.canceled || !b.filePaths?.length) return;
+  createFolderDiffTab(a.filePaths[0], b.filePaths[0]);
+}
+
+// Cleanup: when a diff tab is closed, dispose its models
+function disposeDiffTab(tab) {
+  if (tab?.type !== 'diff') return;
+  try { tab.diff.originalModel?.dispose(); } catch {}
+  try { tab.diff.modifiedModel?.dispose(); } catch {}
+}
+
+// Tiny HTML escape — shared with other helpers but defined here too to keep
+// the diff module self-contained.
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
 function createWhiteboardTab(filePath, content) {
   // If a whiteboard for this filePath already exists, just activate it
   if (filePath) {
@@ -542,7 +845,8 @@ function activateTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   const prev = getActiveTab();
-  if (prev && editor && prev.type !== 'game' && prev.type !== 'whiteboard') {
+  if (prev && editor && prev.type !== 'game' && prev.type !== 'whiteboard'
+                     && prev.type !== 'diff' && prev.type !== 'folder-diff') {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
   }
@@ -553,12 +857,26 @@ function activateTab(id) {
   const wbFrame        = document.getElementById('whiteboard-frame');
   const monacoEl       = document.getElementById('monaco-editor');
   const gameFrame      = document.getElementById('game-frame');
+  const diffContainer  = document.getElementById('diff-container');
+  const fdiffContainer = document.getElementById('folder-diff-container');
 
   // Always hide all special containers first, then show the right one
   gameContainer.classList.add('hidden');
   wbContainer.classList.add('hidden');
+  diffContainer?.classList.add('hidden');
+  fdiffContainer?.classList.add('hidden');
 
-  if (tab.type === 'game') {
+  if (tab.type === 'diff') {
+    monacoEl.style.display = 'none';
+    diffContainer.classList.remove('hidden');
+    if (previewOpen) closePreview();
+    mountFileDiffTab(tab);
+  } else if (tab.type === 'folder-diff') {
+    monacoEl.style.display = 'none';
+    fdiffContainer.classList.remove('hidden');
+    if (previewOpen) closePreview();
+    mountFolderDiffTab(tab);
+  } else if (tab.type === 'game') {
     // Show game container, hide monaco editor
     monacoEl.style.display = 'none';
     gameContainer.classList.remove('hidden');
@@ -659,6 +977,13 @@ function renderTabs() {
       badge.textContent = 'wb';
       el.appendChild(badge);
     }
+    // Diff / folder-diff badge
+    if (tab.type === 'diff' || tab.type === 'folder-diff') {
+      const badge = document.createElement('span');
+      badge.className = 'tab-diff-badge';
+      badge.textContent = tab.type === 'diff' ? 'diff' : 'fdiff';
+      el.appendChild(badge);
+    }
     // Lock badge on encrypted text tabs
     if (tab.encrypted) {
       const lock = document.createElement('span');
@@ -679,6 +1004,16 @@ function renderTabs() {
 async function closeTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
+  if (tab.type === 'diff' || tab.type === 'folder-diff') {
+    // Compare tab: no model on the tab, no save prompt
+    if (tab.type === 'diff') disposeDiffTab(tab);
+    const idx = tabs.findIndex(t => t.id === id);
+    tabs.splice(idx, 1);
+    if (tabs.length === 0) createTab();
+    else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+    renderTabs();
+    return;
+  }
   if (tab.type === 'game') {
     // Game tab: no model, just remove
     const idx = tabs.findIndex(t => t.id === id);
@@ -751,6 +1086,10 @@ async function closeTab(id) {
     if (r.response === 0) { const ok = await saveTabFile(tab); if (!ok) return; }
   }
   const idx = tabs.findIndex(t => t.id === id);
+  // Unsubscribe the external-change watcher for this file
+  if (tab.filePath) {
+    try { window.electronAPI.unwatchFile(tab.filePath); } catch {}
+  }
   tab.model.dispose();
   tabs.splice(idx, 1);
   if (tabs.length === 0) createTab();
@@ -767,6 +1106,11 @@ function switchTab(dir) {
 function showTabContextMenu(e, tabId) {
   const tab = tabs.find(t => t.id === tabId);
   if (!tab) return;
+  const compareEligible = tab.type === 'editor' && tab.filePath;
+  const haveSelected = compareSelectedTabId != null &&
+                       tabs.some(t => t.id === compareSelectedTabId && t.filePath);
+  const selectedTab = haveSelected ? tabs.find(t => t.id === compareSelectedTabId) : null;
+
   const items = [
     ['Close', () => closeTab(tabId)],
     ['Close All', () => closeAllTabs()],
@@ -775,8 +1119,22 @@ function showTabContextMenu(e, tabId) {
     ['Copy Full Path', () => { if (tab.filePath) navigator.clipboard.writeText(tab.filePath); }],
     ['Open Containing Folder', () => { if (tab.filePath) window.electronAPI.shellShowItem(tab.filePath); }],
     null,
-    ['Reveal in File Tree', () => {}],
   ];
+  // Diff entry points — only for saved editor tabs
+  if (compareEligible) {
+    items.push(['Select for Compare', () => {
+      compareSelectedTabId = tabId;
+      showToast(`Marked "${tab.name}" as LEFT — right-click another tab → "Compare with Selected"`);
+    }]);
+    if (haveSelected && selectedTab.id !== tabId) {
+      items.push([`Compare with "${selectedTab.name}"`, () => {
+        createFileDiffTab(selectedTab.filePath, tab.filePath);
+        compareSelectedTabId = null;
+      }]);
+    }
+    items.push(null);
+  }
+  items.push(['Reveal in File Tree', () => {}]);
   showFloatingMenu(e.clientX, e.clientY, items);
 }
 
@@ -831,6 +1189,10 @@ async function openFile(filePaths) {
     if (existing) { activateTab(existing.id); continue; }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
+    // Track in Recent Files (main owns the persisted list + menu)
+    try { window.electronAPI.recentFileOpened(fp); } catch {}
+    // Watch this file for external changes (git pull, another editor, etc.)
+    try { window.electronAPI.watchFile(fp); } catch {}
 
     // ── Encrypted file? — detect, unlock, decrypt, then open as editor tab.
     const envelope = window.NotePPCrypto.detectEncrypted(res.content);
@@ -986,6 +1348,10 @@ async function saveTabFile(tab, forceAs = false) {
   if (!res.success) { showToast('Error saving: ' + res.error); return false; }
   tab.dirty = false;
   tab.content = content;
+  // Tell the file watcher this mtime change came from us (don't fire externally-changed)
+  try { window.electronAPI.fileSavedByApp(tab.filePath); } catch {}
+  // Start watching newly-saved files (first Save As of an unsaved tab)
+  try { window.electronAPI.watchFile(tab.filePath); } catch {}
   renderTabs();
   updateTitle();
   updateLanguageStatus();
@@ -1086,6 +1452,64 @@ async function toggleTabEncryption(tab) {
   updateTitle();
   updateEncryptToolbarButton();
   updateEncryptionStatusIndicator();
+}
+
+// Wire the main-process file-change watcher. Called once at startup.
+// Behaviour:
+//   - File deleted on disk → notify user, leave tab alone (so user can save back)
+//   - File changed AND tab is CLEAN → auto-reload silently (toast confirmation)
+//   - File changed AND tab is DIRTY → ask "Reload?" / "Keep mine"
+// User can disable auto-reload entirely via the new pref.
+function setupExternalChangeWatcher() {
+  if (!window.electronAPI.onFileChangedExternally) return;
+  window.electronAPI.onFileChangedExternally(async ({ filePath, deleted }) => {
+    const tab = tabs.find(t => t.filePath === filePath);
+    if (!tab || tab.type !== 'editor' || !tab.model) return;
+
+    if (deleted) {
+      showToast(`⚠ "${tab.name}" was deleted on disk`);
+      tab.dirty = true;
+      renderTabs();
+      updateTitle();
+      return;
+    }
+
+    // Don't bother if tab is currently encrypted (envelope JSON changes on every save anyway)
+    if (tab.encrypted) return;
+
+    // Reload from disk
+    const res = await window.electronAPI.readFile(filePath);
+    if (!res.success) return;
+    const onDisk = res.content;
+    const inEditor = tab.model.getValue();
+    if (onDisk === inEditor) return; // nothing to do (e.g., we just saved)
+
+    if (!tab.dirty) {
+      // Clean tab — auto-reload
+      tab.model.setValue(onDisk);
+      tab.content = onDisk;
+      showToast(`↻ Reloaded "${tab.name}" — changed on disk`);
+      return;
+    }
+    // Dirty tab — ask the user
+    const r = await window.electronAPI.messageDialog({
+      type: 'question',
+      title: 'File changed on disk',
+      message: `"${tab.name}" was changed outside Note++.`,
+      detail: 'You have unsaved changes in this tab. Reloading will discard them.',
+      buttons: ['Reload from disk', 'Keep my version'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (r.response === 0) {
+      tab.model.setValue(onDisk);
+      tab.content = onDisk;
+      tab.dirty = false;
+      renderTabs();
+      updateTitle();
+      showToast(`↻ Reloaded "${tab.name}"`);
+    }
+  });
 }
 
 async function reloadFile() {
@@ -1734,7 +2158,6 @@ function doFind(dir = 1) {
   const model = editor.getModel();
   const matches = model.findMatches(opts.searchString, true, opts.isRegex, opts.matchCase, opts.wholeWord ? ' \t\n.,!?' : null, true);
   if (!matches.length) { setFindStatus(`"${opts.searchString}" not found`, true); clearSearchDecorations(); return; }
-  setFindStatus(`${matches.length} match${matches.length !== 1 ? 'es' : ''}`);
 
   const pos = editor.getPosition();
   let idx = dir === 1
@@ -1745,16 +2168,135 @@ function doFind(dir = 1) {
   const m = matches[idx];
   editor.setSelection(m.range);
   editor.revealRangeInCenter(m.range);
+  updateFindDecorations(matches, idx);
+  setFindStatus(`${idx + 1} of ${matches.length} match${matches.length !== 1 ? 'es' : ''}`);
 }
 
 function findAll() {
   const opts = getSearchOpts();
   if (!opts.searchString) return;
-  const matches = editor.getModel().findMatches(opts.searchString, true, opts.isRegex, opts.matchCase, opts.wholeWord ? ' \t\n.,!?' : null, true);
+  const model = editor.getModel();
+  const matches = model.findMatches(opts.searchString, true, opts.isRegex, opts.matchCase, opts.wholeWord ? ' \t\n.,!?' : null, true);
   if (!matches.length) { setFindStatus(`"${opts.searchString}" not found`, true); return; }
-  searchDecorations = editor.deltaDecorations(searchDecorations, matches.map(m => ({ range: m.range, options: { className: 'find-highlight', inlineClassName: 'find-highlight-inline' } })));
+  updateFindDecorations(matches, -1);
   setFindStatus(`${matches.length} match${matches.length !== 1 ? 'es' : ''} found`);
+  showSearchResults(opts.searchString, matches, opts);
 }
+
+// ── Notepad++-style "Search results" panel ───────────────────────────────
+// Header banner shows total hits; under it a per-file group lists every
+// match with its line number and full line content (search term highlighted).
+// Clicking a row jumps the editor to that line + reveals it.
+function showSearchResults(searchString, matches, opts) {
+  const panel = document.getElementById('search-results-panel');
+  const body  = document.getElementById('search-results-body');
+  const summary = document.getElementById('search-results-summary');
+  if (!panel || !body) return;
+  const model = editor.getModel();
+  const tab = getActiveTab();
+  const fileName = tab?.name || tab?.filePath?.split(/[\\/]/).pop() || 'Untitled';
+
+  summary.textContent =
+    `Search "${truncate(searchString, 40)}"  (${matches.length} hit${matches.length !== 1 ? 's' : ''} in 1 file of 1 searched)`;
+
+  // Group rows by line — Notepad++ shows one row per match, with line content
+  const escapeHtml = (s) => s.replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  // Build the search regex once for highlighting
+  let pattern;
+  try {
+    pattern = opts.isRegex
+      ? new RegExp(searchString, opts.matchCase ? 'g' : 'gi')
+      : new RegExp(searchString.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+                   opts.matchCase ? 'g' : 'gi');
+  } catch { pattern = null; }
+
+  const fileHeader = `<div class="sr-file-header" data-file="${escapeHtml(fileName)}">${escapeHtml(fileName)}  (${matches.length} hit${matches.length !== 1 ? 's' : ''})</div>`;
+  const rows = matches.map(m => {
+    const line = m.range.startLineNumber;
+    let text = model.getLineContent(line);
+    if (text.length > 240) text = text.slice(0, 240) + '…';
+    const safe = escapeHtml(text);
+    const highlighted = pattern
+      ? safe.replace(pattern, s => `<mark>${s}</mark>`)
+      : safe;
+    return `<div class="sr-row" data-line="${line}" data-col="${m.range.startColumn}">` +
+             `<span class="sr-row-line">Line ${line}:</span>` +
+             `<span class="sr-row-content">${highlighted}</span>` +
+           `</div>`;
+  }).join('');
+
+  body.innerHTML = fileHeader + rows;
+  panel.classList.remove('hidden');
+
+  // Wire click-to-navigate. Also promote the clicked match to "current" so
+  // the orange gutter band + dot move to that line.
+  body.querySelectorAll('.sr-row').forEach((row, rowIdx) => {
+    row.addEventListener('click', () => {
+      const ln  = parseInt(row.dataset.line, 10);
+      const col = parseInt(row.dataset.col, 10) || 1;
+      body.querySelectorAll('.sr-row.active').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+      const range = new monaco.Range(ln, col, ln, col + searchString.length);
+      editor.setSelection(range);
+      editor.revealRangeInCenter(range);
+      // Re-paint decorations with this match flagged as current
+      updateFindDecorations(matches, rowIdx);
+      editor.focus();
+    });
+  });
+  // Wire the file-header click → collapse/expand
+  body.querySelector('.sr-file-header')?.addEventListener('click', (e) => {
+    e.currentTarget.classList.toggle('collapsed');
+    body.querySelectorAll('.sr-row').forEach(r => {
+      r.style.display = e.currentTarget.classList.contains('collapsed') ? 'none' : '';
+    });
+  });
+}
+
+function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+function hideSearchResults() {
+  const panel = document.getElementById('search-results-panel');
+  if (panel) panel.classList.add('hidden');
+}
+
+// Paint match decorations:
+//   - background highlight on each match (and a brighter one for "current")
+//   - a yellow bar in the line-numbers gutter on every line with a match
+//   - a ● marker in the glyph margin (further left) for current match
+//   - ticks on the right-side overview ruler so you can see match density at a glance
+function updateFindDecorations(matches, currentIdx) {
+  if (!editor) return;
+  const overviewRuler = monaco.editor.OverviewRulerLane
+    ? { color: '#facc15', position: monaco.editor.OverviewRulerLane.Right }
+    : undefined;
+  const overviewRulerCurrent = monaco.editor.OverviewRulerLane
+    ? { color: '#f97316', position: monaco.editor.OverviewRulerLane.Right }
+    : undefined;
+  const decos = matches.map((m, i) => {
+    const isCurrent = i === currentIdx;
+    return {
+      range: m.range,
+      options: {
+        className: isCurrent ? 'find-highlight-current' : 'find-highlight',
+        inlineClassName: isCurrent ? 'find-highlight-inline-current' : 'find-highlight-inline',
+        linesDecorationsClassName: isCurrent ? 'find-line-marker-current' : 'find-line-marker',
+        glyphMarginClassName: isCurrent ? 'find-glyph-current' : 'find-glyph',
+        overviewRuler: isCurrent ? overviewRulerCurrent : overviewRuler,
+        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+      },
+    };
+  });
+  searchDecorations = editor.deltaDecorations(searchDecorations, decos);
+  // Cache for click-from-results-panel to highlight clicked match as "current"
+  lastSearchMatches = matches;
+}
+
+// Cached matches from the most recent search (used by the results panel to
+// promote the clicked row to "current" so the orange marker moves).
+let lastSearchMatches = [];
 
 function doReplace() {
   const opts = getSearchOpts();
@@ -2104,12 +2646,43 @@ function setupFindReplace() {
   document.getElementById('btn-find-next').addEventListener('click', () => doFind(1));
   document.getElementById('btn-find-prev').addEventListener('click', () => doFind(-1));
   document.getElementById('btn-find-all').addEventListener('click', findAll);
+
+  // Search-results panel buttons
+  document.getElementById('btn-sr-close')?.addEventListener('click', hideSearchResults);
+  document.getElementById('btn-sr-clear')?.addEventListener('click', () => {
+    document.getElementById('search-results-body').innerHTML = '';
+    document.getElementById('search-results-summary').textContent = 'Search results';
+  });
+  document.getElementById('btn-sr-collapse')?.addEventListener('click', () => {
+    const body = document.getElementById('search-results-body');
+    const btn  = document.getElementById('btn-sr-collapse');
+    const collapsed = body.style.display === 'none';
+    body.style.display = collapsed ? '' : 'none';
+    btn.textContent    = collapsed ? '▾' : '▸';
+  });
   document.getElementById('btn-count').addEventListener('click', countMatches);
   document.getElementById('btn-replace').addEventListener('click', doReplace);
   document.getElementById('btn-replace-all').addEventListener('click', doReplaceAll);
   document.getElementById('find-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') e.shiftKey ? doFind(-1) : doFind(1);
     if (e.key === 'Escape') closeFindReplace();
+  });
+  // Live-update gutter + minimap markers as the user types so the matches
+  // are visible immediately without pressing Enter.
+  let findInputDebounce;
+  document.getElementById('find-input').addEventListener('input', () => {
+    clearTimeout(findInputDebounce);
+    findInputDebounce = setTimeout(() => {
+      const opts = getSearchOpts();
+      if (!opts.searchString) { clearSearchDecorations(); setFindStatus(''); return; }
+      const matches = editor.getModel().findMatches(
+        opts.searchString, true, opts.isRegex, opts.matchCase,
+        opts.wholeWord ? ' \t\n.,!?' : null, true
+      );
+      if (!matches.length) { clearSearchDecorations(); setFindStatus(`"${opts.searchString}" not found`, true); return; }
+      updateFindDecorations(matches, -1);
+      setFindStatus(`${matches.length} match${matches.length !== 1 ? 'es' : ''}`);
+    }, 120);
   });
   document.getElementById('replace-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') doReplace();
@@ -2119,10 +2692,177 @@ function setupFindReplace() {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.fr-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const mode = tab.dataset.tab;
-      document.getElementById('replace-row').style.display = mode === 'replace' ? 'flex' : 'none';
+      switchFindMode(tab.dataset.tab);
     });
   });
+
+  // Find in Files
+  document.getElementById('btn-fif-browse')?.addEventListener('click', async () => {
+    const dir = await window.electronAPI.openFolderPicker();
+    if (dir) document.getElementById('fif-directory').value = dir;
+  });
+  document.getElementById('btn-fif-search')?.addEventListener('click', () => doFindInFiles());
+  document.getElementById('fif-directory')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doFindInFiles();
+  });
+  document.getElementById('fif-filter')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doFindInFiles();
+  });
+
+  // Mark
+  document.querySelectorAll('.mark-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('.mark-swatch').forEach(s => s.classList.remove('active'));
+      sw.classList.add('active');
+    });
+  });
+  document.getElementById('btn-mark-all')?.addEventListener('click', () => doMarkAll());
+  document.getElementById('btn-mark-clear')?.addEventListener('click', () => clearAllMarks());
+}
+
+// Show / hide the per-mode rows + Find-action buttons in the find panel.
+function switchFindMode(mode) {
+  document.getElementById('replace-row').style.display       = mode === 'replace'        ? 'flex' : 'none';
+  document.getElementById('find-in-files-row').style.display = mode === 'find-in-files'  ? 'flex' : 'none';
+  document.getElementById('mark-row').style.display          = mode === 'mark'           ? 'flex' : 'none';
+  // Find Next/Previous/All/Count are only meaningful in Find or Replace mode;
+  // hide them in Mark + Find-in-Files (those tabs have their own action buttons).
+  const actionsVisible = (mode === 'find' || mode === 'replace');
+  const actions = document.getElementById('find-action-buttons');
+  if (actions) actions.style.display = actionsVisible ? 'inline-flex' : 'none';
+}
+
+// ── Find in Files ─────────────────────────────────────────────────────────
+async function doFindInFiles() {
+  const opts = getSearchOpts();
+  if (!opts.searchString) { setFindStatus('Type a search pattern', true); return; }
+  let root = document.getElementById('fif-directory').value.trim();
+  if (!root) {
+    // Default: active file's folder, or the git repo root if set
+    const tab = getActiveTab();
+    if (activeGitRepo)       root = activeGitRepo;
+    else if (tab?.filePath)  root = tab.filePath.replace(/[\\/][^\\/]+$/, '');
+    if (!root)               { setFindStatus('Pick a directory first', true); return; }
+    document.getElementById('fif-directory').value = root;
+  }
+  const filter = document.getElementById('fif-filter').value.trim() || '*.*';
+  setFindStatus('Searching…');
+  const r = await window.electronAPI.findInFiles({
+    root, pattern: opts.searchString, filter,
+    matchCase: opts.matchCase, isRegex: opts.isRegex, wholeWord: opts.wholeWord,
+  });
+  if (!r.success) { setFindStatus('Find in Files failed: ' + (r.error || 'unknown'), true); return; }
+  if (!r.totalHits) { setFindStatus(`"${opts.searchString}" not found (scanned ${r.filesScanned} file${r.filesScanned !== 1 ? 's' : ''})`, true); return; }
+  setFindStatus(`${r.totalHits} hit${r.totalHits !== 1 ? 's' : ''} in ${r.files.length} file${r.files.length !== 1 ? 's' : ''}${r.capped ? ' (capped)' : ''}`);
+  showFifResults(opts.searchString, r, opts);
+}
+
+// Render results from Find-in-Files into the Notepad++-style results panel.
+function showFifResults(searchString, fifResult, opts) {
+  const panel   = document.getElementById('search-results-panel');
+  const body    = document.getElementById('search-results-body');
+  const summary = document.getElementById('search-results-summary');
+  if (!panel || !body) return;
+
+  summary.textContent =
+    `Search "${truncate(searchString, 40)}"  (${fifResult.totalHits} hit${fifResult.totalHits !== 1 ? 's' : ''} in ${fifResult.files.length} file${fifResult.files.length !== 1 ? 's' : ''} of ${fifResult.filesScanned} searched)`;
+
+  const escapeHtml = (s) => s.replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  let pattern;
+  try {
+    pattern = opts.isRegex
+      ? new RegExp(searchString, opts.matchCase ? 'g' : 'gi')
+      : new RegExp(searchString.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+                   opts.matchCase ? 'g' : 'gi');
+  } catch { pattern = null; }
+
+  const html = fifResult.files.map(f => {
+    const shortName = f.path.split(/[\\/]/).pop();
+    const dir = f.path.slice(0, f.path.length - shortName.length).replace(/[\\/]$/, '');
+    const header = `<div class="sr-file-header" data-path="${escapeHtml(f.path)}" title="${escapeHtml(f.path)}">` +
+                   `${escapeHtml(shortName)}  (${f.hits.length} hit${f.hits.length !== 1 ? 's' : ''})` +
+                   `<span style="margin-left:8px;font-weight:400;color:#888;font-size:11px">${escapeHtml(dir)}</span>` +
+                   `</div>`;
+    const rows = f.hits.map(h => {
+      let text = h.content || '';
+      if (text.length > 240) text = text.slice(0, 240) + '…';
+      const safe = escapeHtml(text);
+      const highlighted = pattern ? safe.replace(pattern, s => `<mark>${s}</mark>`) : safe;
+      return `<div class="sr-row" data-path="${escapeHtml(f.path)}" data-line="${h.line}" data-col="${h.col}">` +
+               `<span class="sr-row-line">Line ${h.line}:</span>` +
+               `<span class="sr-row-content">${highlighted}</span>` +
+             `</div>`;
+    }).join('');
+    return header + rows;
+  }).join('');
+
+  body.innerHTML = html;
+  panel.classList.remove('hidden');
+
+  // Click a row → open the file (or activate existing tab) + jump to the line
+  body.querySelectorAll('.sr-row').forEach(row => {
+    row.addEventListener('click', async () => {
+      const fp = row.dataset.path;
+      const ln = parseInt(row.dataset.line, 10);
+      const col = parseInt(row.dataset.col, 10) || 1;
+      body.querySelectorAll('.sr-row.active').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+      const existing = tabs.find(t => t.filePath === fp);
+      if (existing) activateTab(existing.id);
+      else await openFile([fp]);
+      // Allow Monaco a tick to finish setting up the model before revealing
+      setTimeout(() => {
+        const range = new monaco.Range(ln, col, ln, col + searchString.length);
+        editor.setSelection(range);
+        editor.revealRangeInCenter(range);
+        editor.focus();
+      }, 50);
+    });
+  });
+  // Collapse / expand per-file group
+  body.querySelectorAll('.sr-file-header').forEach(h => {
+    h.addEventListener('click', () => {
+      h.classList.toggle('collapsed');
+      let n = h.nextElementSibling;
+      while (n && !n.classList.contains('sr-file-header')) {
+        n.style.display = h.classList.contains('collapsed') ? 'none' : '';
+        n = n.nextElementSibling;
+      }
+    });
+  });
+}
+
+// ── Mark — persistent colored highlights, independent of Find ────────────
+let markDecorations = [];   // array of decoration-id arrays, one per Mark All call
+
+function doMarkAll() {
+  const opts = getSearchOpts();
+  if (!opts.searchString) { setFindStatus('Type a pattern to mark', true); return; }
+  const model = editor.getModel();
+  const matches = model.findMatches(
+    opts.searchString, true, opts.isRegex, opts.matchCase,
+    opts.wholeWord ? ' \t\n.,!?' : null, true
+  );
+  if (!matches.length) { setFindStatus(`"${opts.searchString}" not found`, true); return; }
+  const color = document.querySelector('.mark-swatch.active')?.dataset.color || 'yellow';
+  const cls = 'mark-' + color;
+  // Each Mark All run produces its own decoration set so they stack across colors
+  const ids = editor.deltaDecorations([], matches.map(m => ({
+    range: m.range,
+    options: { inlineClassName: cls, className: cls, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
+  })));
+  markDecorations.push(ids);
+  setFindStatus(`Marked ${matches.length} occurrence${matches.length !== 1 ? 's' : ''} (${color})`);
+}
+
+function clearAllMarks() {
+  for (const ids of markDecorations) {
+    try { editor.deltaDecorations(ids, []); } catch {}
+  }
+  markDecorations = [];
+  setFindStatus('All marks cleared');
 }
 
 // ===== Modals =====
@@ -2430,6 +3170,9 @@ function setupMenuListeners() {
   m('menu-json-format', jsonFormat);
   m('menu-xml-format', xmlFormat);
   m('menu-json-minify', jsonMinify);
+  m('menu-compare-files',       compareFilesFlow);
+  m('menu-compare-with-saved',  compareWithSavedFlow);
+  m('menu-compare-folders',     compareFoldersFlow);
   m('menu-indent-increase', () => editor.trigger('m', 'editor.action.indentLines', null));
   m('menu-indent-decrease', () => editor.trigger('m', 'editor.action.outdentLines', null));
 
@@ -2728,6 +3471,10 @@ async function restoreSession() {
     };
     tabs.push(tab);
     if (s.active) activeId = id;
+    // Start watching restored files for external changes
+    if (tab.filePath) {
+      try { window.electronAPI.watchFile(tab.filePath); } catch {}
+    }
   }
 
   if (tabs.length === 0) return false;
@@ -2758,6 +3505,11 @@ let aiRefreshing   = false;       // prevents concurrent refreshAiModelList() ca
 // prompt that includes file context — set at the start of each conversation.
 // Subsequent entries alternate user / assistant.
 let aiMessages = [];               // [{ role: 'system'|'user'|'assistant', content }]
+
+// Separate model for agent mode — lets users pick a smaller/faster model for
+// chat and a stronger one for code-rewriting agent runs. Empty = fall back to
+// `aiModel` (chat model).
+let aiAgentModel = '';
 
 // Agent mode — when true, AI's response is treated as the new file/selection
 // content and shown in a Monaco diff modal for Apply/Reject. Per-session only.
@@ -2807,10 +3559,21 @@ function setupAiPanel() {
     refreshAiSettingsPage();
   });
 
-  // Model selector in panel header — sync to saved pref
+  // Model selector in panel header — saves to the right slot depending on
+  // current mode. Agent mode picks `ai.modelAgent`; Chat mode picks `ai.model`.
   modelSel.addEventListener('change', () => {
-    aiModel = modelSel.value;
-    saveSetting('ai.model', aiModel);
+    if (aiAgentMode) {
+      aiAgentModel = modelSel.value;
+      saveSetting('ai.modelAgent', aiAgentModel);
+    } else {
+      aiModel = modelSel.value;
+      saveSetting('ai.model', aiModel);
+    }
+  });
+
+  // Quick-action chips — pre-canned prompts that auto-toggle Agent mode where needed
+  document.querySelectorAll('.ai-quick-btn[data-quick]').forEach(btn => {
+    btn.addEventListener('click', () => runAiQuickAction(btn.dataset.quick));
   });
 
   // Send button + Enter key
@@ -2900,7 +3663,8 @@ function setupAiPanel() {
 
 async function loadAiState() {
   const settings = await window.electronAPI.readSettings();
-  aiModel = settings?.ai?.model || '';
+  aiModel      = settings?.ai?.model      || '';
+  aiAgentModel = settings?.ai?.modelAgent || '';
   if (settings?.ai?.systemPrompt !== undefined)
     document.getElementById('pref-ai-system').value = settings.ai.systemPrompt;
   await refreshAiModelList();
@@ -2930,13 +3694,17 @@ async function refreshAiModelList() {
       return;
     }
 
+    // The active mode dictates which model is selected in the dropdown.
+    // Agent mode picks from `aiAgentModel`; Chat mode picks from `aiModel`.
+    const preferred = aiAgentMode ? (aiAgentModel || aiModel) : aiModel;
     result.models.forEach(m => {
       const opt = document.createElement('option');
       opt.value = m; opt.textContent = m;
-      if (m === aiModel || (!aiModel && result.models.length === 1)) opt.selected = true;
+      if (m === preferred || (!preferred && result.models.length === 1)) opt.selected = true;
       modelSel.appendChild(opt);
     });
-    aiModel = modelSel.value;
+    if (aiAgentMode) aiAgentModel = modelSel.value;
+    else             aiModel      = modelSel.value;
     document.getElementById('btn-ai-send').disabled = false;
     // Set green dot AFTER dropdown is fully populated — never before
     setAiStatus('online');
@@ -2970,7 +3738,9 @@ async function sendAiPrompt() {
   if (!tab || tab.type === 'game') { showToast('Open a file first'); return; }
 
   const modelSel = document.getElementById('ai-model-select');
-  const model    = modelSel.value;
+  // Agent mode prefers its own model setting; falls back to the chat model
+  // if the agent model isn't installed (or wasn't picked yet).
+  const model = (aiAgentMode && aiAgentModel) ? aiAgentModel : modelSel.value;
   if (!model) { showToast('Select a model first'); return; }
 
   // Snapshot the current scope (selection or whole file) for agent mode so
@@ -3036,6 +3806,7 @@ async function buildAiSystemPrompt(tab, firstUserPrompt) {
   const fileContext = fullContent.length <= MAX_CONTENT
     ? fullContent
     : fullContent.slice(0, MAX_CONTENT) + '\n…[file truncated]';
+  const projectCtx = await loadProjectContext(tab);
 
   return [
     userSystem,
@@ -3052,10 +3823,30 @@ async function buildAiSystemPrompt(tab, firstUserPrompt) {
     `When the user asks a QUESTION or for a brief explanation, answer concisely in plain prose.`,
     `Use your judgement: if the user wants text to insert into the file, output just the text; if they want clarification, answer the question.`,
     ``,
+    projectCtx,
     selText
       ? `The user has SELECTED this text (operate on it):\n\`\`\`\n${selText}\n\`\`\``
       : `Full file content (${fullContent.length} chars):\n\`\`\`\n${fileContext}\n\`\`\``,
   ].filter(Boolean).join('\n');
+}
+
+// Load project-level context the AI should always see for this tab:
+//   - AGENTS.md  (vendor-neutral standard, walked up from the file's folder)
+//   - .notepp/memory.md  (Note++-specific per-project instructions)
+// Returns a string ready to inject into the system prompt, or '' if none.
+async function loadProjectContext(tab) {
+  if (!tab?.filePath) return '';
+  try {
+    const r = await window.electronAPI.projectContext.find(tab.filePath);
+    const parts = [];
+    if (r.agentsMd) {
+      parts.push(`Project AGENTS.md (always-on instructions for AI in this repo):\n\`\`\`\n${r.agentsMd.slice(0, 4000)}\n\`\`\``);
+    }
+    if (r.memoryMd) {
+      parts.push(`Project memory (.notepp/memory.md — user's notes for the AI):\n\`\`\`\n${r.memoryMd.slice(0, 4000)}\n\`\`\``);
+    }
+    return parts.length ? parts.join('\n\n') + '\n' : '';
+  } catch (e) { return ''; }
 }
 
 // Build the system prompt for AGENT mode. Includes the entire current
@@ -3065,6 +3856,7 @@ async function buildAgentSystemPrompt(tab, turn) {
   const langName = tab.language || 'plaintext';
   const fileName = tab.name || 'untitled';
   const scope = turn.isSelection ? 'the selected text' : 'the entire file';
+  const projectCtx = await loadProjectContext(tab);
 
   return [
     `You are an expert coding assistant in AGENT MODE inside the Note++ editor.`,
@@ -3077,11 +3869,12 @@ async function buildAgentSystemPrompt(tab, turn) {
     ``,
     `File: ${fileName}    Language: ${langName}    Scope: ${scope}`,
     ``,
+    projectCtx,
     `Current ${scope.toUpperCase()} (your output replaces this):`,
     '```',
     turn.originalContent,
     '```',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 // Toggle agent mode on/off. Visual: button text + colour change.
@@ -3102,6 +3895,63 @@ function toggleAgentMode() {
       ? '⚡ Agent mode: tell AI what to change… (Enter to send · Shift+Enter for newline)'
       : 'Describe what to write… (Enter to send · Shift+Enter for newline)';
   }
+  // Re-populate the model dropdown so it shows the active mode's preferred model
+  refreshAiModelList();
+}
+
+// ── Quick actions (pre-canned prompts) ───────────────────────────────────
+// Each chip auto-toggles into the right mode (Agent for editing actions,
+// Chat for explanatory ones), fills the prompt textarea, and sends.
+async function runAiQuickAction(action) {
+  if (action === 'memory') return openProjectMemory();
+
+  const tab = getActiveTab();
+  if (!tab || tab.type !== 'editor') {
+    showToast('Open a text file first');
+    return;
+  }
+  const sel = editor.getSelection();
+  const hasSel = sel && !sel.isEmpty();
+  const target = hasSel ? 'the selected code' : 'this file';
+
+  const prompts = {
+    polish:   `Polish ${target}: fix typos, tighten wording, normalize formatting and style. Do NOT change meaning, structure, or behaviour.`,
+    refactor: `Refactor ${target}: improve readability, naming, and structure. Preserve external behaviour exactly. Add no new features.`,
+    comments: `Add concise, useful inline comments and (where appropriate) docstrings/JSDoc to ${target}. Do not change any code.`,
+    tests:    `Write thorough unit tests for ${target}. Use the language's idiomatic test framework. Cover happy path, edge cases, and error cases.`,
+    explain:  `Explain what ${target} does, in plain prose. Identify its purpose, key flows, dependencies, and anything non-obvious. Be concise.`,
+  };
+  const prompt = prompts[action];
+  if (!prompt) return;
+
+  // Editing actions go through Agent mode (so the diff modal gates the change).
+  // "Explain" is a pure question — keep it in Chat mode.
+  const wantsAgent = action !== 'explain';
+  if (wantsAgent && !aiAgentMode) toggleAgentMode();
+  if (!wantsAgent && aiAgentMode) toggleAgentMode();
+
+  document.getElementById('ai-prompt').value = prompt;
+  await sendAiPrompt();
+}
+
+
+// Open the .notepp/memory.md file for the active workspace as an editor tab.
+// Creates it (with a friendly template) if it doesn't exist yet.
+async function openProjectMemory() {
+  const tab = getActiveTab();
+  if (!tab?.filePath) {
+    showToast('Open any file in the project first');
+    return;
+  }
+  // Find the project root: prefer the active git repo, else the file's folder
+  let root = activeGitRepo;
+  if (!root) {
+    // Fall back to the file's directory
+    root = tab.filePath.replace(/[\\/][^\\/]+$/, '');
+  }
+  const r = await window.electronAPI.projectContext.ensureMemory(root);
+  if (!r.success) { showToast('Failed: ' + (r.error || 'unknown')); return; }
+  await openFile([r.path]);
 }
 
 // ── Diff modal (Monaco diff editor) ──────────────────────────────────────
@@ -4650,9 +5500,89 @@ function isPreviewable(lang) {
   return lang === 'html' || lang === 'markdown' || lang === 'mermaid';
 }
 
+// Preview-pane state outside the function so other code (zoom buttons, Ctrl+wheel)
+// can read/write it. previewZoom is a multiplier applied to #preview-body via
+// the Chromium `zoom` CSS property (reflows content cleanly).
+let previewZoom = 1.0;
+let previewMaximized = false;
+const PREVIEW_ZOOM_MIN = 0.5;
+const PREVIEW_ZOOM_MAX = 3.0;
+const PREVIEW_ZOOM_STEP = 0.1;
+
+// True when the active preview surface is the Mermaid diagram pane — in that
+// case zoom is delegated to the existing mermaid-specific transform-scale
+// logic (because the SVG ignores parent CSS `zoom` due to max-width:100%).
+function isMermaidPreviewActive() {
+  const mmd = document.getElementById('preview-mermaid-content');
+  return mmd && !mmd.classList.contains('hidden');
+}
+
+function applyPreviewZoom() {
+  const body = document.getElementById('preview-body');
+  if (body) body.style.zoom = previewZoom;
+  updatePreviewZoomLabel();
+}
+function updatePreviewZoomLabel() {
+  const label = document.getElementById('preview-zoom-label');
+  if (!label) return;
+  // When Mermaid pane is active, the zoom % shown should reflect mermaidZoom
+  const z = isMermaidPreviewActive() ? mermaidZoom : previewZoom;
+  label.textContent = Math.round(z * 100) + '%';
+}
+function previewZoomBy(delta) {
+  if (isMermaidPreviewActive()) {
+    // Delegate to mermaid's transform-scale zoom (works through the SVG's max-width:100%)
+    delta > 0 ? mermaidZoomIn() : mermaidZoomOut();
+    updatePreviewZoomLabel();
+    return;
+  }
+  const next = Math.max(PREVIEW_ZOOM_MIN, Math.min(PREVIEW_ZOOM_MAX, previewZoom + delta));
+  if (Math.abs(next - previewZoom) < 0.001) return;
+  previewZoom = Math.round(next * 100) / 100;
+  applyPreviewZoom();
+}
+function previewZoomReset() {
+  if (isMermaidPreviewActive()) {
+    mermaidZoomFit();
+    updatePreviewZoomLabel();
+    return;
+  }
+  previewZoom = 1.0;
+  applyPreviewZoom();
+}
+function togglePreviewMaximize() {
+  const row = document.getElementById('editor-preview-row');
+  if (!row) return;
+  previewMaximized = !previewMaximized;
+  row.classList.toggle('preview-maximized', previewMaximized);
+  const btn = document.getElementById('btn-preview-maximize');
+  if (btn) {
+    btn.classList.toggle('active', previewMaximized);
+    btn.title = previewMaximized ? 'Restore split view' : 'Maximise preview (hide editor)';
+    btn.textContent = previewMaximized ? '⤬' : '⛶';
+  }
+  editor?.layout();
+}
+
 function setupPreview() {
   document.getElementById('btn-preview-close').addEventListener('click', closePreview);
   document.getElementById('btn-preview-refresh').addEventListener('click', () => updatePreview());
+
+  // Zoom controls
+  document.getElementById('btn-preview-zoomin') ?.addEventListener('click', () => previewZoomBy( PREVIEW_ZOOM_STEP));
+  document.getElementById('btn-preview-zoomout')?.addEventListener('click', () => previewZoomBy(-PREVIEW_ZOOM_STEP));
+  document.getElementById('preview-zoom-label')?.addEventListener('click', () => previewZoomReset());
+
+  // Maximise toggle (preview takes full editor row)
+  document.getElementById('btn-preview-maximize')?.addEventListener('click', () => togglePreviewMaximize());
+
+  // Ctrl+wheel inside the preview body → zoom
+  document.getElementById('preview-body')?.addEventListener('wheel', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    previewZoomBy(e.deltaY < 0 ? PREVIEW_ZOOM_STEP : -PREVIEW_ZOOM_STEP);
+  }, { passive: false });
+
   setupMermaidToolbar();
 
   // Horizontal resize handle
@@ -4709,6 +5639,13 @@ function openPreview() {
 }
 
 function closePreview() {
+  // Drop maximised state so editor isn't still hidden next time preview opens
+  if (previewMaximized) {
+    previewMaximized = false;
+    document.getElementById('editor-preview-row')?.classList.remove('preview-maximized');
+    const btn = document.getElementById('btn-preview-maximize');
+    if (btn) { btn.classList.remove('active'); btn.textContent = '⛶'; }
+  }
   document.getElementById('preview-panel').classList.add('hidden');
   document.getElementById('preview-resize-handle').classList.add('hidden');
   previewOpen = false;
@@ -4762,6 +5699,8 @@ function updatePreview() {
     updateMermaidToolbar(true);
     renderMermaidPreview(content);
   }
+  // Refresh the shared zoom label — it shows different value for Mermaid vs others
+  if (typeof updatePreviewZoomLabel === 'function') updatePreviewZoomLabel();
 }
 
 function showPreviewPlaceholder() {
@@ -5457,6 +6396,8 @@ function applyMermaidZoom() {
   el.style.transform       = `scale(${mermaidZoom})`;
   el.style.transformOrigin = 'top center';
   if (label) label.textContent = Math.round(mermaidZoom * 100) + '%';
+  // Keep the shared preview-header zoom label in sync when Mermaid pane is active
+  if (typeof updatePreviewZoomLabel === 'function') updatePreviewZoomLabel();
 }
 
 function mermaidZoomIn()  { mermaidZoom = Math.min(+(mermaidZoom + 0.25).toFixed(2), 4.0); applyMermaidZoom(); }

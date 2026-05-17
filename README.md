@@ -30,7 +30,7 @@
 
 **Note++** is what happens when you take the spirit of Notepad++ and rebuild it on a modern foundation. It's not trying to be another VS Code, and it's not trying to be a generic notepad — it sits comfortably in between: fast to launch, low-friction to use, with the editing power developers actually need day to day, plus a handful of opinionated extras you won't find anywhere else.
 
-Under the hood it runs the same **Monaco** engine that powers VS Code, in a lightweight **Electron** shell, with an integrated **xterm** terminal (true PTY via `node-pty`), live preview for HTML and Markdown, **Mermaid** diagrams, an **Excalidraw**-powered hand-drawn whiteboard, a full **Git source-control panel**, a **local AI assistant** (Ollama with Agent mode + multi-turn chat), per-file **AES-256-GCM encryption**, and cloud session sync.
+Under the hood it runs the same **Monaco** engine that powers VS Code, in a lightweight **Electron** shell, with an integrated **xterm** terminal (true PTY via `node-pty`), live preview for HTML and Markdown, **Mermaid** diagrams, an **Excalidraw**-powered hand-drawn whiteboard, a full **Git source-control panel**, a **local AI assistant** (Ollama with Agent mode + multi-turn chat + quick-action chips), per-file **AES-256-GCM encryption**, **Compare** (file & folder diff like Diff.Net / WinMerge), **Recent Files**, an **external-change file watcher**, and cloud session sync.
 
 > Built for developers who want a snappy editor that does more than just edit text — not a full IDE, not a plain text box.
 
@@ -47,6 +47,8 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - [AI Assistant](#-ai-assistant)
 - [Encrypted Pad](#-encrypted-pad)
 - [Whiteboard](#-whiteboard)
+- [Compare (File & Folder Diff)](#-compare-file--folder-diff)
+- [Find / Replace / Mark / Find in Files](#-find--replace--mark--find-in-files)
 - [Live Preview & Mermaid](#-live-preview--mermaid)
 - [Keyboard Shortcuts](#-keyboard-shortcuts)
 - [Roadmap](#-roadmap)
@@ -61,10 +63,20 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Multi-tab editor** powered by Monaco — the engine behind VS Code
 - **50+ language** syntax highlighters out of the box
 - **IntelliSense** auto-complete for JavaScript, TypeScript, and friends
-- **Find & Replace** with full regex support, plus a separate **Find in Files** tab
+- **Find / Replace / Mark / Find in Files** — Notepad++-style search results panel, multi-colour persistent highlights, gutter+minimap markers update live as you type
 - **Command Palette** (`Ctrl+Shift+P`) and **Quick Open** (`Ctrl+P`)
 - **Bookmarks**, breadcrumbs, minimap, word wrap toggles
+- **Recent Files** menu (last 15, deduped, stale entries auto-pruned)
+- **External-change watcher** — clean tabs auto-reload; dirty tabs ask first
 - **Snappy by default** — no ligatures (`!=` stays `!=`), no caret animations, no smooth scrolling, no inline color decorators
+
+### Compare
+- **Compare two files** — side-by-side Monaco diff editor (or inline), syntax-highlighted, next/prev change navigation
+- **Compare two folders** — side-by-side tree with `added · removed · differ · equal` colour coding (Diff.Net / WinMerge style)
+- **Click a differing file row** in the folder-diff → opens that file's diff in a new tab
+- **Right-click a tab** → `Select for Compare`, then on another tab → `Compare with selected`
+- Skips `node_modules / .git / dist / build / out / .next / .cache / .vscode / .idea / __pycache__`
+- See [`DIFF.md`](./DIFF.md) for the design
 
 ### Source control
 - **Auto-detected Git repos** — opens any file and Note++ walks up for `.git`
@@ -79,6 +91,10 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **One-click setup** — clicking 🤖 detects Ollama, auto-starts the daemon, auto-downloads `qwen2.5-coder:1.5b` if no models installed
 - **Multi-turn chat** — full conversation history; ask follow-ups, refine answers
 - **Agent mode** ⚡ — AI's reply replaces editor content via a **Monaco diff editor preview**: review, then Apply or Reject
+- **Quick-action chips** — `✨ Polish` · `🔧 Refactor` · `📝 Comments` · `🧪 Tests` · `💡 Explain` · `📓 Memory`
+- **`AGENTS.md` support** — vendor-neutral standard adopted by Cursor / Codex / Copilot / Cline / Codex / Jules / Gemini / Windsurf / Zed — auto-injected into the AI system prompt for any repo containing one
+- **`.notepp/memory.md`** — Note++-specific per-project instructions, auto-loaded every turn
+- **Multi-model picker** — pick separate models for Chat vs Agent (e.g. fast `qwen2.5-coder:1.5b` for chat, beefier `deepseek-coder:6.7b` for agent)
 - **Selection-aware** — highlight a function → Agent → "convert to TypeScript"
 - **Streaming responses** with token-by-token preview
 - **Action bar** in chat mode: Insert at cursor / Replace selection / Append / Replace entire file
@@ -103,12 +119,13 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 ### Productivity
 - **Integrated terminal** (xterm + true PTY via `node-pty`) — proper resize, ANSI colours, full PowerShell/bash
 - **File tree sidebar** for fast navigation
-- **Live preview** for HTML and Markdown (`Ctrl+Shift+V`)
+- **Live preview** for HTML and Markdown (`Ctrl+Shift+V`) — with **zoom controls** (`Ctrl+Wheel`) and a **⛶ maximise** button that hides the editor pane
 - **Mermaid Live Editor** for `.mmd` / `.mermaid` files — auto-opens split pane, templates, SVG/PNG export, zoom
 - **Run file** with a single keystroke (`F5`)
 - **Cloud session sync** — Google Drive, OneDrive, Dropbox
 - **Auto-save session** — pick up exactly where you left off; encrypted tabs re-prompt unlock
 - **Auto-backup** to a configurable location with version retention
+- **File-association double-click** — open any `.txt / .md / .json / .html / .excalidraw / …` file with Note++ from Windows Explorer (deferred-flush IPC so the file always loads even if the renderer is still booting)
 
 ### Developer tools
 - **Code formatting** — JSON, XML, language-aware
@@ -165,6 +182,8 @@ npm run build      # electron-builder, produces dist/Note++-Setup-*.exe
 | Whiteboard       | Excalidraw 0.18 + React 18 (bundled via esbuild into iframe)  |
 | Terminal         | xterm 5.3 + xterm-addon-fit + **node-pty 1.1** (true PTY)     |
 | AI               | **Ollama** (local LLM via HTTP at `127.0.0.1:11434`)          |
+| File diff        | Monaco's built-in `createDiffEditor`                          |
+| Folder diff      | **`dir-compare`** (content-hash comparison, MIT)              |
 | Crypto           | Web Crypto API — AES-256-GCM, PBKDF2-SHA-256, HKDF            |
 | Compression      | Native `CompressionStream` / `DecompressionStream`            |
 | Bundler          | esbuild 0.24 (only for the Excalidraw iframe app)             |
@@ -182,14 +201,16 @@ Note++/
 ├── launch.bat                ← double-click to run
 ├── build-whiteboard.js       ← esbuild script: bundles Excalidraw + copies fonts
 ├── CLAUDE.md                 ← Claude session context
+├── ROADMAP.md                ← three-tier feature roadmap (Tier 1 / 2 / 3)
 ├── ENCRYPTION.md             ← encrypted-pad feature spec
 ├── GIT.md                    ← git integration spec
 ├── AGENT.md                  ← AI agent-mode spec
+├── DIFF.md                   ← Compare (file + folder diff) spec
 └── src/
     ├── main.js               ← Electron main process (IPC, file dialogs, menus)
     ├── preload.js            ← IPC bridge (window.electronAPI)
     ├── index.html            ← Renderer entry point
-    ├── renderer.js           ← All UI logic (~5000 lines)
+    ├── renderer.js           ← All UI logic (~6000 lines)
     ├── style.css             ← All styles
     ├── monaco-worker.js      ← Monaco web worker helper
     ├── crypto.js             ← AES-GCM / PBKDF2 / HKDF / gzip (encrypted pad)
@@ -324,12 +345,79 @@ Powered by **Excalidraw 0.18** running in an iframe. Same engine as excalidraw.c
 
 ---
 
+## 🆚 Compare (File & Folder Diff)
+
+Inspired by Diff.Net / WinMerge / Beyond Compare. Two flavours, both render as new tabs.
+
+| | |
+|---|---|
+| Engine (files)   | Monaco's built-in `createDiffEditor` (zero new deps) |
+| Engine (folders) | [`dir-compare`](https://www.npmjs.com/package/dir-compare) — content-hash comparison |
+| Tab type         | `'diff'` (file) or `'folder-diff'` (folder) with an orange badge |
+| Spec             | [`DIFF.md`](./DIFF.md) |
+
+### File compare
+
+Entry points:
+- `File → Compare → Compare Files…` — pick two files
+- `File → Compare → Compare with Saved…` — compare current tab vs a picked file
+- **Right-click a tab → `Select for Compare`** → right-click another tab → **`Compare with selected`**
+
+Inside the diff tab:
+- Side-by-side or inline view (toggle in the toolbar)
+- Full Monaco syntax highlighting per file language
+- `↑ Prev` / `↓ Next` change navigation
+- `⇆ Swap` reverses left ↔ right
+- `↻ Reload` re-reads both files from disk
+
+### Folder compare
+
+Entry point: `File → Compare → Compare Folders…`
+
+Inside the folder-diff tab:
+- Two-column side-by-side tree
+- Summary header: `N added · N removed · N differ · N equal`
+- Colour coding:
+  - 🟢 Green — only on right (added)
+  - 🔴 Red — only on left (removed)
+  - 🟡 Yellow — in both, content differs
+- **Click a differing file row → opens that file's diff in a new tab**
+- `Show only changes` checkbox hides equal entries (on by default)
+- Skips `node_modules / .git / dist / build / out / .next / .cache / .vscode / .idea / __pycache__`
+
+---
+
+## 🔎 Find / Replace / Mark / Find in Files
+
+Four-tab search panel with a Notepad++-style results panel:
+
+### Live decorations (Find)
+- Yellow bar + ● dot in the gutter on every match line
+- Orange bar + larger orange dot on the **current** match
+- Yellow ticks on the right-side scrollbar minimap for match density
+- All update **live as you type** (120 ms debounce)
+- Status bar shows `3 of 58 matches`
+
+### Find in Files
+- Recursive search via the main process — pick a directory, set a filter (`*.js,*.md`), hit `Find in Files`
+- Results grouped per file in the green-headed panel; click any row → opens the file + jumps to the line
+- Skips the same heavy folders as Compare; caps at 5 000 files / 5 000 hits
+
+### Mark
+- Pick a colour (yellow / cyan / pink / green / orange) → `Mark All`
+- Persistent coloured highlight — **stacks** across multiple Marks with different colours
+- Survives closing the Find panel; clear with `Clear Marks`
+
+---
+
 ## 🎨 Live Preview & Mermaid
 
 Note++ ships with a split-pane preview for HTML and Markdown:
 
 - **Toggle** with `Ctrl+Shift+V` or the 👁 toolbar button
 - **Resizable** drag handle between editor and preview
+- **Zoom controls** in the preview header (−, %, +) and `Ctrl+Wheel` inside the body
+- **⛶ Maximise** toggle — preview takes the full editor row, hiding the editor pane
 - **400 ms debounce** on keystrokes — no jitter while typing
 - **Markdown** parsed by `marked.parse()`, with a custom renderer that hands `mermaid` blocks to Mermaid
 - **HTML** rendered in a sandboxed `<iframe srcdoc>` with the Mermaid script injected into `<head>`
@@ -392,21 +480,33 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] AI Assistant (Ollama) with multi-turn chat + Agent mode
 - [x] Encrypted pad with recovery key
 - [x] Excalidraw-powered whiteboard
+- [x] **Compare** — file diff (Monaco) + folder diff (dir-compare, Diff.Net-style tree)
+- [x] **Find in Files** — recursive search across a folder, results panel
+- [x] **Mark** — multi-colour persistent highlights
+- [x] **Recent Files** menu (last 15, persisted)
+- [x] **External-change file watcher** — auto-reload / "Keep mine" prompt
+- [x] `AGENTS.md` + `.notepp/memory.md` auto-injected into AI prompt
+- [x] Multi-model picker (chat vs agent)
+- [x] Preview pane zoom + maximise
+- [x] Snappy editor defaults (no ligatures / caret animations / smooth scroll)
+- [x] Find live decorations (gutter + minimap markers, current-match indicator)
 
 ### Next
 - [ ] Inline git diff gutter (added/modified/deleted markers in editor)
 - [ ] LSP server connections beyond Monaco's built-in JS/TS IntelliSense
 - [ ] Git blame and history view
 - [ ] macOS / Linux builds
-- [ ] Find in Files (UI exists, implementation pending)
 - [ ] Hunk-by-hunk apply/reject in Agent mode diff
 - [ ] Windows Hello integration for encryption unlock
+- [ ] MCP client support — connect to community MCP servers (filesystem, GitHub, etc.)
+- [ ] Inline AI completion (Cursor-Tab style) via Ollama FIM
+- [ ] Voice input — proper `whisper.cpp` native bindings (the previous transformers.js attempt was unstable in Electron and was removed)
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome. The project is small and easy to read end-to-end — `renderer.js` is the heart of it, `main.js` is the Electron shell, and each spec file (`ENCRYPTION.md`, `GIT.md`, `AGENT.md`) documents its own feature in detail.
+Contributions are welcome. The project is small and easy to read end-to-end — `renderer.js` is the heart of it, `main.js` is the Electron shell, and each spec file (`ENCRYPTION.md`, `GIT.md`, `AGENT.md`, `DIFF.md`, `ROADMAP.md`) documents its own feature in detail.
 
 **Good first issues:**
 - Pick anything from the [Roadmap](#-roadmap)

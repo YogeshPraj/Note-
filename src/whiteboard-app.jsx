@@ -184,8 +184,22 @@ function App() {
   // often. We only need committed snapshots, not every pointer move.
   const stateTimer = useRef(null);
   const lastSerialized = useRef('');
+  // Per-load generation counter. Bumped every time the parent sends wb-load
+  // (e.g. when the user switches to a different whiteboard tab — the iframe
+  // is a single shared instance reused across all whiteboard tabs). Any
+  // pending wb-state debounce that was queued for an OLD scene is dropped if
+  // the generation has moved on by the time the timer fires. Without this,
+  // a tab switch could leak the old tab's drawing into the new tab's
+  // `content` (the parent's wb-state handler writes to whichever tab is
+  // currently active).
+  const loadGen = useRef(0);
+  // While loadSuppress is non-zero, onChange events are ignored entirely.
+  // updateScene() synchronously fires onChange after applying a scene, and
+  // we don't want that load-triggered echo to mark the new tab dirty.
+  const loadSuppress = useRef(0);
 
-  const sendState = useCallback((elements, appState, files) => {
+  const sendState = useCallback((elements, appState, files, gen) => {
+    if (gen !== loadGen.current) return;          // stale; new scene loaded since
     const payload = buildEnvelope(elements, appState, files);
     if (payload === lastSerialized.current) return;
     lastSerialized.current = payload;
@@ -193,8 +207,10 @@ function App() {
   }, []);
 
   const scheduleSendState = useCallback((elements, appState, files) => {
+    if (loadSuppress.current > 0) return;         // load-triggered onChange — ignore
     clearTimeout(stateTimer.current);
-    stateTimer.current = setTimeout(() => sendState(elements, appState, files), 350);
+    const gen = loadGen.current;
+    stateTimer.current = setTimeout(() => sendState(elements, appState, files, gen), 350);
   }, [sendState]);
 
   // Wire postMessage listener
@@ -206,18 +222,36 @@ function App() {
       if (m.type === 'wb-load') {
         const scene = parseIncoming(m.content);
         if (scene && api) {
-          // Suppress the immediate onChange that updateScene triggers so we
-          // don't echo the load back to the parent as a "user edit".
-          api.updateScene({
-            elements: scene.elements,
-            appState: scene.appState,
-            commitToHistory: false,
-          });
-          if (scene.files && Object.keys(scene.files).length) {
-            api.addFiles(Object.values(scene.files));
+          // 1. Bump the load generation — any debounced wb-state queued for
+          //    the previous scene will be dropped when its timer fires
+          //    (sendState compares the captured gen to the current one).
+          loadGen.current += 1;
+          // 2. Cancel any pending debounce so it can't run at all before
+          //    the generation check would catch it.
+          clearTimeout(stateTimer.current);
+          stateTimer.current = null;
+          // 3. Suppress all onChange events while we apply the new scene.
+          //    updateScene synchronously fires onChange; without this guard
+          //    we'd echo the load back as a "user edit" and mark a freshly
+          //    activated tab dirty.
+          loadSuppress.current += 1;
+          try {
+            api.updateScene({
+              elements: scene.elements,
+              appState: scene.appState,
+              commitToHistory: false,
+            });
+            if (scene.files && Object.keys(scene.files).length) {
+              api.addFiles(Object.values(scene.files));
+            }
+          } finally {
+            // Release on the next tick so any synchronous + microtask
+            // onChange echoes are covered. (Excalidraw fires onChange
+            // synchronously from inside updateScene, so the decrement
+            // running before the dispatch chain finishes would be wrong.)
+            setTimeout(() => { loadSuppress.current = Math.max(0, loadSuppress.current - 1); }, 0);
           }
-          // Prime the dedup guard so the next onChange that *isn't* a real
-          // user edit gets ignored.
+          // Prime the dedup guard so the post-load steady-state matches.
           lastSerialized.current = buildEnvelope(scene.elements, scene.appState, scene.files);
         }
         return;

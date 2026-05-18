@@ -971,21 +971,33 @@ function activateTab(id) {
     monacoEl.style.display = 'none';
     wbContainer.classList.remove('hidden');
     if (previewOpen) closePreview();
+
+    // The whiteboard iframe is a single SHARED instance reused across every
+    // whiteboard tab. When switching tabs we MUST always send wb-load —
+    // even for an empty / freshly-created tab — otherwise the iframe keeps
+    // displaying whichever scene was loaded last (bug: switching to an
+    // unsaved whiteboard-2 would show whiteboard-1's drawing).
+    //
+    // Empty content → push a blank v2 envelope so the iframe resets to a
+    // clean canvas instead of keeping stale state.
+    const BLANK_WB = JSON.stringify({
+      __wb__: true, version: 2, source: 'excalidraw',
+      elements: [], appState: {}, files: {}
+    });
+    const contentToLoad = (tab.content && tab.content.trim()) ? tab.content : BLANK_WB;
+
     // Lazy-load the iframe on first activation
     const base = window.location.href.replace(/[^/]*$/, '');
     const wbSrc = base + 'whiteboard.html';
     if (!wbFrame.src || !wbFrame.src.includes('whiteboard.html')) {
       wbReady = false;
-      wbPendingContent = tab.content || null;
+      wbPendingContent = contentToLoad;
       wbFrame.src = wbSrc;
+    } else if (wbReady) {
+      sendToWhiteboard({ type: 'wb-load', content: contentToLoad });
+      sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });
     } else {
-      // Already loaded — just send load + theme
-      if (wbReady) {
-        if (tab.content) sendToWhiteboard({ type: 'wb-load', content: tab.content });
-        sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });
-      } else {
-        wbPendingContent = tab.content || null;
-      }
+      wbPendingContent = contentToLoad;
     }
   } else {
     // Show editor, hide special containers

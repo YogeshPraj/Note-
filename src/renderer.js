@@ -529,48 +529,20 @@ function openGameTab() {
 
 // ── Whiteboard ────────────────────────────────────────────────────────────────
 
-// Lowest integer N ≥ 1 not already used by an existing whiteboard tab name
+// Lowest integer N ≥ 1 not already used by an existing whiteboard tab name.
+// Accepts both the new "whiteboard-N" form and the legacy "whiteboard-N.json"
+// form so a session restored from before v1.5.x doesn't reuse numbers.
 function nextWbTabNumber() {
   const used = new Set(
     tabs
       .filter(t => t.type === 'whiteboard')
-      .map(t => { const m = t.name.match(/^whiteboard-(\d+)\.json$/); return m ? parseInt(m[1], 10) : null; })
+      .map(t => {
+        const m = t.name.match(/^whiteboard-(\d+)(?:\.json)?$/);
+        return m ? parseInt(m[1], 10) : null;
+      })
       .filter(n => n !== null)
   );
   for (let n = 1; ; n++) if (!used.has(n)) return n;
-}
-
-// Auto-create the backing file for a new (unsaved) whiteboard tab
-async function initWbFile(tab) {
-  try {
-    const userData = await window.electronAPI.getUserDataPath();
-    const filePath = userData + '\\Whiteboards\\' + tab.name;
-    // v2 envelope — Excalidraw-flavoured. The iframe still accepts legacy
-    // v1 files for backward compat, but new files are written in v2 from
-    // the start. See src/whiteboard-app.jsx for the consumer.
-    const initContent = JSON.stringify({
-      __wb__: true, version: 2, source: 'excalidraw',
-      elements: [], appState: {}, files: {}
-    });
-    const res = await window.electronAPI.writeFile(filePath, initContent);
-    if (res.success) {
-      tab.filePath = filePath;
-      tab.content  = initContent;
-      renderTabs();    // update tooltip (shows filePath)
-      updateTitle();
-    }
-  } catch (e) { console.warn('initWbFile failed:', e); }
-}
-
-// Debounced per-tab file write — 1.5 s after last stroke
-function scheduleWbFileSave(tab) {
-  clearTimeout(wbFileSaveTimers.get(tab.id));
-  wbFileSaveTimers.set(tab.id, setTimeout(async () => {
-    wbFileSaveTimers.delete(tab.id);
-    if (!tab.filePath || !tab.content) return;
-    const res = await window.electronAPI.writeFile(tab.filePath, tab.content);
-    if (res.success) { tab.dirty = false; renderTabs(); updateTitle(); }
-  }, 1500));
 }
 
 function sendToWhiteboard(msg) {
@@ -885,12 +857,18 @@ function createWhiteboardTab(filePath, content) {
   }
   tabCounter++;
   const id = tabCounter;
-  // Name follows the same convention as editor tabs but with .json extension
-  const name = filePath ? filePath.split(/[\\/]/).pop() : `whiteboard-${nextWbTabNumber()}.json`;
+  // Match text-tab UX: new (unsaved) whiteboards get a "whiteboard-N" display
+  // name (no .json suffix until the user picks a real save location), so the
+  // tab reads cleanly as "untitled" rather than as a real file on disk.
+  const name = filePath
+    ? filePath.split(/[\\/]/).pop()
+    : `whiteboard-${nextWbTabNumber()}`;
   const tab = {
     id, name,
     filePath: filePath || null,
     content: content || '',
+    // New whiteboards mirror "new N" text tabs: not dirty yet (nothing drawn),
+    // but the absence of filePath means Ctrl+S → Save As prompt.
     dirty: false,
     language: 'whiteboard',
     encoding: 'UTF-8',
@@ -899,8 +877,6 @@ function createWhiteboardTab(filePath, content) {
     type: 'whiteboard'
   };
   tabs.push(tab);
-  // New unsaved whiteboard: auto-create backing file in userData/Whiteboards/
-  if (!filePath) initWbFile(tab);
   activateTab(id);
   renderTabs();
   return tab;
@@ -1022,9 +998,14 @@ function renderTabs() {
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab.dirty ? ' dirty' : '');
     el.dataset.id = tab.id;
 
-    const icon = document.createElement('span');
-    icon.className = 'tab-icon';
-    icon.textContent = tab.type === 'game' ? '🎮' : tab.type === 'whiteboard' ? '🖼' : getFileEmoji(tab.name);
+    // Whiteboard tabs use only the "wb" pill badge — skip the emoji icon so
+    // we don't render a tofu/blank-box for systems missing the 🖼 glyph.
+    if (tab.type !== 'whiteboard') {
+      const icon = document.createElement('span');
+      icon.className = 'tab-icon';
+      icon.textContent = tab.type === 'game' ? '🎮' : getFileEmoji(tab.name);
+      el.appendChild(icon);
+    }
 
     const name = document.createElement('span');
     name.className = 'tab-name';
@@ -1036,8 +1017,8 @@ function renderTabs() {
     close.textContent = '×';
     close.addEventListener('click', (e) => { e.stopPropagation(); closeTab(tab.id); });
 
-    el.appendChild(icon);
-    // Extra badge on whiteboard tabs so it's visually clear even with a .json filename
+    // Pill badge on whiteboard tabs so the type is unmistakable even when the
+    // filename is a generic .json.
     if (tab.type === 'whiteboard') {
       const badge = document.createElement('span');
       badge.className = 'tab-wb-badge';
@@ -1097,14 +1078,13 @@ async function closeTab(id) {
     return;
   }
   if (tab.type === 'whiteboard') {
-    // Flush any pending debounced file write immediately
+    // Flush any pending legacy debounced write (only present for sessions
+    // restored from older whiteboards whose AppData backing file we still
+    // honour). New whiteboards never schedule disk writes.
     clearTimeout(wbFileSaveTimers.get(tab.id));
     wbFileSaveTimers.delete(tab.id);
-    // Match the text-tab UX: if there are unsaved changes, ask the user.
-    // "Save"      → write current content to tab.filePath (or Save As if none)
-    // "Don't Save"→ close without flushing; whatever the last auto-save wrote
-    //               to disk remains there
-    // "Cancel"    → abort the close
+    // Identical UX to text "new N" tabs: if there are unsaved changes, ask.
+    // "Save" with no filePath → Save As. With a real filePath → write to it.
     if (tab.dirty) {
       const r = await window.electronAPI.messageDialog({
         type: 'question', title: 'Save',
@@ -1114,15 +1094,13 @@ async function closeTab(id) {
       });
       if (r.response === 2) return;
       if (r.response === 0) {
-        // If the tab is still backed only by its auto-created AppData file
-        // (initWbFile() puts files under %AppData%\notepp\Whiteboards\),
-        // treat "Save" as "Save As" so the user picks a real location —
-        // same UX as saving a "new N" editor tab. If they've already done
-        // a Save As before, just write to that path.
-        const isAutoBacking =
-          !tab.filePath ||
-          /\\Whiteboards\\whiteboard-\d+\.json$/i.test(tab.filePath);
-        const ok = await saveTabFile(tab, /* forceAs */ isAutoBacking);
+        // Legacy auto-backed whiteboards (pre-v1.5.x sessions) live under
+        // %AppData%\notepp\Whiteboards\ — for those, force Save As so the
+        // user picks a real location rather than silently writing back to
+        // the hidden AppData copy.
+        const isLegacyAutoBacking =
+          tab.filePath && /\\Whiteboards\\whiteboard-\d+\.json$/i.test(tab.filePath);
+        const ok = await saveTabFile(tab, /* forceAs */ isLegacyAutoBacking);
         if (!ok) return;
       }
     }
@@ -1358,8 +1336,11 @@ async function saveTabFile(tab, forceAs = false) {
   // ── Whiteboard: content is already in tab.content (synced via postMessage) ──
   if (tab.type === 'whiteboard') {
     if (!tab.filePath || forceAs) {
+      // New (unsaved) whiteboards have a bare "whiteboard-N" name with no
+      // extension — append .json so the Save dialog picks the right filter.
+      const defaultName = /\.[a-z0-9]+$/i.test(tab.name) ? tab.name : `${tab.name}.json`;
       const r = await window.electronAPI.saveDialog({
-        defaultPath: tab.name,
+        defaultPath: defaultName,
         filters: [
           { name: 'Whiteboard JSON', extensions: ['json'] },
           { name: 'Excalidraw', extensions: ['excalidraw'] },
@@ -1371,8 +1352,15 @@ async function saveTabFile(tab, forceAs = false) {
       tab.filePath = r.filePath;
       tab.name = r.filePath.split(/[\\/]/).pop();
     }
-    const res = await window.electronAPI.writeFile(tab.filePath, tab.content || '');
+    // Empty unsaved whiteboards (user saved before drawing anything) need a
+    // valid v2 envelope so the file opens correctly next time — otherwise
+    // openFile() routes it through Monaco as a malformed JSON.
+    const bodyToWrite = tab.content && tab.content.trim()
+      ? tab.content
+      : JSON.stringify({ __wb__: true, version: 2, source: 'excalidraw', elements: [], appState: {}, files: {} });
+    const res = await window.electronAPI.writeFile(tab.filePath, bodyToWrite);
     if (!res.success) { showToast('Error saving: ' + res.error); return false; }
+    tab.content = bodyToWrite;
     tab.dirty = false;
     renderTabs();
     updateTitle();
@@ -6766,15 +6754,20 @@ window.addEventListener('message', (e) => {
   }
 
   if (m.type === 'wb-state') {
-    // Whiteboard pushes full serialised state after every committed action
+    // Whiteboard pushes full serialised state after every committed action.
+    // We mirror text-tab behaviour: mark the tab dirty (red dot in the tab
+    // header), persist the content to the session file for crash recovery,
+    // and leave the actual on-disk file untouched until the user explicitly
+    // saves with Ctrl+S / File → Save. (Previously this auto-wrote to
+    // %AppData%\notepp\Whiteboards\whiteboard-N.json every 1.5 s, which made
+    // whiteboards behave differently from every other tab type.)
     const tab = tabs.find(t => t.type === 'whiteboard' && t.id === activeTabId);
     if (tab) {
       const wasClean = !tab.dirty;
       tab.content = m.content || '';
       tab.dirty = true;
       if (wasClean) { renderTabs(); updateTitle(); }
-      scheduleAutoSave();       // persist to session
-      scheduleWbFileSave(tab);  // persist to .json file on disk
+      scheduleAutoSave();       // session file only — survives crashes
     }
   }
 

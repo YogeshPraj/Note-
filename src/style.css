@@ -98,6 +98,27 @@ html, body {
 
 .toolbar-group { display: flex; align-items: center; }
 
+/* ── Toolbar update-status pill (right side of the toolbar) ────────────── */
+#toolbar-update-pill {
+  margin-left: auto;          /* push to the far right */
+  margin-right: 8px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  border-radius: 10px;
+  line-height: 1.4;
+  user-select: none;
+  color: #fff;
+  background: #4b5563;        /* neutral fallback */
+  transition: background 120ms ease;
+}
+#toolbar-update-pill[data-state="available"]   { background: #2563eb; }            /* blue */
+#toolbar-update-pill[data-state="downloading"] { background: #f59e0b; }            /* amber */
+#toolbar-update-pill[data-state="ready"]       { background: #16a34a; cursor: pointer; }  /* green, clickable */
+#toolbar-update-pill[data-state="ready"]:hover { background: #15803d; box-shadow: 0 0 0 2px rgba(22,163,74,0.25); }
+#toolbar-update-pill[data-state="ready"]:focus { outline: 2px solid #86efac; outline-offset: 1px; }
+
 .tb-btn {
   width: 26px;
   height: 24px;

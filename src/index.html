@@ -65,6 +65,13 @@
     <div class="toolbar-group">
       <button class="tb-btn" title="Toggle Dark Mode (Ctrl+Alt+D)" data-action="dark-mode" id="btn-darkmode"><img src="assets/darkmode.svg" alt="Dark Mode"></button>
     </div>
+
+    <!-- Update status pill — pushed to the far right via margin-left:auto,
+         hidden by default. Becomes visible the moment electron-updater
+         detects an update. States: available → downloading → ready (clickable). -->
+    <div id="toolbar-update-pill" class="hidden" role="button" tabindex="0" title="Update available">
+      <span id="toolbar-update-text">New update available</span>
+    </div>
   </div>
 
   <!-- Tab Bar -->

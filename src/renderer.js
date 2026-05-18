@@ -224,24 +224,63 @@ require(['vs/editor/editor.main'], () => {
       .catch(() => {});
   }
 
-  // Auto-update notifications — silent download, but surface a toast when
-  // an update is ready so the user knows closing the app will apply it.
-  if (window.electronAPI?.autoUpdate?.onStatus) {
+  // ── Auto-update status pill (right side of the toolbar) ────────────────
+  // Drives a small pill that flips through three states. The "ready" state
+  // is the only clickable one; clicking it tells main to close the main
+  // window and open the updater progress window (which then installs +
+  // relaunches). No silent close-time install — explicit user gesture only.
+  (function wireUpdatePill() {
+    const pill = document.getElementById('toolbar-update-pill');
+    const txt  = document.getElementById('toolbar-update-text');
+    if (!pill || !txt || !window.electronAPI?.autoUpdate?.onStatus) return;
+
+    let pendingVersion = null;
+
+    function setState(state, label, tooltip) {
+      pill.dataset.state = state;
+      txt.textContent    = label;
+      pill.title         = tooltip || label;
+      pill.classList.remove('hidden');
+    }
+
+    function triggerInstall() {
+      if (pill.dataset.state !== 'ready') return;
+      // Disable repeat clicks while we're handing off to the updater window
+      pill.style.pointerEvents = 'none';
+      txt.textContent = 'Updating…';
+      window.electronAPI.autoUpdate.installNow();
+    }
+    pill.addEventListener('click', triggerInstall);
+    pill.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); triggerInstall(); }
+    });
+
     window.electronAPI.autoUpdate.onStatus(({ state, version, percent }) => {
-      if (state === 'available' && typeof showToast === 'function') {
-        showToast(`Note++ ${version} is available — downloading in background…`);
-      } else if (state === 'downloaded' && typeof showToast === 'function') {
-        showToast(`Note++ ${version} downloaded — will install on next close.`);
-      } else if (state === 'downloading' && typeof showToast === 'function' && percent != null) {
-        // Throttle: only toast at ~25/50/75/100 to avoid spam.
-        const p = Math.round(percent);
-        if ([25, 50, 75, 100].includes(p) && !window._lastUpdatePct?.has(p)) {
-          (window._lastUpdatePct ||= new Set()).add(p);
-          showToast(`Downloading update… ${p}%`);
+      if (version) pendingVersion = version;
+      switch (state) {
+        case 'available':
+          setState('available', `New update available${pendingVersion ? ` (v${pendingVersion})` : ''}`,
+                   'Downloading in the background…');
+          break;
+        case 'downloading': {
+          const p = percent != null ? `${Math.round(percent)}%` : '';
+          setState('downloading', `Downloading${p ? ' ' + p : '…'}`, 'Downloading update…');
+          break;
         }
+        case 'downloaded':
+        case 'ready':
+          setState('ready', `Click to update${pendingVersion ? ` to v${pendingVersion}` : ''}`,
+                   'Restart and install the downloaded update');
+          break;
+        case 'none':
+        case 'checking':
+        default:
+          // Don't show the pill when there's nothing actionable.
+          pill.classList.add('hidden');
+          break;
       }
     });
-  }
+  })();
 
   // Load encryption profile (if previously configured). Doesn't unlock — just
   // detects "is this install set up?". Unlocking happens on demand.

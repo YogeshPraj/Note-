@@ -131,6 +131,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get:           ()        => ipcRenderer.invoke('get-auto-update'),
     set:           (enabled) => ipcRenderer.invoke('set-auto-update', enabled),
     checkNow:      ()        => ipcRenderer.invoke('check-for-updates-now'),
+    installNow:    ()        => ipcRenderer.invoke('updater:start-install-flow'),
     onStatus:      (cb)      => ipcRenderer.on('auto-update-status',       (e, p) => cb(p)),
     onPrefChanged: (cb)      => ipcRenderer.on('auto-update-pref-changed', (e, v) => cb(v)),
     removeListeners: () => {

@@ -1166,6 +1166,19 @@ ipcMain.handle('updater:install-and-quit', () => {
   }
 });
 
+// User clicked the "Click to update" pill in the renderer toolbar. We:
+//   1. Hide the main window so it feels closed
+//   2. Open the updater progress window (the same one the old close-hook
+//      used to invoke) — it shows progress → success → triggers
+//      quitAndInstall via the IPC above
+ipcMain.handle('updater:start-install-flow', () => {
+  if (!updateDownloaded) return { success: false, error: 'no-update-pending' };
+  if (updateInstallStarted || updaterWindow) return { success: true, alreadyStarted: true };
+  try { if (mainWindow) mainWindow.hide(); } catch {}
+  openUpdaterWindow();
+  return { success: true };
+});
+
 function isAutoUpdateEnabled() {
   const s = readSettings();
   // Default ON when never set
@@ -1207,33 +1220,12 @@ ipcMain.handle('check-for-updates-now', async () => {
   }
 });
 
-// Intercept the main-window close ONCE the first time the user dismisses
-// Note++ with a downloaded update pending. We:
-//   1) cancel the close,
-//   2) hide the main window (so the user perceives the app as "closed"),
-//   3) open the updater window which shows progress → "Upgraded to vX.Y.Z"
-//      → after a 2 s display window, triggers quitAndInstall via IPC.
-// The flag `updateInstallStarted` keeps us from re-entering the dialog on
-// a second close attempt while quitAndInstall is mid-flight.
-function attachUpdaterCloseInterceptor() {
-  if (!mainWindow) return;
-  mainWindow.on('close', (e) => {
-    if (!app.isPackaged) return;
-    if (!updateDownloaded) return;
-    if (updateInstallStarted) return;   // already handed off to installer
-    if (updaterWindow) return;          // updater window already up
-    e.preventDefault();
-    try { mainWindow.hide(); } catch {}
-    openUpdaterWindow();
-  });
-}
+// No close-time install hook — closing the app is now just closing the app.
+// Installing an update is an explicit user gesture: click the "Click to
+// update" pill in the renderer toolbar, which calls
+// `updater:start-install-flow` (defined above).
 
-app.whenReady().then(() => {
-  scheduleAutoUpdateCheck();
-  // The close interceptor needs mainWindow; createWindow runs synchronously
-  // earlier in whenReady so a microtask defer is enough.
-  setTimeout(attachUpdaterCloseInterceptor, 0);
-});
+app.whenReady().then(() => { scheduleAutoUpdateCheck(); });
 
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────
 const http = require('http');

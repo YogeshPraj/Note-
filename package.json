@@ -358,7 +358,8 @@
       {
         "provider": "github",
         "owner": "YogeshPraj",
-        "repo": "Note-"
+        "repo": "Note-",
+        "releaseType": "release"
       }
     ]
   },

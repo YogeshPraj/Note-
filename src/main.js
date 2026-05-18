@@ -469,6 +469,29 @@ function buildMenu() {
         { label: 'About Note++', click: () => send('menu-about') },
         { type: 'separator' },
         { label: 'Keyboard Shortcuts Reference', click: () => send('menu-shortcuts-ref') },
+        { type: 'separator' },
+        {
+          label: 'Check for Updates Automatically',
+          type: 'checkbox',
+          checked: isAutoUpdateEnabled(),
+          click: (item) => {
+            const s = readSettings();
+            s.autoUpdate = !!item.checked;
+            writeSettings(s);
+            scheduleAutoUpdateCheck();
+            send('auto-update-pref-changed', !!item.checked);
+          },
+        },
+        { label: 'Check for Updates Now', click: async () => {
+            if (!app.isPackaged) {
+              dialog.showMessageBox(mainWindow, { type: 'info', message: 'Auto-update only runs in the installed build.' });
+              return;
+            }
+            initAutoUpdater();
+            try { await autoUpdater?.checkForUpdates(); } catch (e) { console.error(e); }
+          },
+        },
+        { type: 'separator' },
         { label: 'Developer Tools', accelerator: 'F12', click: () => mainWindow.webContents.toggleDevTools() },
       ]
     }
@@ -1014,6 +1037,123 @@ ipcMain.handle('lsp-language-for', (e, monacoId) => lspService.lookupByMonacoId(
 ipcMain.handle('lsp-language-config', (e, langId) => lspService.getLanguageConfig(langId));
 
 app.on('before-quit', () => { lspService.stopAllServers(); });
+
+// ── App version (single source of truth: package.json) ───────────────────
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+// ── LSP install — spawn `npm install -g <pkg>` and stream output to renderer ─
+// Used by the click-to-install status pill when a server is missing.
+ipcMain.handle('lsp-install', async (e, { langId }) => {
+  const cfg = lspService.getLanguageConfig(langId);
+  if (!cfg || !cfg.install) return { success: false, error: 'No install recipe for ' + langId };
+
+  // cfg.install.cmd is e.g. "npm install -g pyright" — split into argv.
+  // We invoke through cmd.exe on Windows so the npm.cmd shim is resolved.
+  const parts = cfg.install.cmd.split(/\s+/);
+  const isWin = process.platform === 'win32';
+  const bin   = isWin ? 'cmd.exe' : parts[0];
+  const args  = isWin ? ['/c', ...parts] : parts.slice(1);
+
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn(bin, args, { windowsHide: true, env: process.env });
+    } catch (err) {
+      return resolve({ success: false, error: err.message });
+    }
+    let out = '', err = '';
+    proc.stdout?.on('data', d => { const s = d.toString(); out += s; send('lsp-install-output', { langId, chunk: s }); });
+    proc.stderr?.on('data', d => { const s = d.toString(); err += s; send('lsp-install-output', { langId, chunk: s }); });
+    proc.on('error', e2 => resolve({ success: false, error: e2.message }));
+    proc.on('exit', code => {
+      send('lsp-install-done', { langId, exitCode: code });
+      resolve({ success: code === 0, exitCode: code, stdout: out, stderr: err });
+    });
+  });
+});
+
+// ── Auto-updater (electron-updater + GitHub provider) ────────────────────
+// We only run the updater on packaged builds. The renderer toggles the
+// preference through `set-auto-update`; we re-check on every change so
+// the menu/setting takes effect without a restart.
+let autoUpdater = null;
+let updateDownloaded = false;
+let updateCheckTimer = null;
+
+function initAutoUpdater() {
+  if (!app.isPackaged) return; // never runs in `npm start`
+  if (autoUpdater) return;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (err) {
+    console.error('[auto-update] electron-updater not available:', err.message);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('error', (e) => console.error('[auto-update] error:', e?.message || e));
+  autoUpdater.on('checking-for-update', () => send('auto-update-status', { state: 'checking' }));
+  autoUpdater.on('update-available', (info) => send('auto-update-status', { state: 'available', version: info?.version }));
+  autoUpdater.on('update-not-available', () => send('auto-update-status', { state: 'none' }));
+  autoUpdater.on('download-progress', (p) => send('auto-update-status', { state: 'downloading', percent: p?.percent }));
+  autoUpdater.on('update-downloaded', (info) => {
+    updateDownloaded = true;
+    send('auto-update-status', { state: 'downloaded', version: info?.version });
+  });
+}
+
+function isAutoUpdateEnabled() {
+  const s = readSettings();
+  // Default ON when never set
+  return s.autoUpdate !== false;
+}
+
+function scheduleAutoUpdateCheck() {
+  if (!app.isPackaged) return;
+  initAutoUpdater();
+  if (!autoUpdater) return;
+  if (updateCheckTimer) { clearInterval(updateCheckTimer); updateCheckTimer = null; }
+  if (!isAutoUpdateEnabled()) return;
+  // Kick a check shortly after launch, then every 6 h
+  setTimeout(() => { try { autoUpdater.checkForUpdates(); } catch {} }, 8000);
+  updateCheckTimer = setInterval(() => {
+    try { autoUpdater.checkForUpdates(); } catch {}
+  }, 6 * 60 * 60 * 1000);
+}
+
+ipcMain.handle('set-auto-update', (e, enabled) => {
+  const s = readSettings();
+  s.autoUpdate = !!enabled;
+  writeSettings(s);
+  scheduleAutoUpdateCheck();
+  return { success: true };
+});
+
+ipcMain.handle('get-auto-update', () => isAutoUpdateEnabled());
+
+ipcMain.handle('check-for-updates-now', async () => {
+  if (!app.isPackaged) return { success: false, error: 'not-packaged' };
+  initAutoUpdater();
+  if (!autoUpdater) return { success: false, error: 'updater-unavailable' };
+  try {
+    const r = await autoUpdater.checkForUpdates();
+    return { success: true, version: r?.updateInfo?.version || null };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// When the app is about to quit, if we have a downloaded update, install it.
+// `autoInstallOnAppQuit = true` already handles this for the standard quit
+// path, but we guard explicitly so dev-mode quits / forced quits don't
+// accidentally trigger anything.
+app.on('before-quit', () => {
+  if (app.isPackaged && updateDownloaded && autoUpdater) {
+    try { autoUpdater.quitAndInstall(true, false); } catch {}
+  }
+});
+
+app.whenReady().then(() => { scheduleAutoUpdateCheck(); });
 
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────
 const http = require('http');

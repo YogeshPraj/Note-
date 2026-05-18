@@ -110,11 +110,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stop:    (langId)               => ipcRenderer.invoke('lsp-stop',   { langId }),
     languageFor: (monacoId)         => ipcRenderer.invoke('lsp-language-for', monacoId),
     languageConfig: (langId)        => ipcRenderer.invoke('lsp-language-config', langId),
+    install:        (langId)        => ipcRenderer.invoke('lsp-install', { langId }),
+    onInstallOutput: (cb)           => ipcRenderer.on('lsp-install-output', (e, p) => cb(p)),
+    onInstallDone:   (cb)           => ipcRenderer.on('lsp-install-done',   (e, p) => cb(p)),
     onStatus:       (cb)            => ipcRenderer.on('lsp-status',       (e, p) => cb(p)),
     onNotification: (cb)            => ipcRenderer.on('lsp-notification', (e, p) => cb(p)),
     removeListeners: () => {
       ipcRenderer.removeAllListeners('lsp-status');
       ipcRenderer.removeAllListeners('lsp-notification');
+      ipcRenderer.removeAllListeners('lsp-install-output');
+      ipcRenderer.removeAllListeners('lsp-install-done');
+    },
+  },
+
+  // App version (from package.json — single source of truth)
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+  // Auto-update (electron-updater)
+  autoUpdate: {
+    get:           ()        => ipcRenderer.invoke('get-auto-update'),
+    set:           (enabled) => ipcRenderer.invoke('set-auto-update', enabled),
+    checkNow:      ()        => ipcRenderer.invoke('check-for-updates-now'),
+    onStatus:      (cb)      => ipcRenderer.on('auto-update-status',       (e, p) => cb(p)),
+    onPrefChanged: (cb)      => ipcRenderer.on('auto-update-pref-changed', (e, v) => cb(v)),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners('auto-update-status');
+      ipcRenderer.removeAllListeners('auto-update-pref-changed');
     },
   },
 });

@@ -1,6 +1,6 @@
 {
   "name": "notepp",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Note++ - A powerful text editor",
   "main": "src/main.js",
   "author": "Yogesh Prajapati",
@@ -353,7 +353,14 @@
       "include": "build/installer.nsh",
       "installerSidebar": "build/installer-sidebar.bmp",
       "warningsAsErrors": false
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "YogeshPraj",
+        "repo": "Note-"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^28.0.0",
@@ -364,6 +371,7 @@
     "@excalidraw/excalidraw": "^0.18.1",
     "diff": "^9.0.0",
     "dir-compare": "^5.0.0",
+    "electron-updater": "^6.8.3",
     "marked": "^18.0.3",
     "mermaid": "^11.14.0",
     "monaco-editor": "^0.45.0",

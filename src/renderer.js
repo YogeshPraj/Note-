@@ -216,6 +216,33 @@ require(['vs/editor/editor.main'], () => {
     }
   });
 
+  // Populate the About dialog with the real app version (from package.json
+  // via the main process, so we never get a stale hardcoded number again).
+  if (window.electronAPI?.getAppVersion) {
+    window.electronAPI.getAppVersion()
+      .then(v => { const el = document.getElementById('about-version'); if (el && v) el.textContent = v; })
+      .catch(() => {});
+  }
+
+  // Auto-update notifications — silent download, but surface a toast when
+  // an update is ready so the user knows closing the app will apply it.
+  if (window.electronAPI?.autoUpdate?.onStatus) {
+    window.electronAPI.autoUpdate.onStatus(({ state, version, percent }) => {
+      if (state === 'available' && typeof showToast === 'function') {
+        showToast(`Note++ ${version} is available — downloading in background…`);
+      } else if (state === 'downloaded' && typeof showToast === 'function') {
+        showToast(`Note++ ${version} downloaded — will install on next close.`);
+      } else if (state === 'downloading' && typeof showToast === 'function' && percent != null) {
+        // Throttle: only toast at ~25/50/75/100 to avoid spam.
+        const p = Math.round(percent);
+        if ([25, 50, 75, 100].includes(p) && !window._lastUpdatePct?.has(p)) {
+          (window._lastUpdatePct ||= new Set()).add(p);
+          showToast(`Downloading update… ${p}%`);
+        }
+      }
+    });
+  }
+
   // Load encryption profile (if previously configured). Doesn't unlock — just
   // detects "is this install set up?". Unlocking happens on demand.
   loadEncryptionProfile().then(() => updateEncryptionStatusIndicator());

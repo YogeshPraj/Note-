@@ -26,8 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Installer
-        run: npm run build:win
+      # Build AND publish via electron-builder so the auto-updater manifest
+      # (latest.yml) and *.blockmap files end up on the GitHub release.
+      # electron-updater requires latest.yml — without it, auto-update silently
+      # fails to find new versions.
+      - name: Build & Publish Installer
+        run: npm run build:wb && npx electron-builder --win nsis --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -35,22 +39,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: installer
-          path: dist/Note++-Setup-*.exe
-
-      - name: Get version from tag
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Note++ ${{ steps.version.outputs.VERSION }}
-          tag_name: ${{ steps.version.outputs.VERSION }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          files: |
+          path: |
             dist/Note++-Setup-*.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            dist/latest.yml
+            dist/*.blockmap

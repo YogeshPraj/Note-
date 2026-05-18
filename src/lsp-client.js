@@ -313,6 +313,11 @@
     });
   }
 
+  // Tracks which langId the pill currently represents so the click handler
+  // knows what to install.
+  let CURRENT_PILL_LANG = null;
+  let INSTALLING_LANGS  = new Set();
+
   function updateStatusBar(langId, state, error) {
     const el = document.getElementById('status-lsp');
     if (!el) return;
@@ -320,26 +325,72 @@
     const name = cfg?.install?.label || langId;
     let text = '';
     let title = '';
+    let clickable = false;
     switch (state) {
-      case 'starting': text = `🧠 LSP: ${name} starting…`; break;
-      case 'ready':    text = `🧠 LSP: ${name}`;            title = 'Language server running'; break;
-      case 'missing':  text = `⚠ LSP: ${name} missing`;    title = error || 'install required'; break;
-      case 'crashed':  text = `✗ LSP: ${name} crashed`;    title = error || 'restarting…'; break;
-      default:         text = '';
+      case 'starting':   text = `🧠 LSP: ${name} starting…`; break;
+      case 'ready':      text = `🧠 LSP: ${name}`;            title = 'Language server running'; break;
+      case 'missing':    text = `⬇ Install ${name}`;          title = `Click to install — runs: npm install -g ${name}`; clickable = true; break;
+      case 'installing': text = `⏳ Installing ${name}…`;      title = 'npm install in progress'; break;
+      case 'crashed':    text = `✗ LSP: ${name} crashed`;     title = error || 'restarting…'; break;
+      default:           text = '';
     }
     el.textContent = text;
     el.title = title;
     el.classList.toggle('hidden', !text);
     el.dataset.state = state;
-    // One-shot toast for missing servers
+    el.classList.toggle('clickable', !!clickable);
+    el.style.cursor = clickable ? 'pointer' : '';
+    CURRENT_PILL_LANG = state ? langId : null;
+
+    // One-shot toast for missing servers — guide user toward clicking the pill
     if (state === 'missing' && !MISSING_TOASTED.has(langId)) {
       MISSING_TOASTED.add(langId);
       if (typeof window.showToast === 'function') {
-        window.showToast(error || `${name} is not installed`);
+        window.showToast(`Click "Install ${name}" in the status bar to set it up.`);
       }
     }
   }
   const MISSING_TOASTED = new Set();
+
+  // Wire one global click handler for the pill (installs the missing server).
+  function wirePillClickHandler() {
+    const el = document.getElementById('status-lsp');
+    if (!el || el._installWired) return;
+    el._installWired = true;
+    el.addEventListener('click', async () => {
+      if (el.dataset.state !== 'missing') return;
+      const langId = CURRENT_PILL_LANG;
+      if (!langId || INSTALLING_LANGS.has(langId)) return;
+      INSTALLING_LANGS.add(langId);
+      const cfg = LSP_LANGUAGES_MIRROR[langId];
+      const name = cfg?.install?.label || langId;
+      updateStatusBar(langId, 'installing');
+      if (typeof window.showToast === 'function') window.showToast(`Installing ${name}…`);
+      try {
+        const res = await window.electronAPI.lsp.install(langId);
+        INSTALLING_LANGS.delete(langId);
+        if (res?.success) {
+          if (typeof window.showToast === 'function') window.showToast(`${name} installed — retry will start automatically.`);
+          // Re-attempt server start; on success the status pill updates.
+          try { await window.electronAPI.lsp.ensureStarted(langId, null); } catch {}
+        } else {
+          updateStatusBar(langId, 'missing', res?.error || 'install failed');
+          if (typeof window.showToast === 'function') {
+            window.showToast(`Install failed (exit ${res?.exitCode ?? '?'}). See terminal for details.`);
+          }
+        }
+      } catch (err) {
+        INSTALLING_LANGS.delete(langId);
+        updateStatusBar(langId, 'missing', err.message);
+      }
+    });
+  }
+  // Defer until DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wirePillClickHandler, { once: true });
+  } else {
+    wirePillClickHandler();
+  }
 
   // Mirror of the main-side registry — keeps providers from needing async lookups
   // every keystroke. Kept tiny; full source of truth still lives in lsp-service.js.

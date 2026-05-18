@@ -238,11 +238,13 @@ body.theme-dark .tab-wb-badge {
 #status-git:hover { opacity: 1; cursor: pointer; }
 
 /* ── Status bar LSP pill ──────────────────────────────────────────────── */
-#status-lsp { font-size: 11px; font-family: 'Cascadia Code', Consolas, monospace; }
-#status-lsp[data-state="starting"] { color: #f59e0b; }
-#status-lsp[data-state="ready"]    { color: #16a34a; }
-#status-lsp[data-state="missing"]  { color: #f97316; }
-#status-lsp[data-state="crashed"]  { color: #dc2626; }
+#status-lsp { font-size: 11px; font-family: 'Cascadia Code', Consolas, monospace; padding: 0 6px; border-radius: 3px; }
+#status-lsp[data-state="starting"]   { color: #f59e0b; }
+#status-lsp[data-state="ready"]      { color: #16a34a; }
+#status-lsp[data-state="missing"]    { color: #fff; background: #f97316; font-weight: 600; }
+#status-lsp[data-state="installing"] { color: #fff; background: #2563eb; font-weight: 600; }
+#status-lsp[data-state="crashed"]    { color: #fff; background: #dc2626; font-weight: 600; }
+#status-lsp.clickable:hover          { filter: brightness(1.1); text-decoration: underline; }
 
 /* ── Source Control side panel ───────────────────────────────────────── */
 #sc-panel {

@@ -1,6 +1,6 @@
 {
   "name": "notepp",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Note++ - A powerful text editor",
   "main": "src/main.js",
   "author": "Yogesh Prajapati",

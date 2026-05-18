@@ -62,11 +62,17 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libfuse2
 
+      # --ignore-scripts skips the `postinstall` hook (build-whiteboard.js).
+      # We split that into its own explicit step below so a failure surfaces
+      # clearly in CI logs instead of being buried under `npm ci`.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Build whiteboard iframe bundle
+        run: npm run build:wb
 
       - name: Build & publish installer (electron-builder publishes to GitHub release)
-        run: npm run build:wb && npx electron-builder ${{ matrix.target_flag }} --publish always
+        run: npx electron-builder ${{ matrix.target_flag }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Skip Mac code-signing in CI — we ship unsigned builds for now.

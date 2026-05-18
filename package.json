@@ -346,7 +346,7 @@
         { "target": "dmg", "arch": ["x64", "arm64"] },
         { "target": "zip", "arch": ["x64", "arm64"] }
       ],
-      "icon": "src/assets/icon.ico",
+      "icon": "src/assets/icon.png",
       "category": "public.app-category.developer-tools",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "hardenedRuntime": false,
@@ -355,7 +355,7 @@
     },
     "dmg": {
       "title": "${productName} ${version}",
-      "icon": "src/assets/icon.ico",
+      "icon": "src/assets/icon.png",
       "writeUpdateInfo": true,
       "sign": false
     },
@@ -364,7 +364,7 @@
         { "target": "AppImage", "arch": ["x64"] },
         { "target": "deb",      "arch": ["x64"] }
       ],
-      "icon": "src/assets/icon.ico",
+      "icon": "src/assets/icon.png",
       "category": "Development",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "synopsis": "Developer-focused text editor with IntelliSense, integrated terminal, and live preview",

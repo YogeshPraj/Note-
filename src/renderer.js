@@ -3470,6 +3470,7 @@ async function saveSession() {
         content: tab.content || '',
         language: 'whiteboard', encoding: tab.encoding, eol: tab.eol,
         active: tab.id === activeTabId, type: 'whiteboard',
+        dirty: !!tab.dirty,    // preserve unsaved-changes marker across restarts
       };
     }
     const content = tab.model.getValue();
@@ -3483,6 +3484,7 @@ async function saveSession() {
         language: tab.language, encoding: tab.encoding, eol: tab.eol,
         active: tab.id === activeTabId,
         encrypted: true, protectedBy: tab.protectedBy || null,
+        dirty: !!tab.dirty,
       };
     }
     return {
@@ -3495,6 +3497,7 @@ async function saveSession() {
       encoding: tab.encoding,
       eol: tab.eol,
       active: tab.id === activeTabId,
+      dirty: !!tab.dirty,    // preserve unsaved-changes marker across restarts
     };
   });
   await window.electronAPI.writeSession({ tabs: sessionTabs });
@@ -3515,14 +3518,22 @@ async function restoreSession() {
     if (s.type === 'whiteboard' || s.language === 'whiteboard') {
       tabCounter++;
       const id = tabCounter;
-      // Always prefer the on-disk file (auto-save keeps it current)
+      // If the whiteboard was saved (has a real filePath), reload from disk —
+      // it's the source of truth. For unsaved whiteboards (filePath: null)
+      // we keep the session-cached content so the user's in-progress drawing
+      // survives a restart.
       if (s.filePath) {
         const r = await window.electronAPI.readFile(s.filePath);
         if (r.success) content = r.content;
       }
       const tab = {
         id, name: s.name, filePath: s.filePath || null,
-        content, dirty: false, language: 'whiteboard',
+        content,
+        // Preserve the unsaved-changes marker across restarts. New unsaved
+        // whiteboards with actual content come back showing the red dot, so
+        // the user knows to Save As before closing.
+        dirty: !!s.dirty,
+        language: 'whiteboard',
         encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
         model: null, viewState: null, type: 'whiteboard',
       };
@@ -3563,7 +3574,13 @@ async function restoreSession() {
     const model = monaco.editor.createModel(content, s.language || 'plaintext');
     const tab = {
       id, name: s.name, filePath: s.filePath || null,
-      content, dirty: false, language: s.language || 'plaintext',
+      content,
+      // Preserve the unsaved-changes marker so unsaved "new N" tabs (and
+      // saved tabs the user had edited but not yet saved) come back showing
+      // the red dot. Without this, every restart silently "cleans" the dirty
+      // flag and the user can't tell their work isn't on disk yet.
+      dirty: !!s.dirty,
+      language: s.language || 'plaintext',
       encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
       model, viewState: null, type: 'editor',
       encrypted: false, protectedBy: null,

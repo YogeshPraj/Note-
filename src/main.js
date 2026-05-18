@@ -1078,6 +1078,9 @@ ipcMain.handle('lsp-install', async (e, { langId }) => {
 // the menu/setting takes effect without a restart.
 let autoUpdater = null;
 let updateDownloaded = false;
+let pendingUpdateVersion = null;     // version string we're about to install
+let updaterWindow = null;            // small window shown during install
+let updateInstallStarted = false;    // guards against re-entry
 let updateCheckTimer = null;
 
 function initAutoUpdater() {
@@ -1090,7 +1093,9 @@ function initAutoUpdater() {
     return;
   }
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // We handle install-on-quit manually so we can show the updater window
+  // before quitAndInstall fires (autoInstallOnAppQuit would skip the UI).
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on('error', (e) => console.error('[auto-update] error:', e?.message || e));
   autoUpdater.on('checking-for-update', () => send('auto-update-status', { state: 'checking' }));
   autoUpdater.on('update-available', (info) => send('auto-update-status', { state: 'available', version: info?.version }));
@@ -1098,9 +1103,64 @@ function initAutoUpdater() {
   autoUpdater.on('download-progress', (p) => send('auto-update-status', { state: 'downloading', percent: p?.percent }));
   autoUpdater.on('update-downloaded', (info) => {
     updateDownloaded = true;
+    pendingUpdateVersion = info?.version || null;
     send('auto-update-status', { state: 'downloaded', version: info?.version });
   });
 }
+
+// Small frameless window that visualises the install. Opened from the
+// main-window 'close' handler when an update is pending. On its own, it
+// just shows progress → "Upgraded to vX.Y.Z" → calls quitAndInstall via
+// IPC, which tears down the process and relaunches the new build.
+function openUpdaterWindow() {
+  if (updaterWindow) { updaterWindow.focus(); return; }
+  updaterWindow = new BrowserWindow({
+    width: 460,
+    height: 240,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    alwaysOnTop: true,
+    center: true,
+    skipTaskbar: false,
+    title: 'Updating Note++',
+    backgroundColor: '#1e1e2e',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'updater-preload.js'),
+    },
+  });
+  updaterWindow.setMenuBarVisibility(false);
+  updaterWindow.loadFile(path.join(__dirname, 'updater.html'));
+  updaterWindow.on('closed', () => {
+    updaterWindow = null;
+    // If the updater window closed WITHOUT the install having been kicked
+    // off (e.g. user Alt+F4'd it), restore the main window so they don't
+    // get stuck with a tray-less, hidden app. They can try closing again
+    // later to retry, or install the update on next launch automatically.
+    if (!updateInstallStarted && mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.show(); } catch {}
+    }
+  });
+}
+
+ipcMain.handle('updater:get-pending-version', () => pendingUpdateVersion || app.getVersion());
+
+ipcMain.handle('updater:install-and-quit', () => {
+  if (updateInstallStarted) return { success: true, alreadyStarted: true };
+  updateInstallStarted = true;
+  // isSilent: true   → run the NSIS installer with no UI
+  // isForceRunAfter: true → relaunch Note++ once install completes
+  try {
+    if (autoUpdater) autoUpdater.quitAndInstall(true, true);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
 
 function isAutoUpdateEnabled() {
   const s = readSettings();
@@ -1143,17 +1203,33 @@ ipcMain.handle('check-for-updates-now', async () => {
   }
 });
 
-// When the app is about to quit, if we have a downloaded update, install it.
-// `autoInstallOnAppQuit = true` already handles this for the standard quit
-// path, but we guard explicitly so dev-mode quits / forced quits don't
-// accidentally trigger anything.
-app.on('before-quit', () => {
-  if (app.isPackaged && updateDownloaded && autoUpdater) {
-    try { autoUpdater.quitAndInstall(true, false); } catch {}
-  }
-});
+// Intercept the main-window close ONCE the first time the user dismisses
+// Note++ with a downloaded update pending. We:
+//   1) cancel the close,
+//   2) hide the main window (so the user perceives the app as "closed"),
+//   3) open the updater window which shows progress → "Upgraded to vX.Y.Z"
+//      → after a 2 s display window, triggers quitAndInstall via IPC.
+// The flag `updateInstallStarted` keeps us from re-entering the dialog on
+// a second close attempt while quitAndInstall is mid-flight.
+function attachUpdaterCloseInterceptor() {
+  if (!mainWindow) return;
+  mainWindow.on('close', (e) => {
+    if (!app.isPackaged) return;
+    if (!updateDownloaded) return;
+    if (updateInstallStarted) return;   // already handed off to installer
+    if (updaterWindow) return;          // updater window already up
+    e.preventDefault();
+    try { mainWindow.hide(); } catch {}
+    openUpdaterWindow();
+  });
+}
 
-app.whenReady().then(() => { scheduleAutoUpdateCheck(); });
+app.whenReady().then(() => {
+  scheduleAutoUpdateCheck();
+  // The close interceptor needs mainWindow; createWindow runs synchronously
+  // earlier in whenReady so a microtask defer is enough.
+  setTimeout(attachUpdaterCloseInterceptor, 0);
+});
 
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────
 const http = require('http');

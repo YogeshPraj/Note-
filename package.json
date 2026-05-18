@@ -9,9 +9,11 @@
     "build:wb": "node build-whiteboard.js",
     "build:wb:watch": "node build-whiteboard.js --watch",
     "postinstall": "node build-whiteboard.js",
-    "build": "npm run build:wb && electron-builder --win",
+    "build": "npm run build:wb && electron-builder",
     "build:win": "npm run build:wb && electron-builder --win nsis --publish never",
     "build:msi": "npm run build:wb && electron-builder --win msi --publish never",
+    "build:mac": "npm run build:wb && electron-builder --mac --publish never",
+    "build:linux": "npm run build:wb && electron-builder --linux --publish never",
     "build:dir": "npm run build:wb && electron-builder --dir"
   },
   "build": {
@@ -338,6 +340,36 @@
       ],
       "icon": "src/assets/icon.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "src/assets/icon.ico",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "icon": "src/assets/icon.ico",
+      "writeUpdateInfo": true,
+      "sign": false
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb",      "arch": ["x64"] }
+      ],
+      "icon": "src/assets/icon.ico",
+      "category": "Development",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "synopsis": "Developer-focused text editor with IntelliSense, integrated terminal, and live preview",
+      "description": "Note++ is an Electron + Monaco editor aimed at developers — a modern alternative to Notepad++ with IntelliSense, integrated PowerShell/bash terminal, live HTML/Markdown/Mermaid preview, multi-tab editing, cloud session sync, encryption, integrated git, and a built-in whiteboard powered by Excalidraw.",
+      "maintainer": "Yogesh Prajapati"
     },
     "nsis": {
       "oneClick": false,

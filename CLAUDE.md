@@ -25,7 +25,8 @@ Located at `D:\NewNotepad`. GitHub: https://github.com/YogeshPraj/Note-
 | Bundler (iframe only) | esbuild 0.24 |
 | Security | `contextIsolation: true`, `nodeIntegration: false` |
 | Node bridge | `src/preload.js` → `window.electronAPI` |
-| Platform | Windows (primary), Node.js |
+| Platform | Windows, macOS, Linux (cross-platform builds via electron-builder matrix CI) |
+| Auto-update | electron-updater + GitHub provider (latest.yml / latest-mac.yml / latest-linux.yml on every release) |
 
 ---
 
@@ -264,15 +265,35 @@ npm start          # or double-click launch.bat
 ## How to Build
 
 ```bash
-npm run build      # electron-builder (needs electron-builder in devDeps)
+# Build for the current OS (auto-detects)
+npm run build
+
+# Or target a specific platform explicitly
+npm run build:win        # Windows: NSIS installer (.exe)
+npm run build:msi        # Windows: MSI installer
+npm run build:mac        # macOS: .dmg + .zip (x64 + arm64)
+npm run build:linux      # Linux: .AppImage + .deb (x64)
 ```
+
+**Cross-platform note:** electron-builder must be run on the target OS for native binaries (node-pty, native deps) to compile correctly. You can't build Mac artifacts on a Windows machine and vice-versa. The GitHub Actions workflow (`.github/workflows/release.yml`) handles this automatically via a 3-OS matrix on every tag push — each runner builds + publishes its own platform's artifacts to the same GitHub release.
+
+**Mac caveat:** builds are currently unsigned (no Apple Developer cert configured in CI). First-launch on macOS requires right-click → Open to bypass Gatekeeper.
+
+**Linux caveat:** AppImage builds need `libfuse2` on the build machine (CI installs it automatically). End-users on modern Ubuntu (24.04+) may need `sudo apt install libfuse2t64` to launch the AppImage.
 
 ---
 
 ## Known Issues / Future Work
 
-- [ ] No diff view / git integration in editor yet
-- [ ] No LSP server connections (only Monaco's built-in JS/TS IntelliSense)
+- [ ] macOS code-signing (currently shipping unsigned; Gatekeeper warning on first launch)
+- [ ] Linux icon assets (currently using `.ico` for all platforms; mac/linux fall back to a lower-quality conversion)
+- [ ] No Snap or Flatpak Linux targets yet (AppImage + .deb only)
+
+### Recently resolved (Session 8 — cross-platform builds)
+- ~~Windows-only builds~~ → electron-builder now produces `.exe` (Windows), `.dmg`/`.zip` (macOS x64+arm64), `.AppImage`/`.deb` (Linux x64). CI is a 3-OS matrix; tag push triggers parallel builds on `windows-latest`, `macos-latest`, `ubuntu-latest`. All artifacts plus `latest*.yml` updater manifests land on the same GitHub release.
+- ~~Hardcoded `\\` separators in renderer paths~~ → switched to `/` and `[\\/]` regex (works on every OS).
+- ~~`powershell.exe` hardcoded as terminal default~~ → `defaultShellForPlatform()` picks `powershell.exe` on Windows, `/bin/zsh` on macOS, `/bin/bash` on Linux.
+- ~~F5 Run File used PowerShell-specific `;` operator~~ → uses `&&` on macOS/Linux so bash/zsh parse cleanly.
 
 ### Recently resolved (Session 6)
 - ~~`node-pty` not installed~~ → `node-pty ^1.1.0` is in `dependencies`, ConPTY binary built, `main.js` uses it for true PTY with `proc.resize()` wired up.

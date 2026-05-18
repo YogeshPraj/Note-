@@ -1134,11 +1134,13 @@ async function closeTab(id) {
       if (r.response === 2) return;
       if (r.response === 0) {
         // Legacy auto-backed whiteboards (pre-v1.5.x sessions) live under
-        // %AppData%\notepp\Whiteboards\ — for those, force Save As so the
-        // user picks a real location rather than silently writing back to
-        // the hidden AppData copy.
+        // the per-user app data folder (Windows: %AppData%\notepp\Whiteboards,
+        // macOS: ~/Library/Application Support/notepp/Whiteboards,
+        // Linux: ~/.config/notepp/Whiteboards). For those, force Save As so
+        // the user picks a real location rather than silently writing back
+        // to the hidden app-data copy.
         const isLegacyAutoBacking =
-          tab.filePath && /\\Whiteboards\\whiteboard-\d+\.json$/i.test(tab.filePath);
+          tab.filePath && /[\\/]Whiteboards[\\/]whiteboard-\d+\.json$/i.test(tab.filePath);
         const ok = await saveTabFile(tab, /* forceAs */ isLegacyAutoBacking);
         if (!ok) return;
       }
@@ -1983,9 +1985,12 @@ async function runCurrentFile() {
   // it a beat before typing into the PTY on first launch.
   await new Promise(r => setTimeout(r, 80));
 
-  // PowerShell: cd to the file's folder, then run. `;` chains regardless of
-  // exit code so we always see the result. CR (\r) submits the line.
-  const line = `cd "${cwd}"; ${cmd}\r`;
+  // Sniff the host OS so we use the right shell-chain operator. PowerShell
+  // (Windows default) accepts both `;` and `&&`; bash/zsh (macOS + Linux)
+  // require `&&`. Sending the wrong one wedges the prompt with a parse error.
+  const isWin = /windows/i.test(navigator.userAgent || '');
+  const chain = isWin ? ';' : '&&';
+  const line = `cd "${cwd}" ${chain} ${cmd}\r`;
   await window.electronAPI.terminalInput(terminalId, line);
 }
 
@@ -4671,18 +4676,29 @@ async function saveBackupPrefs(settings) {
 }
 
 // ===== Terminal Preferences =====
+// Pick the sensible per-OS default shell. The renderer doesn't know its
+// platform directly, so we sniff via navigator.userAgent (Electron exposes
+// the host OS there). Wrong-OS guess is harmless — main.js falls back to
+// its own platform-aware getShell() anyway.
+function defaultShellForPlatform() {
+  const ua = (navigator.userAgent || '').toLowerCase();
+  if (ua.includes('windows')) return 'powershell.exe';
+  if (ua.includes('mac'))     return '/bin/zsh';
+  return '/bin/bash';
+}
+
 async function loadTerminalPrefs() {
   const s = await window.electronAPI.readSettings();
   const t = s.terminal || {};
   const shellEl    = document.getElementById('pref-shell');
   const fontSizeEl = document.getElementById('pref-term-fontsize');
-  if (shellEl)    shellEl.value    = t.shell    || 'powershell.exe';
+  if (shellEl)    shellEl.value    = t.shell    || defaultShellForPlatform();
   if (fontSizeEl) fontSizeEl.value = t.fontSize || 13;
 }
 
 async function saveTerminalPrefs(settings) {
   settings.terminal = {
-    shell:    document.getElementById('pref-shell')?.value?.trim()        || 'powershell.exe',
+    shell:    document.getElementById('pref-shell')?.value?.trim()        || defaultShellForPlatform(),
     fontSize: parseInt(document.getElementById('pref-term-fontsize')?.value || '13'),
   };
 }
@@ -5330,7 +5346,9 @@ async function initGitIntegration() {
 
 async function encryptionProfilePath() {
   const userData = await window.electronAPI.getUserDataPath();
-  return userData + '\\encryption\\profile.json';
+  // Forward slashes work on Windows, macOS, and Linux. Node's fs APIs in
+  // the main process normalise both separators correctly.
+  return userData + '/encryption/profile.json';
 }
 
 // Read profile.json from disk into `appEnc.profile`. Returns the parsed profile,

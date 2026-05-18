@@ -11,16 +11,39 @@ permissions:
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
-  # JOB 1 — BUILD
-  # Compiles the installer and the electron-updater manifest. Uploads them as
-  # workflow artifacts so the release job (and humans, if needed) can fetch
-  # them. We use `--publish always` so electron-builder also uploads the
-  # auto-updater files (latest.yml + *.blockmap) straight to the GitHub
-  # release — these MUST sit next to the .exe or auto-update can't find them.
+  # JOB 1 — BUILD (matrix across Windows + macOS + Linux)
+  # Each runner compiles its own native artifacts and publishes them to the
+  # GitHub release. electron-updater needs the per-platform manifest files
+  # (latest.yml, latest-mac.yml, latest-linux.yml) AND the artifacts to sit
+  # on the same release — `--publish always` handles both in one step.
   # ───────────────────────────────────────────────────────────────────────────
   build:
-    name: Build Windows Installer
-    runs-on: windows-latest
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false   # one platform's failure shouldn't block the others
+      matrix:
+        include:
+          - os: windows-latest
+            target_flag: --win nsis
+            artifact_glob: |
+              dist/*.exe
+              dist/latest.yml
+              dist/*.blockmap
+          - os: macos-latest
+            target_flag: --mac
+            artifact_glob: |
+              dist/*.dmg
+              dist/*.zip
+              dist/latest-mac.yml
+              dist/*.blockmap
+          - os: ubuntu-latest
+            target_flag: --linux
+            artifact_glob: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/latest-linux.yml
+              dist/*.blockmap
+    runs-on: ${{ matrix.os }}
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
 
@@ -34,22 +57,28 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # Linux-only: AppImage builds need libfuse2 on the GH runner image.
+      - name: Install libfuse2 (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libfuse2
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build & publish installer (uploads .exe + latest.yml + .blockmap to GitHub release)
-        run: npm run build:wb && npx electron-builder --win nsis --publish always
+      - name: Build & publish installer (electron-builder publishes to GitHub release)
+        run: npm run build:wb && npx electron-builder ${{ matrix.target_flag }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip Mac code-signing in CI — we ship unsigned builds for now.
+          # Users on macOS will need to right-click → Open the first time.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload installer artifacts (for the release job)
+      - name: Upload platform artifacts (for the release job)
         uses: actions/upload-artifact@v4
         with:
-          name: installer
-          path: |
-            dist/*.exe
-            dist/latest.yml
-            dist/*.blockmap
+          name: dist-${{ matrix.os }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: warn
 
       - name: Get version from tag
         id: version
@@ -58,10 +87,10 @@ jobs:
 
   # ───────────────────────────────────────────────────────────────────────────
   # JOB 2 — RELEASE
-  # Marks the GitHub release as Latest with auto-generated notes (changelog
-  # built from commits/PRs since the previous tag). softprops/action-gh-release
-  # upserts the release — if electron-builder already created one for this
-  # tag, this step just refines its title/notes and adds the same files.
+  # Marks the GitHub release as Latest with auto-generated notes. By this
+  # point all three platforms have already uploaded their artifacts via
+  # electron-builder --publish always; this step just finalises the title
+  # and changelog and ensures it's flipped to Latest.
   # ───────────────────────────────────────────────────────────────────────────
   release:
     name: Publish GitHub Release
@@ -69,11 +98,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download installer artifacts from build job
+      - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: installer
+          name: dist-windows-latest
           path: dist
+        continue-on-error: true
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-macos-latest
+          path: dist
+        continue-on-error: true
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-ubuntu-latest
+          path: dist
+        continue-on-error: true
 
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -86,7 +130,13 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
             dist/latest.yml
+            dist/latest-mac.yml
+            dist/latest-linux.yml
             dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

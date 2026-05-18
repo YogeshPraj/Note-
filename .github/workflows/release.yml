@@ -62,12 +62,34 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libfuse2
 
-      # --ignore-scripts skips the `postinstall` hook (build-whiteboard.js).
-      # We split that into its own explicit step below so a failure surfaces
-      # clearly in CI logs instead of being buried under `npm ci`.
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
+      # Electron's postinstall downloads a ~100 MB binary from GitHub which
+      # flakes on CI runners with "socket hang up" once in a while (saw it
+      # on macos-latest during v1.6.1). Retry up to 3 times with backoff,
+      # but stop retrying as soon as it succeeds. We deliberately run
+      # postinstall scripts (no --ignore-scripts) because electron-builder
+      # needs the Electron binary that install.js fetches.
+      - name: Install dependencies (with retry on network flakes)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::npm ci attempt $attempt"
+            if npm ci; then
+              echo "::endgroup::"
+              echo "npm ci succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "npm ci failed on attempt $attempt; cleaning and retrying"
+            rm -rf node_modules
+            sleep $((attempt * 10))
+          done
+          echo "npm ci failed after 3 attempts"
+          exit 1
 
+      # Run build:wb explicitly so a postinstall-time failure here is
+      # immediately distinguishable from a dependency-install failure.
+      # (The postinstall hook in package.json runs this too — re-running
+      # it is cheap and idempotent.)
       - name: Build whiteboard iframe bundle
         run: npm run build:wb
 

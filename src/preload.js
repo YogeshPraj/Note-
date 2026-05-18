@@ -98,5 +98,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     branchSwitch: (root, name)      => ipcRenderer.invoke('git-branch-switch', root, name),
     branchCreate: (root, n, f)      => ipcRenderer.invoke('git-branch-create', root, n, f),
     installed:    ()                => ipcRenderer.invoke('git-installed'),
+    showHead:     (root, relPath)   => ipcRenderer.invoke('git-show-head', root, relPath),
+  },
+
+  // LSP — see LSP.md
+  lsp: {
+    ensureStarted: (langId, workspaceRoot) =>
+      ipcRenderer.invoke('lsp-ensure-started', { langId, workspaceRoot }),
+    send:    (langId, method, params) => ipcRenderer.invoke('lsp-send',   { langId, method, params }),
+    notify:  (langId, method, params) => ipcRenderer.invoke('lsp-notify', { langId, method, params }),
+    stop:    (langId)               => ipcRenderer.invoke('lsp-stop',   { langId }),
+    languageFor: (monacoId)         => ipcRenderer.invoke('lsp-language-for', monacoId),
+    languageConfig: (langId)        => ipcRenderer.invoke('lsp-language-config', langId),
+    onStatus:       (cb)            => ipcRenderer.on('lsp-status',       (e, p) => cb(p)),
+    onNotification: (cb)            => ipcRenderer.on('lsp-notification', (e, p) => cb(p)),
+    removeListeners: () => {
+      ipcRenderer.removeAllListeners('lsp-status');
+      ipcRenderer.removeAllListeners('lsp-notification');
+    },
   },
 });

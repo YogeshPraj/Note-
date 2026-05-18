@@ -237,6 +237,13 @@ body.theme-dark .tab-wb-badge {
 #status-git { font-size: 11px; font-family: 'Cascadia Code', Consolas, monospace; }
 #status-git:hover { opacity: 1; cursor: pointer; }
 
+/* ── Status bar LSP pill ──────────────────────────────────────────────── */
+#status-lsp { font-size: 11px; font-family: 'Cascadia Code', Consolas, monospace; }
+#status-lsp[data-state="starting"] { color: #f59e0b; }
+#status-lsp[data-state="ready"]    { color: #16a34a; }
+#status-lsp[data-state="missing"]  { color: #f97316; }
+#status-lsp[data-state="crashed"]  { color: #dc2626; }
+
 /* ── Source Control side panel ───────────────────────────────────────── */
 #sc-panel {
   width: 280px;
@@ -1770,6 +1777,43 @@ body.theme-dark .fd-row.modified.row-clickable:hover .fd-cell { background: rgba
   text-transform: uppercase;
 }
 body.theme-dark .tab-diff-badge { background: #7c2d12; color: #fed7aa; }
+
+/* ── Inline Git diff gutter (vs HEAD) ──────────────────────────────────
+   Three states show as a thin vertical band in Monaco's lines-decorations
+   gutter (the area between the line numbers and the line content):
+
+       █  green  → line ADDED since HEAD
+       █  blue   → line MODIFIED since HEAD
+       ◢  red    → triangle pointing to where deleted lines used to be
+   ─────────────────────────────────────────────────────────────────── */
+.git-gutter-added {
+  background: #16a34a !important;     /* green */
+  width: 3px !important;
+  margin-left: 3px;
+}
+.git-gutter-modified {
+  background: #2563eb !important;     /* blue */
+  width: 3px !important;
+  margin-left: 3px;
+}
+/* Deleted: a 6px-wide marker rendered with a CSS triangle pointing up.
+   The decoration sits ON the next line that exists in the buffer. */
+.git-gutter-deleted {
+  width: 0 !important;
+  margin-left: 3px;
+  position: relative;
+}
+.git-gutter-deleted::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #dc2626;      /* red triangle pointing up */
+}
+/* Dark-mode: same colours work — Monaco's gutter bg is already dark.
+   No overrides needed (the green / blue / red are theme-agnostic). */
 
 .fr-btn {
   height: 22px; padding: 0 8px;

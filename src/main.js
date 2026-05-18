@@ -986,6 +986,34 @@ ipcMain.handle('git-branch-list',   (e, root)          => gitService.branchList(
 ipcMain.handle('git-branch-switch', (e, root, name)    => gitService.branchSwitch(root, name));
 ipcMain.handle('git-branch-create', (e, root, n, f)    => gitService.branchCreate(root, n, f));
 ipcMain.handle('git-installed',     ()                 => gitService.isGitInstalled());
+ipcMain.handle('git-show-head',     (e, root, rel)     => gitService.showHead(root, rel));
+
+// ── LSP service ──────────────────────────────────────────────────────────
+const lspService = require('./lsp-service');
+
+ipcMain.handle('lsp-ensure-started', async (e, { langId, workspaceRoot }) =>
+  lspService.ensureStarted(langId, workspaceRoot, e.sender));
+
+ipcMain.handle('lsp-send', async (e, { langId, method, params }) => {
+  try {
+    const result = await lspService.sendRequest(langId, method, params);
+    return { success: true, result };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('lsp-notify', (e, { langId, method, params }) => {
+  lspService.sendNotification(langId, method, params);
+  return { success: true };
+});
+
+ipcMain.handle('lsp-stop', (e, { langId }) => lspService.stopServer(langId));
+
+ipcMain.handle('lsp-language-for', (e, monacoId) => lspService.lookupByMonacoId(monacoId));
+ipcMain.handle('lsp-language-config', (e, langId) => lspService.getLanguageConfig(langId));
+
+app.on('before-quit', () => { lspService.stopAllServers(); });
 
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────
 const http = require('http');

@@ -160,6 +160,10 @@ require(['vs/editor/editor.main'], () => {
     padding: { top: 4, bottom: 4 },
   });
 
+  // Expose for lsp-client.js (finds tab by Monaco model + reads activeGitRepo)
+  window.tabs = tabs;
+  window.NotePPLsp?.attachEditor(editor);
+
   registerMermaidLanguage();
   // Load persisted preferences before restoring session
   window.electronAPI.readSettings().then(s => {
@@ -178,6 +182,38 @@ require(['vs/editor/editor.main'], () => {
     const fontSizeEl = document.getElementById('pref-term-fontsize');
     if (shellEl    && t.shell)    shellEl.value    = t.shell;
     if (fontSizeEl && t.fontSize) fontSizeEl.value = t.fontSize;
+
+    // ── Persistent UI toggles: dark mode, word wrap, editor zoom ─────────
+    const ui = s.ui || {};
+    if (ui.darkMode === true  && !isDarkMode)  toggleDarkMode();
+    if (ui.wordWrap === true  && !isWordWrap) {
+      // Inline the toggle to skip the re-save (we just LOADED this value)
+      isWordWrap = true;
+      editor.updateOptions({ wordWrap: 'on' });
+      document.getElementById('btn-wordwrap')?.classList.add('active');
+    }
+    if (typeof ui.fontSize === 'number' && ui.fontSize >= 8 && ui.fontSize <= 40) {
+      currentFontSize = ui.fontSize;
+      editor.updateOptions({ fontSize: currentFontSize });
+    }
+    if (typeof ui.minimap === 'boolean') {
+      editor.updateOptions({ minimap: { enabled: ui.minimap } });
+    }
+    if (typeof ui.renderWhitespace === 'boolean') {
+      editor.updateOptions({ renderWhitespace: ui.renderWhitespace ? 'all' : 'selection' });
+    }
+    if (typeof ui.indentGuides === 'boolean') {
+      editor.updateOptions({ guides: { indentation: ui.indentGuides } });
+    }
+    if (ui.showToolbar === false) {
+      const el = document.getElementById('toolbar'); if (el) el.style.display = 'none';
+    }
+    if (ui.showStatusbar === false) {
+      const el = document.getElementById('status-bar'); if (el) el.style.display = 'none';
+    }
+    if (ui.showTabbar === false) {
+      const el = document.getElementById('tab-bar-container'); if (el) el.style.display = 'none';
+    }
   });
 
   // Load encryption profile (if previously configured). Doesn't unlock — just
@@ -199,6 +235,8 @@ require(['vs/editor/editor.main'], () => {
     updateTitle();
     scheduleAutoSave();
     schedulePreviewUpdate();
+    scheduleGitDiffUpdate(tab);   // re-paint inline git-diff gutter
+    try { window.NotePPLsp?.onTabContentChange(tab); } catch {}
   });
 
   // Keyboard shortcuts
@@ -936,6 +974,8 @@ function activateTab(id) {
   updateEncryptToolbarButton();
   updateEncryptionStatusIndicator();
   updateActiveGitRepo();        // Git status follows the active tab's repo
+  // LSP — start (or sync) the language server for this tab's language
+  try { window.NotePPLsp?.onTabActivated(tab); } catch (e) { console.warn('[lsp]', e); }
 }
 
 // Reflect active-tab encryption state on the toolbar 🔒 button.
@@ -1090,6 +1130,8 @@ async function closeTab(id) {
   if (tab.filePath) {
     try { window.electronAPI.unwatchFile(tab.filePath); } catch {}
   }
+  // LSP: send textDocument/didClose
+  try { window.NotePPLsp?.onTabClosed(tab); } catch {}
   tab.model.dispose();
   tabs.splice(idx, 1);
   if (tabs.length === 0) createTab();
@@ -1357,6 +1399,11 @@ async function saveTabFile(tab, forceAs = false) {
   updateLanguageStatus();
   // Saving may move the file in/out of git tracking — refresh repo status.
   if (activeGitRepo) refreshGitStatus(activeGitRepo);
+  // Saving doesn't change HEAD, but if the file was previously untracked
+  // and the user `git add`-ed it externally, the cached "no HEAD" needs to
+  // refresh. Cheapest correct behaviour: invalidate + reschedule.
+  tab._gitHeadContent = undefined;
+  scheduleGitDiffUpdate(tab);
   return true;
 }
 
@@ -2340,6 +2387,7 @@ function toggleWordWrap() {
   isWordWrap = !isWordWrap;
   editor.updateOptions({ wordWrap: isWordWrap ? 'on' : 'off' });
   document.getElementById('btn-wordwrap').classList.toggle('active', isWordWrap);
+  saveSetting('ui.wordWrap', isWordWrap);          // persist across sessions
 }
 
 function toggleDarkMode() {
@@ -2350,13 +2398,18 @@ function toggleDarkMode() {
   document.getElementById('btn-darkmode').classList.toggle('active', isDarkMode);
   syncMermaidThemeToAppMode(); // keep diagram theme in sync
   sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode }); // keep whiteboard in sync
+  saveSetting('ui.darkMode', isDarkMode);          // persist across sessions
 }
 
 // ===== Zoom =====
 let currentFontSize = 13;
-function zoomIn() { currentFontSize = Math.min(currentFontSize + 2, 40); editor.updateOptions({ fontSize: currentFontSize }); }
-function zoomOut() { currentFontSize = Math.max(currentFontSize - 2, 8); editor.updateOptions({ fontSize: currentFontSize }); }
-function zoomReset() { currentFontSize = 13; editor.updateOptions({ fontSize: currentFontSize }); }
+function zoomIn()    { currentFontSize = Math.min(currentFontSize + 2, 40); applyZoom(); }
+function zoomOut()   { currentFontSize = Math.max(currentFontSize - 2,  8); applyZoom(); }
+function zoomReset() { currentFontSize = 13; applyZoom(); }
+function applyZoom() {
+  editor.updateOptions({ fontSize: currentFontSize });
+  saveSetting('ui.fontSize', currentFontSize);     // persist editor zoom across sessions
+}
 
 // ===== Go To Line =====
 function openGotoLine() {
@@ -3189,17 +3242,40 @@ function setupMenuListeners() {
   m('menu-next-bookmark', () => editor.getAction('editor.action.nextBookmark')?.run());
   m('menu-prev-bookmark', () => editor.getAction('editor.action.previousBookmark')?.run());
 
-  m('menu-word-wrap', checked => { isWordWrap = checked; editor.updateOptions({ wordWrap: checked ? 'on' : 'off' }); });
+  m('menu-word-wrap', checked => {
+    isWordWrap = checked;
+    editor.updateOptions({ wordWrap: checked ? 'on' : 'off' });
+    document.getElementById('btn-wordwrap')?.classList.toggle('active', isWordWrap);
+    saveSetting('ui.wordWrap', isWordWrap);
+  });
   m('menu-zoom-in', zoomIn);
   m('menu-zoom-out', zoomOut);
   m('menu-zoom-reset', zoomReset);
-  m('menu-minimap', checked => editor.updateOptions({ minimap: { enabled: checked } }));
-  m('menu-show-whitespace', checked => editor.updateOptions({ renderWhitespace: checked ? 'all' : 'selection' }));
-  m('menu-show-indent', checked => editor.updateOptions({ guides: { indentation: checked } }));
+  m('menu-minimap', checked => {
+    editor.updateOptions({ minimap: { enabled: checked } });
+    saveSetting('ui.minimap', checked);
+  });
+  m('menu-show-whitespace', checked => {
+    editor.updateOptions({ renderWhitespace: checked ? 'all' : 'selection' });
+    saveSetting('ui.renderWhitespace', checked);
+  });
+  m('menu-show-indent', checked => {
+    editor.updateOptions({ guides: { indentation: checked } });
+    saveSetting('ui.indentGuides', checked);
+  });
   m('menu-dark-mode', toggleDarkMode);
-  m('menu-toolbar', show => { document.getElementById('toolbar').style.display = show ? '' : 'none'; });
-  m('menu-statusbar', show => { document.getElementById('status-bar').style.display = show ? '' : 'none'; });
-  m('menu-tabbar', show => { document.getElementById('tab-bar-container').style.display = show ? '' : 'none'; });
+  m('menu-toolbar', show => {
+    document.getElementById('toolbar').style.display = show ? '' : 'none';
+    saveSetting('ui.showToolbar', show);
+  });
+  m('menu-statusbar', show => {
+    document.getElementById('status-bar').style.display = show ? '' : 'none';
+    saveSetting('ui.showStatusbar', show);
+  });
+  m('menu-tabbar', show => {
+    document.getElementById('tab-bar-container').style.display = show ? '' : 'none';
+    saveSetting('ui.showTabbar', show);
+  });
 
   m('menu-lang', lang => {
     const tab = getActiveTab(); if (!tab) return;
@@ -4605,6 +4681,16 @@ async function refreshGitStatus(repoRoot) {
     renderSourceControlPanel();
     refreshFileTreeDecorations();
   }
+  // HEAD may have moved (commit / pull / switch / reset) — invalidate the
+  // cached head-content on every tab in this repo so the gutter re-paints.
+  for (const t of tabs) {
+    if (t.type !== 'editor' || !t.filePath) continue;
+    const tRoot = gitFileToRepo.get(t.filePath);
+    if (tRoot === repoRoot) {
+      t._gitHeadContent = undefined;
+      if (t.id === activeTabId) scheduleGitDiffUpdate(t);
+    }
+  }
   return s;
 }
 
@@ -4636,6 +4722,7 @@ async function updateActiveGitRepo() {
   let root = null;
   if (fp) root = await detectGitRepoForFile(fp);
   activeGitRepo = root;
+  window.activeGitRepo = root;  // expose to lsp-client.js (used for workspaceRoot)
   if (root) {
     if (!gitRepos.has(root)) await refreshGitStatus(root);
     renderGitStatusBar();
@@ -4644,6 +4731,124 @@ async function updateActiveGitRepo() {
     renderGitStatusBar();    // hides the pill
     renderSourceControlPanel();
   }
+  // Refresh the inline-diff gutter for the now-active tab
+  scheduleGitDiffUpdate(tab);
+}
+
+// ── Inline Git diff gutter (vs HEAD) ─────────────────────────────────────
+// For every editor tab inside a git repo, paint a green / blue / red marker
+// in the lines-decorations gutter on each line whose content differs from
+// the HEAD revision. Updates on tab activation, after save, after every git
+// op, and 400 ms after the user stops typing.
+const gitDiffDebounce = new Map();   // tabId → setTimeout handle
+const GIT_DIFF_DEBOUNCE_MS = 400;
+const GIT_DIFF_MAX_LINES   = 50000;  // skip diffing absurdly large files
+
+function scheduleGitDiffUpdate(tab) {
+  if (!tab) return;
+  clearTimeout(gitDiffDebounce.get(tab.id));
+  gitDiffDebounce.set(tab.id, setTimeout(() => updateGitDiffGutter(tab), GIT_DIFF_DEBOUNCE_MS));
+}
+
+// Clear any existing gutter decorations on a tab (called when repo is irrelevant)
+function clearGitDiffGutter(tab) {
+  if (!tab?.model) return;
+  tab._gitDiffDecorations = tab.model.deltaDecorations(tab._gitDiffDecorations || [], []);
+}
+
+async function updateGitDiffGutter(tab) {
+  // Bail-outs — many reasons this might not apply
+  if (!tab || tab.type !== 'editor' || !tab.model || !tab.filePath) return;
+  if (gitInstalled === false) return;
+  if (typeof window.Diff?.diffLines !== 'function') return;
+
+  // Only diff files inside the active repo (cheap path: reuse the cache we
+  // already populate in detectGitRepoForFile)
+  const repoRoot = gitFileToRepo.has(tab.filePath)
+    ? gitFileToRepo.get(tab.filePath)
+    : await detectGitRepoForFile(tab.filePath);
+  if (!repoRoot) { clearGitDiffGutter(tab); return; }
+
+  // Cache the file's HEAD content per (tab, headContentHash) so we don't
+  // re-fetch on every keystroke. Fetched once at first call + after any
+  // git op (refreshGitStatus calls scheduleGitDiffUpdate too).
+  if (tab._gitHeadContent === undefined) {
+    const rel = relativePathInRepo(tab.filePath, repoRoot);
+    tab._gitHeadContent = await window.electronAPI.git.showHead(repoRoot, rel);
+  }
+  const headContent = tab._gitHeadContent;
+  // If the file isn't tracked yet (new file) — mark ALL lines as added
+  const editorContent = tab.model.getValue();
+  if (headContent == null) {
+    paintGitDiffDecos(tab, [{ kind: 'added', startLine: 1, endLine: tab.model.getLineCount() }]);
+    return;
+  }
+  // Cheap noop check
+  if (editorContent === headContent) { clearGitDiffGutter(tab); return; }
+
+  // jsdiff line-level diff
+  if (tab.model.getLineCount() > GIT_DIFF_MAX_LINES) { clearGitDiffGutter(tab); return; }
+  let changes;
+  try { changes = window.Diff.diffLines(headContent, editorContent); }
+  catch { clearGitDiffGutter(tab); return; }
+
+  // Walk the change list and convert to per-line decorations on the
+  // EDITOR side (Monaco lines = "modified" side of the diff).
+  //   - added chunk preceded by removed chunk → those added lines are MODIFIED
+  //   - added chunk standing alone           → ADDED
+  //   - removed chunk standing alone         → DELETED triangle on the next existing line
+  const decos = [];
+  let editorLine = 1;
+  for (let i = 0; i < changes.length; i++) {
+    const ch = changes[i];
+    const nLines = ch.count != null ? ch.count : (ch.value || '').split('\n').length - 1;
+    if (ch.added) {
+      // Is the previous chunk a removed one of equal-ish span? → modified
+      const prev = changes[i - 1];
+      if (prev && prev.removed) {
+        decos.push({ kind: 'modified', startLine: editorLine, endLine: editorLine + nLines - 1 });
+      } else {
+        decos.push({ kind: 'added',    startLine: editorLine, endLine: editorLine + nLines - 1 });
+      }
+      editorLine += nLines;
+    } else if (ch.removed) {
+      // If followed by an `added` chunk we already painted "modified" above.
+      const next = changes[i + 1];
+      if (next && next.added) continue; // it'll be handled by the added branch
+      // Otherwise — pure deletion. Mark a triangle on the editor line where
+      // the deletion happened (or line 1 if the deletion was at the top).
+      const at = Math.max(1, editorLine);
+      decos.push({ kind: 'deleted', startLine: at, endLine: at });
+      // editorLine doesn't advance — removed lines aren't in the editor
+    } else {
+      editorLine += nLines;
+    }
+  }
+  paintGitDiffDecos(tab, decos);
+}
+
+// Convert our compact `{kind, startLine, endLine}` array to Monaco delta-decorations.
+function paintGitDiffDecos(tab, decos) {
+  if (!tab.model) return;
+  const newDecos = decos.map(d => ({
+    range: new monaco.Range(d.startLine, 1, d.endLine, 1),
+    options: {
+      linesDecorationsClassName:
+        d.kind === 'added'    ? 'git-gutter-added'    :
+        d.kind === 'modified' ? 'git-gutter-modified' :
+                                'git-gutter-deleted',
+      stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+    },
+  }));
+  tab._gitDiffDecorations = tab.model.deltaDecorations(tab._gitDiffDecorations || [], newDecos);
+}
+
+// Convert absolute file path to a forward-slash path relative to the repo root.
+function relativePathInRepo(filePath, repoRoot) {
+  const f = filePath.replace(/\\/g, '/');
+  const r = repoRoot.replace(/\\/g, '/').replace(/\/$/, '');
+  if (f.toLowerCase().startsWith(r.toLowerCase() + '/')) return f.slice(r.length + 1);
+  return f; // best-effort
 }
 
 // Render the status-bar git pill: "⎇ branch ↑n ↓m ●k"

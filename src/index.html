@@ -486,6 +486,8 @@
       <span id="status-enc" class="status-item clickable hidden" title="Encryption status">🔒</span>
       <span class="status-sep">|</span>
       <span id="status-git" class="status-item clickable hidden" title="Git status — click to open Source Control"></span>
+      <span class="status-sep">|</span>
+      <span id="status-lsp" class="status-item hidden" title="Language server status"></span>
     </div>
   </div>
 
@@ -1113,6 +1115,8 @@
     }
   </script>
   <script src="crypto.js"></script>
+  <script src="../node_modules/diff/dist/diff.min.js"></script>
+  <script src="lsp-client.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

@@ -189,6 +189,18 @@ async function branchCreate(repoRoot, name, fromRef) {
 }
 
 // ── Misc utilities for the renderer ────────────────────────────────────────
+// Returns the file's content at HEAD as a string, or null if the file isn't
+// tracked (untracked / new) or doesn't exist at HEAD.
+// `relPath` should be a path RELATIVE to repoRoot, with forward slashes.
+async function showHead(repoRoot, relPath) {
+  if (!repoRoot || !relPath) return null;
+  // Normalise — git wants forward slashes even on Windows
+  const arg = 'HEAD:' + relPath.replace(/\\/g, '/');
+  const r = await runGit(repoRoot, ['show', arg]);
+  if (!r.success) return null;     // file not in HEAD → untracked / new
+  return r.stdout;
+}
+
 async function getCurrentBranch(repoRoot) {
   const r = await runGit(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (!r.success) return null;
@@ -206,6 +218,6 @@ module.exports = {
   status,
   stage, unstage, discard, cleanUntracked, commit, commitAmend,
   fetch, pull, push, pushSetUpstream, sync,
-  branchList, branchSwitch, branchCreate, getCurrentBranch,
+  branchList, branchSwitch, branchCreate, getCurrentBranch, showHead,
   isGitInstalled,
 };

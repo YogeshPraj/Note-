@@ -17,14 +17,43 @@
       user-select: none;
       -webkit-user-select: none;
     }
+
+    /* Custom title bar — the whole strip is draggable so the user can move
+       the window around; the minimize button is a no-drag interactive area. */
+    .titlebar {
+      -webkit-app-region: drag;
+      height: 28px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      background: transparent;
+    }
+    .win-btn {
+      -webkit-app-region: no-drag;
+      width: 40px;
+      height: 28px;
+      background: transparent;
+      border: 0;
+      color: #9ca3af;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .win-btn:hover { background: rgba(255,255,255,0.08); color: #f3f4f6; }
+    .win-btn:active { background: rgba(255,255,255,0.14); }
+
     .frame {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100%;
+      height: calc(100% - 28px);   /* leave room for the title bar */
       gap: 18px;
-      padding: 24px;
+      padding: 16px 24px 24px;
       box-sizing: border-box;
       text-align: center;
     }
@@ -102,6 +131,13 @@
   </style>
 </head>
 <body>
+  <!-- Draggable title bar with a single minimize control. We don't expose
+       close/maximize because killing this window mid-install would skip the
+       quitAndInstall trigger; the install always completes on its own. -->
+  <div class="titlebar">
+    <button class="win-btn" id="btn-minimize" title="Minimize" aria-label="Minimize">&#8211;</button>
+  </div>
+
   <div class="frame">
     <div class="logo">N++</div>
 
@@ -121,6 +157,12 @@
   </div>
 
   <script>
+    // Minimize button → forwards to main via IPC (frameless windows have no
+    // native window controls).
+    document.getElementById('btn-minimize')?.addEventListener('click', () => {
+      try { window.updaterApi.minimize(); } catch {}
+    });
+
     // Fetch the pending update version from main and animate progress.
     // When progress hits 100%, switch to the success card, then after a
     // 2-second display window, ask main to perform quitAndInstall — which

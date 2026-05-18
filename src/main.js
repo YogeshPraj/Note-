@@ -1118,10 +1118,10 @@ function openUpdaterWindow() {
     width: 460,
     height: 240,
     resizable: false,
-    minimizable: false,
+    minimizable: true,           // user can minimize to keep working in other apps
     maximizable: false,
     fullscreenable: false,
-    frame: false,
+    frame: false,                // custom in-window controls (see updater.html)
     alwaysOnTop: true,
     center: true,
     skipTaskbar: false,
@@ -1148,6 +1148,10 @@ function openUpdaterWindow() {
 }
 
 ipcMain.handle('updater:get-pending-version', () => pendingUpdateVersion || app.getVersion());
+
+ipcMain.handle('updater:minimize', () => {
+  if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.minimize();
+});
 
 ipcMain.handle('updater:install-and-quit', () => {
   if (updateInstallStarted) return { success: true, alreadyStarted: true };

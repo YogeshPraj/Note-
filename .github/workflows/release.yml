@@ -10,8 +10,19 @@ permissions:
   actions: read
 
 jobs:
-  build-windows:
+  # ───────────────────────────────────────────────────────────────────────────
+  # JOB 1 — BUILD
+  # Compiles the installer and the electron-updater manifest. Uploads them as
+  # workflow artifacts so the release job (and humans, if needed) can fetch
+  # them. We use `--publish always` so electron-builder also uploads the
+  # auto-updater files (latest.yml + *.blockmap) straight to the GitHub
+  # release — these MUST sit next to the .exe or auto-update can't find them.
+  # ───────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build Windows Installer
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
 
     steps:
       - name: Checkout code
@@ -26,20 +37,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Build AND publish via electron-builder so the auto-updater manifest
-      # (latest.yml) and *.blockmap files end up on the GitHub release.
-      # electron-updater requires latest.yml — without it, auto-update silently
-      # fails to find new versions.
-      - name: Build & Publish Installer
+      - name: Build & publish installer (uploads .exe + latest.yml + .blockmap to GitHub release)
         run: npm run build:wb && npx electron-builder --win nsis --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload installer artifact
+      - name: Upload installer artifacts (for the release job)
         uses: actions/upload-artifact@v4
         with:
           name: installer
           path: |
-            dist/Note++-Setup-*.exe
+            dist/*.exe
             dist/latest.yml
             dist/*.blockmap
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # JOB 2 — RELEASE
+  # Marks the GitHub release as Latest with auto-generated notes (changelog
+  # built from commits/PRs since the previous tag). softprops/action-gh-release
+  # upserts the release — if electron-builder already created one for this
+  # tag, this step just refines its title/notes and adds the same files.
+  # ───────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download installer artifacts from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: dist
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Note++ ${{ needs.build.outputs.VERSION }}
+          tag_name: ${{ needs.build.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          make_latest: 'true'
+          generate_release_notes: true
+          files: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

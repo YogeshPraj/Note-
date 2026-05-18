@@ -1894,12 +1894,13 @@ async function runCurrentFile() {
   if (tab.dirty) await saveTabFile(tab);
   if (!tab.filePath) { showToast('Save the file first'); return; }
 
-  openTerminal();
-
   const fp = tab.filePath;
   const ext = fp.split('.').pop().toLowerCase();
   const cwd = fp.replace(/[\\/][^\\/]+$/, '');
 
+  // Per-extension runner. Each entry returns the command line to type into
+  // the integrated PTY (PowerShell on Windows). We deliberately reuse the
+  // existing terminal so the user sees live stdout/stderr in the same panel.
   const runners = {
     py: `python "${fp}"`, python: `python "${fp}"`,
     js: `node "${fp}"`, mjs: `node "${fp}"`,
@@ -1909,8 +1910,9 @@ async function runCurrentFile() {
     go: `go run "${fp}"`,
     rs: `cargo run`,
     sh: `bash "${fp}"`,
-    ps1: `powershell.exe -File "${fp}"`,
-    bat: `"${fp}"`,
+    ps1: `& "${fp}"`,           // PowerShell call operator handles spaces in path
+    bat: `& "${fp}"`,
+    cmd: `& "${fp}"`,
     java: `java "${fp}"`,
     r: `Rscript "${fp}"`,
     lua: `lua "${fp}"`,
@@ -1919,12 +1921,18 @@ async function runCurrentFile() {
   const cmd = runners[ext];
   if (!cmd) { showToast(`No runner configured for .${ext}`); return; }
 
-  if (term) {
-    term.writeln(`\x1b[33m> Running: ${cmd}\x1b[0m`);
-    term.writeln('');
-  }
+  // Open the terminal panel and wait for the PTY to actually be alive
+  // (terminalCreate is async — sending input before it resolves is a no-op).
+  await openTerminal();
+  // openTerminal returns immediately if the term already exists; if it just
+  // created one, the create IPC was fired inside a 50 ms setTimeout, so give
+  // it a beat before typing into the PTY on first launch.
+  await new Promise(r => setTimeout(r, 80));
 
-  await window.electronAPI.runCommand(cmd, cwd);
+  // PowerShell: cd to the file's folder, then run. `;` chains regardless of
+  // exit code so we always see the result. CR (\r) submits the line.
+  const line = `cd "${cwd}"; ${cmd}\r`;
+  await window.electronAPI.terminalInput(terminalId, line);
 }
 
 // ===== Status Bar =====

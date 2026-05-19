@@ -326,8 +326,6 @@ function buildMenu() {
             { label: 'Entity Relationship',    click: () => send('menu-new-drawio-template', 'erDiagram') },
           ]},
           { type: 'separator' },
-          { label: 'Convert to Mermaid', click: () => send('menu-drawio-to-mermaid') },
-          { type: 'separator' },
           { label: 'Check for updates',  click: () => send('menu-drawio-check-updates') },
         ]},
       ]
@@ -478,8 +476,6 @@ function buildMenu() {
             { label: 'Class Diagram (UML)',    click: () => send('menu-new-drawio-template', 'classDiagram') },
             { label: 'Entity Relationship',    click: () => send('menu-new-drawio-template', 'erDiagram') },
           ]},
-          { type: 'separator' },
-          { label: 'Convert to Mermaid', click: () => send('menu-drawio-to-mermaid') },
           { type: 'separator' },
           { label: 'Check for updates',  click: () => send('menu-drawio-check-updates') },
         ]},
@@ -1055,55 +1051,6 @@ ipcMain.handle('drawio:download',  async () => {
   catch (err) { return { success: false, error: err.message }; }
 });
 ipcMain.handle('drawio:uninstall', () => drawioService.uninstall());
-
-// Convert a drawio XML document to Mermaid syntax using the vendored
-// convert2mermaid CLI (vendor/convert2mermaid). We can't `require()` it as
-// a library — the project is CLI-only — so we shell out, but use Electron's
-// own bundled Node (process.execPath + ELECTRON_RUN_AS_NODE=1) so the user
-// doesn't need Node installed system-wide.
-ipcMain.handle('drawio:to-mermaid', async (e, xml) => {
-  const os  = require('os');
-  const fsp = fs.promises;
-  const tempBase = path.join(os.tmpdir(), `notepp-d2m-${Date.now()}-${process.pid}`);
-  const inPath  = tempBase + '.drawio';
-  const outPath = tempBase + '.mmd';
-  // Vendored convert2mermaid lives under vendor/, marked asarUnpack so the
-  // script + its assets are real filesystem paths even in packaged builds.
-  const cliPath = path.join(
-    app.getAppPath().replace(/[\\/]app\.asar$/, '/app.asar.unpacked'),
-    'vendor', 'convert2mermaid', 'dist', 'index.js'
-  );
-  // Fallback for dev mode where app.getAppPath() returns the source root.
-  const devCliPath = path.join(__dirname, '..', 'vendor', 'convert2mermaid', 'dist', 'index.js');
-  const finalCli = fs.existsSync(cliPath) ? cliPath : devCliPath;
-
-  try {
-    await fsp.writeFile(inPath, xml, 'utf-8');
-    const result = await new Promise((resolve) => {
-      const proc = spawn(process.execPath, [finalCli, '-i', inPath, '-o', outPath], {
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', FORCE_COLOR: '0' },
-        cwd: path.dirname(finalCli),
-        windowsHide: true,
-      });
-      let stderr = '';
-      let stdout = '';
-      proc.stdout.on('data', d => { stdout += d.toString(); });
-      proc.stderr.on('data', d => { stderr += d.toString(); });
-      proc.on('error', err => resolve({ code: -1, stderr: err.message }));
-      proc.on('exit', code => resolve({ code, stderr, stdout }));
-    });
-    if (result.code !== 0) {
-      return { success: false, error: (result.stderr || result.stdout || '').trim() || `Exit ${result.code}` };
-    }
-    const mermaid = await fsp.readFile(outPath, 'utf-8');
-    return { success: true, mermaid };
-  } catch (err) {
-    return { success: false, error: err.message };
-  } finally {
-    try { await fsp.unlink(inPath);  } catch {}
-    try { await fsp.unlink(outPath); } catch {}
-  }
-});
 
 // ── LSP service ──────────────────────────────────────────────────────────
 const lspService = require('./lsp-service');

@@ -749,44 +749,6 @@ async function checkDrawioForUpdates() {
   if (r.response === 0) await showDrawioDownloadModal();
 }
 
-// Convert the active drawio tab's XML to Mermaid syntax via the vendored
-// convert2mermaid CLI (spawned in main.js with Electron's bundled Node).
-// On success, opens the result in a new Mermaid editor tab — Note++'s
-// existing live preview kicks in automatically.
-async function convertDrawioToMermaid() {
-  const tab = getActiveTab();
-  if (!tab || tab.type !== 'drawio') {
-    showToast('Open a draw.io diagram first.');
-    return;
-  }
-  // Force a fresh export from the iframe in case there are in-flight
-  // autosave-debounced edits — wait a beat for the dw-state to round-trip.
-  sendToDrawio({ type: 'dw-get-data' });
-  await new Promise(r => setTimeout(r, 150));
-  const xml = (tab.content || '').trim();
-  if (!xml) {
-    showToast('This diagram is empty — nothing to convert.');
-    return;
-  }
-  showToast('Converting to Mermaid…');
-  const res = await window.electronAPI.drawio.toMermaid(xml);
-  if (!res?.success) {
-    showToast('Conversion failed: ' + (res?.error || 'unknown error'));
-    return;
-  }
-  // Open in a new Mermaid editor tab. createTab auto-activates + renders;
-  // we then bump it to mermaid language so the live preview triggers.
-  const baseName = (tab.name || 'diagram').replace(/\.(drawio|xml)$/i, '');
-  const newTab = createTab(null, res.mermaid);
-  newTab.name = baseName + '.mmd';
-  newTab.language = 'mermaid';
-  if (newTab.model) monaco.editor.setModelLanguage(newTab.model, 'mermaid');
-  renderTabs();
-  updateLanguageStatus();
-  updateMermaidToolbar(true);
-  if (!previewOpen) openPreview();
-  showToast('Converted — review the Mermaid output in the new tab.');
-}
 
 // ── Starter templates for "Tools → New Diagram from Template" ──────────────
 // Each value is a minimal but well-formed mxfile XML so drawio renders the
@@ -3804,7 +3766,6 @@ function setupMenuListeners() {
   // ── draw.io ─────────────────────────────────────────────────────────────
   m('menu-new-drawio', () => createDrawioTab(null, ''));
   m('menu-new-drawio-template', (name) => createDrawioTabFromTemplate(name));
-  m('menu-drawio-to-mermaid', () => convertDrawioToMermaid());
   m('menu-drawio-check-updates', () => checkDrawioForUpdates());
 
   m('menu-open-explorer', () => {

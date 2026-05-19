@@ -6559,10 +6559,51 @@ function renderBareMarkdown(content, container) {
   runMermaidInContainer(container);
 }
 
-function runMermaidInContainer(container) {
+// ─── Lazy-load mermaid (~3 MB) ─────────────────────────────────────────────
+// Mermaid is only needed for Markdown/HTML preview with mermaid fences and
+// for .mmd/.mermaid files. Loading it eagerly added ~3 MB of parse work to
+// every session, even for users who never open a diagram. ensureMermaid()
+// dynamically injects the script the first time it's needed and caches the
+// promise so concurrent calls don't double-load.
+//
+// The AMD-loader trap: by the time this runs, vs/loader.js has set up a
+// global define(). Mermaid is UMD — if `define` is present at load time it
+// registers as an anonymous AMD module and never sets window.mermaid. We
+// briefly suspend define for the duration of the load and restore after.
+function ensureMermaid() {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  if (ensureMermaid._loading) return ensureMermaid._loading;
+  ensureMermaid._loading = new Promise((resolve, reject) => {
+    const savedDefine = window.define;
+    try { window.define = undefined; } catch {}
+    const script = document.createElement('script');
+    script.src = '../node_modules/mermaid/dist/mermaid.min.js';
+    script.async = true;
+    const restore = () => { if (savedDefine) window.define = savedDefine; };
+    script.onload = () => {
+      restore();
+      if (!window.mermaid) { reject(new Error('mermaid did not register on window')); return; }
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: isDarkMode ? 'dark' : 'default',
+          securityLevel: 'loose',
+          fontFamily: "'Segoe UI', sans-serif",
+        });
+      } catch (e) { console.warn('Mermaid initialize failed:', e); }
+      resolve(window.mermaid);
+    };
+    script.onerror = (e) => { restore(); reject(e || new Error('mermaid script load failed')); };
+    document.head.appendChild(script);
+  });
+  return ensureMermaid._loading;
+}
+
+async function runMermaidInContainer(container) {
   const diagrams = container.querySelectorAll('.mermaid');
-  if (diagrams.length === 0 || !window.mermaid) return;
+  if (diagrams.length === 0) return;
   try {
+    await ensureMermaid();
     mermaid.initialize({
       startOnLoad: false,
       theme: isDarkMode ? 'dark' : 'default',
@@ -6573,7 +6614,7 @@ function runMermaidInContainer(container) {
       console.warn('Mermaid render error:', err);
     });
   } catch (e) {
-    console.warn('Mermaid error:', e);
+    console.warn('Mermaid load/error:', e);
   }
 }
 
@@ -6665,8 +6706,12 @@ async function renderMermaidPreview(content) {
     return;
   }
 
-  if (!window.mermaid) {
-    diagramEl.innerHTML = '<div style="padding:20px;color:#c00000">Mermaid library not loaded — restart the app.</div>';
+  // Lazy-load on first preview render. If the network/disk hiccup fails,
+  // show a friendly message — but most loads succeed instantly because the
+  // script is a local file://.
+  try { await ensureMermaid(); }
+  catch (e) {
+    diagramEl.innerHTML = '<div style="padding:20px;color:#c00000">Mermaid failed to load: ' + (e?.message || 'unknown') + '</div>';
     return;
   }
 
@@ -7092,6 +7137,11 @@ async function renderMmdLiveView(content) {
   }
   if (emptyDiv) emptyDiv.style.display = 'none';
 
+  try { await ensureMermaid(); }
+  catch (e) {
+    if (errorDiv) { errorDiv.textContent = 'Mermaid failed to load: ' + (e?.message || ''); errorDiv.classList.remove('hidden'); }
+    return;
+  }
   mermaid.initialize({ startOnLoad: false, theme: mermaidTheme || 'default', securityLevel: 'loose' });
 
   const id = 'mmlv-' + (++mmdLiveRenderId);

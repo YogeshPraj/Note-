@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ensureMemory: (folder)          => ipcRenderer.invoke('project-memory-ensure', folder),
   },
 
-  // Git integration — see GIT.md
+  // Git integration — see features/GIT.md
   git: {
     findRepo:     (path)            => ipcRenderer.invoke('git-find-repo', path),
     status:       (root)            => ipcRenderer.invoke('git-status', root),
@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     showHead:     (root, relPath)   => ipcRenderer.invoke('git-show-head', root, relPath),
   },
 
-  // LSP — see LSP.md
+  // LSP — see features/LSP.md
   lsp: {
     ensureStarted: (langId, workspaceRoot) =>
       ipcRenderer.invoke('lsp-ensure-started', { langId, workspaceRoot }),

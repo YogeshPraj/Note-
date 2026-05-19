@@ -2,7 +2,7 @@
 // Note++ — Crypto core (browser-only, no dependencies)
 // =============================================================================
 // Exposed as `window.NotePPCrypto`. Loaded BEFORE renderer.js in index.html.
-// See ENCRYPTION.md for the design rationale and threat model.
+// See features/ENCRYPTION.md for the design rationale and threat model.
 //
 // Primitives:
 //   - AES-256-GCM            (authenticated encryption, Web Crypto API)

@@ -538,7 +538,7 @@ function createTab(filePath = null, content = '') {
     encoding: filePath ? 'UTF-8' : (newDocDefaults.encoding || 'UTF-8'),
     eol:      filePath ? 'Windows (CR LF)' : (newDocDefaults.eol || 'Windows (CR LF)'),
     model, viewState: null, type: 'editor',
-    encrypted: false, protectedBy: null,    // see ENCRYPTION.md
+    encrypted: false, protectedBy: null,    // see features/ENCRYPTION.md
   };
   tabs.push(tab);
   activateTab(id);
@@ -592,7 +592,7 @@ function sendToWhiteboard(msg) {
 }
 
 // =============================================================================
-// Compare (File diff + Folder diff) — see DIFF.md
+// Compare (File diff + Folder diff) — see features/DIFF.md
 // =============================================================================
 
 // One Monaco DiffEditor instance reused across diff tabs. Tabs swap their
@@ -4747,7 +4747,7 @@ async function runBackup() {
 }
 
 // =============================================================================
-// Git integration — see GIT.md
+// Git integration — see features/GIT.md
 // =============================================================================
 // State model:
 //   gitRepos = Map<repoRoot, { branch, upstream, ahead, behind, files: [...] }>
@@ -5351,7 +5351,7 @@ async function initGitIntegration() {
 }
 
 
-// See ENCRYPTION.md for the full spec. The profile lives at
+// See features/ENCRYPTION.md for the full spec. The profile lives at
 // `%AppData%\notepp\encryption\profile.json` and contains the DEK wrapped by
 // each enabled auth method (password, recovery key). Plaintext DEK is held in
 // memory only (`appEnc.rawDek`); never written to disk.

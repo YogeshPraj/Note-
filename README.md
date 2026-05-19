@@ -76,7 +76,7 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Click a differing file row** in the folder-diff → opens that file's diff in a new tab
 - **Right-click a tab** → `Select for Compare`, then on another tab → `Compare with selected`
 - Skips `node_modules / .git / dist / build / out / .next / .cache / .vscode / .idea / __pycache__`
-- See [`DIFF.md`](./DIFF.md) for the design
+- See [`DIFF.md`](./features/DIFF.md) for the design
 
 ### Source control
 - **Auto-detected Git repos** — opens any file and Note++ walks up for `.git`
@@ -107,7 +107,7 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Auto-detect on open** — encrypted files prompt for unlock, decrypt in memory, look like normal files
 - **Toolbar 🔒** to encrypt the active tab; 🔒 badge on the tab name; 🔒 status-bar indicator
 - **Standard JSON envelope on disk** — versioned, inspectable, future-proof
-- See [`ENCRYPTION.md`](./ENCRYPTION.md) for the full threat model and design
+- See [`ENCRYPTION.md`](./features/ENCRYPTION.md) for the full threat model and design
 
 ### Whiteboard
 - **Hand-drawn canvas** powered by **Excalidraw 0.18** — same engine as excalidraw.com
@@ -201,11 +201,14 @@ Note++/
 ├── launch.bat                ← double-click to run
 ├── build-whiteboard.js       ← esbuild script: bundles Excalidraw + copies fonts
 ├── CLAUDE.md                 ← Claude session context
-├── ROADMAP.md                ← three-tier feature roadmap (Tier 1 / 2 / 3)
-├── ENCRYPTION.md             ← encrypted-pad feature spec
-├── GIT.md                    ← git integration spec
-├── AGENT.md                  ← AI agent-mode spec
-├── DIFF.md                   ← Compare (file + folder diff) spec
+├── features/                 ← per-feature design specs
+│   ├── AGENT.md              ← AI agent-mode spec
+│   ├── DIFF.md               ← Compare (file + folder diff) spec
+│   ├── ENCRYPTION.md         ← encrypted-pad feature spec
+│   ├── GIT.md                ← git integration spec
+│   ├── LSP.md                ← language-server-protocol integration spec
+│   └── ROADMAP.md            ← three-tier feature roadmap (Tier 1 / 2 / 3)
+├── tools/                    ← scratch / legacy artefacts not in the shipped app
 └── src/
     ├── main.js               ← Electron main process (IPC, file dialogs, menus)
     ├── preload.js            ← IPC bridge (window.electronAPI)
@@ -270,7 +273,7 @@ Excalidraw is bundled separately by `build-whiteboard.js` (esbuild) into `src/wh
 
 ## 🔀 Git Integration
 
-Note++ ships with a full Source Control workflow — see [`GIT.md`](./GIT.md) for the spec.
+Note++ ships with a full Source Control workflow — see [`GIT.md`](./features/GIT.md) for the spec.
 
 | | |
 |---|---|
@@ -313,7 +316,7 @@ Toggle in the panel header — **`🤖 Chat`** ↔ **`⚡ Agent`**:
 - **Chat** (default): conversation thread, follow-ups, action bar lets you Insert / Replace / Append the latest reply
 - **Agent**: AI's reply replaces the editor content via a **Monaco diff editor preview**. You see exactly what's changing, then Apply or Reject. Multi-turn — each follow-up rebuilds the system prompt from your current editor content so iterations work naturally
 
-See [`AGENT.md`](./AGENT.md) for the full spec.
+See [`AGENT.md`](./features/AGENT.md) for the full spec.
 
 ---
 
@@ -330,7 +333,7 @@ Per-file encryption with a single profile-wide password. Open a `.txt` (or anyth
 | Recovery file | Downloadable `recovery.json` containing the key |
 | Disk format | Inspectable JSON envelope with `_notepp_encrypted: true`, salt, IV, ciphertext |
 | Profile location | `%AppData%\notepp\encryption\profile.json` (wrapped DEK only, never the plaintext) |
-| Threat model | See [`ENCRYPTION.md`](./ENCRYPTION.md) |
+| Threat model | See [`ENCRYPTION.md`](./features/ENCRYPTION.md) |
 
 ---
 
@@ -354,7 +357,7 @@ Inspired by Diff.Net / WinMerge / Beyond Compare. Two flavours, both render as n
 | Engine (files)   | Monaco's built-in `createDiffEditor` (zero new deps) |
 | Engine (folders) | [`dir-compare`](https://www.npmjs.com/package/dir-compare) — content-hash comparison |
 | Tab type         | `'diff'` (file) or `'folder-diff'` (folder) with an orange badge |
-| Spec             | [`DIFF.md`](./DIFF.md) |
+| Spec             | [`DIFF.md`](./features/DIFF.md) |
 
 ### File compare
 
@@ -506,7 +509,7 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 
 ## 🤝 Contributing
 
-Contributions are welcome. The project is small and easy to read end-to-end — `renderer.js` is the heart of it, `main.js` is the Electron shell, and each spec file (`ENCRYPTION.md`, `GIT.md`, `AGENT.md`, `DIFF.md`, `ROADMAP.md`) documents its own feature in detail.
+Contributions are welcome. The project is small and easy to read end-to-end — `renderer.js` is the heart of it, `main.js` is the Electron shell, and each spec file (in [`features/`](./features/) — `ENCRYPTION.md`, `GIT.md`, `AGENT.md`, `DIFF.md`, `ROADMAP.md`) documents its own feature in detail.
 
 **Good first issues:**
 - Pick anything from the [Roadmap](#-roadmap)

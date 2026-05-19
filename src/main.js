@@ -989,7 +989,7 @@ ipcMain.handle('find-in-files', async (e, { root, pattern, filter, matchCase, is
 });
 
 // ── Git integration (CLI wrapper) ─────────────────────────────────────────
-// All handlers delegate to src/git-service.js. See GIT.md for the design.
+// All handlers delegate to src/git-service.js. See features/GIT.md for the design.
 const gitService = require('./git-service');
 
 ipcMain.handle('git-find-repo',     (e, p)             => gitService.findRepoRoot(p));

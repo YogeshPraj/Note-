@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status:     ()  => ipcRenderer.invoke('drawio:status'),
     download:   ()  => ipcRenderer.invoke('drawio:download'),
     uninstall:  ()  => ipcRenderer.invoke('drawio:uninstall'),
+    toMermaid:  (xml) => ipcRenderer.invoke('drawio:to-mermaid', xml),
     onProgress: (cb) => ipcRenderer.on('drawio:progress', (e, p) => cb(p)),
     removeProgressListener: () => ipcRenderer.removeAllListeners('drawio:progress'),
   },

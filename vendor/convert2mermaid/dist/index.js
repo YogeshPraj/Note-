@@ -1,13 +1,24 @@
 import { Command } from 'commander';
-import figlet from 'figlet';
+// Note++ vendor patch: ora + figlet replaced with no-op stubs because their
+// transitive cli-spinners@3 dep uses the JSON import-attributes syntax
+// (`import x from 'y' with {type: 'json'}`), which Electron 28's bundled
+// Node 18.18.2 rejects with "Unexpected token 'with'". Both libraries
+// are purely cosmetic (ASCII art header + progress spinner) — we capture
+// stdout/stderr in Note++'s main process and don't render either visually.
+const figlet = { textSync: () => '' };
+const ora = (_text) => {
+    const s = { info: () => {}, succeed: () => {}, fail: () => {}, stop: () => {} };
+    s.start = () => s;
+    return s;
+};
 import * as fs from 'fs';
-import ora from 'ora';
 import path from 'path';
 import { generateMermaidCode } from './scribe.js';
 import { parseData } from './parser/parser.js';
 const program = new Command();
 const supportedFileTypes = ['.vsdx', '.drawio', '.excalidraw', '.puml', '.plantuml'];
-console.log(figlet.textSync('convert2mermaid'));
+// figlet.textSync stub returns '' — suppress the empty console.log
+// console.log(figlet.textSync('convert2mermaid'));
 program
     .name('convert2mermaid')
     .version('1.0.0')

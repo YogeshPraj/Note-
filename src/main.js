@@ -318,6 +318,12 @@ function buildMenu() {
         { label: 'Minify JSON', click: () => send('menu-json-minify') },
         { type: 'separator' },
         { label: 'New draw.io Diagram',  click: () => send('menu-new-drawio') },
+        { label: 'New Diagram from Template', submenu: [
+          { label: 'Flowchart',              click: () => send('menu-new-drawio-template', 'flowchart') },
+          { label: 'Sequence Diagram',       click: () => send('menu-new-drawio-template', 'sequence') },
+          { label: 'Class Diagram (UML)',    click: () => send('menu-new-drawio-template', 'classDiagram') },
+          { label: 'Entity Relationship',    click: () => send('menu-new-drawio-template', 'erDiagram') },
+        ]},
         { label: 'Check for draw.io updates', click: () => send('menu-drawio-check-updates') },
       ]
     },
@@ -460,6 +466,12 @@ function buildMenu() {
         { label: 'Minify JSON', click: () => send('menu-json-minify') },
         { type: 'separator' },
         { label: 'New draw.io Diagram',  click: () => send('menu-new-drawio') },
+        { label: 'New Diagram from Template', submenu: [
+          { label: 'Flowchart',              click: () => send('menu-new-drawio-template', 'flowchart') },
+          { label: 'Sequence Diagram',       click: () => send('menu-new-drawio-template', 'sequence') },
+          { label: 'Class Diagram (UML)',    click: () => send('menu-new-drawio-template', 'classDiagram') },
+          { label: 'Entity Relationship',    click: () => send('menu-new-drawio-template', 'erDiagram') },
+        ]},
         { label: 'Check for draw.io updates', click: () => send('menu-drawio-check-updates') },
       ]
     },

@@ -10,6 +10,18 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'drawio', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
+// ── Electron tuning flags (must be set BEFORE app.whenReady) ───────────────
+// 1. disable-renderer-backgrounding — Chromium throttles JS timers in hidden
+//    windows by default. Note++ has long-running watchers (autosave, git
+//    polling, LSP) that misbehave when throttled; the visibility guards in
+//    the renderer already prevent waste so the throttling buys us nothing.
+// 2. disable-background-timer-throttling — same intent, different vector
+//    (specifically setTimeout/setInterval inside background pages).
+// These also help on macOS where Chromium aggressively throttles minimized
+// windows that don't have focus.
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
 // node-pty for true PTY terminal (proper resize, colours, interactive programs)
 let pty;
 try { pty = require('node-pty'); } catch { pty = null; }
@@ -91,6 +103,13 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
       webviewTag: true,           // needed for <webview> (mermaid live preview)
+      // bypassHeatCheck — use V8's compiled-code cache from the very first
+      // launch, instead of waiting for a script to be "hot" before caching.
+      // Trades a one-time disk write for substantially faster warm starts.
+      v8CacheOptions: 'bypassHeatCheck',
+      // backgroundThrottling: false on the renderer too, paired with the
+      // app.commandLine switches above. Belt-and-braces.
+      backgroundThrottling: false,
     },
     backgroundColor: '#1e1e1e',
     show: false

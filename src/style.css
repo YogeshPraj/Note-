@@ -2172,6 +2172,36 @@ body.drag-over::after {
 }
 #drawio-container > iframe { width: 100%; height: 100%; border: 0; }
 
+/* ============================================================================
+ * Perf — CSS containment
+ * ============================================================================
+ * Each container below is layout-independent of its surroundings: its
+ * dimensions never affect the parent flex, and its contents never need to
+ * influence anything outside its box. `contain: layout paint` tells the
+ * browser it can skip reflow/repaint propagation across this boundary, which
+ * is a big win when (a) the editor area resizes, (b) the dark/light theme
+ * toggles, (c) any one of these panels updates its inner DOM.
+ *
+ * Notes:
+ *   - We deliberately omit `style` from the containment list: some panels
+ *     read CSS custom properties that flow from --tokens on :root.
+ *   - We deliberately omit `size` — these panels still need to grow to fill
+ *     their flex parent; only the layout/paint isolation matters.
+ *   - Iframes are already paint-isolated by the browser, but layout
+ *     containment on their host divs still helps when the iframe resizes.
+ * ============================================================================ */
+#whiteboard-container,
+#drawio-container,
+#preview-panel,
+#terminal-panel,
+#sc-panel,
+#search-results-panel,
+#file-tree,
+#diff-container,
+#folder-diff-container {
+  contain: layout paint;
+}
+
 /* tab badge for draw.io tabs — same pattern as .tab-wb-badge */
 .tab-dw-badge {
   display: inline-block;

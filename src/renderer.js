@@ -5172,7 +5172,14 @@ const gitFileToRepo = new Map();
 let activeGitRepo = null;
 let gitAutoFetchTimer = null;
 let gitInstalled = null;          // null until first check; true/false after
-const GIT_AUTO_FETCH_MS = 3 * 60 * 1000;
+// Bumped from 3 → 5 min: less network/CPU churn for long-running sessions.
+// The window-focus listener still fires a fresh status refresh on every
+// regain-focus, so the user sees up-to-date branch state every time they
+// return to Note++.
+const GIT_AUTO_FETCH_MS = 5 * 60 * 1000;
+// Reentrancy guard — skip a scheduled fetch if the previous one is still in
+// flight (matters on big repos where fetch can take 5+ seconds).
+let gitFetchInFlight = false;
 
 // Find (and cache) the repo root for a given file path.
 async function detectGitRepoForFile(filePath) {
@@ -5750,9 +5757,16 @@ async function initGitIntegration() {
   await updateActiveGitRepo();
   if (gitAutoFetchTimer) clearInterval(gitAutoFetchTimer);
   gitAutoFetchTimer = setInterval(() => {
-    if (activeGitRepo) {
-      window.electronAPI.git.fetch(activeGitRepo).then(() => refreshGitStatus(activeGitRepo));
-    }
+    // Skip if no repo, if already fetching, or if the window is hidden /
+    // minimized. The user sees stale status when they come back focused,
+    // and the focus handler below catches that case for a fresh refresh.
+    if (!activeGitRepo) return;
+    if (gitFetchInFlight) return;
+    if (document.visibilityState !== 'visible') return;
+    gitFetchInFlight = true;
+    window.electronAPI.git.fetch(activeGitRepo)
+      .then(() => refreshGitStatus(activeGitRepo))
+      .finally(() => { gitFetchInFlight = false; });
   }, GIT_AUTO_FETCH_MS);
 
   // Refresh when window regains focus

@@ -53,9 +53,16 @@
     let drawioReady = false;
     let pendingLoadXml = null;
 
-    // Tell main process we exist; main.js will eventually deliver wb-style
-    // dw-load events with the diagram XML. Until the drawio iframe sends
-    // back its `init` event, we buffer.
+    // Minimal valid empty drawio document. Sending xml:'' makes the embed
+    // sit on the "Loading..." spinner forever — drawio expects at least a
+    // well-formed <mxfile> envelope to consider the load complete.
+    const EMPTY_MXFILE =
+      '<mxfile host="notepp" version="1"><diagram id="page1" name="Page-1">' +
+        '<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">' +
+          '<root><mxCell id="0"/><mxCell id="1" parent="0"/></root>' +
+        '</mxGraphModel>' +
+      '</diagram></mxfile>';
+
     function postToDrawio(msg) {
       try { frame.contentWindow?.postMessage(JSON.stringify(msg), '*'); } catch {}
     }
@@ -63,53 +70,54 @@
       try { window.parent?.postMessage(msg, '*'); } catch {}
     }
 
-    // Messages FROM parent renderer
+    // Single message listener — disambiguates by payload shape:
+    //   parent → us : object with .type (dw-load / dw-get-data / dw-theme)
+    //   drawio → us : JSON-stringified object with .event (init / save / …)
+    // We avoid `e.source !== frame.contentWindow` because postMessage source
+    // identity is unreliable across custom-protocol iframe boundaries.
     window.addEventListener('message', (e) => {
-      const m = e.data;
-      if (!m || !m.type) return;
+      const raw = e.data;
 
-      if (m.type === 'dw-load') {
-        const xml = m.content || '';
-        if (drawioReady) postToDrawio({ action: 'load', xml, autosave: 0 });
-        else pendingLoadXml = xml;
-        return;
-      }
-      if (m.type === 'dw-get-data') {
-        if (drawioReady) postToDrawio({ action: 'export', format: 'xml' });
-        return;
-      }
-      if (m.type === 'dw-theme') {
-        // 'dark' or 'light' — passed to drawio via a follow-up configure
-        // (drawio reads dark mode from URL or via the configure protocol).
-        postToDrawio({ action: 'configure', config: { ui: m.dark ? 'dark' : 'kennedy' } });
-        return;
-      }
-    });
-
-    // Messages FROM drawio iframe (always JSON-stringified because proto=json)
-    window.addEventListener('message', (e) => {
-      if (e.source !== frame.contentWindow) return; // not from drawio
-      if (typeof e.data !== 'string') return;
-      let m;
-      try { m = JSON.parse(e.data); } catch { return; }
-      if (!m || !m.event) return;
-
-      if (m.event === 'init' || m.event === 'configure') {
-        drawioReady = true;
-        if (pendingLoadXml !== null) {
-          postToDrawio({ action: 'load', xml: pendingLoadXml, autosave: 0 });
-          pendingLoadXml = null;
+      // ── Parent → us (object payloads with `type`) ────────────────────────
+      if (raw && typeof raw === 'object' && typeof raw.type === 'string') {
+        if (raw.type === 'dw-load') {
+          const xml = (raw.content && raw.content.trim()) ? raw.content : EMPTY_MXFILE;
+          if (drawioReady) postToDrawio({ action: 'load', xml, autosave: 0 });
+          else pendingLoadXml = xml;
+          return;
         }
-        postToParent({ type: 'dw-ready' });
+        if (raw.type === 'dw-get-data') {
+          if (drawioReady) postToDrawio({ action: 'export', format: 'xml' });
+          return;
+        }
+        if (raw.type === 'dw-theme') {
+          postToDrawio({ action: 'configure', config: { ui: raw.dark ? 'dark' : 'kennedy' } });
+          return;
+        }
         return;
       }
-      if (m.event === 'autosave' || m.event === 'save' || m.event === 'export') {
-        postToParent({ type: 'dw-state', content: m.xml || '' });
-        return;
-      }
-      if (m.event === 'exit') {
-        // Ignored — we don't expose an exit button (noExitBtn=1) but defend.
-        return;
+
+      // ── drawio → us (JSON-string payloads with `event`) ──────────────────
+      if (typeof raw === 'string') {
+        let m;
+        try { m = JSON.parse(raw); } catch { return; }
+        if (!m || !m.event) return;
+
+        if (m.event === 'init' || m.event === 'configure') {
+          drawioReady = true;
+          // Always send something — fall back to EMPTY_MXFILE if the parent
+          // hasn't pushed content yet (new tab race condition).
+          const xml = (pendingLoadXml && pendingLoadXml.trim()) ? pendingLoadXml : EMPTY_MXFILE;
+          postToDrawio({ action: 'load', xml, autosave: 0 });
+          pendingLoadXml = null;
+          postToParent({ type: 'dw-ready' });
+          return;
+        }
+        if (m.event === 'autosave' || m.event === 'save' || m.event === 'export') {
+          postToParent({ type: 'dw-state', content: m.xml || '' });
+          return;
+        }
+        // ignore other events (exit, etc.)
       }
     });
 

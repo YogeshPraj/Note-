@@ -113,8 +113,10 @@
       }
     });
 
-    // Boot: load the drawio webapp via our custom protocol
-    frame.src = 'drawio://index.html?' + params;
+    // Boot: load the drawio webapp via our custom protocol. We use the
+    // virtual host "app" so the URL parser puts the path in `pathname` (not
+    // `host`); the protocol handler in main only honours this host.
+    frame.src = 'drawio://app/index.html?' + params;
   </script>
 </body>
 </html>

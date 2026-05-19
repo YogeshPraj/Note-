@@ -66,21 +66,26 @@ function getStatus() {
   };
 }
 
-// ── Custom protocol: drawio:// → bundleDir() ────────────────────────────────
-// Registering this lets the iframe load drawio://index.html?embed=1&… and
-// have all its relative asset paths resolve naturally. Avoids file:// origin
-// quirks and lets us add safe-path checks.
+// ── Custom protocol: drawio://app/<path> → bundleDir()/<path> ───────────────
+// We always use the virtual host "app" so the URL parser puts the asset path
+// in `pathname` (not `host`). Loading drawio://index.html directly would make
+// "index.html" the HOST, breaking both the initial load and every relative
+// asset resolution from inside the drawio webapp. The browser sets the
+// iframe's base URL to drawio://app/ once the first request returns, so
+// relative links like <link href="styles/grapheditor.css"> resolve cleanly
+// to drawio://app/styles/grapheditor.css.
 function registerProtocol() {
   // Privileged registration must happen BEFORE app.ready. main.js calls
   // registerSchemesAsPrivileged before app.whenReady() — see main.js bootstrap.
   protocol.registerFileProtocol('drawio', (request, callback) => {
     try {
-      const url = new URL(request.url);
-      // host + pathname together form the path under bundleDir. We strip
-      // leading slashes and resolve to an absolute path, then guard against
-      // traversal that would escape bundleDir.
-      let relPath = decodeURIComponent((url.host || '') + url.pathname);
-      relPath = relPath.replace(/^\/+/, '');
+      const u = new URL(request.url);
+      // We only honour the "app" virtual host. Reject anything else (no
+      // exfil via drawio://evil.com/...).
+      if ((u.host || '').toLowerCase() !== 'app') {
+        return callback({ error: -10 /* NET_ERR_ACCESS_DENIED */ });
+      }
+      let relPath = decodeURIComponent(u.pathname || '').replace(/^\/+/, '');
       if (!relPath || relPath.endsWith('/')) relPath += 'index.html';
       const abs = path.normalize(path.join(bundleDir(), relPath));
       const base = path.normalize(bundleDir() + path.sep);

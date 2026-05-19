@@ -618,7 +618,12 @@ function nextDrawioTabNumber() {
 }
 
 function sendToDrawio(msg) {
-  const frame = document.getElementById('drawio-frame');
+  // The renderer-side iframe is #drawio-frame-host; #drawio-frame is the
+  // INNER iframe that exists only inside drawio.html. Targeting the wrong
+  // one made every dw-load after the first one a silent no-op — so the
+  // shared drawio iframe kept displaying tab #1's diagram regardless of
+  // which tab the user activated.
+  const frame = document.getElementById('drawio-frame-host');
   if (frame && frame.contentWindow) frame.contentWindow.postMessage(msg, '*');
 }
 

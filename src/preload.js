@@ -123,6 +123,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // draw.io — on-demand download + persistent bundle in userData
+  drawio: {
+    status:     ()  => ipcRenderer.invoke('drawio:status'),
+    download:   ()  => ipcRenderer.invoke('drawio:download'),
+    uninstall:  ()  => ipcRenderer.invoke('drawio:uninstall'),
+    onProgress: (cb) => ipcRenderer.on('drawio:progress', (e, p) => cb(p)),
+    removeProgressListener: () => ipcRenderer.removeAllListeners('drawio:progress'),
+  },
+
   // App version (from package.json — single source of truth)
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 

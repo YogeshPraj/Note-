@@ -1,7 +1,14 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+
+// ── draw.io custom protocol (registered BEFORE app.ready) ───────────────────
+// drawio:// serves files from the on-demand download bundle in userData. The
+// privileged registration enables fetch/XHR/secure context for the iframe.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'drawio', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+]);
 
 // node-pty for true PTY terminal (proper resize, colours, interactive programs)
 let pty;
@@ -309,6 +316,9 @@ function buildMenu() {
         { label: 'Pretty Print JSON', click: () => send('menu-json-format') },
         { label: 'Pretty Print XML', click: () => send('menu-xml-format') },
         { label: 'Minify JSON', click: () => send('menu-json-minify') },
+        { type: 'separator' },
+        { label: 'New draw.io Diagram',  click: () => send('menu-new-drawio') },
+        { label: 'Check for draw.io updates', click: () => send('menu-drawio-check-updates') },
       ]
     },
     {
@@ -448,6 +458,9 @@ function buildMenu() {
         { label: 'Pretty Print JSON', click: () => send('menu-json-format') },
         { label: 'Pretty Print XML', click: () => send('menu-xml-format') },
         { label: 'Minify JSON', click: () => send('menu-json-minify') },
+        { type: 'separator' },
+        { label: 'New draw.io Diagram',  click: () => send('menu-new-drawio') },
+        { label: 'Check for draw.io updates', click: () => send('menu-drawio-check-updates') },
       ]
     },
     {
@@ -1011,6 +1024,16 @@ ipcMain.handle('git-branch-create', (e, root, n, f)    => gitService.branchCreat
 ipcMain.handle('git-installed',     ()                 => gitService.isGitInstalled());
 ipcMain.handle('git-show-head',     (e, root, rel)     => gitService.showHead(root, rel));
 
+// ── draw.io service (on-demand download, persistent bundle) ────────────────
+const drawioService = require('./drawio-service');
+
+ipcMain.handle('drawio:status',    () => drawioService.getStatus());
+ipcMain.handle('drawio:download',  async () => {
+  try { return await drawioService.download(); }
+  catch (err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('drawio:uninstall', () => drawioService.uninstall());
+
 // ── LSP service ──────────────────────────────────────────────────────────
 const lspService = require('./lsp-service');
 
@@ -1442,7 +1465,13 @@ async function handleOpenFolder() {
   if (!result.canceled) send('open-folder', result.filePaths[0]);
 }
 
-app.whenReady().then(() => { if (gotTheLock) createWindow(); });
+app.whenReady().then(() => {
+  if (gotTheLock) createWindow();
+  // Register the drawio:// custom protocol now that app is ready. Safe to
+  // call even if the bundle isn't downloaded yet — protocol just returns
+  // ENOENT for any request until the user triggers the download.
+  try { drawioService.registerProtocol(); } catch (e) { console.error('[drawio] protocol register failed:', e); }
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 app.on('quit', () => { terminalProcesses.forEach(p => p.kill()); });

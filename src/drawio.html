@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- The drawio iframe lives at drawio:// which is a privileged custom
+       protocol registered in main.js. frame-src must include it. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    frame-src drawio: 'self';
+    img-src 'self' data: blob:;
+    connect-src 'self';
+  " />
+  <title>draw.io</title>
+  <style>
+    html, body, iframe {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      border: 0; background: #ffffff;
+      overflow: hidden;
+    }
+    .empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; font-family: 'Segoe UI', Tahoma, sans-serif;
+      color: #9ca3af; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <iframe id="drawio-frame"></iframe>
+
+  <script>
+    // The drawio iframe URL parameters disable cloud, sharing, splash, exit,
+    // and other host-app features that don't apply when embedded. See
+    // https://www.drawio.com/doc/faq/supported-url-parameters
+    //   embed=1            → run in embed mode (postMessage protocol)
+    //   proto=json         → use JSON message format (cleaner than legacy)
+    //   ui=atlas           → modern UI (vs 'min', 'sketch', 'kennedy')
+    //   spin=1             → show spinner while loading
+    //   noSaveBtn=1        → we save through our own File menu / Ctrl+S
+    //   noExitBtn=1        → no exit button (we're the host)
+    //   saveAndExit=0      → disable
+    //   stealth=1          → no external network calls (analytics etc.)
+    //   configure=1        → wait for a configure message before init
+    const params = [
+      'embed=1', 'proto=json', 'spin=1', 'ui=atlas',
+      'noSaveBtn=1', 'noExitBtn=1', 'saveAndExit=0',
+      'stealth=1',
+    ].join('&');
+
+    const frame = document.getElementById('drawio-frame');
+    let drawioReady = false;
+    let pendingLoadXml = null;
+
+    // Tell main process we exist; main.js will eventually deliver wb-style
+    // dw-load events with the diagram XML. Until the drawio iframe sends
+    // back its `init` event, we buffer.
+    function postToDrawio(msg) {
+      try { frame.contentWindow?.postMessage(JSON.stringify(msg), '*'); } catch {}
+    }
+    function postToParent(msg) {
+      try { window.parent?.postMessage(msg, '*'); } catch {}
+    }
+
+    // Messages FROM parent renderer
+    window.addEventListener('message', (e) => {
+      const m = e.data;
+      if (!m || !m.type) return;
+
+      if (m.type === 'dw-load') {
+        const xml = m.content || '';
+        if (drawioReady) postToDrawio({ action: 'load', xml, autosave: 0 });
+        else pendingLoadXml = xml;
+        return;
+      }
+      if (m.type === 'dw-get-data') {
+        if (drawioReady) postToDrawio({ action: 'export', format: 'xml' });
+        return;
+      }
+      if (m.type === 'dw-theme') {
+        // 'dark' or 'light' — passed to drawio via a follow-up configure
+        // (drawio reads dark mode from URL or via the configure protocol).
+        postToDrawio({ action: 'configure', config: { ui: m.dark ? 'dark' : 'kennedy' } });
+        return;
+      }
+    });
+
+    // Messages FROM drawio iframe (always JSON-stringified because proto=json)
+    window.addEventListener('message', (e) => {
+      if (e.source !== frame.contentWindow) return; // not from drawio
+      if (typeof e.data !== 'string') return;
+      let m;
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (!m || !m.event) return;
+
+      if (m.event === 'init' || m.event === 'configure') {
+        drawioReady = true;
+        if (pendingLoadXml !== null) {
+          postToDrawio({ action: 'load', xml: pendingLoadXml, autosave: 0 });
+          pendingLoadXml = null;
+        }
+        postToParent({ type: 'dw-ready' });
+        return;
+      }
+      if (m.event === 'autosave' || m.event === 'save' || m.event === 'export') {
+        postToParent({ type: 'dw-state', content: m.xml || '' });
+        return;
+      }
+      if (m.event === 'exit') {
+        // Ignored — we don't expose an exit button (noExitBtn=1) but defend.
+        return;
+      }
+    });
+
+    // Boot: load the drawio webapp via our custom protocol
+    frame.src = 'drawio://index.html?' + params;
+  </script>
+</body>
+</html>

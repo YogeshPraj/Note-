@@ -592,6 +592,199 @@ function sendToWhiteboard(msg) {
 }
 
 // =============================================================================
+// draw.io integration — bundle is downloaded on-demand, lives in userData
+// =============================================================================
+// Tabs of type 'drawio' share a single iframe (#drawio-frame) the same way
+// whiteboard tabs share #whiteboard-frame. The iframe loads drawio.html which
+// in turn loads the actual draw.io webapp via the drawio:// custom protocol.
+//
+// First-use flow: clicking "New draw.io Diagram" (or opening a .drawio file)
+// calls ensureDrawioInstalled() — if the bundle isn't already in userData,
+// shows a modal with a progress bar that drives the main-process download.
+// =============================================================================
+
+let drawioReady = false;
+let drawioPendingContent = null;
+
+// Lowest integer N ≥ 1 not used by an existing drawio tab name
+function nextDrawioTabNumber() {
+  const used = new Set(
+    tabs
+      .filter(t => t.type === 'drawio')
+      .map(t => { const mm = t.name.match(/^drawing-(\d+)(?:\.drawio)?$/); return mm ? parseInt(mm[1], 10) : null; })
+      .filter(n => n !== null)
+  );
+  for (let n = 1; ; n++) if (!used.has(n)) return n;
+}
+
+function sendToDrawio(msg) {
+  const frame = document.getElementById('drawio-frame');
+  if (frame && frame.contentWindow) frame.contentWindow.postMessage(msg, '*');
+}
+
+// Show a modal that downloads drawio. Returns true on success, false on
+// cancel / network failure. Resolves only after the download is fully done
+// (or the user dismissed it).
+async function showDrawioDownloadModal() {
+  // Lazy-create the modal markup on first use
+  let modal = document.getElementById('drawio-download-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'drawio-download-modal';
+    modal.className = 'modal-overlay hidden';
+    modal.innerHTML = `
+      <div class="modal-box" style="max-width:460px">
+        <div class="modal-header">
+          <span>Download draw.io</span>
+        </div>
+        <div class="modal-body" style="padding:24px;text-align:center">
+          <div style="font-size:13px;color:var(--fg-secondary);margin-bottom:14px">
+            draw.io isn't bundled with Note++. We'll download it once
+            (≈40 MB) and reuse it across upgrades.
+          </div>
+          <div id="dw-dl-phase" style="font-size:13px;font-weight:600;margin-bottom:8px">Starting…</div>
+          <div style="width:100%;height:6px;background:#374151;border-radius:3px;overflow:hidden">
+            <div id="dw-dl-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width 0.15s linear"></div>
+          </div>
+          <div id="dw-dl-detail" style="font-size:11px;color:var(--fg-secondary);margin-top:6px">&nbsp;</div>
+          <div id="dw-dl-error" style="font-size:12px;color:#dc2626;margin-top:10px;display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn" id="dw-dl-cancel">Cancel</button>
+          <button class="modal-btn primary hidden" id="dw-dl-retry">Retry</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  const phaseEl  = modal.querySelector('#dw-dl-phase');
+  const barEl    = modal.querySelector('#dw-dl-bar');
+  const detailEl = modal.querySelector('#dw-dl-detail');
+  const errEl    = modal.querySelector('#dw-dl-error');
+  const cancelEl = modal.querySelector('#dw-dl-cancel');
+  const retryEl  = modal.querySelector('#dw-dl-retry');
+
+  modal.classList.remove('hidden');
+  errEl.style.display = 'none';
+  retryEl.classList.add('hidden');
+  barEl.style.width = '0%';
+  detailEl.textContent = '';
+
+  return new Promise((resolve) => {
+    let settled = false;
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      window.electronAPI.drawio.removeProgressListener();
+      modal.classList.add('hidden');
+      resolve(result);
+    }
+
+    cancelEl.onclick = () => finish(false);
+
+    window.electronAPI.drawio.onProgress((p) => {
+      if (p.phase === 'download') {
+        phaseEl.textContent = 'Downloading draw.io…';
+        barEl.style.width = (p.percent || 0) + '%';
+        if (p.totalBytes) {
+          const mb = (b) => (b / (1024 * 1024)).toFixed(1);
+          detailEl.textContent = `${mb(p.bytes)} / ${mb(p.totalBytes)} MB`;
+        }
+      } else if (p.phase === 'extract') {
+        phaseEl.textContent = 'Extracting…'; barEl.style.width = '95%'; detailEl.textContent = '';
+      } else if (p.phase === 'install') {
+        phaseEl.textContent = 'Installing…'; barEl.style.width = '98%';
+      } else if (p.phase === 'done') {
+        phaseEl.textContent = `draw.io ${p.version} installed`; barEl.style.width = '100%';
+      }
+    });
+
+    async function attempt() {
+      errEl.style.display = 'none';
+      retryEl.classList.add('hidden');
+      const res = await window.electronAPI.drawio.download();
+      if (res?.success) {
+        // Brief pause so the user sees "installed" before the modal closes
+        setTimeout(() => finish(true), 700);
+      } else {
+        errEl.textContent = 'Download failed: ' + (res?.error || 'unknown error');
+        errEl.style.display = 'block';
+        retryEl.classList.remove('hidden');
+        retryEl.onclick = attempt;
+      }
+    }
+    attempt();
+  });
+}
+
+// Ensures the drawio bundle is installed. Returns true if available, false
+// if the user cancelled or the download failed.
+async function ensureDrawioInstalled() {
+  const s = await window.electronAPI.drawio.status();
+  if (s.installed && !s.needsUpdate) return true;
+  return await showDrawioDownloadModal();
+}
+
+// Manual update check — invoked from "? → Check for draw.io updates"
+async function checkDrawioForUpdates() {
+  const s = await window.electronAPI.drawio.status();
+  if (!s.installed) {
+    showToast('draw.io isn\'t installed yet — open a draw.io tab to download it.');
+    return;
+  }
+  if (s.installedVersion === s.requestedVersion) {
+    showToast(`draw.io is up to date (v${s.installedVersion}).`);
+    return;
+  }
+  const r = await window.electronAPI.messageDialog({
+    type: 'question', title: 'Update draw.io',
+    message: `draw.io update available: v${s.installedVersion} → v${s.requestedVersion}. Download now?`,
+    buttons: ['Update', 'Later'], defaultId: 0, cancelId: 1,
+  });
+  if (r.response === 0) await showDrawioDownloadModal();
+}
+
+function createDrawioTab(filePath, content) {
+  if (filePath) {
+    const existing = tabs.find(t => t.filePath === filePath && t.type === 'drawio');
+    if (existing) { activateTab(existing.id); return existing; }
+  }
+  tabCounter++;
+  const id = tabCounter;
+  const name = filePath
+    ? filePath.split(/[\\/]/).pop()
+    : `drawing-${nextDrawioTabNumber()}`;
+  const tab = {
+    id, name,
+    filePath: filePath || null,
+    content: content || '',
+    dirty: false,
+    language: 'drawio',
+    encoding: 'UTF-8',
+    eol: 'Windows (CR LF)',
+    model: null, viewState: null,
+    type: 'drawio',
+  };
+  tabs.push(tab);
+  // Activate after install check so we don't show a blank iframe.
+  ensureDrawioInstalled().then(ok => {
+    if (!ok) {
+      // User cancelled or download failed — close the placeholder tab.
+      const idx = tabs.findIndex(t => t.id === id);
+      if (idx >= 0) tabs.splice(idx, 1);
+      renderTabs();
+      // Re-activate something useful
+      if (tabs.length === 0) createTab();
+      else activateTab(tabs[tabs.length - 1].id);
+      return;
+    }
+    activateTab(id);
+    renderTabs();
+  });
+  return tab;
+}
+
+// =============================================================================
 // Compare (File diff + Folder diff) — see features/DIFF.md
 // =============================================================================
 
@@ -926,6 +1119,7 @@ function activateTab(id) {
   if (!tab) return;
   const prev = getActiveTab();
   if (prev && editor && prev.type !== 'game' && prev.type !== 'whiteboard'
+                     && prev.type !== 'drawio'
                      && prev.type !== 'diff' && prev.type !== 'folder-diff') {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
@@ -935,6 +1129,8 @@ function activateTab(id) {
   const gameContainer  = document.getElementById('game-container');
   const wbContainer    = document.getElementById('whiteboard-container');
   const wbFrame        = document.getElementById('whiteboard-frame');
+  const dwContainer    = document.getElementById('drawio-container');
+  const dwFrame        = document.getElementById('drawio-frame-host');
   const monacoEl       = document.getElementById('monaco-editor');
   const gameFrame      = document.getElementById('game-frame');
   const diffContainer  = document.getElementById('diff-container');
@@ -943,6 +1139,7 @@ function activateTab(id) {
   // Always hide all special containers first, then show the right one
   gameContainer.classList.add('hidden');
   wbContainer.classList.add('hidden');
+  dwContainer?.classList.add('hidden');
   diffContainer?.classList.add('hidden');
   fdiffContainer?.classList.add('hidden');
 
@@ -999,6 +1196,27 @@ function activateTab(id) {
     } else {
       wbPendingContent = contentToLoad;
     }
+  } else if (tab.type === 'drawio') {
+    // Show drawio container, hide everything else
+    monacoEl.style.display = 'none';
+    dwContainer.classList.remove('hidden');
+    if (previewOpen) closePreview();
+
+    // Same shared-iframe pattern as whiteboard. Lazy-load on first activation;
+    // on subsequent activations just push the new diagram XML.
+    const contentToLoad = tab.content || '';
+    const base = window.location.href.replace(/[^/]*$/, '');
+    const dwSrc = base + 'drawio.html';
+    if (!dwFrame.src || !dwFrame.src.includes('drawio.html')) {
+      drawioReady = false;
+      drawioPendingContent = contentToLoad;
+      dwFrame.src = dwSrc;
+    } else if (drawioReady) {
+      sendToDrawio({ type: 'dw-load', content: contentToLoad });
+      sendToDrawio({ type: 'dw-theme', dark: isDarkMode });
+    } else {
+      drawioPendingContent = contentToLoad;
+    }
   } else {
     // Show editor, hide special containers
     monacoEl.style.display = '';
@@ -1049,9 +1267,9 @@ function renderTabs() {
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab.dirty ? ' dirty' : '');
     el.dataset.id = tab.id;
 
-    // Whiteboard tabs use only the "wb" pill badge — skip the emoji icon so
-    // we don't render a tofu/blank-box for systems missing the 🖼 glyph.
-    if (tab.type !== 'whiteboard') {
+    // Whiteboard / drawio tabs use only their pill badge — skip the emoji
+    // icon so we don't render a tofu/blank-box for systems missing the glyph.
+    if (tab.type !== 'whiteboard' && tab.type !== 'drawio') {
       const icon = document.createElement('span');
       icon.className = 'tab-icon';
       icon.textContent = tab.type === 'game' ? '🎮' : getFileEmoji(tab.name);
@@ -1074,6 +1292,13 @@ function renderTabs() {
       const badge = document.createElement('span');
       badge.className = 'tab-wb-badge';
       badge.textContent = 'wb';
+      el.appendChild(badge);
+    }
+    // Pill badge on draw.io tabs (amber to differ from wb's blue)
+    if (tab.type === 'drawio') {
+      const badge = document.createElement('span');
+      badge.className = 'tab-dw-badge';
+      badge.textContent = 'dw';
       el.appendChild(badge);
     }
     // Diff / folder-diff badge
@@ -1167,6 +1392,32 @@ async function closeTab(id) {
       wbPendingContent = null;
     }
     document.getElementById('whiteboard-container').classList.add('hidden');
+    document.getElementById('monaco-editor').style.display = '';
+    if (tabs.length === 0) createTab();
+    else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+    renderTabs();
+    return;
+  }
+  if (tab.type === 'drawio') {
+    if (tab.dirty) {
+      const r = await window.electronAPI.messageDialog({
+        type: 'question', title: 'Save',
+        message: `Save "${tab.name}"?`,
+        buttons: ['Save', "Don't Save", 'Cancel'],
+        defaultId: 0, cancelId: 2,
+      });
+      if (r.response === 2) return;
+      if (r.response === 0) { const ok = await saveTabFile(tab); if (!ok) return; }
+    }
+    const idx = tabs.findIndex(t => t.id === id);
+    tabs.splice(idx, 1);
+    if (!tabs.some(t => t.type === 'drawio')) {
+      const dwFrame = document.getElementById('drawio-frame-host');
+      if (dwFrame) dwFrame.src = '';
+      drawioReady = false;
+      drawioPendingContent = null;
+    }
+    document.getElementById('drawio-container').classList.add('hidden');
     document.getElementById('monaco-editor').style.display = '';
     if (tabs.length === 0) createTab();
     else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
@@ -1303,11 +1554,18 @@ async function openFile(filePaths) {
     }
 
     // Route .whiteboard / .excalidraw / whiteboard-format JSON to the whiteboard tab.
-    // Detection accepts our envelope (`__wb__: true`) AND raw Excalidraw files
-    // (`type: "excalidraw"` produced by Excalidraw's own Save-As).
+    // Route .drawio (or .xml that starts with <mxfile / <mxGraphModel) to drawio.
+    // Detection for whiteboard JSON accepts our envelope (`__wb__: true`) AND
+    // raw Excalidraw files (`type: "excalidraw"` from Excalidraw's Save-As).
     const lower = fp.toLowerCase();
     if (lower.endsWith('.whiteboard') || lower.endsWith('.excalidraw')) {
       createWhiteboardTab(fp, res.content);
+    } else if (lower.endsWith('.drawio')) {
+      createDrawioTab(fp, res.content);
+    } else if (lower.endsWith('.xml')) {
+      const head = (res.content || '').slice(0, 200);
+      if (/<\s*mxfile|<\s*mxGraphModel/i.test(head)) createDrawioTab(fp, res.content);
+      else createTab(fp, res.content);
     } else if (lower.endsWith('.json')) {
       let isWb = false;
       try {
@@ -1386,6 +1644,38 @@ async function saveFileAs() { const tab = getActiveTab(); if (tab) await saveTab
 async function saveAll() { for (const tab of tabs) { if (tab.dirty) await saveTabFile(tab); } }
 
 async function saveTabFile(tab, forceAs = false) {
+  // ── draw.io: content is already in tab.content (XML synced via postMessage) ──
+  if (tab.type === 'drawio') {
+    if (!tab.filePath || forceAs) {
+      const defaultName = /\.[a-z0-9]+$/i.test(tab.name) ? tab.name : `${tab.name}.drawio`;
+      const r = await window.electronAPI.saveDialog({
+        defaultPath: defaultName,
+        filters: [
+          { name: 'draw.io',  extensions: ['drawio'] },
+          { name: 'XML',      extensions: ['xml'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (r.canceled) return false;
+      tab.filePath = r.filePath;
+      tab.name = r.filePath.split(/[\\/]/).pop();
+    }
+    // Force a fresh export from the iframe in case the user has un-saved
+    // edits debouncing — drawio doesn't push state synchronously on save.
+    sendToDrawio({ type: 'dw-get-data' });
+    // Small wait to let the dw-state response arrive (debounced ~50ms in
+    // drawio's autosave). Worst case the next save catches it.
+    await new Promise(r => setTimeout(r, 120));
+    const body = tab.content && tab.content.length ? tab.content : '<mxfile></mxfile>';
+    const res = await window.electronAPI.writeFile(tab.filePath, body);
+    if (!res.success) { showToast('Error saving: ' + res.error); return false; }
+    tab.content = body;
+    tab.dirty = false;
+    renderTabs();
+    updateTitle();
+    return true;
+  }
+
   // ── Whiteboard: content is already in tab.content (synced via postMessage) ──
   if (tab.type === 'whiteboard') {
     if (!tab.filePath || forceAs) {
@@ -3387,6 +3677,10 @@ function setupMenuListeners() {
 
   m('menu-preferences', openPreferences);
   m('menu-about', () => document.getElementById('about-dialog').classList.remove('hidden'));
+
+  // ── draw.io ─────────────────────────────────────────────────────────────
+  m('menu-new-drawio', () => createDrawioTab(null, ''));
+  m('menu-drawio-check-updates', () => checkDrawioForUpdates());
 
   m('menu-open-explorer', () => {
     const tab = getActiveTab();
@@ -6827,7 +7121,31 @@ function renderHtmlPreview(content, frame, tab) {
 // ── Whiteboard postMessage bridge ─────────────────────────────────────────────
 window.addEventListener('message', (e) => {
   const m = e.data;
-  if (!m || !m.type || !m.type.startsWith('wb-')) return;
+  if (!m || !m.type) return;
+
+  // draw.io tab bridge — same shape as whiteboard, dw- prefix
+  if (m.type === 'dw-ready') {
+    drawioReady = true;
+    if (drawioPendingContent !== null) {
+      sendToDrawio({ type: 'dw-load', content: drawioPendingContent });
+      drawioPendingContent = null;
+    }
+    sendToDrawio({ type: 'dw-theme', dark: isDarkMode });
+    return;
+  }
+  if (m.type === 'dw-state') {
+    const tab = tabs.find(t => t.type === 'drawio' && t.id === activeTabId);
+    if (tab) {
+      const wasClean = !tab.dirty;
+      tab.content = m.content || '';
+      tab.dirty = true;
+      if (wasClean) { renderTabs(); updateTitle(); }
+      scheduleAutoSave();
+    }
+    return;
+  }
+
+  if (!m.type.startsWith('wb-')) return;
 
   if (m.type === 'wb-ready') {
     // iframe finished initialising — send pending content + current theme

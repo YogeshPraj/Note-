@@ -125,6 +125,12 @@
         "role": "Editor"
       },
       {
+        "ext": "drawio",
+        "name": "draw.io Diagram",
+        "description": "Open with Note++",
+        "role": "Editor"
+      },
+      {
         "ext": "jsonc",
         "name": "JSON File",
         "description": "Open with Note++",
@@ -343,8 +349,20 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "icon": "src/assets/icon.png",
       "category": "public.app-category.developer-tools",
@@ -361,8 +379,18 @@
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb",      "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "src/assets/icon.png",
       "category": "Development",
@@ -405,6 +433,7 @@
     "diff": "^9.0.0",
     "dir-compare": "^5.0.0",
     "electron-updater": "^6.8.3",
+    "extract-zip": "^2.0.1",
     "marked": "^18.0.3",
     "mermaid": "^11.14.0",
     "monaco-editor": "^0.45.0",

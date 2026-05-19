@@ -3838,22 +3838,20 @@ async function renderTreeDir(container, dirPath, depth) {
   const entries = await window.electronAPI.listDir(dirPath);
   const dirs = entries.filter(e => e.isDir).sort((a, b) => a.name.localeCompare(b.name));
   const files = entries.filter(e => !e.isDir).sort((a, b) => a.name.localeCompare(b.name));
+  const all = [...dirs, ...files];
 
-  for (const entry of [...dirs, ...files]) {
+  // Build a single row element (caller appends or chunks).
+  const buildRow = (entry) => {
     const fullPath = dirPath.replace(/[/\\]$/, '') + '/' + entry.name;
     const row = document.createElement('div');
     row.className = 'tree-item';
     row.style.paddingLeft = (8 + depth * 16) + 'px';
     row.title = fullPath;
 
-    // Build content (icon + name + optional git badge) using DOM nodes so the
-    // badge can be coloured + tooltipped independently.
     const label = document.createElement('span');
     label.textContent = (entry.isDir ? '📁 ' : getFileEmoji(entry.name) + ' ') + entry.name;
     row.appendChild(label);
 
-    // Git decoration for files (skip dirs — VS Code shows aggregate badges
-    // for folders, but that's expensive to compute per render; defer to v1.1)
     if (!entry.isDir) {
       const dec = lookupGitDecoration(fullPath);
       if (dec) {
@@ -3878,8 +3876,41 @@ async function renderTreeDir(container, dirPath, depth) {
     } else {
       row.addEventListener('click', () => openFile([fullPath]));
     }
-    container.appendChild(row);
+    return row;
+  };
+
+  // Small directories (≤ CHUNK_THRESHOLD entries) — render synchronously in
+  // a DocumentFragment, single DOM insertion. Faster than the per-row append
+  // we used to do, and the user never notices the difference at this scale.
+  const CHUNK_THRESHOLD = 200;
+  const CHUNK_SIZE = 100;
+
+  if (all.length <= CHUNK_THRESHOLD) {
+    const frag = document.createDocumentFragment();
+    for (const entry of all) frag.appendChild(buildRow(entry));
+    container.appendChild(frag);
+    return;
   }
+
+  // Large directories — chunk by CHUNK_SIZE in requestIdleCallback so the UI
+  // stays responsive while monorepos with thousands of files at one level
+  // (Maven, Gradle, big monorepos) render in.
+  let cursor = 0;
+  const renderChunk = () => {
+    const end = Math.min(cursor + CHUNK_SIZE, all.length);
+    const frag = document.createDocumentFragment();
+    for (let i = cursor; i < end; i++) frag.appendChild(buildRow(all[i]));
+    container.appendChild(frag);
+    cursor = end;
+    if (cursor < all.length) {
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(renderChunk, { timeout: 100 });
+      } else {
+        setTimeout(renderChunk, 0);
+      }
+    }
+  };
+  renderChunk();
 }
 
 // Given an absolute file path, return { ch, cls, label } for the git decoration

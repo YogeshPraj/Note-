@@ -1113,21 +1113,19 @@
   <!-- All UMD libs MUST load BEFORE vs/loader.js — Monaco's AMD loader installs
        a global define() that hijacks any UMD script loaded after it, causing
        e.g. "Terminal is not defined" / "Can only have one anonymous define call". -->
-  <script src="../node_modules/xterm/lib/xterm.js"></script>
-  <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
   <!--
-    Mermaid (~3 MB) is no longer loaded eagerly. ensureMermaid() in
-    renderer.js dynamically injects the script the first time we need to
-    render a diagram (Markdown preview with mermaid fence, .mmd file,
-    HTML preview that contains <pre class=mermaid>, etc.). Saves ~3 MB
-    of parse work for every Note++ session that doesn't open a diagram.
+    UMD libraries (xterm + xterm-addon-fit ~270 KB, mermaid ~3 MB, diff
+    ~50 KB) are no longer loaded eagerly. The ensure*() helpers in
+    renderer.js inject each script dynamically on first use (xterm: first
+    terminal open, mermaid: first preview render, diff: first git-tracked
+    file with edits). Combined ~3.3 MB of parse work saved per session
+    that doesn't touch any of those features.
 
-    Critical: the script tag MUST be inserted BEFORE vs/loader.js sets up
-    define() (otherwise mermaid would register as anonymous AMD instead
-    of setting window.mermaid). ensureMermaid() handles that by briefly
-    suspending define during the load — see the helper for details.
+    AMD-loader trap: by the time these dynamic loads run, vs/loader.js
+    has set up a global define(). The ensure*() helpers briefly null
+    out window.define during each load so the UMD scripts hit their
+    "set window.X" branch instead of registering as anonymous AMD.
   -->
-  <script src="../node_modules/diff/dist/diff.min.js"></script>
 
   <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
   <script src="crypto.js"></script>

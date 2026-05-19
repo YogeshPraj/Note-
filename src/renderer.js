@@ -2482,6 +2482,18 @@ async function openTerminal(force = false) {
   }
 
   if (!term) {
+    // Lazy-load xterm + addon (~270 KB) on first terminal open. Users who
+    // never use the integrated terminal pay nothing for it at startup.
+    try { await ensureXterm(); }
+    catch (e) {
+      console.error('xterm failed to load:', e);
+      panel.classList.add('hidden');
+      handle.classList.add('hidden');
+      terminalOpen = false;
+      document.getElementById('btn-terminal').classList.remove('active');
+      showToast('Terminal failed to load: ' + (e?.message || 'unknown'));
+      return;
+    }
     term = new Terminal({
       fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
       fontSize: 13,
@@ -5327,7 +5339,12 @@ async function updateGitDiffGutter(tab) {
   // Bail-outs — many reasons this might not apply
   if (!tab || tab.type !== 'editor' || !tab.model || !tab.filePath) return;
   if (gitInstalled === false) return;
-  if (typeof window.Diff?.diffLines !== 'function') return;
+  // Lazy-load jsdiff (~50 KB) on first git-diff render. Most editor sessions
+  // never touch a git-tracked file, and the gutter is the only consumer.
+  if (typeof window.Diff?.diffLines !== 'function') {
+    try { await ensureDiff(); } catch { return; }
+    if (typeof window.Diff?.diffLines !== 'function') return;
+  }
 
   // Only diff files inside the active repo (cheap path: reuse the cache we
   // already populate in detectGitRepoForFile)
@@ -6557,6 +6574,46 @@ function renderBareMarkdown(content, container) {
     .replace(/>/g, '&gt;');
   container.innerHTML = `<div class="mermaid" style="padding:16px">${safe}</div>`;
   runMermaidInContainer(container);
+}
+
+// ─── Lazy-load helper: dynamically inject a UMD script with AMD trap-guard
+// Same pattern used for mermaid / xterm / diff. Returns a promise.
+// The AMD guard nulls out window.define for the duration of the script load
+// so UMD libraries fall back to their global-attach branch (window.X)
+// instead of registering as anonymous AMD with Monaco's loader.
+function _loadUmdScript(src) {
+  return new Promise((resolve, reject) => {
+    const savedDefine = window.define;
+    try { window.define = undefined; } catch {}
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    const restore = () => { if (savedDefine) window.define = savedDefine; };
+    script.onload  = () => { restore(); resolve(); };
+    script.onerror = (e) => { restore(); reject(e || new Error('script load failed: ' + src)); };
+    document.head.appendChild(script);
+  });
+}
+
+// xterm + xterm-addon-fit (~270 KB combined) — only loaded when the user
+// first opens the integrated terminal. Promise-cached.
+function ensureXterm() {
+  if (window.Terminal && window.FitAddon) return Promise.resolve();
+  if (ensureXterm._loading) return ensureXterm._loading;
+  ensureXterm._loading = (async () => {
+    await _loadUmdScript('../node_modules/xterm/lib/xterm.js');
+    await _loadUmdScript('../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js');
+  })();
+  return ensureXterm._loading;
+}
+
+// jsdiff (~50 KB) — only needed by the inline git diff gutter and the
+// Compare-files Monaco diff fallbacks. Promise-cached.
+function ensureDiff() {
+  if (window.Diff) return Promise.resolve();
+  if (ensureDiff._loading) return ensureDiff._loading;
+  ensureDiff._loading = _loadUmdScript('../node_modules/diff/dist/diff.min.js');
+  return ensureDiff._loading;
 }
 
 // ─── Lazy-load mermaid (~3 MB) ─────────────────────────────────────────────

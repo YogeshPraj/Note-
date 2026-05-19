@@ -4,7 +4,7 @@
 
 ### A developer-focused desktop text editor
 
-*Notepad++ reimagined for the modern web stack — powered by Monaco, Electron, an integrated terminal, local AI, a real source-control panel, and a hand-drawn whiteboard.*
+*Notepad++ reimagined for the modern web stack — powered by Monaco, Electron, an integrated terminal, local AI, a real source-control panel, language-server IntelliSense, draw.io structured diagrams, and a hand-drawn whiteboard.*
 
 [![Latest release](https://img.shields.io/github/v/release/YogeshPraj/Note-?label=latest&color=2563eb)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Total downloads](https://img.shields.io/github/downloads/YogeshPraj/Note-/total?label=downloads&color=16a34a)](https://github.com/YogeshPraj/Note-/releases)
@@ -16,9 +16,12 @@
 [![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Monaco](https://img.shields.io/badge/Monaco-0.45-0078D4?logo=visualstudiocode&logoColor=white)](https://microsoft.github.io/monaco-editor/)
 [![Excalidraw](https://img.shields.io/badge/Excalidraw-0.18-6965DB?logo=excalidraw&logoColor=white)](https://excalidraw.com/)
+[![draw.io](https://img.shields.io/badge/draw.io-30-F08705?logo=diagramsdotnet&logoColor=white)](https://www.drawio.com/)
 [![Mermaid](https://img.shields.io/badge/Mermaid-11.14-FF3670?logo=mermaid&logoColor=white)](https://mermaid.js.org/)
 [![Ollama](https://img.shields.io/badge/AI-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com/)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078D4?logo=windows&logoColor=white)](#)
+[![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=white)](#)
+[![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#)
+[![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](#)
 
 [**📥 Download**](https://github.com/YogeshPraj/Note-/releases/latest) • [Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap)
 
@@ -30,7 +33,7 @@
 
 **Note++** is what happens when you take the spirit of Notepad++ and rebuild it on a modern foundation. It's not trying to be another VS Code, and it's not trying to be a generic notepad — it sits comfortably in between: fast to launch, low-friction to use, with the editing power developers actually need day to day, plus a handful of opinionated extras you won't find anywhere else.
 
-Under the hood it runs the same **Monaco** engine that powers VS Code, in a lightweight **Electron** shell, with an integrated **xterm** terminal (true PTY via `node-pty`), live preview for HTML and Markdown, **Mermaid** diagrams, an **Excalidraw**-powered hand-drawn whiteboard, a full **Git source-control panel**, a **local AI assistant** (Ollama with Agent mode + multi-turn chat + quick-action chips), per-file **AES-256-GCM encryption**, **Compare** (file & folder diff like Diff.Net / WinMerge), **Recent Files**, an **external-change file watcher**, and cloud session sync.
+Under the hood it runs the same **Monaco** engine that powers VS Code, in a lightweight **Electron** shell, with an integrated **xterm** terminal (true PTY via `node-pty`), live preview for HTML and Markdown, **Mermaid** diagrams, an **Excalidraw**-powered hand-drawn whiteboard, **draw.io** structured diagrams (downloaded on demand, persists across upgrades), **Language Server Protocol** integration (Pyright for Python, click-to-install), a full **Git source-control panel** with inline diff gutter, a **local AI assistant** (Ollama with Agent mode + multi-turn chat + quick-action chips), per-file **AES-256-GCM encryption**, **Compare** (file & folder diff like Diff.Net / WinMerge), **Recent Files**, an **external-change file watcher**, **silent auto-update** with a polished progress window, and cloud session sync. Ships for **Windows, macOS, and Linux**.
 
 > Built for developers who want a snappy editor that does more than just edit text — not a full IDE, not a plain text box.
 
@@ -45,11 +48,14 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - [Architecture](#-architecture)
 - [Git Integration](#-git-integration)
 - [AI Assistant](#-ai-assistant)
+- [Language Server Protocol (LSP)](#-language-server-protocol-lsp)
+- [draw.io Diagrams](#-drawio-diagrams)
 - [Encrypted Pad](#-encrypted-pad)
 - [Whiteboard](#-whiteboard)
 - [Compare (File & Folder Diff)](#-compare-file--folder-diff)
 - [Find / Replace / Mark / Find in Files](#-find--replace--mark--find-in-files)
 - [Live Preview & Mermaid](#-live-preview--mermaid)
+- [Auto-Update](#-auto-update)
 - [Keyboard Shortcuts](#-keyboard-shortcuts)
 - [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
@@ -63,7 +69,10 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Multi-tab editor** powered by Monaco — the engine behind VS Code
 - **50+ language** syntax highlighters out of the box
 - **IntelliSense** auto-complete for JavaScript, TypeScript, and friends
+- **Language Server Protocol** — real diagnostics + hover + completion + go-to-definition for **Python (Pyright)**; click-to-install pill in the status bar when the server isn't present
 - **Find / Replace / Mark / Find in Files** — Notepad++-style search results panel, multi-colour persistent highlights, gutter+minimap markers update live as you type
+- **Inline git diff gutter** — green/blue/red bars on every changed line vs `HEAD`, updates as you edit
+- **Persistent UI toggles** — Word Wrap, Dark Mode, Zoom, Minimap, etc. survive a restart (saved to `settings.json`)
 - **Command Palette** (`Ctrl+Shift+P`) and **Quick Open** (`Ctrl+P`)
 - **Bookmarks**, breadcrumbs, minimap, word wrap toggles
 - **Recent Files** menu (last 15, deduped, stale entries auto-pruned)
@@ -109,12 +118,19 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Standard JSON envelope on disk** — versioned, inspectable, future-proof
 - See [`ENCRYPTION.md`](./features/ENCRYPTION.md) for the full threat model and design
 
-### Whiteboard
-- **Hand-drawn canvas** powered by **Excalidraw 0.18** — same engine as excalidraw.com
+### Whiteboard (hand-drawn)
+- **Excalidraw 0.18** in an iframe — same engine as excalidraw.com
 - Rectangles, ellipses, diamonds, arrows, lines, freedraw, text, images, libraries, frames, laser pointer
-- **Auto-saves** as `whiteboard-N.json` per tab; 1.5 s debounced writes
+- **Save lifecycle matches text tabs** — red dot on first edit, `Ctrl+S` prompts Save As for new tabs; session auto-save guards unsaved work against crashes
 - **`.excalidraw` file format** native support; opens raw Excalidraw exports too
-- **v1 → v2 migration** on load — old custom-canvas whiteboards still open
+- **v1 → v2 migration** on load — old auto-backed whiteboards still open and migrate cleanly on first save
+
+### Diagrams (structured — draw.io)
+- **Full draw.io editor** in an iframe — pinned to v30.0.2, runs entirely offline (`stealth=1`)
+- **Downloaded on demand** the first time you open a `.drawio` file or click `Tools → Diagram (draw.io) → New Diagram` (~40 MB, one-time)
+- **Bundle persists across upgrades** — lives in `userData`, electron-updater leaves it untouched
+- **Starter templates** in `Tools → Diagram (draw.io) → From Template`: Flowchart · Sequence Diagram · Class Diagram (UML) · Entity Relationship
+- **Manual update check** — `Tools → Diagram (draw.io) → Check for updates` compares the installed version to whatever Note++ has pinned
 
 ### Productivity
 - **Integrated terminal** (xterm + true PTY via `node-pty`) — proper resize, ANSI colours, full PowerShell/bash
@@ -125,7 +141,8 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Cloud session sync** — Google Drive, OneDrive, Dropbox
 - **Auto-save session** — pick up exactly where you left off; encrypted tabs re-prompt unlock
 - **Auto-backup** to a configurable location with version retention
-- **File-association double-click** — open any `.txt / .md / .json / .html / .excalidraw / …` file with Note++ from Windows Explorer (deferred-flush IPC so the file always loads even if the renderer is still booting)
+- **File-association double-click** — open any `.txt / .md / .json / .html / .excalidraw / .drawio / …` file with Note++ from Windows Explorer / macOS Finder / Linux file managers (deferred-flush IPC so the file always loads even if the renderer is still booting)
+- **Auto-update** — silent background download via `electron-updater`; the toolbar pill on the right edge surfaces `New update available → Downloading X% → Click to update`. Clicking opens a dedicated progress window with a success animation, then relaunches. Settings → `Check for Updates Automatically` to disable.
 
 ### Developer tools
 - **Code formatting** — JSON, XML, language-aware
@@ -144,52 +161,69 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 
 ### Install (prebuilt installer)
 
-Grab the latest installer from [Releases](https://github.com/YogeshPraj/Note-/releases/latest):
+Grab the latest installer for your OS from [Releases](https://github.com/YogeshPraj/Note-/releases/latest):
 
-```
-Note++-Setup-x.y.z.exe
-```
+| Platform | Artifact |
+| --- | --- |
+| Windows | `Note++-Setup-x.y.z.exe` (NSIS installer) |
+| macOS   | `Note++-x.y.z-x64.dmg` or `Note++-x.y.z-arm64.dmg` |
+| Linux   | `Note++-x.y.z.AppImage` or `notepp_x.y.z_amd64.deb` |
 
-Run it, walk through NSIS, done. Note++ registers itself as a handler for `.txt`, `.md`, `.json`, `.html`, `.excalidraw`, and friends — right-click any file → **Open with Note++**.
+Note++ registers itself as a handler for `.txt`, `.md`, `.json`, `.html`, `.excalidraw`, `.drawio` and friends — right-click any file → **Open with Note++**.
+
+> **macOS first launch:** builds are currently unsigned. Right-click → **Open** the first time to bypass Gatekeeper.
+> **Linux AppImage:** on Ubuntu 24.04+ you may need `sudo apt install libfuse2t64`.
 
 ### Run from source
 
 ```bash
-# Prerequisites: Node.js 18+, Git, Windows (primary target)
+# Prerequisites: Node.js 18+, Git, one of Windows / macOS / Linux
 
 git clone https://github.com/YogeshPraj/Note-.git
 cd Note-
 npm install        # auto-runs `npm run build:wb` via postinstall
-npm start          # or double-click launch.bat
+npm start          # or double-click launch.bat (Windows)
 ```
 
 ### Build the installer yourself
 
 ```bash
-npm run build      # electron-builder, produces dist/Note++-Setup-*.exe
+npm run build          # auto-detects current OS
+
+# Or target a specific platform explicitly
+npm run build:win      # Windows  → NSIS .exe
+npm run build:msi      # Windows  → MSI installer
+npm run build:mac      # macOS    → .dmg + .zip (x64 + arm64)
+npm run build:linux    # Linux    → AppImage + .deb (x64)
 ```
+
+> Cross-platform builds must run on the target OS (native modules like `node-pty` compile per-OS). The 3-OS GitHub Actions matrix handles this for releases — tag push → parallel builds on `windows-latest` / `macos-latest` / `ubuntu-latest`.
 
 ---
 
 ## 🧱 Tech Stack
 
-| Layer            | Technology                                                    |
-| ---------------- | ------------------------------------------------------------- |
-| Runtime          | Electron 28                                                   |
-| Editor           | Monaco Editor 0.45                                            |
-| Markdown         | marked v18                                                    |
-| Diagrams         | Mermaid v11                                                   |
-| Whiteboard       | Excalidraw 0.18 + React 18 (bundled via esbuild into iframe)  |
-| Terminal         | xterm 5.3 + xterm-addon-fit + **node-pty 1.1** (true PTY)     |
-| AI               | **Ollama** (local LLM via HTTP at `127.0.0.1:11434`)          |
-| File diff        | Monaco's built-in `createDiffEditor`                          |
-| Folder diff      | **`dir-compare`** (content-hash comparison, MIT)              |
-| Crypto           | Web Crypto API — AES-256-GCM, PBKDF2-SHA-256, HKDF            |
-| Compression      | Native `CompressionStream` / `DecompressionStream`            |
-| Bundler          | esbuild 0.24 (only for the Excalidraw iframe app)             |
-| Security         | `contextIsolation: true`, `nodeIntegration: false`            |
-| Node bridge      | `src/preload.js` → `window.electronAPI`                       |
-| Platform         | Windows (primary), Node.js                                    |
+| Layer              | Technology                                                          |
+| ------------------ | ------------------------------------------------------------------- |
+| Runtime            | Electron 28                                                         |
+| Editor             | Monaco Editor 0.45                                                  |
+| Markdown           | marked v18                                                          |
+| Diagrams (hand)    | Excalidraw 0.18 + React 18 (bundled via esbuild into iframe)        |
+| Diagrams (struct.) | **draw.io v30** (downloaded on demand, served via `drawio://` protocol) |
+| Diagrams (mermaid) | Mermaid v11                                                         |
+| Inline git diff    | `diff` (jsdiff)                                                     |
+| LSP                | Pyright (Python) via stdio JSON-RPC; custom client wired to Monaco  |
+| Terminal           | xterm 5.3 + xterm-addon-fit + **node-pty 1.1** (true PTY)           |
+| AI                 | **Ollama** (local LLM via HTTP at `127.0.0.1:11434`)                |
+| Auto-update        | `electron-updater` + GitHub provider                                |
+| File diff          | Monaco's built-in `createDiffEditor`                                |
+| Folder diff        | **`dir-compare`** (content-hash comparison, MIT)                    |
+| Crypto             | Web Crypto API — AES-256-GCM, PBKDF2-SHA-256, HKDF                  |
+| Compression        | Native `CompressionStream` / `DecompressionStream`                  |
+| Bundler            | esbuild 0.24 (only for the Excalidraw iframe app)                   |
+| Security           | `contextIsolation: true`, `nodeIntegration: false`                  |
+| Node bridge        | `src/preload.js` → `window.electronAPI`                             |
+| Platforms          | Windows · macOS (x64 + arm64) · Linux (AppImage + .deb)             |
 
 ---
 
@@ -213,16 +247,22 @@ Note++/
     ├── main.js               ← Electron main process (IPC, file dialogs, menus)
     ├── preload.js            ← IPC bridge (window.electronAPI)
     ├── index.html            ← Renderer entry point
-    ├── renderer.js           ← All UI logic (~6000 lines)
+    ├── renderer.js           ← All UI logic (~6500 lines)
     ├── style.css             ← All styles
     ├── monaco-worker.js      ← Monaco web worker helper
     ├── crypto.js             ← AES-GCM / PBKDF2 / HKDF / gzip (encrypted pad)
     ├── git-service.js        ← Git CLI wrapper (main process)
+    ├── lsp-service.js        ← Main-process LSP subprocess manager + JSON-RPC framing
+    ├── lsp-client.js         ← Renderer-side bridge: Monaco providers ↔ LSP requests
+    ├── drawio-service.js     ← On-demand download + extract for draw.io bundle
+    ├── drawio.html           ← draw.io iframe shell (postMessage broker)
     ├── whiteboard.html       ← Excalidraw iframe shell
     ├── whiteboard-app.jsx    ← React + Excalidraw entry (source)
     ├── whiteboard.bundle.*   ← generated by esbuild (gitignored)
     ├── excalidraw-fonts/     ← generated, self-hosted fonts (gitignored)
     ├── mermaid-live-view.html← Mermaid Live Editor overlay
+    ├── updater.html          ← Auto-update progress + success window
+    ├── updater-preload.js    ← Strict preload for the updater window
     ├── assets/               ← SVG toolbar icons
     └── games/                ← in-app HTML games (Dev Arcade)
 ```
@@ -253,21 +293,32 @@ The renderer **never calls `require()` directly** — that's the whole point of 
 
 ### Critical loading order
 
-Monaco's `vs/loader.js` installs a global `define()`. If `marked.umd.js` loads *after* it, marked registers itself as an AMD module and `window.marked` is never set, breaking the Markdown preview:
+Monaco's `vs/loader.js` installs a global `define()`. **Every UMD script that exposes its API via `window.X` must load before `vs/loader.js`**, otherwise they register as anonymous AMD modules and never set their global (we hit this twice — first with marked, then again with xterm in v1.4.1):
 
 ```html
 <!-- index.html — order matters -->
-<script src="../node_modules/marked/lib/marked.umd.js"></script>     <!-- 1. MUST be first -->
-<script src="../node_modules/monaco-editor/min/vs/loader.js"></script><!-- 2 -->
-<script src="../node_modules/xterm/lib/xterm.js"></script>           <!-- 3 -->
+<script src="../node_modules/marked/lib/marked.umd.js"></script>     <!-- 1 -->
+<script src="../node_modules/xterm/lib/xterm.js"></script>           <!-- 2 -->
+<script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>  <!-- 3 -->
 <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>  <!-- 4 -->
-<script src="crypto.js"></script>                                    <!-- 5 -->
-<script src="renderer.js"></script>                                  <!-- 6 -->
+<script src="../node_modules/diff/dist/diff.min.js"></script>        <!-- 5 -->
+<script src="../node_modules/monaco-editor/min/vs/loader.js"></script><!-- 6. AFTER all UMD -->
+<script src="crypto.js"></script>                                    <!-- 7 -->
+<script src="lsp-client.js"></script>                                <!-- 8 -->
+<script src="renderer.js"></script>                                  <!-- 9 -->
 ```
 
 ### Whiteboard bundle
 
 Excalidraw is bundled separately by `build-whiteboard.js` (esbuild) into `src/whiteboard.bundle.{js,css}` and loaded inside the `whiteboard.html` iframe. React lives only inside that iframe; the main renderer stays vanilla JS. Fonts are self-hosted under `src/excalidraw-fonts/` — no CDN call. See [`CLAUDE.md`](./CLAUDE.md) for the full whiteboard architecture and v1→v2 format migration.
+
+### draw.io bundle (downloaded on demand)
+
+draw.io is **not** bundled with the installer. The first time you open a `.drawio` file or click `New Diagram`, `src/drawio-service.js` (main process) downloads `draw.war` from GitHub releases, extracts it via `extract-zip`, and writes a `version.json` marker into `userData/drawio-bundle/`. The iframe loads `drawio://app/index.html?embed=1&proto=json&…` via a custom privileged protocol (`registerSchemesAsPrivileged` + `registerFileProtocol` with a path-traversal guard). `src/drawio.html` brokers the embed-mode `postMessage` protocol between the inner drawio iframe and the parent renderer (`dw-load` / `dw-state` / `dw-ready` / `dw-theme`), mirroring the whiteboard shell pattern.
+
+### Language Server Protocol
+
+`src/lsp-service.js` (main) spawns one subprocess per language with stdio JSON-RPC framing (`Content-Length: <n>\r\n\r\n<body>`). `src/lsp-client.js` (renderer) registers Monaco completion / hover / definition providers that translate to `textDocument/*` LSP requests, and feeds diagnostics through `setModelMarkers`. Adding a new language is one entry in the `LSP_LANGUAGES` registry plus a Monaco language id mapping.
 
 ---
 
@@ -320,6 +371,54 @@ See [`AGENT.md`](./features/AGENT.md) for the full spec.
 
 ---
 
+## 🐍 Language Server Protocol (LSP)
+
+Real diagnostics, hover docs, completion, and go-to-definition — driven by the actual language server (not Monaco's built-in shallow analyser). Currently ships with **Pyright** for Python; the registry pattern in `lsp-service.js` makes adding new languages a one-entry change.
+
+| | |
+|---|---|
+| Transport | JSON-RPC over stdio (standard LSP framing) |
+| Spawned by | Main process (`src/lsp-service.js`) — one subprocess per language, auto-restart on crash (≤ 3 in 30 s) |
+| Renderer bridge | `src/lsp-client.js` — translates Monaco completion / hover / definition / `setModelMarkers` to LSP requests |
+| Languages | **Python (Pyright)** — out of the box; tries `pyright-langserver` then `npx -y pyright-langserver --stdio` |
+| Click-to-install | Status-bar pill goes `⬇ Install pyright` (orange, clickable) → runs `npm install -g pyright` → retries automatically |
+| Status pill | `🧠 LSP: pyright starting…` → `🧠 LSP: pyright` (green) → `⚠ missing` (clickable to install) → `✗ crashed` |
+| Lifecycle | Auto-starts the moment a `.py` file becomes active; idle servers stop after 30 s; all servers shut down on app quit |
+| Spec | [`LSP.md`](./features/LSP.md) |
+
+---
+
+## 📊 draw.io Diagrams
+
+Note++ ships the full **draw.io** structured-diagram editor, downloaded on first use and persisted across upgrades. Lives alongside the Excalidraw whiteboard, doesn't replace it — Excalidraw for hand-drawn sketching, draw.io for flowcharts, UML, ERDs, network topology, BPMN, AWS/Azure architecture (huge stencil library).
+
+| | |
+|---|---|
+| Editor version | draw.io v30.0.2 (pinned; bump via `DRAWIO_VERSION` in `src/drawio-service.js`) |
+| Bundle size | ~40 MB download, ~50 MB unpacked |
+| Bundle location | `%AppData%\notepp\drawio-bundle\` (Windows) / `~/Library/Application Support/notepp/` (macOS) / `~/.config/notepp/` (Linux) — preserved across electron-updater upgrades |
+| Protocol | Custom `drawio://app/...` privileged scheme — no `file://` quirks, no internet calls (`stealth=1`) |
+| Tab type | `'drawio'` with an amber `dw` pill badge |
+| File extensions | `.drawio`, `.xml` (auto-detected by content sniffing for `<mxfile>` / `<mxGraphModel>`) |
+| Menu | `Tools → Diagram (draw.io)` → New Diagram · From Template ▶ · Check for updates |
+
+### First-use flow
+
+1. Click `Tools → Diagram (draw.io) → New Diagram` (or open a `.drawio` file)
+2. A small modal appears: "Download draw.io (≈40 MB)" with a progress bar
+3. ~30 seconds later (depending on connection), tab opens to a blank canvas
+4. From then on, every subsequent open is instant
+
+### Starter templates
+
+Four pre-built scaffolds under `From Template`:
+- **Flowchart** — Start (green) → Process (blue) → Decision (yellow) → End (red), connected with orthogonal arrows
+- **Sequence Diagram** — two UML lifelines with one solid request + one dashed response message
+- **Class Diagram (UML)** — one class swimlane with attributes / separator / methods
+- **Entity Relationship** — Customer + Order tables with PK/FK columns and a `places` 1:N edge
+
+---
+
 ## 🔒 Encrypted Pad
 
 Per-file encryption with a single profile-wide password. Open a `.txt` (or anything) → click 🔒 → confirm — file is saved as an encrypted JSON envelope. Re-open it later → password prompt → decrypt in memory → looks like a normal file.
@@ -342,9 +441,9 @@ Per-file encryption with a single profile-wide password. Open a `.txt` (or anyth
 Powered by **Excalidraw 0.18** running in an iframe. Same engine as excalidraw.com — hand-drawn shapes, rough.js style, full keyboard parity.
 
 - Rectangle, ellipse, diamond, arrow, line, freedraw, text, image, library, frame, laser pointer
-- Auto-saves to `%AppData%\notepp\Whiteboards\whiteboard-N.json` (1.5 s debounce)
+- **Save lifecycle matches every other tab type** — new tabs are in-memory, red dot appears the first time you draw, `Ctrl+S` pops the Save As dialog. Session auto-save still captures unsaved work for crash recovery.
 - Open existing `.excalidraw` files from anywhere — Note++ detects raw Excalidraw exports and routes them correctly
-- v1 → v2 format migration on load (old custom-canvas whiteboards still open)
+- v1 → v2 format migration on load — old auto-backed whiteboards (pre-v1.5.1) still open; first save migrates them out of `%AppData%\notepp\Whiteboards\` to a user-picked location
 
 ---
 
@@ -442,6 +541,25 @@ flowchart LR
 
 ---
 
+## 🔄 Auto-Update
+
+Note++ ships with `electron-updater` wired to the GitHub releases provider — silent background download, explicit click-to-install. Default-on, persisted setting.
+
+### How it surfaces
+
+1. ~8 s after launch (and every 6 h while running) Note++ asks GitHub if there's a newer release
+2. If yes, a pill appears on the far right of the toolbar:
+   - 🔵 **`New update available (vX.Y.Z)`** — download just kicked off
+   - 🟠 **`Downloading 42%`** — live percent ticks as the file streams
+   - 🟢 **`Click to update to vX.Y.Z`** — clickable, hover highlight
+3. Click the green pill → main window hides → a small frameless updater window opens with a progress animation → success card (`✓ Upgraded to vX.Y.Z`) → ~2 s later the install fires and the new version relaunches
+
+### Toggle / manual check
+
+`?` menu → **Check for Updates Automatically** (checkbox, persisted to `settings.json`) — or **Check for Updates Now** (manual trigger, dev-mode shows a "only runs in installed build" notice).
+
+---
+
 ## ⌨️ Keyboard Shortcuts
 
 | Shortcut             | Action                                |
@@ -479,15 +597,22 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] `node-pty` integration — true PTY with proper resize
 - [x] `electron-builder` packaging + GitHub Actions release workflow
 - [x] Git integration in editor (Source Control panel + branch ops)
+- [x] **Inline git diff gutter** — green/blue/red markers for added/modified/deleted lines vs HEAD
 - [x] Auto-backup with version retention
 - [x] AI Assistant (Ollama) with multi-turn chat + Agent mode
 - [x] Encrypted pad with recovery key
 - [x] Excalidraw-powered whiteboard
+- [x] **draw.io structured-diagram editor** — downloaded on demand, persists across upgrades, 4 starter templates
+- [x] **LSP integration** — Pyright for Python, click-to-install pill, diagnostics + hover + completion + go-to-def
 - [x] **Compare** — file diff (Monaco) + folder diff (dir-compare, Diff.Net-style tree)
 - [x] **Find in Files** — recursive search across a folder, results panel
 - [x] **Mark** — multi-colour persistent highlights
 - [x] **Recent Files** menu (last 15, persisted)
 - [x] **External-change file watcher** — auto-reload / "Keep mine" prompt
+- [x] **macOS + Linux builds** — 3-OS CI matrix, NSIS / DMG / AppImage / .deb artifacts
+- [x] **Silent auto-update** — electron-updater + toolbar pill + dedicated progress window
+- [x] **Persistent UI toggles** — Word Wrap / Dark Mode / Zoom / Minimap / Whitespace survive restarts
+- [x] **Session dirty-flag persistence** — unsaved tabs come back showing the red dot after restart
 - [x] `AGENTS.md` + `.notepp/memory.md` auto-injected into AI prompt
 - [x] Multi-model picker (chat vs agent)
 - [x] Preview pane zoom + maximise
@@ -495,14 +620,13 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] Find live decorations (gutter + minimap markers, current-match indicator)
 
 ### Next
-- [ ] Inline git diff gutter (added/modified/deleted markers in editor)
-- [ ] LSP server connections beyond Monaco's built-in JS/TS IntelliSense
+- [ ] **LSP for more languages** — Go (gopls), Rust (rust-analyzer), TypeScript (deeper than Monaco's built-in), etc. The registry pattern in `lsp-service.js` makes each new language a one-entry addition.
 - [ ] Git blame and history view
-- [ ] macOS / Linux builds
 - [ ] Hunk-by-hunk apply/reject in Agent mode diff
-- [ ] Windows Hello integration for encryption unlock
+- [ ] Windows Hello / macOS Touch ID integration for encryption unlock
 - [ ] MCP client support — connect to community MCP servers (filesystem, GitHub, etc.)
 - [ ] Inline AI completion (Cursor-Tab style) via Ollama FIM
+- [ ] macOS code-signing (currently unsigned; first-launch Gatekeeper warning)
 - [ ] Voice input — proper `whisper.cpp` native bindings (the previous transformers.js attempt was unstable in Electron and was removed)
 
 ---
@@ -516,7 +640,8 @@ Contributions are welcome. The project is small and easy to read end-to-end — 
 - Add a new entry to the Command Palette (`renderer.js` → `cmdItems`)
 - Add a Monaco syntax theme
 - Improve keyboard shortcut coverage
-- Help with macOS / Linux build support
+- Add a new LSP language registry entry in `src/lsp-service.js` (e.g. `gopls` for Go, `rust-analyzer` for Rust)
+- Add another draw.io template scaffold to `DRAWIO_TEMPLATES` in `src/renderer.js`
 
 **Workflow:**
 1. Fork the repo

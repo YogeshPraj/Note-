@@ -2767,6 +2767,7 @@ function toggleDarkMode() {
   document.getElementById('btn-darkmode').classList.toggle('active', isDarkMode);
   syncMermaidThemeToAppMode(); // keep diagram theme in sync
   sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode }); // keep whiteboard in sync
+  sendToDrawio({ type: 'dw-theme', dark: isDarkMode });     // keep draw.io in sync
   saveSetting('ui.darkMode', isDarkMode);          // persist across sessions
 }
 
@@ -3523,6 +3524,7 @@ function setupToolbar() {
     const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','mermaid','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
     const items = [
       ['🖼 New Whiteboard Tab', () => createWhiteboardTab(null, '')],
+      ['📊 New Diagram Tab',    () => createDrawioTab(null, '')],
       null,
       ...langs.map(lang => [lang, () => {
         tab.language = lang;
@@ -3823,6 +3825,16 @@ async function saveSession() {
         dirty: !!tab.dirty,    // preserve unsaved-changes marker across restarts
       };
     }
+    // draw.io tabs — same shape as whiteboard: content is the diagram XML
+    if (tab.type === 'drawio') {
+      return {
+        id: tab.id, name: tab.name, filePath: tab.filePath || null,
+        content: tab.content || '',
+        language: 'drawio', encoding: tab.encoding, eol: tab.eol,
+        active: tab.id === activeTabId, type: 'drawio',
+        dirty: !!tab.dirty,
+      };
+    }
     const content = tab.model.getValue();
     // Encrypted tabs: NEVER persist plaintext to session.json. Save just the
     // path + flag; on restore we re-read the encrypted file from disk, which
@@ -3886,6 +3898,27 @@ async function restoreSession() {
         language: 'whiteboard',
         encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
         model: null, viewState: null, type: 'whiteboard',
+      };
+      tabs.push(tab);
+      if (s.active) activeId = id;
+      continue;
+    }
+
+    // Restore drawio tabs (same pattern as whiteboard — no Monaco model)
+    if (s.type === 'drawio' || s.language === 'drawio') {
+      tabCounter++;
+      const id = tabCounter;
+      if (s.filePath) {
+        const r = await window.electronAPI.readFile(s.filePath);
+        if (r.success) content = r.content;
+      }
+      const tab = {
+        id, name: s.name, filePath: s.filePath || null,
+        content,
+        dirty: !!s.dirty,
+        language: 'drawio',
+        encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
+        model: null, viewState: null, type: 'drawio',
       };
       tabs.push(tab);
       if (s.active) activeId = id;

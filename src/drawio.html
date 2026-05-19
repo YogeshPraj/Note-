@@ -53,6 +53,18 @@
     let drawioReady = false;
     let pendingLoadXml = null;
 
+    // Per-load generation counter. Bumped on every dw-load. drawio fires an
+    // autosave event right after applying a loaded scene; we ignore any
+    // autosave/save/export whose generation no longer matches, so loading
+    // a tab (or switching between tabs that share this iframe) doesn't
+    // mark the freshly activated tab dirty. Same pattern as the whiteboard
+    // iframe's loadGen.
+    let loadGen = 0;
+    // While loadSuppress > 0, ignore all drawio state events. drawio fires
+    // multiple change events synchronously while it builds the graph from
+    // an XML load — none of those should count as user edits.
+    let loadSuppress = 0;
+
     // Minimal valid empty drawio document. Sending xml:'' makes the embed
     // sit on the "Loading..." spinner forever — drawio expects at least a
     // well-formed <mxfile> envelope to consider the load complete.
@@ -70,6 +82,19 @@
       try { window.parent?.postMessage(msg, '*'); } catch {}
     }
 
+    // Centralised load-into-drawio: bumps generation, arms the suppression
+    // window so the resulting load-echo events get dropped, then dispatches
+    // the actual action. autosave:1 enables the continuous state events
+    // we need to mirror the user's drawing into tab.dirty / tab.content.
+    function loadIntoDrawio(xml) {
+      loadGen += 1;
+      loadSuppress += 1;
+      postToDrawio({ action: 'load', xml, autosave: 1 });
+      // Release the suppression after a short window — drawio finishes its
+      // post-load change cascade within ~150ms in practice.
+      setTimeout(() => { loadSuppress = Math.max(0, loadSuppress - 1); }, 400);
+    }
+
     // Single message listener — disambiguates by payload shape:
     //   parent → us : object with .type (dw-load / dw-get-data / dw-theme)
     //   drawio → us : JSON-stringified object with .event (init / save / …)
@@ -82,7 +107,7 @@
       if (raw && typeof raw === 'object' && typeof raw.type === 'string') {
         if (raw.type === 'dw-load') {
           const xml = (raw.content && raw.content.trim()) ? raw.content : EMPTY_MXFILE;
-          if (drawioReady) postToDrawio({ action: 'load', xml, autosave: 0 });
+          if (drawioReady) loadIntoDrawio(xml);
           else pendingLoadXml = xml;
           return;
         }
@@ -108,12 +133,14 @@
           // Always send something — fall back to EMPTY_MXFILE if the parent
           // hasn't pushed content yet (new tab race condition).
           const xml = (pendingLoadXml && pendingLoadXml.trim()) ? pendingLoadXml : EMPTY_MXFILE;
-          postToDrawio({ action: 'load', xml, autosave: 0 });
+          loadIntoDrawio(xml);
           pendingLoadXml = null;
           postToParent({ type: 'dw-ready' });
           return;
         }
         if (m.event === 'autosave' || m.event === 'save' || m.event === 'export') {
+          // Drop load-echoes so freshly activated tabs don't get marked dirty.
+          if (loadSuppress > 0) return;
           postToParent({ type: 'dw-state', content: m.xml || '' });
           return;
         }

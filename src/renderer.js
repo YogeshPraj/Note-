@@ -282,14 +282,25 @@ require(['vs/editor/editor.main'], () => {
     });
   })();
 
-  // Load encryption profile (if previously configured). Doesn't unlock — just
-  // detects "is this install set up?". Unlocking happens on demand.
-  loadEncryptionProfile().then(() => updateEncryptionStatusIndicator());
-
-  // Initialise git integration (detects `git` on PATH, attaches focus + fetch timers)
-  setupSourceControlPanel();
-  initGitIntegration();
+  // Session restore is on the critical path — users want their tabs back
+  // immediately. Everything else can wait until the browser is idle, which
+  // dramatically tightens the time-to-first-paint window. requestIdleCallback
+  // is supported in Electron 28's Chromium; setTimeout fallback for safety.
   restoreSession().then(restored => { if (!restored) createTab(); });
+
+  const deferredInit = () => {
+    // Encryption profile detection (only reads one small JSON file).
+    loadEncryptionProfile().then(() => updateEncryptionStatusIndicator());
+    // Git: spawns `git --version` + walks for .git + wires the 5-min poll.
+    // None of this affects the editor working — defer to idle.
+    setupSourceControlPanel();
+    initGitIntegration();
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(deferredInit, { timeout: 1500 });
+  } else {
+    setTimeout(deferredInit, 200);
+  }
 
   // Events
   editor.onDidChangeCursorPosition(updateStatusBar);

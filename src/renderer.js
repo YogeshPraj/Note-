@@ -3319,22 +3319,40 @@ function setupToolbar() {
 
   statusLang.addEventListener('click', () => {
     const tab = getActiveTab();
-    if (!tab || tab.type === 'game' || tab.type === 'whiteboard') return;
-    const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','mermaid','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
-    const items = [
+    if (!tab) return;
+
+    // The three "new tab" actions are always available — they're the only
+    // useful options when the active tab isn't a text editor (whiteboard,
+    // drawio, game), so for those tab types we show ONLY these three and
+    // skip the language list (which doesn't apply to non-editor tabs).
+    const newTabActions = [
       ['🖼 New Whiteboard Tab', () => createWhiteboardTab(null, '')],
       ['📊 New Diagram Tab',    () => createDrawioTab(null, '')],
-      null,
-      ...langs.map(lang => [lang, () => {
-        tab.language = lang;
-        monaco.editor.setModelLanguage(tab.model, lang);
-        updateLanguageStatus();
-        updateMermaidToolbar(lang === 'mermaid');
-        if (lang === 'mermaid' && !previewOpen) openPreview();
-        else if (previewOpen) updatePreview();
-        editor.focus();
-      }])
+      ['📄 New Text Tab',       () => newTab()],
     ];
+
+    let items;
+    if (tab.type === 'whiteboard' || tab.type === 'drawio' || tab.type === 'game') {
+      // Non-editor tab: only the new-tab actions make sense.
+      items = newTabActions;
+    } else {
+      // Editor tab: new-tab actions PLUS the language switcher.
+      const langs = ['plaintext','javascript','typescript','python','java','c','cpp','csharp','go','rust','ruby','php','html','css','json','xml','markdown','mermaid','sql','shell','powershell','bat','yaml','kotlin','swift','lua','r','dockerfile','scss'];
+      items = [
+        ...newTabActions,
+        null,
+        ...langs.map(lang => [lang, () => {
+          tab.language = lang;
+          monaco.editor.setModelLanguage(tab.model, lang);
+          updateLanguageStatus();
+          updateMermaidToolbar(lang === 'mermaid');
+          if (lang === 'mermaid' && !previewOpen) openPreview();
+          else if (previewOpen) updatePreview();
+          editor.focus();
+        }])
+      ];
+    }
+
     const langRect = statusLang.getBoundingClientRect();
     showFloatingMenu(langRect.left, langRect.bottom, items);
   });

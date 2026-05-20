@@ -582,25 +582,8 @@ function openGameTab() {
 // Lowest integer N ≥ 1 not already used by an existing whiteboard tab name.
 // Accepts both the new "whiteboard-N" form and the legacy "whiteboard-N.json"
 // form so a session restored from before v1.5.x doesn't reuse numbers.
-function nextWbTabNumber() {
-  const used = new Set(
-    tabs
-      .filter(t => t.type === 'whiteboard')
-      .map(t => {
-        const m = t.name.match(/^whiteboard-(\d+)(?:\.json)?$/);
-        return m ? parseInt(m[1], 10) : null;
-      })
-      .filter(n => n !== null)
-  );
-  for (let n = 1; ; n++) if (!used.has(n)) return n;
-}
-
-function sendToWhiteboard(msg) {
-  const frame = document.getElementById('whiteboard-frame');
-  if (frame && frame.contentWindow) {
-    frame.contentWindow.postMessage(msg, '*');
-  }
-}
+// nextWbTabNumber + sendToWhiteboard now live in src/whiteboard-helpers.js.
+// Loaded as a classic <script> before renderer.js — both remain globals.
 
 // =============================================================================
 // draw.io integration — bundle is downloaded on-demand, lives in userData
@@ -1097,38 +1080,7 @@ function escapeHtml(s) {
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
-function createWhiteboardTab(filePath, content) {
-  // If a whiteboard for this filePath already exists, just activate it
-  if (filePath) {
-    const existing = tabs.find(t => t.filePath === filePath && t.type === 'whiteboard');
-    if (existing) { activateTab(existing.id); return existing; }
-  }
-  tabCounter++;
-  const id = tabCounter;
-  // Match text-tab UX: new (unsaved) whiteboards get a "whiteboard-N" display
-  // name (no .json suffix until the user picks a real save location), so the
-  // tab reads cleanly as "untitled" rather than as a real file on disk.
-  const name = filePath
-    ? filePath.split(/[\\/]/).pop()
-    : `whiteboard-${nextWbTabNumber()}`;
-  const tab = {
-    id, name,
-    filePath: filePath || null,
-    content: content || '',
-    // New whiteboards mirror "new N" text tabs: not dirty yet (nothing drawn),
-    // but the absence of filePath means Ctrl+S → Save As prompt.
-    dirty: false,
-    language: 'whiteboard',
-    encoding: 'UTF-8',
-    eol: 'Windows (CR LF)',
-    model: null, viewState: null,
-    type: 'whiteboard'
-  };
-  tabs.push(tab);
-  activateTab(id);
-  renderTabs();
-  return tab;
-}
+// createWhiteboardTab now lives in src/whiteboard-helpers.js — global.
 
 function activateTab(id) {
   const tab = tabs.find(t => t.id === id);

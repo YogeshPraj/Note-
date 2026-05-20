@@ -13,7 +13,7 @@
 [![Stars](https://img.shields.io/github/stars/YogeshPraj/Note-?style=flat&color=f59e0b)](https://github.com/YogeshPraj/Note-/stargazers)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#-license)
 
-[![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-32-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Monaco](https://img.shields.io/badge/Monaco-0.45-0078D4?logo=visualstudiocode&logoColor=white)](https://microsoft.github.io/monaco-editor/)
 [![Excalidraw](https://img.shields.io/badge/Excalidraw-0.18-6965DB?logo=excalidraw&logoColor=white)](https://excalidraw.com/)
 [![draw.io](https://img.shields.io/badge/draw.io-30-F08705?logo=diagramsdotnet&logoColor=white)](https://www.drawio.com/)
@@ -205,7 +205,7 @@ npm run build:linux    # Linux    → AppImage + .deb (x64)
 
 | Layer              | Technology                                                          |
 | ------------------ | ------------------------------------------------------------------- |
-| Runtime            | Electron 28                                                         |
+| Runtime            | Electron 32 (Node 20.18, Chromium 128)                              |
 | Editor             | Monaco Editor 0.45                                                  |
 | Markdown           | marked v18                                                          |
 | Diagrams (hand)    | Excalidraw 0.18 + React 18 (bundled via esbuild into iframe)        |

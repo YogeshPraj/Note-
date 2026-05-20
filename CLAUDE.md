@@ -16,7 +16,7 @@ Located at `D:\NewNotepad`. GitHub: https://github.com/YogeshPraj/Note-
 
 | Layer | Tech |
 |---|---|
-| Runtime | Electron 28 |
+| Runtime | Electron 32 (Node 20.18, Chromium 128) |
 | Editor | Monaco Editor 0.45.0 |
 | Markdown | marked v18.0.3 |
 | Diagrams | Mermaid v11.14.0 |

@@ -1128,6 +1128,12 @@
   -->
 
   <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+
+  <!-- Lazy-loaders for UMD libraries (mermaid / xterm / jsdiff). These
+       helpers attach to the global scope; renderer.js calls them as plain
+       function names. Loaded AFTER vs/loader.js so the AMD trap-guard
+       captures the live define(). -->
+  <script src="lazy-loaders.js"></script>
   <script src="crypto.js"></script>
   <script src="lsp-client.js"></script>
   <script src="renderer.js"></script>

@@ -374,7 +374,7 @@
         }
       ],
       "icon": "src/assets/icon.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "notepp-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -395,7 +395,7 @@
       ],
       "icon": "src/assets/icon.png",
       "category": "public.app-category.developer-tools",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "notepp-${version}-${arch}.${ext}",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "identity": null
@@ -423,7 +423,7 @@
       ],
       "icon": "src/assets/icon.png",
       "category": "Development",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "notepp-${version}-${arch}.${ext}",
       "synopsis": "Developer-focused text editor with IntelliSense, integrated terminal, and live preview",
       "description": "Note++ is an Electron + Monaco editor aimed at developers — a modern alternative to Notepad++ with IntelliSense, integrated PowerShell/bash terminal, live HTML/Markdown/Mermaid preview, multi-tab editing, cloud session sync, encryption, integrated git, and a built-in whiteboard powered by Excalidraw.",
       "maintainer": "Yogesh Prajapati"

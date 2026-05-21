@@ -165,9 +165,9 @@ Grab the latest installer for your OS from [Releases](https://github.com/YogeshP
 
 | Platform | Artifact |
 | --- | --- |
-| Windows | `Note++-Setup-x.y.z.exe` (NSIS installer) |
-| macOS   | `Note++-x.y.z-x64.dmg` or `Note++-x.y.z-arm64.dmg` |
-| Linux   | `Note++-x.y.z.AppImage` or `notepp_x.y.z_amd64.deb` |
+| Windows | `notepp-Setup-x.y.z.exe` (NSIS installer) |
+| macOS   | `notepp-x.y.z-x64.dmg` (Intel) or `notepp-x.y.z-arm64.dmg` (Apple Silicon) |
+| Linux   | `notepp-x.y.z-x86_64.AppImage` or `notepp-x.y.z-amd64.deb` |
 
 Note++ registers itself as a handler for `.txt`, `.md`, `.json`, `.html`, `.excalidraw`, `.drawio` and friends — right-click any file → **Open with Note++**.
 

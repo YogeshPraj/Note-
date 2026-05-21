@@ -114,40 +114,26 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
   # ───────────────────────────────────────────────────────────────────────────
-  # JOB 2 — RELEASE
-  # Marks the GitHub release as Latest with auto-generated notes. By this
-  # point all three platforms have already uploaded their artifacts via
-  # electron-builder --publish always; this step just finalises the title
-  # and changelog and ensures it's flipped to Latest.
+  # JOB 2 — FINALISE RELEASE
+  # electron-builder --publish always has already uploaded every artifact
+  # in the build job. This job's ONLY purpose is to finalise the GitHub
+  # release: set a friendly title, generate the auto-changelog, and flip
+  # the 'Latest' badge.
+  #
+  # IMPORTANT: we do NOT pass `files:` to softprops. If we did, it would
+  # re-upload everything in dist/ with its OWN filename sanitization
+  # (which strips '+' chars from "Note++" and produces mangled
+  # `Note.-1.7.0-x64.zip.blockmap` style names), bloating the release
+  # to 27+ assets with confusing duplicates. Electron-builder is the
+  # sole authoritative uploader.
   # ───────────────────────────────────────────────────────────────────────────
   release:
-    name: Publish GitHub Release
+    name: Finalise GitHub Release
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-windows-latest
-          path: dist
-        continue-on-error: true
-
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-macos-latest
-          path: dist
-        continue-on-error: true
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-ubuntu-latest
-          path: dist
-        continue-on-error: true
-
-      - name: Create / update GitHub Release
+      - name: Finalise release (title + changelog + 'Latest' badge)
         uses: softprops/action-gh-release@v2
         with:
           name: Note++ ${{ needs.build.outputs.VERSION }}
@@ -156,15 +142,6 @@ jobs:
           prerelease: false
           make_latest: 'true'
           generate_release_notes: true
-          files: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/latest.yml
-            dist/latest-mac.yml
-            dist/latest-linux.yml
-            dist/*.blockmap
+          # no `files:` — electron-builder is the sole uploader
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

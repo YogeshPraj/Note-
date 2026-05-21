@@ -19,9 +19,9 @@
 [![draw.io](https://img.shields.io/badge/draw.io-30-F08705?logo=diagramsdotnet&logoColor=white)](https://www.drawio.com/)
 [![Mermaid](https://img.shields.io/badge/Mermaid-11.14-FF3670?logo=mermaid&logoColor=white)](https://mermaid.js.org/)
 [![Ollama](https://img.shields.io/badge/AI-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com/)
-[![Windows](https://img.shields.io/badge/Windows-Download-0078D4?logo=windows&logoColor=white)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-Setup.exe)
+[![Windows](https://img.shields.io/badge/Windows-Download-0078D4?logo=windows&logoColor=white)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.exe)
 [![macOS](https://img.shields.io/badge/macOS-Download-000000?logo=apple&logoColor=white)](https://github.com/YogeshPraj/Note-/releases/latest)
-[![Linux](https://img.shields.io/badge/Linux-Download-FCC624?logo=linux&logoColor=black)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-x86_64.AppImage)
+[![Linux](https://img.shields.io/badge/Linux-Download-FCC624?logo=linux&logoColor=black)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x64.AppImage)
 
 [**📥 Download**](https://github.com/YogeshPraj/Note-/releases/latest) • [Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap)
 
@@ -163,15 +163,15 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 
 Grab the latest installer for your OS from [Releases](https://github.com/YogeshPraj/Note-/releases/latest):
 
-| Platform | Direct download link | Artifact |
-| --- | --- | --- |
-| Windows | [notepp-Setup.exe](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-Setup.exe) | NSIS installer (x64) |
-| macOS — Intel | [notepp-x64.dmg](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-x64.dmg) | DMG (Intel) |
-| macOS — Apple Silicon | [notepp-arm64.dmg](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-arm64.dmg) | DMG (M1/M2/M3) |
-| Linux — AppImage | [notepp-x86_64.AppImage](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-x86_64.AppImage) | Universal (x64) |
-| Linux — Debian/Ubuntu | [notepp-amd64.deb](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-amd64.deb) | Apt-installable (x64) |
+**Pick the right file for your OS** — every link below resolves permanently to the **latest release** (no per-version URL maintenance):
 
-Each link always resolves to the **latest release** — the filenames are version-less (the actual version is printed in the installer UI and on the [Releases page](https://github.com/YogeshPraj/Note-/releases)).
+| OS | Two options |
+| --- | --- |
+| **Windows** (x64) | 📦 [Installer (.exe)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.exe) · 📁 [Portable (.zip)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.zip) |
+| **macOS** | 🍎 [Intel (.dmg)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-mac-x64.dmg) · 🍎 [Apple Silicon (.dmg)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-mac-arm64.dmg) |
+| **Linux** (x64) | 🐧 [Portable (.AppImage)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x64.AppImage) · 🐧 [Debian/Ubuntu (.deb)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x64.deb) |
+
+Filenames are version-less by design — the actual version is shown in the installer UI, the About dialog, and on the [Releases page](https://github.com/YogeshPraj/Note-/releases) title. You'll also see a handful of `*-mac.zip` / `*.blockmap` / `latest*.yml` files in each release — those are auto-updater payloads, not for manual download.
 
 Note++ registers itself as a handler for `.txt`, `.md`, `.json`, `.html`, `.excalidraw`, `.drawio` and friends — right-click any file → **Open with Note++**.
 

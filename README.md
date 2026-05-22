@@ -21,7 +21,7 @@
 [![Ollama](https://img.shields.io/badge/AI-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com/)
 [![Windows](https://img.shields.io/badge/Windows-Download-0078D4?logo=windows&logoColor=white)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.exe)
 [![macOS](https://img.shields.io/badge/macOS-Download-000000?logo=apple&logoColor=white)](https://github.com/YogeshPraj/Note-/releases/latest)
-[![Linux](https://img.shields.io/badge/Linux-Download-FCC624?logo=linux&logoColor=black)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x64.AppImage)
+[![Linux](https://img.shields.io/badge/Linux-Download-FCC624?logo=linux&logoColor=black)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x86_64.AppImage)
 
 [**📥 Download**](https://github.com/YogeshPraj/Note-/releases/latest) • [Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap)
 
@@ -169,7 +169,7 @@ Grab the latest installer for your OS from [Releases](https://github.com/YogeshP
 | --- | --- |
 | **Windows** (x64) | 📦 [Installer (.exe)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.exe) · 📁 [Portable (.zip)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.zip) |
 | **macOS** | 🍎 [Intel (.dmg)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-mac-x64.dmg) · 🍎 [Apple Silicon (.dmg)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-mac-arm64.dmg) |
-| **Linux** (x64) | 🐧 [Portable (.AppImage)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x64.AppImage) · 🐧 [Debian/Ubuntu (.deb)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x64.deb) |
+| **Linux** (x64) | 🐧 [Portable (.AppImage)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x86_64.AppImage) · 🐧 [Debian/Ubuntu (.deb)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-amd64.deb) |
 
 Filenames are version-less by design — the actual version is shown in the installer UI, the About dialog, and on the [Releases page](https://github.com/YogeshPraj/Note-/releases) title. You'll also see a handful of `*-mac.zip` / `*.blockmap` / `latest*.yml` files in each release — those are auto-updater payloads, not for manual download.
 

@@ -24,9 +24,10 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            target_flag: --win nsis
+            target_flag: --win
             artifact_glob: |
               dist/*.exe
+              dist/*.zip
               dist/latest.yml
               dist/*.blockmap
           - os: macos-latest

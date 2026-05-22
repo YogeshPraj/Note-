@@ -153,7 +153,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: release-signing
+          signing-policy-slug: notepp
           artifact-configuration-slug: windows-installer
           github-artifact-id: ${{ steps.artifact-ids.outputs.windows }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -168,7 +168,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: release-signing
+          signing-policy-slug: notepp
           artifact-configuration-slug: macos-dmg
           github-artifact-id: ${{ steps.artifact-ids.outputs.macos }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -183,7 +183,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: release-signing
+          signing-policy-slug: notepp
           artifact-configuration-slug: linux-packages
           github-artifact-id: ${{ steps.artifact-ids.outputs.linux }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -129,23 +129,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download unsigned Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: unsigned-windows
-          path: ./unsigned/windows/
-
-      - name: Download unsigned macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: unsigned-macos
-          path: ./unsigned/macos/
-
-      - name: Download unsigned Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: unsigned-linux
-          path: ./unsigned/linux/
+      # SignPath requires a GitHub artifact ID (not a local path). Resolve each
+      # artifact's numeric ID by name from the current workflow run.
+      - name: Resolve artifact IDs
+        id: artifact-ids
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WIN_ID=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name == "unsigned-windows") | .id')
+          MAC_ID=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name == "unsigned-macos") | .id')
+          LNX_ID=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name == "unsigned-linux") | .id')
+          echo "windows=$WIN_ID" >> $GITHUB_OUTPUT
+          echo "macos=$MAC_ID"   >> $GITHUB_OUTPUT
+          echo "linux=$LNX_ID"   >> $GITHUB_OUTPUT
 
       # ── Windows (Authenticode) ───────────────────────────────────────────────
       - name: Sign Windows installer
@@ -156,7 +155,8 @@ jobs:
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: release-signing
           artifact-configuration-slug: windows-installer
-          input-artifact-path: ./unsigned/windows/
+          github-artifact-id: ${{ steps.artifact-ids.outputs.windows }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           wait-for-completion: true
           output-artifact-directory: ./signed/windows/
 
@@ -170,14 +170,13 @@ jobs:
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: release-signing
           artifact-configuration-slug: macos-dmg
-          input-artifact-path: ./unsigned/macos/
+          github-artifact-id: ${{ steps.artifact-ids.outputs.macos }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           wait-for-completion: true
           output-artifact-directory: ./signed/macos/
 
       # ── Linux (GPG) ──────────────────────────────────────────────────────────
       # Requires a GPG key configured in SignPath.
-      # To sign .deb and .AppImage separately, duplicate this step with a
-      # different artifact-configuration-slug for each format.
       - name: Sign Linux packages
         uses: SignPath/github-action-submit-signing-request@v1
         with:
@@ -186,7 +185,8 @@ jobs:
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: release-signing
           artifact-configuration-slug: linux-packages
-          input-artifact-path: ./unsigned/linux/
+          github-artifact-id: ${{ steps.artifact-ids.outputs.linux }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           wait-for-completion: true
           output-artifact-directory: ./signed/linux/
 

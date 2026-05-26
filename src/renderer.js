@@ -1677,6 +1677,16 @@ function activateTab(id) {
   }
 
   renderTabs();
+  // Keep the active tab visible when tab overflow is present (e.g. clicking +).
+  const activeEl = tabBar?.querySelector('.tab.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  updateTabScrollButtons();
+  // Re-assert editor focus after tab button clicks (new/open) so caret lands in the active tab.
+  if (tab.type !== 'game' && tab.type !== 'whiteboard' && tab.type !== 'drawio'
+                     && tab.type !== 'diff' && tab.type !== 'folder-diff'
+                     && tab.type !== 'quick-diff') {
+    requestAnimationFrame(() => editor?.focus());
+  }
   updateStatusBar();
   updateTitle();
   updateLanguageStatus();

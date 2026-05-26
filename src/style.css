@@ -371,31 +371,6 @@ body.theme-solarizedLight {
   color: var(--tab-text);
 }
 /* Title bar toggle row inside theme picker */
-.tcp-titlebar-row {
-  padding: 8px 16px 10px;
-  border-top: 1px solid var(--toolbar-border);
-}
-.tcp-titlebar-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--tab-text);
-  cursor: pointer;
-  user-select: none;
-}
-.tcp-titlebar-label input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-  flex-shrink: 0;
-  accent-color: var(--statusbar-bg);
-}
-.tcp-titlebar-note {
-  opacity: 0.45;
-  font-size: 11px;
-}
-
 html, body {
   height: 100%;
   overflow: hidden;

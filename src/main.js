@@ -145,18 +145,19 @@ function createWindow() {
     // It'll be delivered when the renderer sends 'renderer-ready' below.
     const file = fileFromArgv(process.argv);
     if (file) queueOpenFiles([file]);
-    // F12 → toggle DevTools (dev mode only)
-    if (!app.isPackaged) {
-      mainWindow.webContents.on('before-input-event', (_e, input) => {
-        if (input.key === 'F12' && input.type === 'keyDown') {
-          if (mainWindow.webContents.isDevToolsOpened()) {
-            mainWindow.webContents.closeDevTools();
-          } else {
-            mainWindow.webContents.openDevTools({ mode: 'bottom' });
-          }
-        }
-      });
-    }
+    // Hard-block common Chromium DevTools shortcuts for end users.
+    // Keep F12 free for editor actions (Go to Definition), so we only block
+    // Ctrl/Cmd+Shift+I/J/C and Ctrl/Cmd+Alt+I.
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return;
+      const key = String(input.key || '').toUpperCase();
+      const ctrlOrCmd = !!input.control || !!input.meta;
+      const isShiftCombo = ctrlOrCmd && !!input.shift && ['I', 'J', 'C'].includes(key);
+      const isAltCombo = ctrlOrCmd && !!input.alt && key === 'I';
+      if (isShiftCombo || isAltCombo) {
+        event.preventDefault();
+      }
+    });
   });
 
   mainWindow.on('close', (e) => {
@@ -565,8 +566,6 @@ function buildMenu() {
             try { await autoUpdater?.checkForUpdates(); } catch (e) { console.error(e); }
           },
         },
-        { type: 'separator' },
-        { label: 'Developer Tools', accelerator: 'F12', click: () => mainWindow.webContents.toggleDevTools() },
       ]
     }
   ];

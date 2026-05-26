@@ -449,8 +449,6 @@ const MENU_STRUCTURE = [
     { label: 'Keyboard Shortcuts Reference', ch: 'menu-shortcuts-ref' },
     { sep: true },
     { label: 'Check for Updates Now',    ch: 'menu-check-updates' },
-    { sep: true },
-    { label: 'Developer Tools',          ch: 'menu-devtools' },
   ]},
 ];
 
@@ -1673,6 +1671,7 @@ function activateTab(id) {
     if (previewOpen) closePreview();
     mountQuickDiffTab(tab);
   } else {
+    monacoEl.style.display = '';
     if (editor) {
       editor.setModel(tab.model);
       if (tab.viewState) editor.restoreViewState(tab.viewState);
@@ -4585,7 +4584,6 @@ function setupMenuListeners() {
   m('menu-toggle-sidebar',() => { const sb = document.getElementById('sidebar'); if (sb) sb.classList.toggle('hidden'); editor?.layout(); });
   m('menu-goto-refs',     () => editor?.getAction('editor.action.referenceSearch.trigger')?.run());
   m('menu-goto-brace',    () => editor?.getAction('editor.action.jumpToBracket')?.run());
-  m('menu-devtools',      () => window.electronAPI?.openDialog && window.electronAPI.messageDialog({ type: 'info', title: 'DevTools', message: 'Press F12 to open Developer Tools.', buttons: ['OK'] }));
   m('menu-check-updates', () => window.electronAPI.messageDialog({ type: 'info', title: 'Check for Updates', message: 'Use Help menu or restart the app to check for updates.', buttons: ['OK'] }));
 
   // Terminal output from run-command (id=0)

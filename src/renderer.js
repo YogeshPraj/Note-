@@ -3424,7 +3424,7 @@ async function applyTitlebarMode(themed, save = true) {
   }
 }
 
-function applyTheme(id, save = true) {
+async function applyTheme(id, save = true) {
   const theme = THEMES[id] || THEMES.light;
   currentTheme = id in THEMES ? id : 'light';
   isDarkMode = theme.isDark;
@@ -3449,8 +3449,12 @@ function applyTheme(id, save = true) {
   });
 
   if (save) {
-    saveSetting('ui.theme', currentTheme);
-    saveSetting('ui.darkMode', isDarkMode); // keep legacy key in sync
+    // Single read-modify-write so the two keys can't race against each other
+    // (or against a concurrent applyTitlebarMode save) and lose one of the values.
+    const s = await window.electronAPI.readSettings();
+    (s.ui = s.ui || {}).theme = currentTheme;
+    s.ui.darkMode = isDarkMode; // keep legacy key in sync
+    await window.electronAPI.writeSettings(s);
   }
 }
 

@@ -1763,60 +1763,14 @@ function renderTabs() {
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabContextMenu(e, tab.id); });
     tabBar.appendChild(el);
   });
-  updateTabScrollButtons();
-}
-
-function updateTabScrollButtons() {
-  const left = document.getElementById('tab-scroll-left');
-  const right = document.getElementById('tab-scroll-right');
-  if (!left || !right || !tabBar) return;
-  const overflow = tabBar.scrollWidth - tabBar.clientWidth > 1;
-  if (!overflow) {
-    left.disabled = true;
-    right.disabled = true;
-    left.style.display = 'none';
-    right.style.display = 'none';
-    return;
-  }
-  left.style.display = '';
-  right.style.display = '';
-  left.disabled = tabBar.scrollLeft <= 0;
-  right.disabled = tabBar.scrollLeft + tabBar.clientWidth >= tabBar.scrollWidth - 1;
 }
 
 function initTabDrag(e, tabId, tabEl) {
   const startX  = e.clientX;
   const offsetX = e.clientX - tabEl.getBoundingClientRect().left;
   let ghost = null, indicator = null, started = false, dropIdx = -1;
-  let lastEv = null;
-  let autoScrollRAF = 0;
-
-  function autoScrollTick() {
-    autoScrollRAF = 0;
-    if (!started || !lastEv) return;
-    const barRect = tabBar.getBoundingClientRect();
-    const edge = 40;
-    const maxSpeed = 18;
-    let dx = 0;
-    if (lastEv.clientX < barRect.left + edge) {
-      const t = (barRect.left + edge - lastEv.clientX) / edge;
-      dx = -Math.ceil(maxSpeed * Math.min(1, t));
-    } else if (lastEv.clientX > barRect.right - edge) {
-      const t = (lastEv.clientX - (barRect.right - edge)) / edge;
-      dx = Math.ceil(maxSpeed * Math.min(1, t));
-    }
-    if (dx !== 0) {
-      const before = tabBar.scrollLeft;
-      tabBar.scrollLeft = Math.max(0, Math.min(tabBar.scrollWidth - tabBar.clientWidth, before + dx));
-      if (tabBar.scrollLeft !== before) {
-        onMove(lastEv);
-      }
-    }
-    if (started) autoScrollRAF = requestAnimationFrame(autoScrollTick);
-  }
 
   function onMove(ev) {
-    lastEv = ev;
     if (!started) {
       if (Math.abs(ev.clientX - startX) < 5) return;
       started = true;
@@ -1836,8 +1790,6 @@ function initTabDrag(e, tabId, tabEl) {
       });
       document.body.appendChild(indicator);
       tabEl.style.opacity = '0.4';
-
-      if (!autoScrollRAF) autoScrollRAF = requestAnimationFrame(autoScrollTick);
     }
 
     const barRect  = tabBar.getBoundingClientRect();
@@ -1846,18 +1798,15 @@ function initTabDrag(e, tabId, tabEl) {
     ghost.style.top   = barRect.top + 'px';
     ghost.style.width = tabRect.width + 'px';
 
-    // Find where the tab would be inserted (clamp pointer x to bar bounds so
-    // edge-drags resolve to first/last slot instead of falling through).
-    const probeX = Math.max(barRect.left, Math.min(barRect.right, ev.clientX));
+    // Find where the tab would be inserted
     const allTabs = Array.from(tabBar.querySelectorAll('.tab'));
     dropIdx = allTabs.length;
     for (let i = 0; i < allTabs.length; i++) {
       const r = allTabs[i].getBoundingClientRect();
-      if (probeX < r.left + r.width / 2) { dropIdx = i; break; }
+      if (ev.clientX < r.left + r.width / 2) { dropIdx = i; break; }
     }
 
-    // Position the drop indicator (clamped to visible bar so it doesn't leak
-    // over the scroll-arrow buttons).
+    // Position the drop indicator
     let ix;
     if (dropIdx < allTabs.length) {
       ix = allTabs[dropIdx].getBoundingClientRect().left;
@@ -1865,7 +1814,6 @@ function initTabDrag(e, tabId, tabEl) {
       const last = allTabs[allTabs.length - 1];
       ix = last ? last.getBoundingClientRect().right : barRect.left;
     }
-    ix = Math.max(barRect.left, Math.min(barRect.right, ix));
     indicator.style.left   = (ix - 1) + 'px';
     indicator.style.top    = barRect.top + 'px';
     indicator.style.height = barRect.height + 'px';
@@ -1874,7 +1822,6 @@ function initTabDrag(e, tabId, tabEl) {
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
-    if (autoScrollRAF) { cancelAnimationFrame(autoScrollRAF); autoScrollRAF = 0; }
     ghost?.remove();
     indicator?.remove();
     document.body.classList.remove('tab-dragging');
@@ -3424,7 +3371,7 @@ async function applyTitlebarMode(themed, save = true) {
   }
 }
 
-async function applyTheme(id, save = true) {
+function applyTheme(id, save = true) {
   const theme = THEMES[id] || THEMES.light;
   currentTheme = id in THEMES ? id : 'light';
   isDarkMode = theme.isDark;
@@ -3449,12 +3396,8 @@ async function applyTheme(id, save = true) {
   });
 
   if (save) {
-    // Single read-modify-write so the two keys can't race against each other
-    // (or against a concurrent applyTitlebarMode save) and lose one of the values.
-    const s = await window.electronAPI.readSettings();
-    (s.ui = s.ui || {}).theme = currentTheme;
-    s.ui.darkMode = isDarkMode; // keep legacy key in sync
-    await window.electronAPI.writeSettings(s);
+    saveSetting('ui.theme', currentTheme);
+    saveSetting('ui.darkMode', isDarkMode); // keep legacy key in sync
   }
 }
 
@@ -4231,25 +4174,9 @@ function setupCloudPrefButtons() {
 function setupToolbar() {
   document.getElementById('tab-new-btn').addEventListener('click', newTab);
 
-  // Tab scroll arrow buttons (visible only when tabs overflow)
-  const scrollLeftBtn = document.getElementById('tab-scroll-left');
-  const scrollRightBtn = document.getElementById('tab-scroll-right');
-  const scrollStep = () => Math.max(120, Math.floor(tabBar.clientWidth * 0.6));
-  scrollLeftBtn?.addEventListener('click', () => {
-    tabBar.scrollBy({ left: -scrollStep(), behavior: 'smooth' });
-  });
-  scrollRightBtn?.addEventListener('click', () => {
-    tabBar.scrollBy({ left: scrollStep(), behavior: 'smooth' });
-  });
-  tabBar.addEventListener('scroll', updateTabScrollButtons, { passive: true });
-  window.addEventListener('resize', updateTabScrollButtons);
-  if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(updateTabScrollButtons).observe(tabBar);
-  }
-
   // Double-click on empty tab bar space → new tab
   document.getElementById('tab-bar-container').addEventListener('dblclick', (e) => {
-    if (e.target.closest('.tab') || e.target.id === 'tab-new-btn' || e.target.classList.contains('tab-scroll-btn')) return;
+    if (e.target.closest('.tab') || e.target.id === 'tab-new-btn') return;
     newTab();
   });
   document.querySelectorAll('.tb-btn[data-action]').forEach(btn => {

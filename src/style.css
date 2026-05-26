@@ -958,20 +958,6 @@ body.theme-dark .ai-quick-btn:hover { background: #3a3a3a; border-color: #58a6ff
 }
 #tab-new-btn:hover { background: var(--btn-hover); }
 
-.tab-scroll-btn {
-  width: 24px; height: 23px;
-  border: none; background: var(--tabbar-bg);
-  cursor: pointer; font-size: 20px; line-height: 1;
-  color: var(--tab-text); flex: 0 0 24px;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Segoe UI Symbol', system-ui, sans-serif;
-  font-weight: 700;
-  padding: 0;
-  z-index: 2;
-}
-.tab-scroll-btn:hover:not(:disabled) { background: var(--btn-hover); }
-.tab-scroll-btn:disabled { opacity: 0.35; cursor: default; }
-
 /* ===== Main Area ===== */
 #main-area {
   display: flex;

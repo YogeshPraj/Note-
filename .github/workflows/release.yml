@@ -8,46 +8,27 @@ on:
 permissions:
   contents: write
   actions: read
+  id-token: write   # Required for SignPath Trusted Build System authentication
 
 jobs:
-  # ───────────────────────────────────────────────────────────────────────────
-  # JOB 1 — BUILD + PUBLISH (matrix across Windows + macOS + Linux)
-  # Each runner compiles its own native artifacts and publishes them to the
-  # GitHub release via `electron-builder --publish always`. electron-updater
-  # needs the per-platform manifest files (latest.yml, latest-mac.yml,
-  # latest-linux.yml) to live alongside the binaries on the same release —
-  # `--publish always` handles both in one step.
-  # ───────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 1 — BUILD (matrix: Windows, macOS, Linux)
+  # Produces unsigned installers. Does NOT publish to GitHub — signing job
+  # owns the final upload so the release only ever contains signed artifacts.
+  # ─────────────────────────────────────────────────────────────────────────────
   build:
     name: Build (${{ matrix.os }})
     strategy:
-      fail-fast: false   # one platform's failure shouldn't block the others
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target_flag: --win
-            artifact_glob: |
-              dist/*.exe
-              dist/*.zip
-              dist/latest.yml
-              dist/*.blockmap
           - os: macos-latest
             target_flag: --mac
-            artifact_glob: |
-              dist/*.dmg
-              dist/*.zip
-              dist/latest-mac.yml
-              dist/*.blockmap
           - os: ubuntu-latest
             target_flag: --linux
-            artifact_glob: |
-              dist/*.AppImage
-              dist/*.deb
-              dist/latest-linux.yml
-              dist/*.blockmap
     runs-on: ${{ matrix.os }}
-    outputs:
-      version: ${{ steps.version.outputs.VERSION }}
 
     steps:
       - name: Checkout code
@@ -59,14 +40,10 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # Linux-only: AppImage builds need libfuse2 on the GH runner image.
       - name: Install libfuse2 (Linux only)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libfuse2
 
-      # Electron's postinstall downloads a ~100 MB binary from GitHub which
-      # flakes on CI runners with "socket hang up" once in a while. Retry
-      # up to 3 times with backoff.
       - name: Install dependencies (with retry on network flakes)
         shell: bash
         run: |
@@ -88,52 +65,255 @@ jobs:
       - name: Build whiteboard iframe bundle
         run: npm run build:wb
 
-      - name: Build & publish installer (electron-builder publishes to GitHub release)
-        run: npx electron-builder ${{ matrix.target_flag }} --publish always
+      - name: Build unsigned installers (no publish)
+        run: npx electron-builder ${{ matrix.target_flag }} --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Skip Mac code-signing in CI — we ship unsigned builds for now.
-          # Users on macOS will need to right-click → Open the first time.
+          # Skip local code-signing — SignPath handles signing in the next job.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload platform artifacts (for the release job)
+      - name: Upload unsigned Windows artifacts
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}
-          path: ${{ matrix.artifact_glob }}
-          if-no-files-found: warn
+          name: unsigned-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
 
-      - name: Get version from tag
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Upload unsigned macOS artifacts
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: error
 
-  # ───────────────────────────────────────────────────────────────────────────
-  # JOB 2 — FINALISE RELEASE
-  # electron-builder --publish always has already uploaded every artifact.
-  # This job's only purpose is to set a friendly title, generate the
-  # auto-changelog, and flip the 'Latest' badge.
+      - name: Upload unsigned Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 2 — SIGN (SignPath)
+  # Downloads unsigned artifacts, submits each platform to SignPath, and
+  # re-uploads the signed versions for the release job to consume.
   #
-  # IMPORTANT: we do NOT pass `files:` to softprops. If we did, it would
-  # re-upload everything in dist/ with its OWN filename sanitization
-  # (which strips '+' chars and bloats the release with duplicates).
-  # Electron-builder is the sole authoritative uploader.
-  # ───────────────────────────────────────────────────────────────────────────
-  release:
-    name: Finalise GitHub Release
+  # Prerequisites — configure once in GitHub repository settings:
+  #   Secrets  → SIGNPATH_API_TOKEN          (Settings → Secrets → Actions)
+  #   Variables → SIGNPATH_ORGANIZATION_ID   (Settings → Variables → Actions)
+  #               SIGNPATH_PROJECT_SLUG
+  #
+  # In the SignPath dashboard you must also create:
+  #   • One Artifact Configuration per platform (windows-installer, macos-dmg,
+  #     linux-packages) that selects the files to sign and the certificate.
+  #   • One Signing Policy per platform that references those configurations.
+  #   • Optional: add this repo as a Trusted Build System (uses the
+  #     id-token: write permission above for keyless OIDC auth, eliminating
+  #     the need for SIGNPATH_API_TOKEN).
+  #
+  # macOS note: SignPath handles the Developer ID code-signing step. Apple
+  #   notarization (xcrun notarytool) is a separate process — add it here
+  #   after signing if you want full Gatekeeper trust without right-click → Open.
+  # ─────────────────────────────────────────────────────────────────────────────
+  sign:
+    name: Sign (SignPath)
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Finalise release (title + changelog + 'Latest' badge)
+      # SignPath requires a GitHub artifact ID (not a local path). Resolve each
+      # artifact's numeric ID by name from the current workflow run.
+      - name: Resolve artifact IDs
+        id: artifact-ids
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WIN_ID=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name == "unsigned-windows") | .id')
+          MAC_ID=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name == "unsigned-macos") | .id')
+          LNX_ID=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name == "unsigned-linux") | .id')
+          echo "windows=$WIN_ID" >> $GITHUB_OUTPUT
+          echo "macos=$MAC_ID"   >> $GITHUB_OUTPUT
+          echo "linux=$LNX_ID"   >> $GITHUB_OUTPUT
+
+      # ── Windows (Authenticode) ───────────────────────────────────────────────
+      - name: Sign Windows installer
+        uses: SignPath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: notepp
+          artifact-configuration-slug: windows-installer
+          github-artifact-id: ${{ steps.artifact-ids.outputs.windows }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-for-completion: true
+          output-artifact-directory: ./signed/windows/
+
+      # ── macOS (Apple Developer ID) ───────────────────────────────────────────
+      # Requires an Apple Developer ID Application certificate loaded in SignPath.
+      - name: Sign macOS disk image
+        uses: SignPath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: notepp
+          artifact-configuration-slug: macos-dmg
+          github-artifact-id: ${{ steps.artifact-ids.outputs.macos }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-for-completion: true
+          output-artifact-directory: ./signed/macos/
+
+      # ── Linux (GPG) ──────────────────────────────────────────────────────────
+      # Requires a GPG key configured in SignPath.
+      - name: Sign Linux packages
+        uses: SignPath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: notepp
+          artifact-configuration-slug: linux-packages
+          github-artifact-id: ${{ steps.artifact-ids.outputs.linux }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-for-completion: true
+          output-artifact-directory: ./signed/linux/
+
+      - name: Upload signed Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows
+          path: ./signed/windows/
+          if-no-files-found: error
+
+      - name: Upload signed macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-macos
+          path: ./signed/macos/
+          if-no-files-found: error
+
+      - name: Upload signed Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-linux
+          path: ./signed/linux/
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 3 — PUBLISH & FINALISE RELEASE
+  # Downloads signed artifacts, regenerates the electron-updater manifests
+  # (latest*.yml) with correct sha512 hashes for the signed files, then
+  # uploads everything to GitHub and marks the release as Latest.
+  #
+  # Why regenerate manifests? Signing changes file content, so the sha512
+  # hashes electron-builder embedded in the original latest*.yml no longer
+  # match. electron-updater would reject a signed update whose hash differs
+  # from the manifest — regenerating here keeps auto-update working correctly.
+  #
+  # Blockmaps: signing invalidates existing .blockmap files. We omit blockmap
+  # references from the regenerated manifests; electron-updater gracefully
+  # falls back to a full download instead of a binary delta.
+  # ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish & Finalise Release
+    needs: sign
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download signed Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-windows
+          path: ./signed/windows/
+
+      - name: Download signed macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-macos
+          path: ./signed/macos/
+
+      - name: Download signed Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-linux
+          path: ./signed/linux/
+
+      - name: Set up Node.js (for manifest generation)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Regenerate electron-updater manifests from signed files
+        shell: node {0}
+        run: |
+          const crypto = require('crypto');
+          const fs     = require('fs');
+          const path   = require('path');
+
+          const version     = process.env.GITHUB_REF_NAME;
+          const releaseDate = new Date().toISOString();
+
+          function sha512b64(p) {
+            return crypto.createHash('sha512').update(fs.readFileSync(p)).digest('base64');
+          }
+          function byExt(dir, ext) {
+            if (!fs.existsSync(dir)) return [];
+            return fs.readdirSync(dir).filter(f => f.endsWith(ext)).map(f => path.join(dir, f));
+          }
+          function entry(p) {
+            return `  - url: ${path.basename(p)}\n    sha512: ${sha512b64(p)}\n    size: ${fs.statSync(p).size}\n`;
+          }
+          function write(file, primary, files) {
+            const entries = files.map(entry).join('');
+            fs.writeFileSync(file,
+              `version: ${version}\nfiles:\n${entries}` +
+              `path: ${path.basename(primary)}\nsha512: ${sha512b64(primary)}\nreleaseDate: '${releaseDate}'\n`
+            );
+            console.log(`Generated ${file}`);
+          }
+
+          // latest.yml — Windows (.exe)
+          const exes = byExt('./signed/windows', '.exe');
+          if (exes.length) write('latest.yml', exes[0], exes);
+
+          // latest-mac.yml — macOS (.dmg + .zip)
+          const dmgs = byExt('./signed/macos', '.dmg');
+          if (dmgs.length) write('latest-mac.yml', dmgs[0], [...dmgs, ...byExt('./signed/macos', '.zip')]);
+
+          // latest-linux.yml — Linux (.AppImage; .deb listed as supplementary)
+          const imgs = byExt('./signed/linux', '.AppImage');
+          if (imgs.length) write('latest-linux.yml', imgs[0], [...imgs, ...byExt('./signed/linux', '.deb')]);
+
+      - name: Publish signed artifacts + manifests to GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: Note++ ${{ needs.build.outputs.VERSION }}
-          tag_name: ${{ needs.build.outputs.VERSION }}
+          name: Note++ ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: false
           make_latest: 'true'
           generate_release_notes: true
-          # no `files:` — electron-builder is the sole uploader
+          files: |
+            signed/windows/*.exe
+            signed/windows/*.zip
+            signed/macos/*.dmg
+            signed/macos/*.zip
+            signed/linux/*.AppImage
+            signed/linux/*.deb
+            latest.yml
+            latest-mac.yml
+            latest-linux.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

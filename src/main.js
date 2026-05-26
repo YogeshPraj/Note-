@@ -31,8 +31,9 @@ const terminalProcesses = new Map();
 
 // ── Dev-mode: clear stale V8 code cache on every startup ─────────────────
 // When source files change, Electron's V8 cache can serve stale compiled JS.
-// In dev mode (npx electron .) we always wipe it so edits take effect immediately.
-if (!app.isPackaged) {
+// In dev mode this is now opt-in (`NOTEPP_CLEAR_DEV_CACHE=1`) because deleting
+// multiple cache folders on every launch noticeably slows startup.
+if (!app.isPackaged && process.env.NOTEPP_CLEAR_DEV_CACHE === '1') {
   // Clear stale Chromium caches (Code Cache, disk Cache) so every run sees fresh files
   for (const dir of ['Code Cache', 'Cache', 'DawnCache', 'GPUCache']) {
     try { fs.rmSync(path.join(app.getPath('userData'), dir), { recursive: true, force: true }); }
@@ -1082,47 +1083,59 @@ ipcMain.handle('find-in-files', async (e, { root, pattern, filter, matchCase, is
 });
 
 // ── Git integration (CLI wrapper) ─────────────────────────────────────────
-// All handlers delegate to src/git-service.js. See features/GIT.md for the design.
-const gitService = require('./git-service');
+// All handlers delegate to src/git-service.js. Loaded lazily on first use.
+let gitService = null;
+function getGitService() {
+  if (!gitService) gitService = require('./git-service');
+  return gitService;
+}
 
-ipcMain.handle('git-find-repo',     (e, p)             => gitService.findRepoRoot(p));
-ipcMain.handle('git-status',        (e, root)          => gitService.status(root));
-ipcMain.handle('git-stage',         (e, root, paths)   => gitService.stage(root, paths));
-ipcMain.handle('git-unstage',       (e, root, paths)   => gitService.unstage(root, paths));
-ipcMain.handle('git-discard',       (e, root, paths)   => gitService.discard(root, paths));
-ipcMain.handle('git-clean',         (e, root, paths)   => gitService.cleanUntracked(root, paths));
-ipcMain.handle('git-commit',        (e, root, msg)     => gitService.commit(root, msg));
-ipcMain.handle('git-commit-amend',  (e, root, msg)     => gitService.commitAmend(root, msg));
-ipcMain.handle('git-fetch',         (e, root)          => gitService.fetch(root));
-ipcMain.handle('git-pull',          (e, root)          => gitService.pull(root));
-ipcMain.handle('git-push',          (e, root)          => gitService.push(root));
-ipcMain.handle('git-push-upstream', (e, root, r2, b)   => gitService.pushSetUpstream(root, r2, b));
-ipcMain.handle('git-sync',          (e, root)          => gitService.sync(root));
-ipcMain.handle('git-branch-list',   (e, root)          => gitService.branchList(root));
-ipcMain.handle('git-branch-switch', (e, root, name)    => gitService.branchSwitch(root, name));
-ipcMain.handle('git-branch-create', (e, root, n, f)    => gitService.branchCreate(root, n, f));
-ipcMain.handle('git-installed',     ()                 => gitService.isGitInstalled());
-ipcMain.handle('git-show-head',     (e, root, rel)     => gitService.showHead(root, rel));
+ipcMain.handle('git-find-repo',     (e, p)             => getGitService().findRepoRoot(p));
+ipcMain.handle('git-status',        (e, root)          => getGitService().status(root));
+ipcMain.handle('git-stage',         (e, root, paths)   => getGitService().stage(root, paths));
+ipcMain.handle('git-unstage',       (e, root, paths)   => getGitService().unstage(root, paths));
+ipcMain.handle('git-discard',       (e, root, paths)   => getGitService().discard(root, paths));
+ipcMain.handle('git-clean',         (e, root, paths)   => getGitService().cleanUntracked(root, paths));
+ipcMain.handle('git-commit',        (e, root, msg)     => getGitService().commit(root, msg));
+ipcMain.handle('git-commit-amend',  (e, root, msg)     => getGitService().commitAmend(root, msg));
+ipcMain.handle('git-fetch',         (e, root)          => getGitService().fetch(root));
+ipcMain.handle('git-pull',          (e, root)          => getGitService().pull(root));
+ipcMain.handle('git-push',          (e, root)          => getGitService().push(root));
+ipcMain.handle('git-push-upstream', (e, root, r2, b)   => getGitService().pushSetUpstream(root, r2, b));
+ipcMain.handle('git-sync',          (e, root)          => getGitService().sync(root));
+ipcMain.handle('git-branch-list',   (e, root)          => getGitService().branchList(root));
+ipcMain.handle('git-branch-switch', (e, root, name)    => getGitService().branchSwitch(root, name));
+ipcMain.handle('git-branch-create', (e, root, n, f)    => getGitService().branchCreate(root, n, f));
+ipcMain.handle('git-installed',     ()                 => getGitService().isGitInstalled());
+ipcMain.handle('git-show-head',     (e, root, rel)     => getGitService().showHead(root, rel));
 
 // ── draw.io service (on-demand download, persistent bundle) ────────────────
-const drawioService = require('./drawio-service');
+let drawioService = null;
+function getDrawioService() {
+  if (!drawioService) drawioService = require('./drawio-service');
+  return drawioService;
+}
 
-ipcMain.handle('drawio:status',    () => drawioService.getStatus());
+ipcMain.handle('drawio:status',    () => getDrawioService().getStatus());
 ipcMain.handle('drawio:download',  async () => {
-  try { return await drawioService.download(); }
+  try { return await getDrawioService().download(); }
   catch (err) { return { success: false, error: err.message }; }
 });
-ipcMain.handle('drawio:uninstall', () => drawioService.uninstall());
+ipcMain.handle('drawio:uninstall', () => getDrawioService().uninstall());
 
 // ── LSP service ──────────────────────────────────────────────────────────
-const lspService = require('./lsp-service');
+let lspService = null;
+function getLspService() {
+  if (!lspService) lspService = require('./lsp-service');
+  return lspService;
+}
 
 ipcMain.handle('lsp-ensure-started', async (e, { langId, workspaceRoot }) =>
-  lspService.ensureStarted(langId, workspaceRoot, e.sender));
+  getLspService().ensureStarted(langId, workspaceRoot, e.sender));
 
 ipcMain.handle('lsp-send', async (e, { langId, method, params }) => {
   try {
-    const result = await lspService.sendRequest(langId, method, params);
+    const result = await getLspService().sendRequest(langId, method, params);
     return { success: true, result };
   } catch (err) {
     return { success: false, error: err.message };
@@ -1130,16 +1143,16 @@ ipcMain.handle('lsp-send', async (e, { langId, method, params }) => {
 });
 
 ipcMain.handle('lsp-notify', (e, { langId, method, params }) => {
-  lspService.sendNotification(langId, method, params);
+  getLspService().sendNotification(langId, method, params);
   return { success: true };
 });
 
-ipcMain.handle('lsp-stop', (e, { langId }) => lspService.stopServer(langId));
+ipcMain.handle('lsp-stop', (e, { langId }) => getLspService().stopServer(langId));
 
-ipcMain.handle('lsp-language-for', (e, monacoId) => lspService.lookupByMonacoId(monacoId));
-ipcMain.handle('lsp-language-config', (e, langId) => lspService.getLanguageConfig(langId));
+ipcMain.handle('lsp-language-for', (e, monacoId) => getLspService().lookupByMonacoId(monacoId));
+ipcMain.handle('lsp-language-config', (e, langId) => getLspService().getLanguageConfig(langId));
 
-app.on('before-quit', () => { lspService.stopAllServers(); });
+app.on('before-quit', () => { if (lspService) lspService.stopAllServers(); });
 
 // ── App version (single source of truth: package.json) ───────────────────
 ipcMain.handle('get-app-version', () => app.getVersion());
@@ -1328,7 +1341,10 @@ ipcMain.handle('check-for-updates-now', async () => {
 // update" pill in the renderer toolbar, which calls
 // `updater:start-install-flow` (defined above).
 
-app.whenReady().then(() => { scheduleAutoUpdateCheck(); });
+app.whenReady().then(() => {
+  // Defer updater bootstrap so first-launch UI work wins the startup race.
+  setTimeout(() => { scheduleAutoUpdateCheck(); }, 15000);
+});
 
 // ── AI Assistant (Ollama) ─────────────────────────────────────────────────
 const http = require('http');
@@ -1550,7 +1566,7 @@ app.whenReady().then(() => {
   // Register the drawio:// custom protocol now that app is ready. Safe to
   // call even if the bundle isn't downloaded yet — protocol just returns
   // ENOENT for any request until the user triggers the download.
-  try { drawioService.registerProtocol(); } catch (e) { console.error('[drawio] protocol register failed:', e); }
+  try { getDrawioService().registerProtocol(); } catch (e) { console.error('[drawio] protocol register failed:', e); }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

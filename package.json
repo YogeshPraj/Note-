@@ -6,6 +6,7 @@
   "author": "Yogesh Prajapati",
   "scripts": {
     "start": "npm run build:wb && electron .",
+    "start:fast": "electron .",
     "build:wb": "node build-whiteboard.js",
     "build:wb:watch": "node build-whiteboard.js --watch",
     "postinstall": "node build-whiteboard.js",

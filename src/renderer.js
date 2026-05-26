@@ -764,11 +764,18 @@ require(['vs/editor/editor.main'], () => {
     });
   })();
 
-  // Session restore is on the critical path — users want their tabs back
-  // immediately. Everything else can wait until the browser is idle, which
-  // dramatically tightens the time-to-first-paint window. requestIdleCallback
-  // is supported in Electron 28's Chromium; setTimeout fallback for safety.
-  restoreSession().then(restored => { if (!restored) createTab(); });
+  // Show a usable editor immediately, then restore session asynchronously.
+  // This keeps time-to-first-interaction snappy even with large sessions.
+  const startupPlaceholder = createTab();
+  const restoreTask = async () => {
+    const restored = await restoreSession({ replacePlaceholderId: startupPlaceholder.id });
+    if (!restored && tabs.length === 0) createTab();
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => { restoreTask(); }, { timeout: 600 });
+  } else {
+    setTimeout(() => { restoreTask(); }, 0);
+  }
 
   const deferredInit = () => {
     // Encryption profile detection (only reads one small JSON file).
@@ -879,14 +886,23 @@ require(['vs/editor/editor.main'], () => {
   setupFileTreeResize();
   setupQuickOpen();
   setupCmdPalette();
-  setupRegexTester();
   setupPreview();
-  setupAiPanel();
-  setupDiffToolbars();
   setupGlobalEscape();
   setupAltMouseColumnSelect();
   updateStatusBar();
   statusCol?.addEventListener('click', () => toggleColumnSelectMode());
+
+  // Defer non-essential panes/tooling so startup stays focused on editor interactivity.
+  const deferredUiInit = () => {
+    setupRegexTester();
+    setupAiPanel();
+    setupDiffToolbars();
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(deferredUiInit, { timeout: 1800 });
+  } else {
+    setTimeout(deferredUiInit, 250);
+  }
 
   // Signal main that all our IPC listeners (especially 'open-files') are now
   // wired up. Main will flush any files queued from double-click / "Open with".
@@ -4746,9 +4762,24 @@ async function saveSession() {
   await window.electronAPI.writeSession({ tabs: sessionTabs });
 }
 
-async function restoreSession() {
+async function restoreSession(opts = {}) {
   const res = await window.electronAPI.readSession();
   if (!res.success || !res.data?.tabs?.length) return false;
+
+  const replaceId = opts.replacePlaceholderId;
+  if (replaceId != null) {
+    const idx = tabs.findIndex(t => t.id === replaceId);
+    if (idx >= 0) {
+      const t = tabs[idx];
+      const isDisposablePlaceholder =
+        t && t.type === 'editor' && !t.filePath && !t.dirty && /^new \d+$/.test(t.name) && (t.model?.getValue?.() || '') === '';
+      if (isDisposablePlaceholder) {
+        try { t.model?.dispose?.(); } catch {}
+        tabs.splice(idx, 1);
+        if (activeTabId === replaceId) activeTabId = null;
+      }
+    }
+  }
 
   const { tabs: saved } = res.data;
 

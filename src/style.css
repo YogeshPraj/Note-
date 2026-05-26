@@ -71,8 +71,8 @@ body.theme-dark {
   --sep-color: #555;
 }
 
-/* ── Sakura 🌸 ─────────────────────────────────────────────────────────── */
-body.theme-sakura {
+/* ── flower 🌸 ─────────────────────────────────────────────────────────── */
+body.theme-flower {
   --bg: #fce7f3;
   --toolbar-bg: #f9c6d4;
   --toolbar-border: #f48fb1;
@@ -511,6 +511,10 @@ html, body {
   gap: 1px;
   flex-shrink: 0;
   overflow: hidden;
+
+/* First-paint guard: when native title/menu mode is enabled, keep the
+   HTML title bar hidden from the very first frame to avoid startup flicker. */
+body.native-titlebar #title-bar { display: none !important; }
 }
 
 .toolbar-group { display: flex; align-items: center; }

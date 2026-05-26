@@ -95,7 +95,7 @@ const THEMES = {
       'editor.findMatchBackground': '#515C6A', 'editor.findMatchHighlightBackground': '#EA5C0055',
     },
   },
-  sakura: {
+  flower: {
     label: 'Flower 🌸', isDark: false,
     preview: { tabbar: '#f9c6d4', editor: '#fff0f5', statusbar: '#c2185b', text: '#5d1a32' },
     monacoBase: 'vs',
@@ -3394,7 +3394,7 @@ function setupAltMouseColumnSelect() {
 // ===== Theme System =====
 
 /**
- * Apply a theme by id ('light', 'dark', 'sakura', …).
+ * Apply a theme by id ('light', 'dark', 'flower', …).
  * @param {string} id   - key in THEMES
  * @param {boolean} save - persist to settings (default true)
  */
@@ -3402,6 +3402,9 @@ function setupAltMouseColumnSelect() {
 // No restart required — we show/hide #title-bar and toggle the native menu bar via IPC.
 async function applyTitlebarMode(themed, save = true) {
   isThemedTitlebar = themed;
+  document.documentElement.classList.toggle('native-titlebar-start', !themed);
+  document.body.classList.toggle('native-titlebar', !themed);
+  try { localStorage.setItem('notepp.ui.themedTitlebar', themed ? '1' : '0'); } catch {}
   const bar = document.getElementById('title-bar');
   if (bar) bar.style.display = themed ? '' : 'none';
   // Show/hide native OS menu bar (only meaningful with titleBarStyle:'hidden').
@@ -3438,6 +3441,9 @@ async function applyTheme(id, save = true) {
   const theme = THEMES[id] || THEMES.light;
   currentTheme = id in THEMES ? id : 'light';
   isDarkMode = theme.isDark;
+
+  // Keep a synchronous cache for first-paint startup (prevents theme flash on restart).
+  try { localStorage.setItem('notepp.ui.theme', currentTheme); } catch {}
 
   // Remove all theme-* classes, then add the one we want
   document.body.classList.forEach(cls => {

@@ -92,12 +92,27 @@ function fileFromArgv(argv) {
 }
 
 function createWindow() {
+  const initSettings    = readSettings();
+  const themedTitlebar  = initSettings?.ui?.themedTitlebar !== false; // default on
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 850,
     minWidth: 400,
     minHeight: 300,
     title: 'Note++',
+    // titleBarStyle is a constructor-only option, so we read the setting here.
+    // Themed mode: hidden title bar + Win32 overlay controls + HTML menu bar.
+    // Native mode: OS default title bar + native menu bar (no HTML chrome needed).
+    titleBarStyle: themedTitlebar ? 'hidden' : 'default',
+    ...(themedTitlebar ? {
+      titleBarOverlay: {
+        color:       '#f0f0f0',   // synced via set-title-bar-overlay IPC on theme change
+        symbolColor: '#333333',
+        height: 30,
+      },
+    } : {}),
+    autoHideMenuBar: themedTitlebar,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -111,12 +126,19 @@ function createWindow() {
       // app.commandLine switches above. Belt-and-braces.
       backgroundThrottling: false,
     },
-    backgroundColor: '#1e1e1e',
+    backgroundColor: '#f0f0f0',
     show: false
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+  // Fallback: force-show after 4 s in case ready-to-show is delayed by a
+  // renderer hiccup (e.g. slow machine, large session restore). Prevents the
+  // window from being permanently invisible.
+  const showFallback = setTimeout(() => { if (!mainWindow.isVisible()) mainWindow.show(); }, 4000);
+
   mainWindow.once('ready-to-show', () => {
+    clearTimeout(showFallback);
     mainWindow.show();
     // Queue any file passed on the command line (double-click / "Open with").
     // It'll be delivered when the renderer sends 'renderer-ready' below.
@@ -462,6 +484,7 @@ function buildMenu() {
       submenu: [
         { label: 'Preferences...', accelerator: 'CmdOrCtrl+,', click: () => send('menu-preferences') },
         { type: 'separator' },
+        { label: 'Theme Picker…',  accelerator: 'CmdOrCtrl+Alt+T', click: () => send('menu-theme-picker') },
         { label: 'Toggle Dark Mode', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('menu-dark-mode') },
         { type: 'separator' },
         { label: 'Font Size +', accelerator: 'CmdOrCtrl+=', click: () => send('menu-zoom-in') },
@@ -647,7 +670,27 @@ ipcMain.handle('list-dir', async (e, dirPath) => {
 });
 
 ipcMain.handle('set-title', (e, title) => mainWindow.setTitle(title));
-ipcMain.handle('close-window', () => app.exit(0));
+
+ipcMain.handle('close-window',  () => app.exit(0));
+ipcMain.handle('relaunch-app', () => { app.relaunch(); app.exit(0); });
+
+// Theme — sync the Win32 window-controls overlay colour with the active theme.
+ipcMain.handle('set-title-bar-overlay', (_, color, symbolColor) => {
+  if (mainWindow && process.platform === 'win32') {
+    try { mainWindow.setTitleBarOverlay({ color, symbolColor, height: 30 }); }
+    catch (_e) { /* older Electron / unsupported OS — ignore */ }
+  }
+});
+
+// Window state helpers for the custom menu bar
+ipcMain.handle('set-always-on-top',       (_, flag) => { if (mainWindow) mainWindow.setAlwaysOnTop(flag); });
+ipcMain.handle('set-full-screen',         (_, flag) => { if (mainWindow) mainWindow.setFullScreen(flag); });
+ipcMain.handle('set-menu-bar-visibility', (_, visible) => {
+  if (mainWindow) {
+    mainWindow.setMenuBarVisibility(visible);
+    mainWindow.setAutoHideMenuBar(!visible);
+  }
+});
 ipcMain.handle('shell-open', (e, p) => shell.openPath(p));
 ipcMain.handle('shell-show-item', (e, p) => shell.showItemInFolder(p));
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));

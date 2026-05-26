@@ -9,6 +9,16 @@
 </head>
 <body class="theme-light">
 
+  <!-- Custom title bar + menu bar.
+       -webkit-app-region:drag on the outer strip so the window is draggable.
+       .cmb-item buttons must declare no-drag themselves. -->
+  <div id="title-bar">
+    <div id="custom-menubar">
+      <!-- Items injected by setupCustomMenuBar() in renderer.js -->
+    </div>
+    <span id="title-bar-text">Note++</span>
+  </div>
+
   <!-- Toolbar -->
   <div id="toolbar">
     <div class="toolbar-group">
@@ -205,6 +215,21 @@
               <button class="fr-btn" id="btn-folder-diff-reload" title="Re-scan both folders">↻ Reload</button>
             </div>
             <div id="folder-diff-body"></div>
+          </div>
+          <!-- Quick Compare — launched from tab right-click → Compare -->
+          <div id="quick-diff-container" class="hidden">
+            <div id="quick-diff-toolbar">
+              <span id="quick-diff-left-label"  class="diff-title"></span>
+              <span class="qdiff-sep">↔</span>
+              <span id="quick-diff-right-label" class="diff-title"></span>
+              <div style="flex:1"></div>
+              <button class="fr-btn" id="btn-qdiff-inline"  title="Toggle Inline / Side-by-side">≡ Inline</button>
+              <button class="fr-btn" id="btn-qdiff-prev"    title="Previous change">↑ Prev</button>
+              <button class="fr-btn" id="btn-qdiff-next"    title="Next change">↓ Next</button>
+              <button class="fr-btn" id="btn-qdiff-refresh" title="Re-read file (file mode) or refresh diff (custom mode)">↻ Refresh</button>
+            </div>
+            <div id="quick-diff-hint" class="qdiff-hint hidden">Paste or type on the right — diff updates live</div>
+            <div id="quick-diff-monaco"></div>
           </div>
           <!-- AI Panel resize handle -->
           <div id="ai-resize-handle" class="hidden"></div>
@@ -493,6 +518,8 @@
       <span id="status-lang" class="status-item clickable" title="Language">Normal Text</span>
       <span class="status-sep">|</span>
       <span id="status-insert" class="status-item clickable" title="Insert/Overwrite">INS</span>
+      <span class="status-sep">|</span>
+      <span id="status-col" class="status-item clickable" title="Column Selection Mode — click to toggle (Shift+Alt+drag for box select)">COL</span>
       <span class="status-sep">|</span>
       <span id="status-enc" class="status-item clickable hidden" title="Encryption status">🔒</span>
       <span class="status-sep">|</span>
@@ -1081,6 +1108,34 @@
     <div class="ctx-item" data-action="b64-encode">Base64 Encode</div>
     <div class="ctx-item" data-action="b64-decode">Base64 Decode</div>
     <div class="ctx-item" data-action="json-format">Pretty Print JSON</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="add-cursor-above">Add Cursor Above</div>
+    <div class="ctx-item" data-action="add-cursor-below">Add Cursor Below</div>
+    <div class="ctx-item" data-action="cursor-line-ends">Add Cursors to Line Ends</div>
+    <div class="ctx-item" data-action="select-all-occ">Select All Occurrences</div>
+    <div class="ctx-item" data-action="col-select-mode">Toggle Column Selection Mode</div>
+  </div>
+
+  <!-- Theme Picker -->
+  <div id="theme-picker" class="modal-overlay hidden">
+    <div class="modal-box" style="width:680px;max-width:95vw">
+      <div class="modal-header">
+        <span>🎨 Choose Theme</span>
+        <button class="modal-close" title="Close">×</button>
+      </div>
+      <div id="theme-card-grid"></div>
+      <div class="tcp-titlebar-row">
+        <label class="tcp-titlebar-label">
+          <input type="checkbox" id="chk-themed-titlebar" checked>
+          Use themed title bar &amp; menu bar
+          <span class="tcp-titlebar-note">(replaces native OS chrome with a fully coloured strip)</span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <span style="font-size:11px;opacity:.6">Ctrl+Alt+T to reopen anytime</span>
+        <button class="modal-btn" id="btn-theme-close">Done</button>
+      </div>
+    </div>
   </div>
 
   <!-- Toast -->

@@ -6,6 +6,9 @@ let activeTabId = null;
 let editor = null;
 let isDarkMode = false;
 let isWordWrap = false;
+let isColumnSelectMode = false;
+let currentTheme = 'light';
+let isThemedTitlebar = true;   // custom HTML title bar + menu vs native OS chrome
 let tabCounter = 0;
 let searchDecorations = [];
 let findReplaceMode = 'find';
@@ -59,50 +62,521 @@ const statusLines  = document.getElementById('status-lines');
 const statusLength = document.getElementById('status-length');
 const statusLang   = document.getElementById('status-lang');
 const statusInsert = document.getElementById('status-insert');
+const statusCol    = document.getElementById('status-col');
 const contextMenu  = document.getElementById('context-menu');
+
+// ===== Theme Definitions =====
+// Each entry: { label, isDark, preview:{tabbar,editor,statusbar,text},
+//               monacoBase, monacoColors, monacoRules }
+const THEMES = {
+  light: {
+    label: 'Light', isDark: false,
+    preview: { tabbar: '#f0f0f0', editor: '#ffffff', statusbar: '#007acc', text: '#333' },
+    monacoBase: 'vs', monacoRules: [],
+    monacoColors: { 'editor.background': '#FFFFFE', 'editor.lineHighlightBackground': '#F0F7FF' },
+  },
+  dark: {
+    label: 'Dark', isDark: true,
+    preview: { tabbar: '#2d2d2d', editor: '#1e1e1e', statusbar: '#007acc', text: '#d4d4d4' },
+    monacoBase: 'vs-dark',
+    monacoRules: [
+      { token: 'comment',  foreground: '6A9955', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: '569CD6', fontStyle: 'bold'   },
+      { token: 'string',   foreground: 'CE9178' },
+      { token: 'number',   foreground: 'B5CEA8' },
+      { token: 'type',     foreground: '4EC9B0' },
+      { token: 'function', foreground: 'DCDCAA' },
+      { token: 'variable', foreground: '9CDCFE' },
+    ],
+    monacoColors: {
+      'editor.background': '#1E1E1E', 'editor.lineHighlightBackground': '#2A2D2E',
+      'editorLineNumber.foreground': '#858585', 'editorLineNumber.activeForeground': '#C6C6C6',
+      'editor.selectionBackground': '#264F78',
+      'editor.findMatchBackground': '#515C6A', 'editor.findMatchHighlightBackground': '#EA5C0055',
+    },
+  },
+  sakura: {
+    label: 'Flower 🌸', isDark: false,
+    preview: { tabbar: '#f9c6d4', editor: '#fff0f5', statusbar: '#c2185b', text: '#5d1a32' },
+    monacoBase: 'vs',
+    monacoRules: [
+      { token: 'comment',  foreground: 'ad7fa8', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: 'c2185b', fontStyle: 'bold'   },
+      { token: 'string',   foreground: '7b5ea7' },
+      { token: 'number',   foreground: 'e91e63' },
+      { token: 'type',     foreground: '9c27b0' },
+      { token: 'function', foreground: 'd81b60' },
+      { token: 'variable', foreground: '5d1a32' },
+    ],
+    monacoColors: {
+      'editor.background': '#fff0f5', 'editor.lineHighlightBackground': '#ffe4ef',
+      'editorLineNumber.foreground': '#d48099', 'editorLineNumber.activeForeground': '#c2185b',
+      'editor.selectionBackground': '#f8bbd0',
+      'editor.findMatchBackground': '#f48fb1', 'editor.findMatchHighlightBackground': '#f8bbd055',
+    },
+  },
+  dracula: {
+    label: 'Dracula', isDark: true,
+    preview: { tabbar: '#383a59', editor: '#282a36', statusbar: '#bd93f9', text: '#f8f8f2' },
+    monacoBase: 'vs-dark',
+    monacoRules: [
+      { token: 'comment',  foreground: '6272a4', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: 'ff79c6', fontStyle: 'bold'   },
+      { token: 'string',   foreground: 'f1fa8c' },
+      { token: 'number',   foreground: 'bd93f9' },
+      { token: 'type',     foreground: '8be9fd' },
+      { token: 'function', foreground: '50fa7b' },
+      { token: 'variable', foreground: 'f8f8f2' },
+    ],
+    monacoColors: {
+      'editor.background': '#282a36', 'editor.lineHighlightBackground': '#44475a',
+      'editorLineNumber.foreground': '#6272a4', 'editorLineNumber.activeForeground': '#f8f8f2',
+      'editor.selectionBackground': '#44475a',
+      'editor.findMatchBackground': '#ffb86c55', 'editor.findMatchHighlightBackground': '#ffb86c33',
+    },
+  },
+  tokyonight: {
+    label: 'Tokyo Night', isDark: true,
+    preview: { tabbar: '#24283b', editor: '#1a1b26', statusbar: '#7aa2f7', text: '#c0caf5' },
+    monacoBase: 'vs-dark',
+    monacoRules: [
+      { token: 'comment',  foreground: '565f89', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: 'bb9af7', fontStyle: 'bold'   },
+      { token: 'string',   foreground: '9ece6a' },
+      { token: 'number',   foreground: 'ff9e64' },
+      { token: 'type',     foreground: '2ac3de' },
+      { token: 'function', foreground: '7aa2f7' },
+      { token: 'variable', foreground: 'c0caf5' },
+    ],
+    monacoColors: {
+      'editor.background': '#1a1b26', 'editor.lineHighlightBackground': '#1e2030',
+      'editorLineNumber.foreground': '#3b4261', 'editorLineNumber.activeForeground': '#737aa2',
+      'editor.selectionBackground': '#283457',
+      'editor.findMatchBackground': '#3d5270', 'editor.findMatchHighlightBackground': '#3d527055',
+    },
+  },
+  nord: {
+    label: 'Nord', isDark: true,
+    preview: { tabbar: '#3b4252', editor: '#2e3440', statusbar: '#5e81ac', text: '#d8dee9' },
+    monacoBase: 'vs-dark',
+    monacoRules: [
+      { token: 'comment',  foreground: '616e88', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: '81a1c1', fontStyle: 'bold'   },
+      { token: 'string',   foreground: 'a3be8c' },
+      { token: 'number',   foreground: 'b48ead' },
+      { token: 'type',     foreground: '8fbcbb' },
+      { token: 'function', foreground: '88c0d0' },
+      { token: 'variable', foreground: 'd8dee9' },
+    ],
+    monacoColors: {
+      'editor.background': '#2e3440', 'editor.lineHighlightBackground': '#3b4252',
+      'editorLineNumber.foreground': '#4c566a', 'editorLineNumber.activeForeground': '#d8dee9',
+      'editor.selectionBackground': '#434c5e',
+      'editor.findMatchBackground': '#5e81ac55', 'editor.findMatchHighlightBackground': '#5e81ac33',
+    },
+  },
+  monokai: {
+    label: 'Monokai', isDark: true,
+    preview: { tabbar: '#3e3d32', editor: '#272822', statusbar: '#a6e22e', text: '#f8f8f2' },
+    monacoBase: 'vs-dark',
+    monacoRules: [
+      { token: 'comment',  foreground: '75715e', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: 'f92672', fontStyle: 'bold'   },
+      { token: 'string',   foreground: 'e6db74' },
+      { token: 'number',   foreground: 'ae81ff' },
+      { token: 'type',     foreground: '66d9e8' },
+      { token: 'function', foreground: 'a6e22e' },
+      { token: 'variable', foreground: 'f8f8f2' },
+    ],
+    monacoColors: {
+      'editor.background': '#272822', 'editor.lineHighlightBackground': '#3e3d32',
+      'editorLineNumber.foreground': '#90908a', 'editorLineNumber.activeForeground': '#f8f8f2',
+      'editor.selectionBackground': '#49483e',
+      'editor.findMatchBackground': '#ffe79233', 'editor.findMatchHighlightBackground': '#ffe79222',
+    },
+  },
+  solarizedLight: {
+    label: 'Solarized Light', isDark: false,
+    preview: { tabbar: '#eee8d5', editor: '#fdf6e3', statusbar: '#268bd2', text: '#657b83' },
+    monacoBase: 'vs',
+    monacoRules: [
+      { token: 'comment',  foreground: '93a1a1', fontStyle: 'italic' },
+      { token: 'keyword',  foreground: '859900', fontStyle: 'bold'   },
+      { token: 'string',   foreground: '2aa198' },
+      { token: 'number',   foreground: 'd33682' },
+      { token: 'type',     foreground: '268bd2' },
+      { token: 'function', foreground: '6c71c4' },
+      { token: 'variable', foreground: '657b83' },
+    ],
+    monacoColors: {
+      'editor.background': '#fdf6e3', 'editor.lineHighlightBackground': '#eee8d5',
+      'editorLineNumber.foreground': '#93a1a1', 'editorLineNumber.activeForeground': '#657b83',
+      'editor.selectionBackground': '#eee8d5',
+      'editor.findMatchBackground': '#cb4b1633', 'editor.findMatchHighlightBackground': '#cb4b1622',
+    },
+  },
+};
+
+// ===== Custom Menu Bar — Structure & Dispatch =====
+// _menuActions is populated by the shim inside setupMenuListeners (m() helper).
+// setupCustomMenuBar() reads MENU_STRUCTURE to build the HTML menu bar.
+const _menuActions = {};
+function _dispatchMenu(ch, ...args) { if (_menuActions[ch]) _menuActions[ch](...args); }
+
+const MENU_STRUCTURE = [
+  { label: 'File', items: [
+    { label: 'New',                ch: 'menu-new',           key: 'Ctrl+N' },
+    { sep: true },
+    { label: 'Open…',             ch: 'menu-open',          key: 'Ctrl+O' },
+    { label: 'Open Folder…',      ch: 'menu-open-folder',   key: 'Ctrl+Shift+O' },
+    { label: 'Open Recent',        sub: [
+      { label: '(see File menu → Open Recent)', disabled: true },
+    ]},
+    { sep: true },
+    { label: 'Compare', sub: [
+      { label: 'Compare Files…',      ch: 'menu-compare-files' },
+      { label: 'Compare with Saved…', ch: 'menu-compare-with-saved' },
+      { sep: true },
+      { label: 'Compare Folders…',    ch: 'menu-compare-folders' },
+    ]},
+    { label: 'Reload from Disk',   ch: 'menu-reload',        key: 'Ctrl+Shift+R' },
+    { sep: true },
+    { label: 'Close',              ch: 'menu-close',         key: 'Ctrl+W' },
+    { label: 'Close All',          ch: 'menu-close-all' },
+    { label: 'Close All But Current', ch: 'menu-close-others' },
+    { sep: true },
+    { label: 'Save',               ch: 'menu-save',          key: 'Ctrl+S' },
+    { label: 'Save As…',          ch: 'menu-save-as',       key: 'Ctrl+Alt+S' },
+    { label: 'Save All',           ch: 'menu-save-all',      key: 'Ctrl+Shift+S' },
+    { sep: true },
+    { label: 'Print…',            ch: 'menu-print',         key: 'Ctrl+P' },
+    { sep: true },
+    { label: 'Exit',               fn: () => window.electronAPI.closeWindow(), key: 'Alt+F4' },
+  ]},
+  { label: 'Edit', items: [
+    { label: 'Undo',               ch: 'menu-undo',          key: 'Ctrl+Z' },
+    { label: 'Redo',               ch: 'menu-redo',          key: 'Ctrl+Y' },
+    { sep: true },
+    { label: 'Cut',                fn: () => document.execCommand('cut'),   key: 'Ctrl+X' },
+    { label: 'Copy',               fn: () => document.execCommand('copy'),  key: 'Ctrl+C' },
+    { label: 'Paste',              fn: () => document.execCommand('paste'), key: 'Ctrl+V' },
+    { label: 'Select All',         fn: () => editor?.getAction('editor.action.selectAll')?.run(), key: 'Ctrl+A' },
+    { sep: true },
+    { label: 'Duplicate Line',     ch: 'menu-duplicate-line', key: 'Ctrl+D' },
+    { label: 'Delete Line',        ch: 'menu-delete-line',   key: 'Ctrl+Shift+K' },
+    { label: 'Move Line Up',       ch: 'menu-move-line-up',  key: 'Alt+↑' },
+    { label: 'Move Line Down',     ch: 'menu-move-line-down',key: 'Alt+↓' },
+    { sep: true },
+    { label: 'Convert Case', sub: [
+      { label: 'UPPERCASE',        ch: 'menu-uppercase',     key: 'Ctrl+Shift+U' },
+      { label: 'lowercase',        ch: 'menu-lowercase',     key: 'Ctrl+U' },
+      { label: 'Title Case',       ch: 'menu-titlecase' },
+    ]},
+    { label: 'Line Operations', sub: [
+      { label: 'Sort Ascending',    ch: 'menu-sort-asc' },
+      { label: 'Sort Descending',   ch: 'menu-sort-desc' },
+      { label: 'Remove Duplicates', ch: 'menu-remove-dup-lines' },
+      { label: 'Remove Empty Lines',ch: 'menu-remove-empty-lines' },
+      { label: 'Join Lines',        ch: 'menu-join-lines' },
+    ]},
+    { sep: true },
+    { label: 'Set Read-Only',      ch: 'menu-readonly' },
+    { label: 'Clear Read-Only',    ch: 'menu-clear-readonly' },
+  ]},
+  { label: 'Code', items: [
+    { label: 'Format Document',    ch: 'menu-format-doc',    key: 'Ctrl+Shift+F' },
+    { label: 'Format Selection',   ch: 'menu-format-sel' },
+    { sep: true },
+    { label: 'Toggle Line Comment',ch: 'menu-toggle-comment',key: 'Ctrl+/' },
+    { label: 'Toggle Block Comment',ch:'menu-block-comment', key: 'Shift+Alt+A' },
+    { sep: true },
+    { label: 'Indent',             ch: 'menu-indent-increase',key:'Tab' },
+    { label: 'Outdent',            ch: 'menu-indent-decrease',key:'Shift+Tab' },
+    { sep: true },
+    { label: 'Fold All',           ch: 'menu-fold-all' },
+    { label: 'Unfold All',         ch: 'menu-unfold-all' },
+    { sep: true },
+    { label: 'Go to Definition',   ch: 'menu-goto-definition',key:'F12' },
+    { label: 'Go to Symbol…',     ch: 'menu-goto-symbol' },
+    { label: 'Go to References',   ch: 'menu-goto-refs',     key:'Shift+F12' },
+    { label: 'Rename Symbol',      ch: 'menu-rename-symbol', key:'F2' },
+    { sep: true },
+    { label: 'Pretty Print JSON',  ch: 'menu-json-format' },
+    { label: 'Pretty Print XML',   ch: 'menu-xml-format' },
+    { label: 'Minify JSON',        ch: 'menu-json-minify' },
+    { sep: true },
+    { label: 'Diagram (draw.io)', sub: [
+      { label: 'New Diagram',          ch: 'menu-new-drawio' },
+      { sep: true },
+      { label: 'Flowchart',            fn: () => _dispatchMenu('menu-new-drawio-template','flowchart') },
+      { label: 'Sequence Diagram',     fn: () => _dispatchMenu('menu-new-drawio-template','sequence') },
+      { label: 'Class Diagram (UML)',  fn: () => _dispatchMenu('menu-new-drawio-template','classDiagram') },
+      { label: 'Entity Relationship',  fn: () => _dispatchMenu('menu-new-drawio-template','erDiagram') },
+      { sep: true },
+      { label: 'Check for Updates',    ch: 'menu-drawio-check-updates' },
+    ]},
+  ]},
+  { label: 'Search', items: [
+    { label: 'Find…',             ch: 'menu-find',          key: 'Ctrl+F' },
+    { label: 'Find Next',          ch: 'menu-find-next',     key: 'F3' },
+    { label: 'Find Previous',      ch: 'menu-find-prev',     key: 'Shift+F3' },
+    { label: 'Find All in Document',ch:'menu-find-all' },
+    { sep: true },
+    { label: 'Replace…',          ch: 'menu-replace',       key: 'Ctrl+H' },
+    { sep: true },
+    { label: 'Quick Open',         ch: 'menu-quick-open',    key: 'Ctrl+P' },
+    { label: 'Command Palette',    ch: 'menu-cmd-palette',   key: 'Ctrl+Shift+P' },
+    { sep: true },
+    { label: 'Go to Line…',       ch: 'menu-goto-line',     key: 'Ctrl+G' },
+    { sep: true },
+    { label: 'Toggle Bookmark',    ch: 'menu-toggle-bookmark',key:'Ctrl+F2' },
+    { label: 'Next Bookmark',      ch: 'menu-next-bookmark', key: 'F2' },
+    { label: 'Previous Bookmark',  ch: 'menu-prev-bookmark', key: 'Shift+F2' },
+    { sep: true },
+    { label: 'Regex Tester…',     ch: 'menu-regex-tester' },
+  ]},
+  { label: 'View', items: [
+    { label: 'Toggle Preview',     ch: 'menu-toggle-preview',key: 'Ctrl+Shift+V' },
+    { label: 'Toggle Terminal',    ch: 'menu-toggle-terminal',key:'Ctrl+`' },
+    { label: 'Toggle Sidebar',     ch: 'menu-toggle-sidebar' },
+    { sep: true },
+    { label: 'Full Screen',        fn: () => window.electronAPI?.setFullScreen(true),  key: 'F11' },
+    { sep: true },
+    { label: 'Zoom In',            ch: 'menu-zoom-in',       key: 'Ctrl+=' },
+    { label: 'Zoom Out',           ch: 'menu-zoom-out',      key: 'Ctrl+-' },
+    { label: 'Reset Zoom',         ch: 'menu-zoom-reset',    key: 'Ctrl+0' },
+    { sep: true },
+    { label: 'Toggle Word Wrap',   ch: 'menu-word-wrap',     key: 'Alt+Z' },
+    { label: 'Toggle Minimap',     ch: 'menu-minimap' },
+    { label: 'Toggle Whitespace',  ch: 'menu-show-whitespace' },
+    { label: 'Toggle Indent Guides',ch:'menu-show-indent' },
+    { sep: true },
+    { label: 'Toggle Toolbar',     ch: 'menu-toolbar' },
+    { label: 'Toggle Status Bar',  ch: 'menu-statusbar' },
+    { label: 'Toggle Tab Bar',     ch: 'menu-tabbar' },
+  ]},
+  { label: 'Language', items: [
+    { label: 'Plain Text',   fn: () => _dispatchMenu('menu-lang','plaintext') },
+    { sep: true },
+    { label: 'Batch',        fn: () => _dispatchMenu('menu-lang','bat') },
+    { label: 'C',            fn: () => _dispatchMenu('menu-lang','c') },
+    { label: 'C++',          fn: () => _dispatchMenu('menu-lang','cpp') },
+    { label: 'C#',           fn: () => _dispatchMenu('menu-lang','csharp') },
+    { label: 'CSS',          fn: () => _dispatchMenu('menu-lang','css') },
+    { label: 'Dockerfile',   fn: () => _dispatchMenu('menu-lang','dockerfile') },
+    { label: 'Go',           fn: () => _dispatchMenu('menu-lang','go') },
+    { label: 'HTML',         fn: () => _dispatchMenu('menu-lang','html') },
+    { label: 'Java',         fn: () => _dispatchMenu('menu-lang','java') },
+    { label: 'JavaScript',   fn: () => _dispatchMenu('menu-lang','javascript') },
+    { label: 'JSON',         fn: () => _dispatchMenu('menu-lang','json') },
+    { label: 'Kotlin',       fn: () => _dispatchMenu('menu-lang','kotlin') },
+    { label: 'Lua',          fn: () => _dispatchMenu('menu-lang','lua') },
+    { label: 'Markdown',     fn: () => _dispatchMenu('menu-lang','markdown') },
+    { label: 'Mermaid',      fn: () => _dispatchMenu('menu-lang','mermaid') },
+    { label: 'PHP',          fn: () => _dispatchMenu('menu-lang','php') },
+    { label: 'PowerShell',   fn: () => _dispatchMenu('menu-lang','powershell') },
+    { label: 'Python',       fn: () => _dispatchMenu('menu-lang','python') },
+    { label: 'R',            fn: () => _dispatchMenu('menu-lang','r') },
+    { label: 'Ruby',         fn: () => _dispatchMenu('menu-lang','ruby') },
+    { label: 'Rust',         fn: () => _dispatchMenu('menu-lang','rust') },
+    { label: 'SCSS',         fn: () => _dispatchMenu('menu-lang','scss') },
+    { label: 'Shell Script', fn: () => _dispatchMenu('menu-lang','shell') },
+    { label: 'SQL',          fn: () => _dispatchMenu('menu-lang','sql') },
+    { label: 'Swift',        fn: () => _dispatchMenu('menu-lang','swift') },
+    { label: 'TOML',         fn: () => _dispatchMenu('menu-lang','ini') },
+    { label: 'TypeScript',   fn: () => _dispatchMenu('menu-lang','typescript') },
+    { label: 'XML',          fn: () => _dispatchMenu('menu-lang','xml') },
+    { label: 'YAML',         fn: () => _dispatchMenu('menu-lang','yaml') },
+  ]},
+  { label: 'Terminal', items: [
+    { label: 'New Terminal',          ch: 'menu-new-terminal',   key: 'Ctrl+Shift+`' },
+    { label: 'Toggle Terminal',       ch: 'menu-toggle-terminal',key: 'Ctrl+`' },
+    { label: 'Kill Terminal',         ch: 'menu-kill-terminal' },
+    { label: 'Clear Terminal',        ch: 'menu-clear-terminal' },
+    { sep: true },
+    { label: 'Run File',              ch: 'menu-run-file',        key: 'F5' },
+    { label: 'Run Selection',         ch: 'menu-run-selection',   key: 'Shift+F5' },
+    { sep: true },
+    { label: 'Open Containing Folder',ch: 'menu-open-explorer' },
+    { label: 'Copy File Path',        ch: 'menu-copy-path' },
+  ]},
+  { label: 'Settings', items: [
+    { label: 'Preferences…',      ch: 'menu-preferences',   key: 'Ctrl+,' },
+    { sep: true },
+    { label: 'Theme Picker…',     ch: 'menu-theme-picker',  key: 'Ctrl+Alt+T' },
+    { label: 'Toggle Dark Mode',  ch: 'menu-dark-mode',     key: 'Ctrl+Alt+D' },
+    { sep: true },
+    { label: 'Font Size +',       ch: 'menu-zoom-in',       key: 'Ctrl+=' },
+    { label: 'Font Size -',       ch: 'menu-zoom-out',      key: 'Ctrl+-' },
+  ]},
+  { label: 'Tools', items: [
+    { label: 'Regex Tester',      ch: 'menu-regex-tester' },
+    { sep: true },
+    { label: 'MD5 from Selection',    ch: 'menu-md5-selection' },
+    { label: 'SHA-256 from Selection',ch: 'menu-sha256-selection' },
+    { sep: true },
+    { label: 'Base64 Encode',     ch: 'menu-b64-encode' },
+    { label: 'Base64 Decode',     ch: 'menu-b64-decode' },
+    { sep: true },
+    { label: 'Pretty Print JSON', ch: 'menu-json-format' },
+    { label: 'Pretty Print XML',  ch: 'menu-xml-format' },
+    { label: 'Minify JSON',       ch: 'menu-json-minify' },
+    { sep: true },
+    { label: 'Diagram (draw.io)', sub: [
+      { label: 'New Diagram',         ch: 'menu-new-drawio' },
+      { sep: true },
+      { label: 'Flowchart',           fn: () => _dispatchMenu('menu-new-drawio-template','flowchart') },
+      { label: 'Sequence Diagram',    fn: () => _dispatchMenu('menu-new-drawio-template','sequence') },
+      { label: 'Class Diagram (UML)', fn: () => _dispatchMenu('menu-new-drawio-template','classDiagram') },
+      { label: 'Entity Relationship', fn: () => _dispatchMenu('menu-new-drawio-template','erDiagram') },
+      { sep: true },
+      { label: 'Check for Updates',   ch: 'menu-drawio-check-updates' },
+    ]},
+  ]},
+  { label: 'Window', items: [
+    { label: 'Previous Document', ch: 'menu-prev-tab',      key: 'Ctrl+PgUp' },
+    { label: 'Next Document',     ch: 'menu-next-tab',      key: 'Ctrl+PgDn' },
+    { sep: true },
+    { label: 'Tab 1',  fn: () => _dispatchMenu('menu-tab',0), key: 'Ctrl+1' },
+    { label: 'Tab 2',  fn: () => _dispatchMenu('menu-tab',1), key: 'Ctrl+2' },
+    { label: 'Tab 3',  fn: () => _dispatchMenu('menu-tab',2), key: 'Ctrl+3' },
+    { label: 'Tab 4',  fn: () => _dispatchMenu('menu-tab',3), key: 'Ctrl+4' },
+    { label: 'Tab 5',  fn: () => _dispatchMenu('menu-tab',4), key: 'Ctrl+5' },
+  ]},
+  { label: '?', items: [
+    { label: 'About Note++',              ch: 'menu-about' },
+    { sep: true },
+    { label: 'Keyboard Shortcuts Reference', ch: 'menu-shortcuts-ref' },
+    { sep: true },
+    { label: 'Check for Updates Now',    ch: 'menu-check-updates' },
+    { sep: true },
+    { label: 'Developer Tools',          ch: 'menu-devtools' },
+  ]},
+];
+
+// ── Custom menu bar rendering & interaction ────────────────────────────────
+let _cmbOpenEl    = null;   // highlighted top-level .cmb-item
+let _cmbDropdown  = null;   // current open dropdown element
+let _cmbSubmenu   = null;   // current open submenu element
+let _cmbSubTimer  = null;   // debounce timer for submenu open/close
+
+function _cmbClose() {
+  clearTimeout(_cmbSubTimer);
+  if (_cmbSubmenu) { _cmbSubmenu.remove(); _cmbSubmenu = null; }
+  if (_cmbDropdown){ _cmbDropdown.remove(); _cmbDropdown = null; }
+  if (_cmbOpenEl)  { _cmbOpenEl.classList.remove('cmb-active'); _cmbOpenEl = null; }
+}
+
+function _cmbBuildPanel(items, cls) {
+  const panel = document.createElement('div');
+  panel.className = cls;
+  items.forEach(it => {
+    if (it.sep) {
+      const s = document.createElement('div'); s.className = 'cmb-dd-sep'; panel.appendChild(s); return;
+    }
+    const row = document.createElement('div');
+    row.className = 'cmb-dd-item' + (it.disabled ? ' cmb-disabled' : '') + (it.sub ? ' cmb-has-sub' : '');
+    const lbl = document.createElement('span'); lbl.className = 'cmb-dd-label'; lbl.textContent = it.label; row.appendChild(lbl);
+    if (it.key) { const k = document.createElement('span'); k.className = 'cmb-dd-key'; k.textContent = it.key; row.appendChild(k); }
+    if (it.sub) { const a = document.createElement('span'); a.className = 'cmb-dd-arrow'; a.textContent = '▶'; row.appendChild(a); }
+
+    if (it.sub) {
+      row.addEventListener('mouseenter', () => {
+        clearTimeout(_cmbSubTimer);
+        _cmbSubTimer = setTimeout(() => {
+          if (_cmbSubmenu) { _cmbSubmenu.remove(); _cmbSubmenu = null; }
+          const sub = _cmbBuildPanel(it.sub, 'cmb-submenu');
+          const r = row.getBoundingClientRect();
+          sub.style.left = r.right + 'px'; sub.style.top = r.top + 'px';
+          document.body.appendChild(sub);
+          _cmbSubmenu = sub;
+          // flip left if off-screen
+          const sr = sub.getBoundingClientRect();
+          if (sr.right > window.innerWidth) sub.style.left = (r.left - sr.width) + 'px';
+          if (sr.bottom > window.innerHeight) sub.style.top = Math.max(4, window.innerHeight - sr.height - 4) + 'px';
+        }, 80);
+      });
+      row.addEventListener('mouseleave', e => {
+        if (!e.relatedTarget?.closest?.('.cmb-submenu')) {
+          clearTimeout(_cmbSubTimer);
+          _cmbSubTimer = setTimeout(() => { if (_cmbSubmenu) { _cmbSubmenu.remove(); _cmbSubmenu = null; } }, 120);
+        }
+      });
+    } else {
+      row.addEventListener('mouseenter', () => {
+        clearTimeout(_cmbSubTimer);
+        if (_cmbSubmenu) { _cmbSubmenu.remove(); _cmbSubmenu = null; }
+        document.querySelectorAll('.cmb-dd-item.cmb-dd-hover').forEach(e => e.classList.remove('cmb-dd-hover'));
+        row.classList.add('cmb-dd-hover');
+      });
+      row.addEventListener('click', () => {
+        _cmbClose();
+        if (it.fn) it.fn(); else if (it.ch) _dispatchMenu(it.ch);
+      });
+    }
+    panel.appendChild(row);
+  });
+  return panel;
+}
+
+function _cmbOpenMenu(anchorEl, items) {
+  _cmbClose();
+  _cmbOpenEl = anchorEl;
+  anchorEl.classList.add('cmb-active');
+  const dd = _cmbBuildPanel(items, 'cmb-dropdown');
+  const r  = anchorEl.getBoundingClientRect();
+  dd.style.left = r.left + 'px';
+  dd.style.top  = r.bottom + 'px';
+  document.body.appendChild(dd);
+  _cmbDropdown = dd;
+  // keep on screen horizontally
+  const dr = dd.getBoundingClientRect();
+  if (dr.right > window.innerWidth) dd.style.left = Math.max(0, window.innerWidth - dr.width - 4) + 'px';
+}
+
+function setupCustomMenuBar() {
+  const bar = document.getElementById('custom-menubar');
+  if (!bar) return;
+  MENU_STRUCTURE.forEach(menu => {
+    const el = document.createElement('div');
+    el.className = 'cmb-item';
+    el.textContent = menu.label;
+    el.addEventListener('mousedown', e => {
+      e.preventDefault();
+      if (_cmbOpenEl === el && _cmbDropdown) { _cmbClose(); return; }
+      _cmbOpenMenu(el, menu.items);
+    });
+    el.addEventListener('mouseenter', () => {
+      if (_cmbOpenEl && _cmbOpenEl !== el) _cmbOpenMenu(el, menu.items);
+    });
+    bar.appendChild(el);
+  });
+  // close on outside click
+  document.addEventListener('mousedown', e => {
+    if (_cmbDropdown && !_cmbDropdown.contains(e.target) && !_cmbSubmenu?.contains(e.target) && !e.target.closest('.cmb-item')) _cmbClose();
+  }, true);
+  // close on Escape
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && _cmbDropdown) _cmbClose(); }, true);
+}
 
 // ===== Monaco Loader =====
 require.config({ paths: { vs: '../node_modules/monaco-editor/min/vs' } });
 
 require(['vs/editor/editor.main'], () => {
-  // Define a custom Note++ dark theme
-  monaco.editor.defineTheme('notepp-dark', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [
-      { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
-      { token: 'keyword', foreground: '569CD6', fontStyle: 'bold' },
-      { token: 'string', foreground: 'CE9178' },
-      { token: 'number', foreground: 'B5CEA8' },
-      { token: 'type', foreground: '4EC9B0' },
-      { token: 'function', foreground: 'DCDCAA' },
-      { token: 'variable', foreground: '9CDCFE' },
-    ],
-    colors: {
-      'editor.background': '#1E1E1E',
-      'editor.lineHighlightBackground': '#2A2D2E',
-      'editorLineNumber.foreground': '#858585',
-      'editorLineNumber.activeForeground': '#C6C6C6',
-      'editor.selectionBackground': '#264F78',
-      'editor.findMatchBackground': '#515C6A',
-      'editor.findMatchHighlightBackground': '#EA5C0055',
-    }
-  });
-
-  monaco.editor.defineTheme('notepp-light', {
-    base: 'vs',
-    inherit: true,
-    rules: [],
-    colors: {
-      'editor.background': '#FFFFFE',
-      'editor.lineHighlightBackground': '#F0F7FF',
-    }
+  // Register a Monaco theme for every entry in THEMES
+  Object.entries(THEMES).forEach(([id, t]) => {
+    monaco.editor.defineTheme('notepp-' + id, {
+      base: t.monacoBase,
+      inherit: true,
+      rules: t.monacoRules,
+      colors: t.monacoColors,
+    });
   });
 
   editor = monaco.editor.create(document.getElementById('monaco-editor'), {
     value: '',
     language: 'plaintext',
-    theme: 'notepp-light',
+    theme: 'notepp-' + currentTheme,
     fontSize: 13,
     fontFamily: "'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
     // ── Snappy-defaults: disable ligatures + caret animations.
@@ -183,9 +657,12 @@ require(['vs/editor/editor.main'], () => {
     if (shellEl    && t.shell)    shellEl.value    = t.shell;
     if (fontSizeEl && t.fontSize) fontSizeEl.value = t.fontSize;
 
-    // ── Persistent UI toggles: dark mode, word wrap, editor zoom ─────────
+    // ── Persistent UI toggles: theme, word wrap, editor zoom ────────────
     const ui = s.ui || {};
-    if (ui.darkMode === true  && !isDarkMode)  toggleDarkMode();
+    // ui.theme (new) takes precedence; fall back to legacy ui.darkMode boolean
+    applyTheme(ui.theme || (ui.darkMode ? 'dark' : 'light'), false);
+    // Title bar mode: default true (themed). Only call if explicitly saved to false.
+    applyTitlebarMode(ui.themedTitlebar !== false, false);
     if (ui.wordWrap === true  && !isWordWrap) {
       // Inline the toggle to skip the re-save (we just LOADED this value)
       isWordWrap = true;
@@ -213,6 +690,11 @@ require(['vs/editor/editor.main'], () => {
     }
     if (ui.showTabbar === false) {
       const el = document.getElementById('tab-bar-container'); if (el) el.style.display = 'none';
+    }
+    if (ui.columnSelectMode === true) {
+      isColumnSelectMode = true;
+      editor.updateOptions({ columnSelection: true });
+      updateColSelectStatus();
     }
   });
 
@@ -346,12 +828,51 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyCode.F2, () => editor.getAction('editor.action.rename')?.run());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backquote, () => toggleTerminal());
 
+  // ── Column selection & multi-cursor shortcuts ───────────────────────────
+  // Select line (Monaco has expandLineSelection but no default keybinding)
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL,
+    () => editor.trigger('keyboard', 'expandLineSelection', null));
+  // Add cursors to ends of all lines in the current selection
+  editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyI,
+    () => editor.getAction('editor.action.insertCursorAtEndOfEachLineSelected')?.run());
+  // Select all occurrences of the current text selection
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL,
+    () => editor.getAction('editor.action.selectHighlights')?.run());
+  // Select all occurrences of the word at cursor and rename/edit all simultaneously
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.F2,
+    () => editor.getAction('editor.action.changeAll')?.run());
+  // Column select via keyboard — Monaco has Ctrl+Shift+Alt+Arrows as built-ins,
+  // but we register them explicitly so they show up in the command log and work
+  // even if Monaco's built-in bindings are overridden elsewhere.
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.UpArrow,
+    () => editor.trigger('keyboard', 'cursorColumnSelectUp', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.DownArrow,
+    () => editor.trigger('keyboard', 'cursorColumnSelectDown', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow,
+    () => editor.trigger('keyboard', 'cursorColumnSelectLeft', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow,
+    () => editor.trigger('keyboard', 'cursorColumnSelectRight', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.Home,
+    () => editor.trigger('keyboard', 'cursorColumnSelectHome', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.End,
+    () => editor.trigger('keyboard', 'cursorColumnSelectEnd', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.PageUp,
+    () => editor.trigger('keyboard', 'cursorColumnSelectPageUp', null));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.PageDown,
+    () => editor.trigger('keyboard', 'cursorColumnSelectPageDown', null));
+
+  // Open theme picker (Ctrl+Alt+T)
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyT,
+    () => openThemePicker());
+
   setupMenuListeners();
   setupExternalChangeWatcher();
   setupContextMenu();
   setupDragDrop();
   setupFindReplace();
   setupModals();
+  setupThemePicker();
+  setupCustomMenuBar();
   setupToolbar();
   setupTerminal();
   setupTerminalResize();
@@ -363,7 +884,9 @@ require(['vs/editor/editor.main'], () => {
   setupAiPanel();
   setupDiffToolbars();
   setupGlobalEscape();
+  setupAltMouseColumnSelect();
   updateStatusBar();
+  statusCol?.addEventListener('click', () => toggleColumnSelectMode());
 
   // Signal main that all our IPC listeners (especially 'open-files') are now
   // wired up. Main will flush any files queued from double-click / "Open with".
@@ -611,6 +1134,10 @@ let drawioPendingContent = null;
 let diffEditor = null;
 let diffEditorSideBySide = true;
 
+// Separate Monaco DiffEditor for the quick-compare panel (right-click → Compare).
+let quickDiffEditor = null;
+let quickDiffSideBySide = true;
+
 // Last "Select for Compare" tab — picked from the tab right-click menu
 let compareSelectedTabId = null;
 
@@ -763,6 +1290,7 @@ function setupDiffToolbars() {
     tab.folderDiff.onlyChanges = e.target.checked;
     renderFolderDiffBody(tab);
   });
+  setupQuickDiffToolbar();
 }
 
 // Run dir-compare via IPC, then render the resulting tree.
@@ -892,6 +1420,122 @@ function disposeDiffTab(tab) {
   try { tab.diff.modifiedModel?.dispose(); } catch {}
 }
 
+// ── Quick Compare ─────────────────────────────────────────────────────────────
+// Launched from the tab right-click menu ("Compare"). Uses the current buffer
+// content (even if unsaved) as the LEFT side. User picks a file for the RIGHT
+// side via a file dialog; cancelling the dialog opens an editable right pane
+// where they can paste arbitrary text.
+
+async function quickCompareFlow(tabId) {
+  const tab = tabs.find(t => t.id === tabId);
+  if (!tab) return;
+
+  // Capture left content from the live editor buffer when possible.
+  const leftContent = (tab.id === activeTabId && editor && tab.type === 'editor')
+    ? editor.getValue()
+    : (tab.content || '');
+  const leftName = tab.name;
+  const leftLang = tab.language || 'plaintext';
+
+  // Prompt user for a right-side file.
+  const res = await window.electronAPI.openDialog({
+    title: 'Select file to compare against (Cancel = paste custom text)',
+    properties: ['openFile'],
+  });
+
+  let rightContent = '', rightPath = null, rightName = 'Custom text', rightLang = leftLang, isCustom = true;
+
+  if (!res.canceled && res.filePaths?.length) {
+    rightPath = res.filePaths[0];
+    const r = await window.electronAPI.readFile(rightPath);
+    rightContent = r.success ? r.content : '';
+    rightName    = rightPath.split(/[\\/]/).pop();
+    rightLang    = detectLanguage(rightPath);
+    isCustom     = false;
+  }
+
+  tabCounter++;
+  const qdTab = {
+    id: tabCounter, name: `↔ ${leftName}`,
+    filePath: null, content: '', dirty: false,
+    language: leftLang, encoding: 'UTF-8', eol: 'Windows (CR LF)',
+    model: null, viewState: null,
+    type: 'quick-diff', encrypted: false, protectedBy: null,
+    diff: {
+      leftContent, leftName, leftLang,
+      rightPath, rightContent, rightName, rightLang, isCustom,
+      originalModel: null, modifiedModel: null, mounted: false,
+    },
+  };
+  tabs.push(qdTab);
+  activateTab(qdTab.id);
+  renderTabs();
+}
+
+function mountQuickDiffTab(tab) {
+  const d = tab.diff;
+  document.getElementById('quick-diff-left-label').textContent  = d.leftName;
+  document.getElementById('quick-diff-right-label').textContent = d.isCustom ? 'Custom text' : d.rightName;
+  const hint = document.getElementById('quick-diff-hint');
+  if (hint) hint.classList.toggle('hidden', !d.isCustom);
+
+  const host = document.getElementById('quick-diff-monaco');
+  if (!quickDiffEditor) {
+    quickDiffEditor = monaco.editor.createDiffEditor(host, {
+      automaticLayout: true,
+      renderSideBySide: quickDiffSideBySide,
+      fontSize: 13,
+      fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+    });
+  }
+
+  // Dispose old models before creating new ones.
+  try { d.originalModel?.dispose(); } catch {}
+  try { d.modifiedModel?.dispose(); } catch {}
+  d.originalModel = monaco.editor.createModel(d.leftContent,   d.leftLang);
+  d.modifiedModel = monaco.editor.createModel(d.rightContent,  d.rightLang);
+
+  quickDiffEditor.setModel({ original: d.originalModel, modified: d.modifiedModel });
+  // Left is always read-only. Right is editable only in custom (paste) mode.
+  quickDiffEditor.getOriginalEditor().updateOptions({ readOnly: true });
+  quickDiffEditor.getModifiedEditor().updateOptions({ readOnly: !d.isCustom });
+
+  setTimeout(() => { try { quickDiffEditor.layout(); } catch {} }, 50);
+  d.mounted = true;
+}
+
+function disposeQuickDiffTab(tab) {
+  try { tab.diff?.originalModel?.dispose(); } catch {}
+  try { tab.diff?.modifiedModel?.dispose(); } catch {}
+}
+
+function setupQuickDiffToolbar() {
+  document.getElementById('btn-qdiff-inline')?.addEventListener('click', () => {
+    if (!quickDiffEditor) return;
+    quickDiffSideBySide = !quickDiffSideBySide;
+    quickDiffEditor.updateOptions({ renderSideBySide: quickDiffSideBySide });
+    document.getElementById('btn-qdiff-inline').textContent =
+      quickDiffSideBySide ? '≡ Inline' : '⫶ Side-by-side';
+  });
+  document.getElementById('btn-qdiff-prev')?.addEventListener('click', () =>
+    quickDiffEditor?.getModifiedEditor()?.trigger('toolbar', 'editor.action.diffReview.prev', null));
+  document.getElementById('btn-qdiff-next')?.addEventListener('click', () =>
+    quickDiffEditor?.getModifiedEditor()?.trigger('toolbar', 'editor.action.diffReview.next', null));
+  document.getElementById('btn-qdiff-refresh')?.addEventListener('click', async () => {
+    const tab = tabs.find(t => t.id === activeTabId && t.type === 'quick-diff');
+    if (!tab) return;
+    if (!tab.diff.isCustom && tab.diff.rightPath) {
+      const r = await window.electronAPI.readFile(tab.diff.rightPath);
+      if (r.success) tab.diff.modifiedModel?.setValue(r.content);
+    } else {
+      // Custom mode: capture whatever the user typed and force a re-render.
+      if (quickDiffEditor) quickDiffEditor.layout();
+    }
+  });
+}
+
 // Tiny HTML escape — shared with other helpers but defined here too to keep
 // the diff module self-contained.
 function escapeHtml(s) {
@@ -907,7 +1551,8 @@ function activateTab(id) {
   const prev = getActiveTab();
   if (prev && editor && prev.type !== 'game' && prev.type !== 'whiteboard'
                      && prev.type !== 'drawio'
-                     && prev.type !== 'diff' && prev.type !== 'folder-diff') {
+                     && prev.type !== 'diff' && prev.type !== 'folder-diff'
+                     && prev.type !== 'quick-diff') {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
   }
@@ -922,6 +1567,7 @@ function activateTab(id) {
   const gameFrame      = document.getElementById('game-frame');
   const diffContainer  = document.getElementById('diff-container');
   const fdiffContainer = document.getElementById('folder-diff-container');
+  const qdiffContainer = document.getElementById('quick-diff-container');
 
   // Always hide all special containers first, then show the right one
   gameContainer.classList.add('hidden');
@@ -929,6 +1575,7 @@ function activateTab(id) {
   dwContainer?.classList.add('hidden');
   diffContainer?.classList.add('hidden');
   fdiffContainer?.classList.add('hidden');
+  qdiffContainer?.classList.add('hidden');
 
   if (tab.type === 'diff') {
     monacoEl.style.display = 'none';
@@ -1004,9 +1651,12 @@ function activateTab(id) {
     } else {
       drawioPendingContent = contentToLoad;
     }
+  } else if (tab.type === 'quick-diff') {
+    monacoEl.style.display = 'none';
+    qdiffContainer.classList.remove('hidden');
+    if (previewOpen) closePreview();
+    mountQuickDiffTab(tab);
   } else {
-    // Show editor, hide special containers
-    monacoEl.style.display = '';
     if (editor) {
       editor.setModel(tab.model);
       if (tab.viewState) editor.restoreViewState(tab.viewState);
@@ -1106,18 +1756,101 @@ function renderTabs() {
     el.appendChild(name);
     el.appendChild(close);
     el.addEventListener('click', () => activateTab(tab.id));
-    el.addEventListener('mousedown', (e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id); } });
+    el.addEventListener('mousedown', e => {
+      if (e.button === 1) { e.preventDefault(); closeTab(tab.id); return; }
+      if (e.button === 0 && !e.target.classList.contains('tab-close')) initTabDrag(e, tab.id, el);
+    });
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabContextMenu(e, tab.id); });
     tabBar.appendChild(el);
   });
 }
 
+function initTabDrag(e, tabId, tabEl) {
+  const startX  = e.clientX;
+  const offsetX = e.clientX - tabEl.getBoundingClientRect().left;
+  let ghost = null, indicator = null, started = false, dropIdx = -1;
+
+  function onMove(ev) {
+    if (!started) {
+      if (Math.abs(ev.clientX - startX) < 5) return;
+      started = true;
+      document.body.classList.add('tab-dragging');
+
+      ghost = tabEl.cloneNode(true);
+      Object.assign(ghost.style, {
+        position: 'fixed', pointerEvents: 'none', opacity: '0.8',
+        zIndex: '9999', height: '23px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+      });
+      document.body.appendChild(ghost);
+
+      indicator = document.createElement('div');
+      Object.assign(indicator.style, {
+        position: 'fixed', width: '2px', background: 'var(--accent,#0078d4)',
+        pointerEvents: 'none', zIndex: '9999', borderRadius: '1px',
+      });
+      document.body.appendChild(indicator);
+      tabEl.style.opacity = '0.4';
+    }
+
+    const barRect  = tabBar.getBoundingClientRect();
+    const tabRect  = tabEl.getBoundingClientRect();
+    ghost.style.left  = (ev.clientX - offsetX) + 'px';
+    ghost.style.top   = barRect.top + 'px';
+    ghost.style.width = tabRect.width + 'px';
+
+    // Find where the tab would be inserted
+    const allTabs = Array.from(tabBar.querySelectorAll('.tab'));
+    dropIdx = allTabs.length;
+    for (let i = 0; i < allTabs.length; i++) {
+      const r = allTabs[i].getBoundingClientRect();
+      if (ev.clientX < r.left + r.width / 2) { dropIdx = i; break; }
+    }
+
+    // Position the drop indicator
+    let ix;
+    if (dropIdx < allTabs.length) {
+      ix = allTabs[dropIdx].getBoundingClientRect().left;
+    } else {
+      const last = allTabs[allTabs.length - 1];
+      ix = last ? last.getBoundingClientRect().right : barRect.left;
+    }
+    indicator.style.left   = (ix - 1) + 'px';
+    indicator.style.top    = barRect.top + 'px';
+    indicator.style.height = barRect.height + 'px';
+  }
+
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    ghost?.remove();
+    indicator?.remove();
+    document.body.classList.remove('tab-dragging');
+    tabEl.style.opacity = '';
+
+    if (started && dropIdx >= 0) {
+      const fromIdx = tabs.findIndex(t => t.id === tabId);
+      let toIdx = dropIdx;
+      if (toIdx !== fromIdx && toIdx !== fromIdx + 1) {
+        const [moved] = tabs.splice(fromIdx, 1);
+        if (toIdx > fromIdx) toIdx--;
+        tabs.splice(toIdx, 0, moved);
+        renderTabs();
+      }
+    }
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  e.preventDefault();
+}
+
 async function closeTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
-  if (tab.type === 'diff' || tab.type === 'folder-diff') {
-    // Compare tab: no model on the tab, no save prompt
-    if (tab.type === 'diff') disposeDiffTab(tab);
+  if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff') {
+    // Compare tabs: no save prompt, just dispose models and remove
+    if (tab.type === 'diff')       disposeDiffTab(tab);
+    if (tab.type === 'quick-diff') disposeQuickDiffTab(tab);
     const idx = tabs.findIndex(t => t.id === id);
     tabs.splice(idx, 1);
     if (tabs.length === 0) createTab();
@@ -1258,7 +1991,12 @@ function showTabContextMenu(e, tabId) {
     ['Open Containing Folder', () => { if (tab.filePath) window.electronAPI.shellShowItem(tab.filePath); }],
     null,
   ];
-  // Diff entry points — only for saved editor tabs
+  // Quick Compare — available for any editor tab (saved or unsaved)
+  if (tab.type === 'editor') {
+    items.push(['Compare…', () => quickCompareFlow(tabId)]);
+    items.push(null);
+  }
+  // Classic diff entry points — only for saved editor tabs
   if (compareEligible) {
     items.push(['Select for Compare', () => {
       compareSelectedTabId = tabId;
@@ -2103,9 +2841,15 @@ function updateStatusBar() {
   const sel = editor.getSelection();
   const model = editor.getModel();
   if (!pos || !model) return;
-  const selCount = sel && !sel.isEmpty() ? model.getValueInRange(sel).length : 0;
-  const selLines = sel && !sel.isEmpty() ? sel.endLineNumber - sel.startLineNumber + 1 : 0;
-  statusLnCol.textContent = `Ln : ${pos.lineNumber}    Col : ${pos.column}    Sel : ${selCount} | ${selLines > 1 ? selLines + ' lines' : selCount}`;
+  const allSels = editor.getSelections() || [];
+  if (allSels.length > 1) {
+    const totalChars = allSels.reduce((sum, s) => sum + model.getValueInRange(s).length, 0);
+    statusLnCol.textContent = `Ln : ${pos.lineNumber}    Col : ${pos.column}    ${allSels.length} selections (${totalChars} chars)`;
+  } else {
+    const selCount = sel && !sel.isEmpty() ? model.getValueInRange(sel).length : 0;
+    const selLines = sel && !sel.isEmpty() ? sel.endLineNumber - sel.startLineNumber + 1 : 0;
+    statusLnCol.textContent = `Ln : ${pos.lineNumber}    Col : ${pos.column}    Sel : ${selCount} | ${selLines > 1 ? selLines + ' lines' : selCount}`;
+  }
   statusLines.textContent = `lines: ${model.getLineCount()}`;
   statusLength.textContent = `length: ${model.getValueLength()}`;
 }
@@ -2113,18 +2857,17 @@ function updateStatusBar() {
 function updateTitle() {
   const tab = getActiveTab();
   if (!tab) return;
+  let title;
   if (tab.type === 'game') {
-    window.electronAPI.setTitle('🎮 Dev Arcade - Note++');
-    return;
+    title = '🎮 Dev Arcade - Note++';
+  } else if (tab.type === 'whiteboard') {
+    title = `${tab.dirty ? '* ' : ''}${tab.name} - Note++`;
+  } else {
+    title = `${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`;
   }
-  if (tab.type === 'whiteboard') {
-    // Use the tab name (e.g. "whiteboard-1.json"), not tab.filePath — the
-    // AppData backing file is an implementation detail; users expect the
-    // same "name - Note++" pattern as a "new 1" editor tab.
-    window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.name} - Note++`);
-    return;
-  }
-  window.electronAPI.setTitle(`${tab.dirty ? '* ' : ''}${tab.filePath || tab.name} - Note++`);
+  window.electronAPI.setTitle(title);
+  const tbEl = document.getElementById('title-bar-text');
+  if (tbEl) tbEl.textContent = title;
 }
 
 function updateLanguageStatus() {
@@ -2558,16 +3301,172 @@ function toggleWordWrap() {
   saveSetting('ui.wordWrap', isWordWrap);          // persist across sessions
 }
 
+function toggleColumnSelectMode() {
+  isColumnSelectMode = !isColumnSelectMode;
+  editor.updateOptions({ columnSelection: isColumnSelectMode });
+  updateColSelectStatus();
+  saveSetting('ui.columnSelectMode', isColumnSelectMode);
+}
+
+function updateColSelectStatus() {
+  if (statusCol) statusCol.classList.toggle('active', isColumnSelectMode);
+}
+
+// Alt+drag → column/box selection (Notepad++ style).
+// Registered on document in capture phase so it fires before Monaco's own
+// mousedown handlers — Monaco then reads columnSelection:true when it sets
+// up the drag, producing a box selection instead of a normal selection.
+// Restored to false on mouseup unless persistent COL mode is active.
+function setupAltMouseColumnSelect() {
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (!editor?.getDomNode()?.contains(e.target)) return;
+    editor.updateOptions({ columnSelection: true });
+    document.addEventListener('mouseup', () => {
+      if (!isColumnSelectMode) editor.updateOptions({ columnSelection: false });
+    }, { once: true });
+  }, { capture: true });
+}
+
+// ===== Theme System =====
+
+/**
+ * Apply a theme by id ('light', 'dark', 'sakura', …).
+ * @param {string} id   - key in THEMES
+ * @param {boolean} save - persist to settings (default true)
+ */
+// Toggle between custom themed title bar + HTML menu bar vs native OS chrome.
+// No restart required — we show/hide #title-bar and toggle the native menu bar via IPC.
+async function applyTitlebarMode(themed, save = true) {
+  isThemedTitlebar = themed;
+  const bar = document.getElementById('title-bar');
+  if (bar) bar.style.display = themed ? '' : 'none';
+  // Show/hide native OS menu bar (only meaningful with titleBarStyle:'hidden').
+  window.electronAPI?.setMenuBarVisibility?.(!themed);
+  // When switching back to themed, re-sync the WCO overlay colour.
+  if (themed) {
+    const t = THEMES[currentTheme] || THEMES.light;
+    window.electronAPI?.setTitleBarOverlay?.(t.preview.tabbar, t.preview.text);
+  }
+  // Keep checkbox in sync if picker is open.
+  const chk = document.getElementById('chk-themed-titlebar');
+  if (chk) chk.checked = themed;
+  if (save) {
+    // Single read-modify-write captures both settings in one write, so a
+    // concurrent applyTheme saveSetting can't race and lose either value.
+    const s = await window.electronAPI.readSettings();
+    (s.ui = s.ui || {}).themedTitlebar = themed;
+    s.ui.theme = currentTheme;
+    await window.electronAPI.writeSettings(s);
+    // titleBarStyle is a BrowserWindow constructor option — only takes effect on restart.
+    const r = await window.electronAPI?.messageDialog?.({
+      type: 'info',
+      title: 'Restart Required',
+      message: 'Restart Note++ to apply the title bar change.',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (r?.response === 0) window.electronAPI?.relaunchApp?.();
+  }
+}
+
+function applyTheme(id, save = true) {
+  const theme = THEMES[id] || THEMES.light;
+  currentTheme = id in THEMES ? id : 'light';
+  isDarkMode = theme.isDark;
+
+  // Remove all theme-* classes, then add the one we want
+  document.body.classList.forEach(cls => {
+    if (cls.startsWith('theme-')) document.body.classList.remove(cls);
+  });
+  document.body.classList.add('theme-' + currentTheme);
+
+  monaco.editor.setTheme('notepp-' + currentTheme);
+  document.getElementById('btn-darkmode')?.classList.toggle('active', isDarkMode);
+  syncMermaidThemeToAppMode();
+  sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });
+  sendToDrawio({ type: 'dw-theme', dark: isDarkMode });
+  // Sync native Win32 window-control overlay colour (titleBarStyle:'hidden')
+  window.electronAPI?.setTitleBarOverlay?.(theme.preview.tabbar, theme.preview.text);
+
+  // Highlight the active card in the picker (if open)
+  document.querySelectorAll('.theme-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.theme === currentTheme);
+  });
+
+  if (save) {
+    saveSetting('ui.theme', currentTheme);
+    saveSetting('ui.darkMode', isDarkMode); // keep legacy key in sync
+  }
+}
+
+/** Legacy toggle used by toolbar dark-mode button */
 function toggleDarkMode() {
-  isDarkMode = !isDarkMode;
-  document.body.classList.toggle('theme-dark', isDarkMode);
-  document.body.classList.toggle('theme-light', !isDarkMode);
-  monaco.editor.setTheme(isDarkMode ? 'notepp-dark' : 'notepp-light');
-  document.getElementById('btn-darkmode').classList.toggle('active', isDarkMode);
-  syncMermaidThemeToAppMode(); // keep diagram theme in sync
-  sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode }); // keep whiteboard in sync
-  sendToDrawio({ type: 'dw-theme', dark: isDarkMode });     // keep draw.io in sync
-  saveSetting('ui.darkMode', isDarkMode);          // persist across sessions
+  applyTheme(isDarkMode ? 'light' : 'dark');
+}
+
+// ===== Theme Picker =====
+
+function openThemePicker() {
+  const dlg = document.getElementById('theme-picker');
+  if (!dlg) return;
+  // Render cards each time so the active state is fresh
+  renderThemeCards();
+  // Sync the checkbox to current state
+  const chk = document.getElementById('chk-themed-titlebar');
+  if (chk) chk.checked = isThemedTitlebar;
+  dlg.classList.remove('hidden');
+}
+
+function closeThemePicker() {
+  document.getElementById('theme-picker')?.classList.add('hidden');
+  editor.focus();
+}
+
+function renderThemeCards() {
+  const grid = document.getElementById('theme-card-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  Object.entries(THEMES).forEach(([id, t]) => {
+    const card = document.createElement('div');
+    card.className = 'theme-card' + (id === currentTheme ? ' active' : '');
+    card.dataset.theme = id;
+    card.title = t.label;
+    card.innerHTML = `
+      <div class="theme-card-preview">
+        <div class="tcp-tabbar" style="background:${t.preview.tabbar};color:${t.preview.text}">
+          <span class="tcp-tab" style="background:${t.preview.editor};color:${t.preview.text}">file.js ×</span>
+        </div>
+        <div class="tcp-editor" style="background:${t.preview.editor};color:${t.preview.text}">
+          <span style="opacity:.5">1</span> <span style="color:${t.preview.statusbar}">function</span> hello() {<br>
+          <span style="opacity:.5">2</span>   return <span style="opacity:.7">"world"</span>;<br>
+          <span style="opacity:.5">3</span> }
+        </div>
+        <div class="tcp-statusbar" style="background:${t.preview.statusbar};color:#fff">${t.label}</div>
+      </div>
+      <div class="theme-card-label">${t.label}</div>
+    `;
+    card.addEventListener('click', () => {
+      applyTheme(id);
+      document.querySelectorAll('.theme-card').forEach(c =>
+        c.classList.toggle('active', c.dataset.theme === id));
+    });
+    grid.appendChild(card);
+  });
+}
+
+function setupThemePicker() {
+  const dlg = document.getElementById('theme-picker');
+  if (!dlg) return;
+  // Close button
+  dlg.querySelector('.modal-close')?.addEventListener('click', closeThemePicker);
+  dlg.querySelector('#btn-theme-close')?.addEventListener('click', closeThemePicker);
+  // Title bar mode checkbox
+  const chk = document.getElementById('chk-themed-titlebar');
+  if (chk) chk.addEventListener('change', () => applyTitlebarMode(chk.checked));
+  // Click outside the box closes
+  dlg.addEventListener('click', e => { if (e.target === dlg) closeThemePicker(); });
 }
 
 // ===== Zoom =====
@@ -2845,6 +3744,11 @@ function handleContextAction(action) {
     'b64-encode': base64Encode,
     'b64-decode': base64Decode,
     'json-format': jsonFormat,
+    'add-cursor-above':  () => editor.getAction('editor.action.insertCursorAbove')?.run(),
+    'add-cursor-below':  () => editor.getAction('editor.action.insertCursorBelow')?.run(),
+    'cursor-line-ends':  () => editor.getAction('editor.action.insertCursorAtEndOfEachLineSelected')?.run(),
+    'select-all-occ':    () => editor.getAction('editor.action.selectHighlights')?.run(),
+    'col-select-mode':   () => toggleColumnSelectMode(),
   };
   acts[action]?.();
   editor.focus();
@@ -3363,7 +4267,8 @@ function setupToolbar() {
 // ===== Menu Listeners =====
 function setupMenuListeners() {
   const api = window.electronAPI;
-  const m = (ch, fn) => api.onMenu(ch, fn);
+  // Shim: register for both IPC (native menu) and _menuActions (custom HTML menu bar).
+  const m = (ch, fn) => { _menuActions[ch] = fn; api.onMenu(ch, fn); };
 
   m('menu-new', newTab);
   m('menu-close', () => closeTab(activeTabId));
@@ -3451,7 +4356,10 @@ function setupMenuListeners() {
     editor.updateOptions({ guides: { indentation: checked } });
     saveSetting('ui.indentGuides', checked);
   });
-  m('menu-dark-mode', toggleDarkMode);
+  m('menu-dark-mode', toggleDarkMode);   // legacy toolbar button
+  m('menu-theme-picker', () => openThemePicker());
+  // Individual theme items from the Settings > Theme submenu
+  Object.keys(THEMES).forEach(id => m('menu-theme-' + id, () => applyTheme(id)));
   m('menu-toolbar', show => {
     document.getElementById('toolbar').style.display = show ? '' : 'none';
     saveSetting('ui.showToolbar', show);
@@ -3476,6 +4384,30 @@ function setupMenuListeners() {
   });
 
   m('menu-encoding', enc => { const tab = getActiveTab(); if (tab) { tab.encoding = enc; updateLanguageStatus(); } });
+
+  // ── Selection menu ──────────────────────────────────────────────────────
+  m('menu-col-select-mode', checked => {
+    isColumnSelectMode = checked;
+    editor.updateOptions({ columnSelection: isColumnSelectMode });
+    updateColSelectStatus();
+    saveSetting('ui.columnSelectMode', isColumnSelectMode);
+  });
+  m('menu-select-line',        () => editor.trigger('keyboard', 'expandLineSelection', null));
+  m('menu-expand-selection',   () => editor.getAction('editor.action.smartSelect.expand')?.run());
+  m('menu-shrink-selection',   () => editor.getAction('editor.action.smartSelect.shrink')?.run());
+  m('menu-cursor-above',       () => editor.getAction('editor.action.insertCursorAbove')?.run());
+  m('menu-cursor-below',       () => editor.getAction('editor.action.insertCursorBelow')?.run());
+  m('menu-cursor-line-ends',   () => editor.getAction('editor.action.insertCursorAtEndOfEachLineSelected')?.run());
+  m('menu-select-all-occ',     () => editor.getAction('editor.action.selectHighlights')?.run());
+  m('menu-select-all-word',    () => editor.getAction('editor.action.changeAll')?.run());
+  m('menu-col-select-up',      () => editor.trigger('keyboard', 'cursorColumnSelectUp', null));
+  m('menu-col-select-down',    () => editor.trigger('keyboard', 'cursorColumnSelectDown', null));
+  m('menu-col-select-left',    () => editor.trigger('keyboard', 'cursorColumnSelectLeft', null));
+  m('menu-col-select-right',   () => editor.trigger('keyboard', 'cursorColumnSelectRight', null));
+  m('menu-col-select-home',    () => editor.trigger('keyboard', 'cursorColumnSelectHome', null));
+  m('menu-col-select-end',     () => editor.trigger('keyboard', 'cursorColumnSelectEnd', null));
+  m('menu-col-select-pgup',    () => editor.trigger('keyboard', 'cursorColumnSelectPageUp', null));
+  m('menu-col-select-pgdn',    () => editor.trigger('keyboard', 'cursorColumnSelectPageDown', null));
 
   m('menu-toggle-preview', togglePreview);
   m('menu-toggle-terminal', toggleTerminal);
@@ -3539,6 +4471,17 @@ function setupMenuListeners() {
     await saveSession();          // always auto-save before closing
     window.electronAPI.closeWindow();
   });
+
+  // ── Extra registrations for the custom HTML menu bar ───────────────────
+  // These channels weren't previously in m() because they use IPC paths,
+  // but the custom menu bar needs them in _menuActions for direct dispatch.
+  m('menu-open',          () => openFile());
+  m('menu-open-folder',   () => window.electronAPI.openDialog({ properties: ['openDirectory'] }).then(r => { if (r) openFolderTree(r[0]); }));
+  m('menu-toggle-sidebar',() => { const sb = document.getElementById('sidebar'); if (sb) sb.classList.toggle('hidden'); editor?.layout(); });
+  m('menu-goto-refs',     () => editor?.getAction('editor.action.referenceSearch.trigger')?.run());
+  m('menu-goto-brace',    () => editor?.getAction('editor.action.jumpToBracket')?.run());
+  m('menu-devtools',      () => window.electronAPI?.openDialog && window.electronAPI.messageDialog({ type: 'info', title: 'DevTools', message: 'Press F12 to open Developer Tools.', buttons: ['OK'] }));
+  m('menu-check-updates', () => window.electronAPI.messageDialog({ type: 'info', title: 'Check for Updates', message: 'Use Help menu or restart the app to check for updates.', buttons: ['OK'] }));
 
   // Terminal output from run-command (id=0)
   api.onMenu('terminal-output', (id, data) => {
@@ -5969,6 +6912,9 @@ function setupGlobalEscape() {
     if (e.key !== 'Escape') return;
 
     // Priority order: close the topmost visible layer first
+    if (!document.getElementById('theme-picker')?.classList.contains('hidden')) {
+      closeThemePicker(); return;
+    }
     if (!document.getElementById('quick-open').classList.contains('hidden')) {
       closeQuickOpen(); return;
     }

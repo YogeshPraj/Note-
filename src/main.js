@@ -94,7 +94,7 @@ function fileFromArgv(argv) {
 
 function createWindow() {
   const initSettings    = readSettings();
-  const themedTitlebar  = initSettings?.ui?.themedTitlebar !== false; // default on
+  const themedTitlebar  = initSettings?.ui?.themedTitlebar === true; // default off (native)
 
   mainWindow = new BrowserWindow({
     width: 1280,

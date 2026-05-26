@@ -7,7 +7,7 @@
   <script>
     (() => {
       try {
-        if (localStorage.getItem('notepp.ui.themedTitlebar') === '0') {
+        if (localStorage.getItem('notepp.ui.themedTitlebar') !== '1') {
           document.documentElement.classList.add('native-titlebar-start');
         }
       } catch {}
@@ -24,7 +24,7 @@
     (() => {
       try {
         const themedTitlebar = localStorage.getItem('notepp.ui.themedTitlebar');
-        if (themedTitlebar === '0') {
+        if (themedTitlebar !== '1') {
           document.body.classList.add('native-titlebar');
         }
 

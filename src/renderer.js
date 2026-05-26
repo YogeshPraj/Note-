@@ -8,7 +8,7 @@ let isDarkMode = false;
 let isWordWrap = false;
 let isColumnSelectMode = false;
 let currentTheme = 'light';
-let isThemedTitlebar = true;   // custom HTML title bar + menu vs native OS chrome
+let isThemedTitlebar = false;  // custom HTML title bar + menu vs native OS chrome
 let tabCounter = 0;
 let searchDecorations = [];
 let findReplaceMode = 'find';
@@ -660,7 +660,7 @@ require(['vs/editor/editor.main'], () => {
     // ui.theme (new) takes precedence; fall back to legacy ui.darkMode boolean
     applyTheme(ui.theme || (ui.darkMode ? 'dark' : 'light'), false);
     // Title bar mode: default true (themed). Only call if explicitly saved to false.
-    applyTitlebarMode(ui.themedTitlebar !== false, false);
+    applyTitlebarMode(ui.themedTitlebar === true, false);
     if (ui.wordWrap === true  && !isWordWrap) {
       // Inline the toggle to skip the re-save (we just LOADED this value)
       isWordWrap = true;

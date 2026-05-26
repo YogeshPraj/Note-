@@ -1763,6 +1763,25 @@ function renderTabs() {
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabContextMenu(e, tab.id); });
     tabBar.appendChild(el);
   });
+  updateTabScrollButtons();
+}
+
+function updateTabScrollButtons() {
+  const left = document.getElementById('tab-scroll-left');
+  const right = document.getElementById('tab-scroll-right');
+  if (!left || !right || !tabBar) return;
+  const overflow = tabBar.scrollWidth - tabBar.clientWidth > 1;
+  if (!overflow) {
+    left.disabled = true;
+    right.disabled = true;
+    left.style.display = 'none';
+    right.style.display = 'none';
+    return;
+  }
+  left.style.display = '';
+  right.style.display = '';
+  left.disabled = tabBar.scrollLeft <= 0;
+  right.disabled = tabBar.scrollLeft + tabBar.clientWidth >= tabBar.scrollWidth - 1;
 }
 
 function initTabDrag(e, tabId, tabEl) {
@@ -4174,9 +4193,25 @@ function setupCloudPrefButtons() {
 function setupToolbar() {
   document.getElementById('tab-new-btn').addEventListener('click', newTab);
 
+  // Tab scroll arrow buttons (visible only when tabs overflow)
+  const scrollLeftBtn = document.getElementById('tab-scroll-left');
+  const scrollRightBtn = document.getElementById('tab-scroll-right');
+  const scrollStep = () => Math.max(120, Math.floor(tabBar.clientWidth * 0.6));
+  scrollLeftBtn?.addEventListener('click', () => {
+    tabBar.scrollBy({ left: -scrollStep(), behavior: 'smooth' });
+  });
+  scrollRightBtn?.addEventListener('click', () => {
+    tabBar.scrollBy({ left: scrollStep(), behavior: 'smooth' });
+  });
+  tabBar.addEventListener('scroll', updateTabScrollButtons, { passive: true });
+  window.addEventListener('resize', updateTabScrollButtons);
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(updateTabScrollButtons).observe(tabBar);
+  }
+
   // Double-click on empty tab bar space → new tab
   document.getElementById('tab-bar-container').addEventListener('dblclick', (e) => {
-    if (e.target.closest('.tab') || e.target.id === 'tab-new-btn') return;
+    if (e.target.closest('.tab') || e.target.id === 'tab-new-btn' || e.target.classList.contains('tab-scroll-btn')) return;
     newTab();
   });
   document.querySelectorAll('.tb-btn[data-action]').forEach(btn => {

@@ -88,12 +88,36 @@ jobs:
       - name: Build whiteboard iframe bundle
         run: npm run build:wb
 
+      # Decode the self-signed Windows code-signing PFX out of repo secrets
+      # so electron-builder can sign the NSIS installer + .exe. If the
+      # secret is missing the step is a no-op and the build ships unsigned
+      # — keeps the workflow green before the cert is provisioned.
+      # See scripts/generate-signing-cert.ps1 and features/SIGNING.md.
+      - name: Decode Windows signing certificate (Windows only)
+        if: matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK_BASE64 != ''
+        shell: pwsh
+        env:
+          WIN_CSC_LINK_BASE64: ${{ secrets.WIN_CSC_LINK_BASE64 }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "notepp-codesign.pfx"
+          [System.IO.File]::WriteAllBytes(
+            $pfxPath,
+            [System.Convert]::FromBase64String($env:WIN_CSC_LINK_BASE64)
+          )
+          "CSC_LINK=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Decoded signing PFX to $pfxPath"
+
       - name: Build & publish installer (electron-builder publishes to GitHub release)
         run: npx electron-builder ${{ matrix.target_flag }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Skip Mac code-signing in CI — we ship unsigned builds for now.
-          # Users on macOS will need to right-click → Open the first time.
+          # Windows signing: CSC_LINK is set by the decode step above when
+          # WIN_CSC_LINK_BASE64 is configured. CSC_KEY_PASSWORD comes
+          # straight from the secret. If either is empty, electron-builder
+          # silently skips signing (= unsigned build, current behaviour).
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # Skip Mac code-signing in CI — self-signed certs are useless on
+          # macOS (Gatekeeper requires an Apple Developer cert + notarization).
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload platform artifacts (for the release job)

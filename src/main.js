@@ -266,7 +266,7 @@ function buildRecentFilesSubmenu() {
 function buildMenu() {
   const template = [
     {
-      label: 'File',
+      label: '&File',
       submenu: [
         { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => send('menu-new') },
         { type: 'separator' },
@@ -297,7 +297,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Edit',
+      label: '&Edit',
       submenu: [
         { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => send('menu-undo') },
         { label: 'Redo', accelerator: 'CmdOrCtrl+Y', click: () => send('menu-redo') },
@@ -333,7 +333,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Code',
+      label: '&Code',
       submenu: [
         { label: 'Format Document (Auto-detect)', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('menu-format-doc') },
         { label: 'Format Selection', click: () => send('menu-format-sel') },
@@ -374,7 +374,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Search',
+      label: '&Search',
       submenu: [
         { label: 'Find...', accelerator: 'CmdOrCtrl+F', click: () => send('menu-find') },
         { label: 'Find Next', accelerator: 'F3', click: () => send('menu-find-next') },
@@ -396,7 +396,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'View',
+      label: '&View',
       submenu: [
         { label: 'Always on Top', type: 'checkbox', click: (i) => mainWindow.setAlwaysOnTop(i.checked) },
         { label: 'Full Screen', accelerator: 'F11', type: 'checkbox', click: (i) => mainWindow.setFullScreen(i.checked) },
@@ -421,7 +421,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Encoding',
+      label: 'E&ncoding',
       submenu: [
         { label: 'UTF-8', type: 'radio', checked: true, click: () => send('menu-encoding', 'UTF-8') },
         { label: 'UTF-8 BOM', type: 'radio', click: () => send('menu-encoding', 'UTF-8 BOM') },
@@ -431,7 +431,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Language',
+      label: '&Language',
       submenu: [
         { label: 'Plain Text', click: () => send('menu-lang', 'plaintext') },
         { type: 'separator' },
@@ -467,7 +467,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Terminal',
+      label: '&Terminal',
       submenu: [
         { label: 'New Terminal', accelerator: 'CmdOrCtrl+Shift+`', click: () => send('menu-new-terminal') },
         { label: 'Toggle Terminal', accelerator: 'CmdOrCtrl+`', click: () => send('menu-toggle-terminal') },
@@ -482,7 +482,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Settings',
+      label: 'Sett&ings',
       submenu: [
         { label: 'Preferences...', accelerator: 'CmdOrCtrl+,', click: () => send('menu-preferences') },
         { type: 'separator' },
@@ -494,7 +494,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Tools',
+      label: 'T&ools',
       submenu: [
         { label: 'Regex Tester', click: () => send('menu-regex-tester') },
         { type: 'separator' },
@@ -526,7 +526,7 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Window',
+      label: '&Window',
       submenu: [
         { label: 'Previous Document', accelerator: 'CmdOrCtrl+PageUp', click: () => send('menu-prev-tab') },
         { label: 'Next Document', accelerator: 'CmdOrCtrl+PageDown', click: () => send('menu-next-tab') },

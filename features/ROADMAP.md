@@ -21,6 +21,7 @@ Note++ sits in the gap between Notepad++ (great launcher, no AI) and Cursor / VS
 
 Quick wins that keep Note++ on the standards curve. Each is small and self-contained.
 
+### AI & standards
 | Feature | Effort | Why | Status |
 |---|---|---|---|
 | **`AGENTS.md` support** — read from repo root, inject into AI system prompt | 1 hr | Vendor-neutral standard adopted by Cursor, Codex, Copilot, Jules, Gemini, Windsurf, Zed, Cline (60k+ repos). Free compatibility with the entire agentic ecosystem. | 🟡 In progress |
@@ -29,10 +30,20 @@ Quick wins that keep Note++ on the standards curve. Each is small and self-conta
 | **Multi-model picker** — separate models for chat vs agent vs quick-actions | 3 hrs | Speed/quality tradeoff per task; Continue & Cursor both do this. E.g., `qwen2.5-coder:1.5b` for chat speed, `deepseek-coder:6.7b` for agent quality. | 🟡 In progress |
 | **Voice prompt input** in AI panel | — | Tried: Web Speech API (no Google API key in Electron), `@xenova/transformers` whisper-tiny in renderer (renderer killed on inference, both main-thread and proxy modes), the same in main process via `onnxruntime-node` + `AudioWorklet` PCM capture (worked end-to-end but had assorted rough edges). All voice/dictation code removed in v1.3 cleanup. Reintroduce via native `whisper.cpp` bindings when the broader Tier 3 voice work happens. | 🗑 Removed (deferred) |
 
+### Power-user parity (Notepad++ / Sublime gaps — community research May 2026)
+| Feature | Effort | Why | Status |
+|---|---|---|---|
+| **Distraction-free / Zen mode** — F11 hides tabs, toolbar, statusbar; pure full-screen editor | 2 hrs | Top Sublime Text praised feature. Writers + focus sessions. Pure CSS + toggle; zero dependencies. | ✅ Shipped |
+| **Auto-save to disk** — configurable interval (e.g. every 30 s) writes dirty files to their actual path | 3 hrs | #3 most-downloaded Notepad++ plugin (AutoSave). Different from session save — eliminates crash data loss for saved files. Opt-in via Settings. | ✅ Shipped |
+| **Spell check** — toggle in status bar / View menu; highlights misspellings in comments, strings, markdown, plain text | 1 day | #1 or #2 most-downloaded Notepad++ plugin (DSpellCheck). Use Electron's built-in `webContents.session.spellCheckerLanguages` + Monaco squiggles via custom marker provider. Works offline, no external service. | ⬜ Planned |
+| **Tab color-coding** — right-click tab → pick from 8 accent colours; persists in session | 3 hrs | Notepad++ built-in, praised for large sessions. Simple DOM + session JSON change. | ✅ Shipped |
+| **Large-file safe mode** — files > 10 MB auto-disable IntelliSense, minimap, diff gutter, syntax highlight | 4 hrs | Notepad++ handles multi-GB logs; Monaco freezes. Warn user + offer lite mode. Unblocks a real sysadmin/devops use-case. | ✅ Shipped |
+
 ## Tier 2 — Ship-soon (1–4 weeks)
 
 The leverage moves. Each one moves Note++'s capability ceiling significantly.
 
+### AI & standards
 | Feature | Effort | Why |
 |---|---|---|
 | **MCP client support** — connect to community MCP servers (filesystem, GitHub, Brave Search, Postgres, etc.) | 1–2 wks | MCP became the universal tool protocol in ~12 months (~97M monthly SDK downloads). Implementing MCP client multiplies capability instantly. Anthropic's protocol; OpenAI / LF agentic-AI foundation backed it. |
@@ -41,10 +52,18 @@ The leverage moves. Each one moves Note++'s capability ceiling significantly.
 | **Inline git diff gutter** (added/modified/deleted markers in editor) | 3–4 days | Already on `GIT.md`'s deferred list. Showed up in both research streams as the universal expectation. Cheap with Monaco's decoration API. |
 | **Local semantic search** via `nomic-embed-text` over open workspace files | 1 wk | "Find similar code" / "find file about X" without uploading anywhere. Karpathy's LLM-Wiki pattern + a small embedding model. Works offline. |
 
+### Power-user parity (Notepad++ / Sublime gaps — community research May 2026)
+| Feature | Effort | Why |
+|---|---|---|
+| **User snippets** — define abbreviations (`iife`, `cls`, `log`) that expand to multi-line templates; managed via a JSON file + UI | 1 wk | Monaco has the `registerCompletionItemProvider` + `SnippetString` backend; just needs the management UI (add/edit/delete rows, assign language scope). Sublime Text's most-loved productivity feature; Notepad++'s Snippets plugin is widely installed. |
+| **NppExec-style command runner** — `Tools → Run…` dialog: enter any shell command with `$(FILE)` / `$(DIR)` / `$(SEL)` variables; output streams into a new Results tab | 1 wk | More flexible than the current F5 run-in-terminal. Power users use this for compilers, linters, custom scripts. Keeps terminal clean; output is capturable/searchable. |
+| **Macro recording & playback** — record a sequence of editor actions, save as named macro, replay with a shortcut or N times | 2–3 wks | Notepad++'s single biggest differentiator over VS Code / Cursor. No Monaco-based editor ships this. Intercept Monaco commands via `editor.onDidType` + action dispatch; serialize to JSON; add a Macros menu. Massive power-user differentiator. |
+
 ## Tier 3 — Aspirational (months, transformative)
 
 Each one would be a marketing line on its own.
 
+### AI & transformative
 | Feature | Why it's worth it |
 |---|---|
 | **Encrypted Vault** (multi-note encrypted workspace) | Expand encrypted-pad to a vault model, 1Password-style. Quick toggle between plaintext workspace and encrypted vault. Differentiated against everyone except Standard Notes (and they have no AI). |
@@ -54,6 +73,11 @@ Each one would be a marketing line on its own.
 | **Sandbox / permission boundaries** for Agent mode | Confirm-before-shell, confirm-before-multi-file-write, deny-list for sensitive paths. Pitch: "the AI editor that won't `rm -rf` your home folder" — competitive positioning amid the 30+ prompt-injection RCE bugs disclosed across Cursor, Windsurf, Kiro, Copilot, Zed, Roo, Cline, Junie in Dec 2025. |
 | **Mobile capture companion** (PWA) | The universal mobile-desktop-parity complaint. Simple PWA captures voice/text → syncs to a Note++ inbox file via cloud-sync. |
 | **Karpathy LLM-Wiki view** for `.md` workspaces | "70× more efficient than RAG for personal scale." Curated markdown handed wholesale to long-context model. Good fit for users with a Markdown notes folder. |
+
+### Power-user parity (Notepad++ / Sublime gaps — community research May 2026)
+| Feature | Why it's worth it |
+|---|---|
+| **Hex viewer / editor** — open any binary file in a hex+ASCII split view; edit bytes in place | Popular Notepad++ plugin (HEX-Editor). Niche but high-signal: sysadmins, reverse engineers, firmware devs. Implement via a dedicated tab type backed by a `Uint8Array` model + custom Monaco-free renderer, or find a WASM hex-editor component. |
 
 ---
 
@@ -68,6 +92,26 @@ Each one would be a marketing line on its own.
 | **Compete with Cursor/Windsurf on parallel worktrees, custom foundation models** | Different product category, they raised $10B+. Compete on **focused, lightweight, local-first**. |
 | **Proprietary "Note++ rules" file format** | AGENTS.md won the standards war in 12 months. Don't fragment further. |
 | **Brain-dead RAG over notes** | Karpathy's LLM-Wiki pattern (curated markdown → long-context LLM) is "70× more efficient" for personal scale. Skip embeddings for notebooks under ~10k notes. |
+
+---
+
+## Notepad++ / Sublime parity research summary (May 2026)
+
+Ten most impactful community-validated gaps vs Notepad++ and Sublime Text, in priority order:
+
+| # | Feature | Signal source | Note++ status |
+|---|---|---|---|
+| 1 | Macro recording & playback | Notepad++'s single most-cited differentiator vs VS Code; no Monaco editor ships it | Tier 2 |
+| 2 | Spell check | #1–2 most-downloaded Notepad++ plugin (DSpellCheck); praised in every user review | Tier 1 |
+| 3 | Auto-save to disk | Top plugin (AutoSave); universal request; distinct from session save | Tier 1 |
+| 4 | Distraction-free / Zen mode | Top Sublime Text praised feature; writers + focus use-case | Tier 1 |
+| 5 | User snippets | Sublime's most-loved productivity feature; Monaco backend already exists | Tier 2 |
+| 6 | Tab color-coding | Notepad++ built-in; praised for large multi-project sessions | Tier 1 |
+| 7 | Hex viewer | Popular HEX-Editor plugin; niche but high-signal for target users | Tier 3 |
+| 8 | Large-file safe mode | Notepad++ handles GB+ logs; Monaco struggles; devops use-case | Tier 1 |
+| 9 | NppExec-style command runner | Power-user staple; more flexible than F5 terminal runner | Tier 2 |
+
+Research sources: Notepad++ community forum, GitHub issues, TrustRadius/G2 reviews, Hacker News Sublime Thread (Jan 2026), plugin download rankings, developer surveys.
 
 ---
 

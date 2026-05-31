@@ -43,6 +43,24 @@ let wbReady = false;
 let wbPendingContent = null;
 const wbFileSaveTimers = new Map(); // tabId → timer handle
 
+// File tree state
+let fileTreeRootPath = null;
+
+// Zen mode
+let isZenMode = false;
+
+// Macro recording & playback
+let isRecording    = false;
+let currentMacroOps = [];       // ops accumulated during active recording
+let lastRecordedMacro = null;   // most recently completed macro (for "Run Last")
+let savedMacros = [];           // persisted named macros
+
+// Disk auto-save — periodically writes dirty editor files to their real paths
+let diskAutoSaveTimer = null;
+
+// Large-file safe mode threshold (10 MB)
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024;
+
 // ===== Encryption state =====
 // `appEnc.profile` is the loaded profile JSON (or null if encryption not yet set up).
 // `appEnc.rawDek` is the unlocked DEK as Uint8Array (or null when locked).
@@ -340,7 +358,7 @@ const MENU_STRUCTURE = [
     { label: 'Toggle Terminal',    ch: 'menu-toggle-terminal',key:'Ctrl+`' },
     { label: 'Toggle Sidebar',     ch: 'menu-toggle-sidebar' },
     { sep: true },
-    { label: 'Full Screen',        fn: () => window.electronAPI?.setFullScreen(true),  key: 'F11' },
+    { label: 'Zen Mode',           ch: 'menu-zen-mode', key: 'F11' },
     { sep: true },
     { label: 'Zoom In',            ch: 'menu-zoom-in',       key: 'Ctrl+=' },
     { label: 'Zoom Out',           ch: 'menu-zoom-out',      key: 'Ctrl+-' },
@@ -432,6 +450,14 @@ const MENU_STRUCTURE = [
       { sep: true },
       { label: 'Check for Updates',   ch: 'menu-drawio-check-updates' },
     ]},
+  ]},
+  { label: 'Macros', items: [
+    { label: 'Start / Stop Recording', ch: 'menu-macro-record', key: 'Ctrl+Shift+R' },
+    { sep: true },
+    { label: 'Run Last Macro',   ch: 'menu-macro-run',   key: 'F9' },
+    { label: 'Run N Times…',    ch: 'menu-macro-run-n', key: 'Ctrl+F9' },
+    { sep: true },
+    { label: 'Manage Macros…',  ch: 'menu-macro-manage' },
   ]},
   { label: 'Window', items: [
     { label: 'Previous Document', ch: 'menu-prev-tab',      key: 'Ctrl+PgUp' },
@@ -648,6 +674,9 @@ require(['vs/editor/editor.main'], () => {
     };
     const bkp = s.backup || {};
     startAutoBackup(!!bkp.enabled, (bkp.intervalMin || 5) * 60 * 1000);
+    const das = s.diskAutoSave || {};
+    startDiskAutoSave(!!das.enabled, das.intervalSecs || 30);
+    if (Array.isArray(s.macros)) savedMacros = s.macros;
     // Pre-populate terminal pref elements so they're ready when the terminal opens
     const t = s.terminal || {};
     const shellEl    = document.getElementById('pref-shell');
@@ -798,9 +827,40 @@ require(['vs/editor/editor.main'], () => {
     updateStatusBar();
     updateTitle();
     scheduleAutoSave();
-    schedulePreviewUpdate();
+    if (!_jsonEditorUpdating) schedulePreviewUpdate();
     scheduleGitDiffUpdate(tab);   // re-paint inline git-diff gutter
     try { window.NotePPLsp?.onTabContentChange(tab); } catch {}
+    // Fallback auto-detect: catches pastes via Edit menu / execCommand that
+    // don't fire onDidPaste. Guard: only plaintext, only once per tab, only
+    // after the content is big enough to be meaningful (> 60 chars, multi-line).
+    if (tab && tab.language === 'plaintext' && !tab._autoDetectTriggered) {
+      const v = editor.getValue();
+      if (v.length > 60 && v.includes('\n')) _scheduleAutoDetect(tab);
+    }
+  });
+
+  // ── Macro recording hooks ─────────────────────────────────────────────────
+  // onDidType fires for every printed character (incl. Enter → \n, Tab → \t).
+  editor.onDidType(text => {
+    if (!isRecording) return;
+    const last = currentMacroOps[currentMacroOps.length - 1];
+    if (last?.op === 'type') last.text += text; // merge consecutive chars
+    else currentMacroOps.push({ op: 'type', text });
+  });
+  // onKeyDown fires for ALL keys before Monaco processes them.  We only
+  // capture the non-printable navigation/editing keys here; printable chars
+  // and Enter/Tab come through onDidType.
+  editor.onKeyDown(e => {
+    if (!isRecording) return;
+    _handleMacroKeydown(e);
+  });
+
+  // Primary path: onDidPaste fires immediately after Ctrl+V / right-click Paste.
+  editor.onDidPaste(() => {
+    const tab = getActiveTab();
+    if (!tab || tab.language !== 'plaintext') return;
+    tab._autoDetectTriggered = true; // prevent the debounced fallback firing again
+    _applyAutoDetectedLanguage(tab, editor.getValue());
   });
 
   // Keyboard shortcuts
@@ -832,6 +892,14 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F12, () => editor.getAction('editor.action.goToReferences')?.run());
   editor.addCommand(monaco.KeyCode.F2, () => editor.getAction('editor.action.rename')?.run());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backquote, () => toggleTerminal());
+  // Macro shortcuts
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyR, toggleMacroRecording);
+  editor.addCommand(monaco.KeyCode.F9,  () => runLastMacro(1));
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.F9, () => {
+    const macro = lastRecordedMacro || savedMacros[0] || null;
+    if (macro) openRunNTimesDialog(macro);
+    else showToast('No macro recorded yet — press Ctrl+Shift+R to start recording');
+  });
 
   // ── Column selection & multi-cursor shortcuts ───────────────────────────
   // Select line (Monaco has expandLineSelection but no default keybinding)
@@ -1569,6 +1637,7 @@ function activateTab(id) {
                      && prev.type !== 'quick-diff') {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
+    prev.previewOpen = previewOpen; // persist per-tab preview visibility
   }
   activeTabId = id;
 
@@ -1677,15 +1746,25 @@ function activateTab(id) {
       if (tab.viewState) editor.restoreViewState(tab.viewState);
       editor.focus();
     }
-    // Auto-open preview for Mermaid files; update if already open
-    if (tab.language === 'mermaid' && !previewOpen) {
-      openPreview();
-    } else if (previewOpen) {
-      if (isPreviewable(tab.language)) {
-        updatePreview();
-      } else {
-        showPreviewPlaceholder();
-      }
+    // Large-file safe mode: apply restricted options for big files, restore
+    // normal options when returning from one.
+    if (tab.largeFileSafeMode) {
+      _applyLargeFileMode();
+    } else if (prev?.largeFileSafeMode) {
+      _restoreNormalEditorMode();
+    }
+    // Per-tab preview state: restore whatever this tab had.
+    // tab.previewOpen === true  → user opened it on this tab, show it
+    // tab.previewOpen === false → user closed it (or never opened), hide it
+    // tab.previewOpen === undefined → first visit; auto-open only for mermaid
+    if (tab.previewOpen === true) {
+      if (!previewOpen) openPreview();
+      else if (isPreviewable(tab.language)) updatePreview();
+      else showPreviewPlaceholder();
+    } else if (tab.language === 'mermaid' && tab.previewOpen === undefined) {
+      openPreview(); // first-visit auto-open for .mmd files
+    } else {
+      if (previewOpen) closePreview();
     }
     // Show/hide Mermaid toolbar based on active language
     updateMermaidToolbar(tab.language === 'mermaid');
@@ -1722,12 +1801,58 @@ function updateEncryptToolbarButton() {
   btn.title = isEnc ? 'Remove encryption from this file' : 'Encrypt this file';
 }
 
+// ── Tab color palette ─────────────────────────────────────────────────────
+const TAB_COLORS = [
+  { name: 'Red',    value: '#e05555' },
+  { name: 'Orange', value: '#e08030' },
+  { name: 'Yellow', value: '#c0a020' },
+  { name: 'Green',  value: '#3dab60' },
+  { name: 'Teal',   value: '#2090a0' },
+  { name: 'Blue',   value: '#4488dd' },
+  { name: 'Purple', value: '#8060c0' },
+  { name: 'Pink',   value: '#c060a0' },
+];
+
+function togglePinTab(id) {
+  const tab = tabs.find(t => t.id === id);
+  if (!tab) return;
+  tab.pinned = !tab.pinned;
+  renderTabs();
+  scheduleAutoSave();
+}
+
+function setTabColor(id, color) {
+  const tab = tabs.find(t => t.id === id);
+  if (!tab) return;
+  tab.color = color || null;
+  renderTabs();
+  scheduleAutoSave();
+}
+
 function renderTabs() {
   tabBar.innerHTML = '';
-  tabs.forEach(tab => {
+  // Pinned tabs always appear first in the bar, preserving relative order within each group.
+  const ordered = [...tabs.filter(t => t.pinned), ...tabs.filter(t => !t.pinned)];
+  ordered.forEach(tab => {
     const el = document.createElement('div');
-    el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab.dirty ? ' dirty' : '');
+    el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab.dirty ? ' dirty' : '')
+                       + (tab.pinned ? ' tab-pinned' : '');
     el.dataset.id = tab.id;
+
+    // Color accent bar — 3 px stripe on the left edge of the tab
+    if (tab.color) {
+      el.style.setProperty('--tab-accent-color', tab.color);
+      el.classList.add('tab-colored');
+    }
+
+    // Pin indicator — shown before the file icon for pinned tabs
+    if (tab.pinned) {
+      const pin = document.createElement('span');
+      pin.className = 'tab-pin-icon';
+      pin.textContent = '📌';
+      pin.title = 'Pinned — right-click to unpin';
+      el.appendChild(pin);
+    }
 
     // Whiteboard / drawio tabs use only their pill badge — skip the emoji
     // icon so we don't render a tofu/blank-box for systems missing the glyph.
@@ -1746,6 +1871,8 @@ function renderTabs() {
     const close = document.createElement('button');
     close.className = 'tab-close';
     close.textContent = '×';
+    // Pinned tabs: × is hidden; middle-click is also blocked below
+    if (tab.pinned) close.style.display = 'none';
     close.addEventListener('click', (e) => { e.stopPropagation(); closeTab(tab.id); });
 
     // Pill badge on whiteboard tabs so the type is unmistakable even when the
@@ -1782,8 +1909,10 @@ function renderTabs() {
     el.appendChild(close);
     el.addEventListener('click', () => activateTab(tab.id));
     el.addEventListener('mousedown', e => {
-      if (e.button === 1) { e.preventDefault(); closeTab(tab.id); return; }
-      if (e.button === 0 && !e.target.classList.contains('tab-close')) initTabDrag(e, tab.id, el);
+      if (e.button === 1) { e.preventDefault(); if (!tab.pinned) closeTab(tab.id); return; }
+      if (e.button === 0 && !e.target.classList.contains('tab-close')) {
+        if (!tab.pinned) initTabDrag(e, tab.id, el); // pinned tabs can't be dragged
+      }
     });
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabContextMenu(e, tab.id); });
     tabBar.appendChild(el);
@@ -1925,6 +2054,7 @@ function initTabDrag(e, tabId, tabEl) {
 async function closeTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
+  if (tab.pinned) { showToast('Unpin the tab before closing it'); return; }
   if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff') {
     // Compare tabs: no save prompt, just dispose models and remove
     if (tab.type === 'diff')       disposeDiffTab(tab);
@@ -2061,9 +2191,13 @@ function showTabContextMenu(e, tabId) {
   const selectedTab = haveSelected ? tabs.find(t => t.id === compareSelectedTabId) : null;
 
   const items = [
+    [tab.pinned ? '📌 Unpin Tab' : '📌 Pin Tab', () => togglePinTab(tabId)],
+    null,
     ['Close', () => closeTab(tabId)],
     ['Close All', () => closeAllTabs()],
     ['Close All But This', () => closeOtherTabs(tabId)],
+    null,
+    { type: 'color-row', current: tab.color, onChange: color => setTabColor(tabId, color) },
     null,
     ['Copy Full Path', () => { if (tab.filePath) navigator.clipboard.writeText(tab.filePath); }],
     ['Open Containing Folder', () => { if (tab.filePath) window.electronAPI.shellShowItem(tab.filePath); }],
@@ -2088,15 +2222,45 @@ function showTabContextMenu(e, tabId) {
     }
     items.push(null);
   }
-  items.push(['Reveal in File Tree', () => {}]);
+  items.push(['Reveal in File Tree', () => revealInFileTree(tab.filePath)]);
   showFloatingMenu(e.clientX, e.clientY, items);
 }
 
+function dismissFloatingMenus() {
+  document.querySelectorAll('.floating-ctx-menu').forEach(m => m.remove());
+}
+
 function showFloatingMenu(x, y, items) {
+  // Close any other open context menus first — both the static editor one
+  // and any prior floating menu — so two never overlap.
+  dismissFloatingMenus();
+  if (typeof contextMenu !== 'undefined' && contextMenu) contextMenu.classList.add('hidden');
   const menu = document.createElement('div');
+  menu.className = 'floating-ctx-menu';
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2000;background:var(--ctx-bg);border:1px solid var(--ctx-border);padding:2px 0;min-width:200px;box-shadow:2px 2px 8px rgba(0,0,0,0.25);font-size:12px;max-height:80vh;overflow-y:auto;`;
   items.forEach(item => {
     if (!item) { const sep = document.createElement('div'); sep.className = 'ctx-sep'; menu.appendChild(sep); return; }
+    // Special color-picker row — renders a compact swatch strip instead of a text item
+    if (item.type === 'color-row') {
+      const row = document.createElement('div');
+      row.className = 'ctx-color-row';
+      TAB_COLORS.forEach(c => {
+        const sw = document.createElement('span');
+        sw.className = 'ctx-color-swatch' + (item.current === c.value ? ' active' : '');
+        sw.style.background = c.value;
+        sw.title = c.name;
+        sw.addEventListener('click', () => { item.onChange(c.value); document.body.removeChild(menu); });
+        row.appendChild(sw);
+      });
+      const clear = document.createElement('span');
+      clear.className = 'ctx-color-swatch ctx-color-clear';
+      clear.title = 'Clear color';
+      clear.textContent = '✕';
+      clear.addEventListener('click', () => { item.onChange(null); document.body.removeChild(menu); });
+      row.appendChild(clear);
+      menu.appendChild(row);
+      return;
+    }
     const el = document.createElement('div');
     el.className = 'ctx-item';
     el.textContent = item[0];
@@ -2168,7 +2332,7 @@ async function openFile(filePaths) {
     } else if (lower.endsWith('.xml')) {
       const head = (res.content || '').slice(0, 200);
       if (/<\s*mxfile|<\s*mxGraphModel/i.test(head)) createDrawioTab(fp, res.content);
-      else createTab(fp, res.content);
+      else _checkLargeFile(createTab(fp, res.content), res.size);
     } else if (lower.endsWith('.json')) {
       let isWb = false;
       try {
@@ -2176,9 +2340,9 @@ async function openFile(filePaths) {
         isWb = parsed && (parsed.__wb__ === true || parsed.type === 'excalidraw');
       } catch (e) {}
       if (isWb) createWhiteboardTab(fp, res.content);
-      else       createTab(fp, res.content);
+      else       _checkLargeFile(createTab(fp, res.content), res.size);
     } else {
-      createTab(fp, res.content);
+      _checkLargeFile(createTab(fp, res.content), res.size);
     }
   }
 }
@@ -2534,10 +2698,36 @@ async function reloadFile() {
   renderTabs();
 }
 
-async function closeAllTabs() { for (const id of [...tabs.map(t => t.id)]) await closeTab(id); }
-async function closeOtherTabs(keepId) { for (const id of tabs.filter(t => t.id !== keepId).map(t => t.id)) await closeTab(id); }
+async function closeAllTabs() { for (const id of tabs.filter(t => !t.pinned).map(t => t.id)) await closeTab(id); }
+async function closeOtherTabs(keepId) { for (const id of tabs.filter(t => t.id !== keepId && !t.pinned).map(t => t.id)) await closeTab(id); }
 
 // ===== Language Detection =====
+
+// Apply a detected language to a tab (shared by onDidPaste and the debounced fallback).
+function _applyAutoDetectedLanguage(tab, content) {
+  if (!tab || !content.trim()) return;
+  const detected = autoDetectLanguage(content, tab.name);
+  if (!detected || detected === 'plaintext') return;
+  tab.language = detected;
+  monaco.editor.setModelLanguage(tab.model, detected);
+  updateLanguageStatus();
+  updateMermaidToolbar(detected === 'mermaid');
+  if (detected === 'mermaid' && !previewOpen) openPreview();
+  else if (previewOpen) updatePreview();
+  showToast(`Language auto-detected: ${detected}`);
+}
+
+// Debounced fallback: runs 400 ms after the last content change on a plaintext tab.
+// Covers pastes via Edit menu / execCommand that bypass Monaco's onDidPaste.
+let _autoDetectTimer = null;
+function _scheduleAutoDetect(tab) {
+  clearTimeout(_autoDetectTimer);
+  _autoDetectTimer = setTimeout(() => {
+    if (!tab || tab.language !== 'plaintext') return;
+    tab._autoDetectTriggered = true;
+    _applyAutoDetectedLanguage(tab, editor.getValue());
+  }, 400);
+}
 function detectLanguage(fp) {
   const ext = fp.split('.').pop().toLowerCase();
   const map = {
@@ -2660,8 +2850,10 @@ function autoDetectLanguage(content, fileName) {
     return 'yaml';
   }
 
-  // 6. Markdown
-  if (/^#{1,6} /m.test(head) || /^```/m.test(head) || /^\*\*\w/.test(head)) return 'markdown';
+  // 6. Markdown — heading regex allows tabs/multiple spaces; require a non-whitespace
+  // char after the space so bare "#" comment lines don't trigger this.
+  if (/^#{1,6}[ \t]+\S/m.test(head) || /^```/m.test(head) || /^\*\*\w/.test(head) ||
+      /^- \[[ xX]\]/m.test(head) || /^\*{1,2}[^*\n]+\*{1,2}/m.test(head)) return 'markdown';
 
   // 7. SQL
   if (/^\s*(SELECT|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|DATABASE|INDEX)|DROP\s+(TABLE|DATABASE)|ALTER\s+TABLE|WITH\s+\w+\s+AS)\b/im.test(head)) return 'sql';
@@ -3567,6 +3759,401 @@ function applyZoom() {
   saveSetting('ui.fontSize', currentFontSize);     // persist editor zoom across sessions
 }
 
+// ===== Zen Mode =====
+function toggleZenMode() {
+  isZenMode = !isZenMode;
+  document.body.classList.toggle('zen-mode', isZenMode);
+  window.electronAPI.setFullScreen(isZenMode);
+  // Defer layout so the DOM reflows first (hiding chrome changes available height)
+  requestAnimationFrame(() => editor?.layout());
+  if (isZenMode) showToast('Zen mode — press F11 or Esc to exit');
+}
+
+// ===== Disk Auto-Save =====
+// Writes dirty editor files (with a real saved path) back to disk on a
+// fixed interval.  Unlike session auto-save (which writes to AppData), this
+// keeps the actual file on disk current.  Opt-in; skips encrypted tabs.
+
+function startDiskAutoSave(enabled, intervalSecs) {
+  stopDiskAutoSave();
+  if (enabled && intervalSecs > 0) {
+    diskAutoSaveTimer = setInterval(runDiskAutoSave, intervalSecs * 1000);
+  }
+}
+
+function stopDiskAutoSave() {
+  if (diskAutoSaveTimer) { clearInterval(diskAutoSaveTimer); diskAutoSaveTimer = null; }
+}
+
+async function runDiskAutoSave() {
+  const dirty = tabs.filter(t =>
+    t.type === 'editor' && t.dirty && t.filePath && !t.encrypted
+  );
+  if (!dirty.length) return;
+  let saved = 0;
+  for (const tab of dirty) {
+    try {
+      // For the active tab use the editor model directly; others use tab.content.
+      const content = (tab.id === activeTabId) ? editor.getValue() : tab.content;
+      const res = await window.electronAPI.writeFile(tab.filePath, content);
+      if (res.success) {
+        tab.dirty = false;
+        tab.content = content;
+        try { window.electronAPI.fileSavedByApp(tab.filePath); } catch {}
+        saved++;
+      }
+    } catch {}
+  }
+  if (saved > 0) {
+    renderTabs();
+    updateTitle();
+    showToast(`Auto-saved ${saved} file${saved > 1 ? 's' : ''}`);
+  }
+}
+
+async function loadDiskAutoSavePrefs() {
+  const s = await window.electronAPI.readSettings();
+  const das = s.diskAutoSave || {};
+  const enableEl   = document.getElementById('pref-disk-autosave-enable');
+  const intervalEl = document.getElementById('pref-disk-autosave-interval');
+  if (enableEl)   enableEl.checked = !!das.enabled;
+  if (intervalEl) intervalEl.value = das.intervalSecs || 30;
+}
+
+async function saveDiskAutoSavePrefs(settings) {
+  settings.diskAutoSave = {
+    enabled:     !!document.getElementById('pref-disk-autosave-enable')?.checked,
+    intervalSecs: parseInt(document.getElementById('pref-disk-autosave-interval')?.value || '30'),
+  };
+}
+
+// ===== Large-file Safe Mode =====
+// Files over 10 MB disable expensive Monaco features (IntelliSense, minimap,
+// folding, etc.) to keep the editor responsive.  The tab carries a
+// `largeFileSafeMode` flag; options are restored when the user switches to a
+// normal tab.
+
+function _applyLargeFileMode() {
+  editor.updateOptions({
+    minimap:          { enabled: false },
+    folding:          false,
+    quickSuggestions: false,
+    parameterHints:   { enabled: false },
+    hover:            { enabled: false },
+    codeLens:         false,
+    inlayHints:       { enabled: 'off' },
+    renderWhitespace: 'none',
+    guides:           { indentation: false },
+  });
+}
+
+function _restoreNormalEditorMode() {
+  // Re-read current prefs from the (always-populated) pref dialog DOM so we
+  // don't overwrite any setting the user changed while in the large-file tab.
+  const g = id => document.getElementById(id);
+  editor.updateOptions({
+    minimap:          { enabled: g('pref-minimap')?.checked ?? true },
+    folding:          true,
+    quickSuggestions: (g('pref-intellisense')?.checked ?? true)
+                        ? { other: 'on', comments: 'off', strings: 'off' } : false,
+    parameterHints:   { enabled: g('pref-param-hints')?.checked ?? true },
+    hover:            { enabled: g('pref-hover')?.checked ?? true, delay: 200 },
+    codeLens:         g('pref-codelen')?.checked ?? true,
+    inlayHints:       { enabled: (g('pref-inline-hints')?.checked ?? true) ? 'on' : 'off' },
+    renderWhitespace: (g('pref-whitespace')?.checked ?? false) ? 'all' : 'selection',
+    guides:           { indentation: true },
+  });
+}
+
+function _checkLargeFile(tab, size) {
+  if (!size || size <= LARGE_FILE_THRESHOLD) return;
+  tab.largeFileSafeMode = true;
+  tab.largeFileBytes = size;
+  _applyLargeFileMode();
+  const mb = (size / 1024 / 1024).toFixed(1);
+  showToast(`⚠ Large file (${mb} MB) — IntelliSense & minimap disabled for performance`);
+  // Very large files (> 50 MB): also strip syntax highlighting entirely
+  if (size > LARGE_FILE_THRESHOLD * 5) {
+    monaco.editor.setModelLanguage(tab.model, 'plaintext');
+    tab.language = 'plaintext';
+    updateLanguageStatus();
+  }
+}
+
+// ===== Macro Recording & Playback =====
+// Records editor operations (text input, cursor movement, deletions) as a
+// replayable sequence.  Stored in settings.macros; keyed by name.
+
+// Map from onKeyDown e.browserEvent.key → op shape
+function _handleMacroKeydown(e) {
+  const be   = e.browserEvent || e;
+  const key  = be.key;
+  const sh   = be.shiftKey;
+  const ctrl = be.ctrlKey;
+
+  switch (key) {
+    case 'Backspace': {
+      const last = currentMacroOps[currentMacroOps.length - 1];
+      if (last?.op === 'backspace') { last.count++; return; }
+      currentMacroOps.push({ op: 'backspace', count: 1 }); return;
+    }
+    case 'Delete': {
+      const last = currentMacroOps[currentMacroOps.length - 1];
+      if (last?.op === 'delete') { last.count++; return; }
+      currentMacroOps.push({ op: 'delete', count: 1 }); return;
+    }
+    case 'ArrowLeft':  currentMacroOps.push({ op: 'cursorLeft',  sh, ctrl }); return;
+    case 'ArrowRight': currentMacroOps.push({ op: 'cursorRight', sh, ctrl }); return;
+    case 'ArrowUp':    currentMacroOps.push({ op: 'cursorUp',    sh }); return;
+    case 'ArrowDown':  currentMacroOps.push({ op: 'cursorDown',  sh }); return;
+    case 'Home':       currentMacroOps.push({ op: 'cursorHome',  sh, ctrl }); return;
+    case 'End':        currentMacroOps.push({ op: 'cursorEnd',   sh, ctrl }); return;
+    case 'PageUp':     currentMacroOps.push({ op: 'cursorPageUp',   sh }); return;
+    case 'PageDown':   currentMacroOps.push({ op: 'cursorPageDown', sh }); return;
+    // Tab / Enter come through onDidType — skip here
+    case 'Tab': case 'Enter': return;
+    // Modifier-only keys are noise
+    case 'Control': case 'Shift': case 'Alt': case 'Meta': return;
+    default:
+      // Ctrl+key editor actions worth recording
+      if (ctrl && !sh && !be.altKey) {
+        const actions = {
+          ']': { op: 'action', id: 'editor.action.indentLines' },
+          '[': { op: 'action', id: 'editor.action.outdentLines' },
+          '/': { op: 'action', id: 'editor.action.commentLine' },
+        };
+        if (actions[key]) { currentMacroOps.push(actions[key]); return; }
+      }
+      if (ctrl && sh) {
+        const actions = {
+          'K': { op: 'action', id: 'editor.action.deleteLines' },
+        };
+        if (actions[key.toUpperCase()]) { currentMacroOps.push(actions[key.toUpperCase()]); return; }
+      }
+      if (!ctrl && !sh && be.altKey) {
+        if (key === 'ArrowUp')   { currentMacroOps.push({ op: 'action', id: 'editor.action.moveLinesUpAction' }); return; }
+        if (key === 'ArrowDown') { currentMacroOps.push({ op: 'action', id: 'editor.action.moveLinesDownAction' }); return; }
+      }
+  }
+}
+
+function _playMacroOp(op) {
+  if (!editor) return;
+  switch (op.op) {
+    case 'type':
+      editor.trigger('macro', 'type', { text: op.text }); break;
+    case 'backspace':
+      for (let i = 0; i < (op.count || 1); i++) editor.trigger('macro', 'deleteLeft', null); break;
+    case 'delete':
+      for (let i = 0; i < (op.count || 1); i++) editor.trigger('macro', 'deleteRight', null); break;
+    case 'cursorLeft': {
+      const cmd = op.ctrl ? (op.sh ? 'cursorWordLeftSelect' : 'cursorWordLeft')
+                          : (op.sh ? 'cursorLeftSelect'     : 'cursorLeft');
+      editor.trigger('macro', cmd, null); break;
+    }
+    case 'cursorRight': {
+      const cmd = op.ctrl ? (op.sh ? 'cursorWordRightSelect' : 'cursorWordRight')
+                          : (op.sh ? 'cursorRightSelect'     : 'cursorRight');
+      editor.trigger('macro', cmd, null); break;
+    }
+    case 'cursorUp':
+      editor.trigger('macro', op.sh ? 'cursorUpSelect'   : 'cursorUp',   null); break;
+    case 'cursorDown':
+      editor.trigger('macro', op.sh ? 'cursorDownSelect' : 'cursorDown', null); break;
+    case 'cursorHome': {
+      const cmd = op.ctrl ? (op.sh ? 'cursorTopSelect'  : 'cursorTop')
+                          : (op.sh ? 'cursorHomeSelect' : 'cursorHome');
+      editor.trigger('macro', cmd, null); break;
+    }
+    case 'cursorEnd': {
+      const cmd = op.ctrl ? (op.sh ? 'cursorBottomSelect' : 'cursorBottom')
+                          : (op.sh ? 'cursorEndSelect'    : 'cursorEnd');
+      editor.trigger('macro', cmd, null); break;
+    }
+    case 'cursorPageUp':
+      editor.trigger('macro', op.sh ? 'cursorPageUpSelect'   : 'cursorPageUp',   null); break;
+    case 'cursorPageDown':
+      editor.trigger('macro', op.sh ? 'cursorPageDownSelect' : 'cursorPageDown', null); break;
+    case 'action':
+      editor.trigger('macro', op.id, null); break;
+  }
+}
+
+function toggleMacroRecording() {
+  if (isRecording) _stopMacroRecording(); else _startMacroRecording();
+}
+
+function _startMacroRecording() {
+  isRecording = true;
+  currentMacroOps = [];
+  _updateMacroRecIndicator(true);
+  showToast('⏺ Recording macro — press Ctrl+Shift+R to stop');
+}
+
+function _stopMacroRecording() {
+  isRecording = false;
+  _updateMacroRecIndicator(false);
+  const ops = [...currentMacroOps];
+  currentMacroOps = [];
+  if (!ops.length) { showToast('No operations recorded'); return; }
+  lastRecordedMacro = { name: 'Last Recording', ops };
+  showToast(`⏹ Recorded ${ops.length} operation${ops.length > 1 ? 's' : ''} — open Macros menu to save or run`);
+  // Prompt to save with a name
+  openSaveMacroDialog(ops);
+}
+
+function _updateMacroRecIndicator(on) {
+  const el  = document.getElementById('status-macro-rec');
+  const sep = document.getElementById('status-macro-sep-rec');
+  if (el)  el.classList.toggle('hidden', !on);
+  if (sep) sep.style.display = on ? '' : 'none';
+}
+
+function runLastMacro(times) {
+  const macro = lastRecordedMacro || (savedMacros.length ? savedMacros[0] : null);
+  if (!macro) { showToast('No macro recorded yet — press Ctrl+Shift+R to start recording'); return; }
+  runMacro(macro, times);
+}
+
+function runMacro(macro, times = 1) {
+  const tab = getActiveTab();
+  if (!tab || tab.type !== 'editor') { showToast('Switch to an editor tab to run a macro'); return; }
+  editor.focus();
+  for (let t = 0; t < times; t++) {
+    for (const op of macro.ops) _playMacroOp(op);
+  }
+  if (times > 1) showToast(`Ran "${macro.name}" ×${times}`);
+}
+
+function openSaveMacroDialog(ops) {
+  const dlg = document.getElementById('macro-save-dialog');
+  if (!dlg) return;
+  const input = document.getElementById('macro-save-name');
+  input.value = `Macro ${savedMacros.length + 1}`;
+  dlg._pendingOps = ops;
+  dlg.classList.remove('hidden');
+  requestAnimationFrame(() => { input.focus(); input.select(); });
+}
+
+async function saveMacroFromDialog() {
+  const dlg = document.getElementById('macro-save-dialog');
+  const name = document.getElementById('macro-save-name')?.value?.trim();
+  if (!name) { showToast('Enter a name for the macro'); return; }
+  const ops = dlg._pendingOps || [];
+  const macro = { id: 'macro-' + Date.now(), name, ops };
+  savedMacros.push(macro);
+  // Update lastRecordedMacro to use the saved name too
+  if (lastRecordedMacro) lastRecordedMacro.name = name;
+  dlg.classList.add('hidden');
+  await _persistMacros();
+  showToast(`Macro "${name}" saved`);
+}
+
+function openRunNTimesDialog(macro) {
+  const dlg = document.getElementById('macro-run-n-dialog');
+  if (!dlg) return;
+  document.getElementById('macro-run-n-name').textContent = macro?.name || 'Last Macro';
+  dlg._macro = macro || lastRecordedMacro;
+  document.getElementById('macro-run-n-count').value = '10';
+  dlg.classList.remove('hidden');
+  requestAnimationFrame(() => document.getElementById('macro-run-n-count').select());
+}
+
+function openManageMacrosDialog() {
+  _renderMacroList();
+  document.getElementById('macro-manage-dialog')?.classList.remove('hidden');
+}
+
+function _renderMacroList() {
+  const list = document.getElementById('macro-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!savedMacros.length) {
+    list.innerHTML = '<div class="macro-empty">No saved macros. Record one with Ctrl+Shift+R.</div>';
+    return;
+  }
+  savedMacros.forEach((macro, idx) => {
+    const row = document.createElement('div');
+    row.className = 'macro-list-row';
+    row.innerHTML =
+      `<span class="macro-list-name" title="${_escHtml(macro.name)}">${_escHtml(macro.name)}</span>` +
+      `<span class="macro-list-meta">${macro.ops.length} ops</span>` +
+      `<button class="macro-btn macro-run-btn"   data-idx="${idx}" title="Run once">▶</button>` +
+      `<button class="macro-btn macro-run-n-btn" data-idx="${idx}" title="Run N times">▶×N</button>` +
+      `<button class="macro-btn macro-del-btn"   data-idx="${idx}" title="Delete">✕</button>`;
+    list.appendChild(row);
+  });
+}
+
+function _escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function _persistMacros() {
+  try {
+    const s = await window.electronAPI.readSettings();
+    s.macros = savedMacros;
+    await window.electronAPI.writeSettings(s);
+  } catch (e) { console.error('[macros] persist failed', e); }
+}
+
+async function loadSavedMacros() {
+  try {
+    const s = await window.electronAPI.readSettings();
+    savedMacros = Array.isArray(s.macros) ? s.macros : [];
+  } catch {}
+}
+
+function setupMacroDialogs() {
+  // Save dialog
+  document.getElementById('btn-macro-save-ok')?.addEventListener('click', saveMacroFromDialog);
+  document.getElementById('btn-macro-save-cancel')?.addEventListener('click', () => {
+    document.getElementById('macro-save-dialog').classList.add('hidden');
+  });
+  document.getElementById('macro-save-name')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveMacroFromDialog();
+    if (e.key === 'Escape') document.getElementById('macro-save-dialog').classList.add('hidden');
+  });
+
+  // Run N times dialog
+  document.getElementById('btn-macro-run-n-ok')?.addEventListener('click', () => {
+    const count = parseInt(document.getElementById('macro-run-n-count')?.value || '1') || 1;
+    const macro = document.getElementById('macro-run-n-dialog')?._macro;
+    document.getElementById('macro-run-n-dialog').classList.add('hidden');
+    if (macro) runMacro(macro, Math.max(1, Math.min(count, 10000)));
+  });
+  document.getElementById('btn-macro-run-n-cancel')?.addEventListener('click', () => {
+    document.getElementById('macro-run-n-dialog').classList.add('hidden');
+  });
+  document.getElementById('macro-run-n-count')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-macro-run-n-ok')?.click();
+    if (e.key === 'Escape') document.getElementById('macro-run-n-dialog').classList.add('hidden');
+  });
+
+  // Manage dialog
+  document.getElementById('btn-macro-manage-close')?.addEventListener('click', () => {
+    document.getElementById('macro-manage-dialog').classList.add('hidden');
+  });
+  document.getElementById('macro-list')?.addEventListener('click', async e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    const macro = savedMacros[idx];
+    if (!macro) return;
+    if (btn.classList.contains('macro-run-btn')) {
+      document.getElementById('macro-manage-dialog').classList.add('hidden');
+      runMacro(macro, 1);
+    } else if (btn.classList.contains('macro-run-n-btn')) {
+      document.getElementById('macro-manage-dialog').classList.add('hidden');
+      openRunNTimesDialog(macro);
+    } else if (btn.classList.contains('macro-del-btn')) {
+      savedMacros.splice(idx, 1);
+      await _persistMacros();
+      _renderMacroList();
+    }
+  });
+}
+
 // ===== Go To Line =====
 function openGotoLine() {
   const dlg = document.getElementById('goto-dialog');
@@ -3807,12 +4394,18 @@ function escHtml(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 function setupContextMenu() {
   document.getElementById('monaco-editor').addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    dismissFloatingMenus();
     const menu = contextMenu;
     menu.classList.remove('hidden');
     menu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 260) + 'px';
   });
   document.addEventListener('click', () => contextMenu.classList.add('hidden'));
+  // Right-clicking anywhere else (e.g., on a tab header) should also dismiss
+  // the static editor menu — `click` doesn't fire for right-clicks.
+  document.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('#monaco-editor')) contextMenu.classList.add('hidden');
+  }, true);
   document.querySelectorAll('.ctx-item[data-action]').forEach(item => {
     item.addEventListener('click', () => { handleContextAction(item.dataset.action); contextMenu.classList.add('hidden'); });
   });
@@ -3848,7 +4441,11 @@ function setupDragDrop() {
   document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('drag-over'); });
   document.addEventListener('drop', (e) => {
     e.preventDefault(); document.body.classList.remove('drag-over');
-    const files = Array.from(e.dataTransfer.files).map(f => f.path);
+    const files = Array.from(e.dataTransfer.files)
+      .map(f => {
+        try { return window.electronAPI.getPathForFile(f); } catch { return null; }
+      })
+      .filter(p => typeof p === 'string' && p.length > 0);
     if (files.length) openFile(files);
   });
 }
@@ -4116,6 +4713,7 @@ function setupModals() {
   setupNewDocPrefsPage();
   setupBackupPrefsPage();
   setupEncryptionPrefsPage();
+  setupMacroDialogs();
 }
 
 function applyPreferences() {
@@ -4158,6 +4756,11 @@ function applyPreferences() {
   const bkpEnabled  = document.getElementById('pref-backup-enable')?.checked || false;
   const bkpInterval = parseInt(document.getElementById('pref-backup-interval')?.value || '5') * 60 * 1000;
   startAutoBackup(bkpEnabled, bkpInterval);
+
+  // Disk auto-save — restart timer if settings changed
+  const dasEnabled  = document.getElementById('pref-disk-autosave-enable')?.checked || false;
+  const dasInterval = parseInt(document.getElementById('pref-disk-autosave-interval')?.value || '30');
+  startDiskAutoSave(dasEnabled, dasInterval);
 }
 
 async function openPreferences() {
@@ -4165,6 +4768,7 @@ async function openPreferences() {
   await loadCloudPrefs();
   await loadNewDocPrefs();
   await loadBackupPrefs();
+  await loadDiskAutoSavePrefs();
   await loadTerminalPrefs();
   refreshEncryptionPrefsPage();
 }
@@ -4201,6 +4805,7 @@ async function saveCloudPrefs() {
 
   await saveNewDocPrefs(settings);
   await saveBackupPrefs(settings);
+  await saveDiskAutoSavePrefs(settings);
   await saveTerminalPrefs(settings);
   await window.electronAPI.writeSettings({ ...settings, cloud });
 }
@@ -4460,7 +5065,17 @@ function setupMenuListeners() {
     editor.updateOptions({ guides: { indentation: checked } });
     saveSetting('ui.indentGuides', checked);
   });
+  m('menu-zen-mode', toggleZenMode);
   m('menu-dark-mode', toggleDarkMode);   // legacy toolbar button
+  // Macro
+  m('menu-macro-record', toggleMacroRecording);
+  m('menu-macro-run',    () => runLastMacro(1));
+  m('menu-macro-run-n',  () => {
+    const macro = lastRecordedMacro || savedMacros[0] || null;
+    if (macro) openRunNTimesDialog(macro);
+    else showToast('No macro recorded yet — press Ctrl+Shift+R to start recording');
+  });
+  m('menu-macro-manage', openManageMacrosDialog);
   m('menu-theme-picker', () => openThemePicker());
   // Individual theme items from the Settings > Theme submenu
   Object.keys(THEMES).forEach(id => m('menu-theme-' + id, () => applyTheme(id)));
@@ -4595,6 +5210,7 @@ function setupMenuListeners() {
 
 // ===== File Tree =====
 async function openFolderTree(folderPath) {
+  fileTreeRootPath = folderPath;
   const tree = document.getElementById('file-tree');
   const content = document.getElementById('file-tree-content');
   document.getElementById('file-tree-title').textContent = folderPath.split(/[\\/]/).pop();
@@ -4632,15 +5248,17 @@ async function renderTreeDir(container, dirPath, depth) {
       }
     }
 
+    row._fullPath = fullPath;
     if (entry.isDir) {
-      let expanded = false, child = null;
+      row._expanded = false;
+      row._child = null;
       row.addEventListener('click', async () => {
-        if (!expanded) {
-          child = document.createElement('div');
-          row.after(child);
-          await renderTreeDir(child, fullPath, depth + 1);
-          expanded = true;
-        } else { child?.remove(); child = null; expanded = false; }
+        if (!row._expanded) {
+          row._child = document.createElement('div');
+          row.after(row._child);
+          await renderTreeDir(row._child, fullPath, depth + 1);
+          row._expanded = true;
+        } else { row._child?.remove(); row._child = null; row._expanded = false; }
       });
     } else {
       row.addEventListener('click', () => openFile([fullPath]));
@@ -4700,6 +5318,89 @@ function lookupGitDecoration(absPath) {
   return { ch: g.ch, cls: g.cls, label: labels[g.cls] || 'Changed' };
 }
 
+// ===== Reveal in File Tree =====
+
+// Return the depth of a tree row from its padding-left style.
+function _treeRowDepth(row) {
+  return (parseInt(row.style.paddingLeft || '8') - 8) / 16;
+}
+
+// Walk all .tree-item elements and return the one whose _fullPath matches.
+function _findTreeRowByPath(fullPath) {
+  const norm = fullPath.replace(/\\/g, '/');
+  for (const row of document.querySelectorAll('.tree-item')) {
+    if (row._fullPath && row._fullPath.replace(/\\/g, '/') === norm) return row;
+  }
+  return null;
+}
+
+// Scroll to a tree row and flash it with a highlight animation.
+function _highlightTreeRow(row) {
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.remove('tree-item-reveal-flash'); // reset if already flashing
+  // Force reflow so re-adding the class restarts the animation.
+  void row.offsetWidth;
+  row.classList.add('tree-item-reveal-flash');
+  setTimeout(() => row.classList.remove('tree-item-reveal-flash'), 1600);
+}
+
+// Programmatically expand a directory row (if it isn't already).
+async function _expandTreeRow(row) {
+  if (row._expanded) return;
+  row._child = document.createElement('div');
+  row.after(row._child);
+  await renderTreeDir(row._child, row._fullPath, _treeRowDepth(row) + 1);
+  row._expanded = true;
+}
+
+// Reveal the file for a given tab in the file tree, expanding intermediate
+// directories as needed.  Opens the containing folder if the tree isn't
+// showing or the file lives outside the current root.
+async function revealInFileTree(filePath) {
+  if (!filePath) { showToast('Save the file first to reveal it in the tree'); return; }
+
+  const normPath = p => p.replace(/\\/g, '/').replace(/\/$/, '');
+  const target = normPath(filePath);
+
+  // Determine if the file is under the current tree root.
+  const root = fileTreeRootPath ? normPath(fileTreeRootPath) : null;
+  const underRoot = root && target.startsWith(root + '/');
+
+  if (!underRoot) {
+    // Open the file's parent directory as the new tree root.
+    const parentDir = filePath.replace(/[/\\][^/\\]+$/, '');
+    await openFolderTree(parentDir);
+    // Wait a tick for chunked rendering to flush.
+    await new Promise(r => setTimeout(r, 60));
+    const row = _findTreeRowByPath(target);
+    if (row) _highlightTreeRow(row);
+    else showToast('Could not locate file in tree');
+    return;
+  }
+
+  // File is under the current root — ensure the tree panel is visible.
+  document.getElementById('file-tree').classList.remove('hidden');
+
+  // Walk from root, expanding each directory segment that needs it.
+  const rel = target.slice(root.length + 1); // e.g. "src/renderer.js"
+  const segments = rel.split('/');            // e.g. ["src", "renderer.js"]
+
+  let currentPath = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    currentPath += '/' + segments[i];
+    const dirRow = _findTreeRowByPath(currentPath);
+    if (!dirRow) { showToast('Could not navigate to file in tree'); return; }
+    await _expandTreeRow(dirRow);
+    // Brief pause so chunked rendering can place child rows into the DOM.
+    await new Promise(r => setTimeout(r, 30));
+  }
+
+  // Highlight the final file row.
+  const fileRow = _findTreeRowByPath(target);
+  if (fileRow) _highlightTreeRow(fileRow);
+  else showToast('Could not locate file in tree');
+}
+
 // ===== Auto-Save Session =====
 const MAX_INLINE_SIZE = 512 * 1024; // 512 KB — larger files saved by path only
 
@@ -4717,7 +5418,8 @@ async function saveSession() {
         content: tab.content || '',
         language: 'whiteboard', encoding: tab.encoding, eol: tab.eol,
         active: tab.id === activeTabId, type: 'whiteboard',
-        dirty: !!tab.dirty,    // preserve unsaved-changes marker across restarts
+        dirty: !!tab.dirty,
+        pinned: !!tab.pinned, color: tab.color || null,
       };
     }
     // draw.io tabs — same shape as whiteboard: content is the diagram XML
@@ -4728,6 +5430,7 @@ async function saveSession() {
         language: 'drawio', encoding: tab.encoding, eol: tab.eol,
         active: tab.id === activeTabId, type: 'drawio',
         dirty: !!tab.dirty,
+        pinned: !!tab.pinned, color: tab.color || null,
       };
     }
     const content = tab.model.getValue();
@@ -4742,19 +5445,20 @@ async function saveSession() {
         active: tab.id === activeTabId,
         encrypted: true, protectedBy: tab.protectedBy || null,
         dirty: !!tab.dirty,
+        pinned: !!tab.pinned, color: tab.color || null,
       };
     }
     return {
       id: tab.id,
       name: tab.name,
       filePath: tab.filePath || null,
-      // Only inline content for unsaved/small files; large saved files reload from disk
       content: (!tab.filePath || content.length <= MAX_INLINE_SIZE) ? content : null,
       language: tab.language,
       encoding: tab.encoding,
       eol: tab.eol,
       active: tab.id === activeTabId,
-      dirty: !!tab.dirty,    // preserve unsaved-changes marker across restarts
+      dirty: !!tab.dirty,
+      pinned: !!tab.pinned, color: tab.color || null,
     };
   });
   await window.electronAPI.writeSession({ tabs: sessionTabs });
@@ -4779,6 +5483,12 @@ async function restoreSession(opts = {}) {
     }
   }
 
+  // If the user already opened a file via "Open with…" / command-line while
+  // the session was still loading, keep focus on that tab instead of letting
+  // the restored "active" tab steal it.
+  const preExistingActiveId = (activeTabId != null && tabs.some(t => t.id === activeTabId))
+    ? activeTabId : null;
+
   const { tabs: saved } = res.data;
 
   let activeId = null;
@@ -4801,13 +5511,11 @@ async function restoreSession(opts = {}) {
       const tab = {
         id, name: s.name, filePath: s.filePath || null,
         content,
-        // Preserve the unsaved-changes marker across restarts. New unsaved
-        // whiteboards with actual content come back showing the red dot, so
-        // the user knows to Save As before closing.
         dirty: !!s.dirty,
         language: 'whiteboard',
         encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
         model: null, viewState: null, type: 'whiteboard',
+        pinned: !!s.pinned, color: s.color || null,
       };
       tabs.push(tab);
       if (s.active) activeId = id;
@@ -4829,6 +5537,7 @@ async function restoreSession(opts = {}) {
         language: 'drawio',
         encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
         model: null, viewState: null, type: 'drawio',
+        pinned: !!s.pinned, color: s.color || null,
       };
       tabs.push(tab);
       if (s.active) activeId = id;
@@ -4868,15 +5577,12 @@ async function restoreSession(opts = {}) {
     const tab = {
       id, name: s.name, filePath: s.filePath || null,
       content,
-      // Preserve the unsaved-changes marker so unsaved "new N" tabs (and
-      // saved tabs the user had edited but not yet saved) come back showing
-      // the red dot. Without this, every restart silently "cleans" the dirty
-      // flag and the user can't tell their work isn't on disk yet.
       dirty: !!s.dirty,
       language: s.language || 'plaintext',
       encoding: s.encoding || 'UTF-8', eol: s.eol || 'Windows (CR LF)',
       model, viewState: null, type: 'editor',
       encrypted: false, protectedBy: null,
+      pinned: !!s.pinned, color: s.color || null,
     };
     tabs.push(tab);
     if (s.active) activeId = id;
@@ -4888,7 +5594,7 @@ async function restoreSession(opts = {}) {
 
   if (tabs.length === 0) return false;
 
-  activateTab(activeId || tabs[tabs.length - 1].id);
+  activateTab(preExistingActiveId || activeId || tabs[tabs.length - 1].id);
   renderTabs();
   return true;
 }
@@ -6247,6 +6953,13 @@ function renderSourceControlPanel() {
   const changesSec= document.getElementById('sc-changes-section');
   const branchName = document.getElementById('sc-branch-name');
   const branchArrows = document.getElementById('sc-branch-arrows');
+  // Interactive blocks that are meaningless without an active repo. We
+  // collapse them so the panel cleanly shows just the "no repo" message
+  // when the active tab's file isn't inside any git checkout.
+  const branchActions = document.getElementById('sc-branch-actions');
+  const remoteRow     = document.getElementById('sc-remote-row');
+  const commitBlock   = document.getElementById('sc-commit-block');
+  const filesBlock    = document.getElementById('sc-files');
 
   const s = activeGitRepo ? gitRepos.get(activeGitRepo) : null;
 
@@ -6255,11 +6968,19 @@ function renderSourceControlPanel() {
     emptyMsg.classList.add('hidden');
     stagedSec.style.display = 'none';
     changesSec.style.display = 'none';
+    if (branchActions) branchActions.style.display = 'none';
+    if (remoteRow)     remoteRow.style.display     = 'none';
+    if (commitBlock)   commitBlock.style.display   = 'none';
+    if (filesBlock)    filesBlock.style.display    = 'none';
     branchName.textContent = '—';
     branchArrows.textContent = '';
     return;
   }
   noRepoMsg.classList.add('hidden');
+  if (branchActions) branchActions.style.display = '';
+  if (remoteRow)     remoteRow.style.display     = '';
+  if (commitBlock)   commitBlock.style.display   = '';
+  if (filesBlock)    filesBlock.style.display    = '';
 
   branchName.textContent = s.branch || 'detached';
   branchArrows.textContent = (s.ahead || s.behind)
@@ -7060,6 +7781,8 @@ function setupGlobalEscape() {
     if (!contextMenu.classList.contains('hidden')) {
       contextMenu.classList.add('hidden'); return;
     }
+    // Zen mode — exit last so dialogs inside zen mode still close normally first
+    if (isZenMode) { toggleZenMode(); return; }
   }, true); // capture phase so it fires before Monaco consumes the key
 }
 
@@ -7070,8 +7793,14 @@ async function sha256(text) {
 
 // ===== Preview Panel =====
 function isPreviewable(lang) {
-  return lang === 'html' || lang === 'markdown' || lang === 'mermaid';
+  return lang === 'html' || lang === 'markdown' || lang === 'mermaid' || lang === 'json';
 }
+
+// JSONEditor instance — one shared instance, recreated when preview opens on a new tab.
+let _jsonEditorInstance = null;
+// Guard flag: true while we're pushing a value INTO the JSONEditor so the
+// JSONEditor's onChange doesn't echo the change back into Monaco.
+let _jsonEditorUpdating = false;
 
 // Preview-pane state outside the function so other code (zoom buttons, Ctrl+wheel)
 // can read/write it. previewZoom is a multiplier applied to #preview-body via
@@ -7191,7 +7920,7 @@ function togglePreview() {
     closePreview();
   } else {
     if (!tab || !isPreviewable(tab.language)) {
-      showToast('Preview available for HTML, Markdown and Mermaid (.mmd) files');
+      showToast('Preview available for HTML, Markdown, Mermaid (.mmd) and JSON files');
       return;
     }
     openPreview();
@@ -7223,6 +7952,7 @@ function closePreview() {
   document.getElementById('preview-resize-handle').classList.add('hidden');
   previewOpen = false;
   document.getElementById('btn-preview').classList.remove('active');
+  if (_jsonEditorInstance) { _jsonEditorInstance.destroy(); _jsonEditorInstance = null; }
   // If live view was active, reset it so it doesn't linger on next open
   if (mmdLiveViewActive) {
     mmdLiveViewActive = false;
@@ -7255,11 +7985,13 @@ function updatePreview() {
   const mdEl    = document.getElementById('preview-md-content');
   const frame   = document.getElementById('preview-html-frame');
   const mmdEl   = document.getElementById('preview-mermaid-content');
+  const jsonEl  = document.getElementById('preview-json-content');
 
   // Hide all, then show the right one
   mdEl.classList.add('hidden');
   frame.classList.add('hidden');
   mmdEl.classList.add('hidden');
+  jsonEl.classList.add('hidden');
 
   if (tab.language === 'markdown') {
     mdEl.classList.remove('hidden');
@@ -7271,20 +8003,228 @@ function updatePreview() {
     mmdEl.classList.remove('hidden');
     updateMermaidToolbar(true);
     renderMermaidPreview(content);
+  } else if (tab.language === 'json') {
+    jsonEl.classList.remove('hidden');
+    renderJsonPreview(content);
   }
   // Refresh the shared zoom label — it shows different value for Mermaid vs others
   if (typeof updatePreviewZoomLabel === 'function') updatePreviewZoomLabel();
 }
 
 function showPreviewPlaceholder() {
-  const mdEl  = document.getElementById('preview-md-content');
-  const frame = document.getElementById('preview-html-frame');
-  const mmdEl = document.getElementById('preview-mermaid-content');
+  const mdEl   = document.getElementById('preview-md-content');
+  const frame  = document.getElementById('preview-html-frame');
+  const mmdEl  = document.getElementById('preview-mermaid-content');
+  const jsonEl = document.getElementById('preview-json-content');
   frame.classList.add('hidden');
   mmdEl.classList.add('hidden');
+  jsonEl.classList.add('hidden');
   updateMermaidToolbar(false);
   mdEl.classList.remove('hidden');
-  mdEl.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.5;font-size:13px;">No preview available for this file type.<br>Open an HTML, Markdown or Mermaid (.mmd) file to use preview.</div>';
+  mdEl.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.5;font-size:13px;">No preview available for this file type.<br>Open an HTML, Markdown, Mermaid (.mmd) or JSON file to use preview.</div>';
+}
+
+// ---------------------------------------------------------------------------
+// JSON path → character offset
+// Walks the raw JSON text following a path array (same shape as JSONEditor's
+// node.path: string keys for objects, number indices for arrays).
+// Returns the character offset of the opening quote of the last key, or the
+// start of the value for array elements. Returns -1 on any failure.
+// ---------------------------------------------------------------------------
+function _jsonPathToOffset(text, path) {
+  if (!path || path.length === 0) return 0;
+  let i = 0;
+  const n = text.length;
+
+  function ws() { while (i < n && (text[i] === ' ' || text[i] === '\t' || text[i] === '\r' || text[i] === '\n')) i++; }
+
+  function readStr() {
+    if (text[i] !== '"') return null;
+    i++;
+    let s = '';
+    while (i < n && text[i] !== '"') {
+      if (text[i] === '\\') {
+        i++;
+        const c = text[i];
+        if      (c === 'n') s += '\n';
+        else if (c === 't') s += '\t';
+        else if (c === 'r') s += '\r';
+        else if (c === 'b') s += '\b';
+        else if (c === 'f') s += '\f';
+        else if (c === 'u') { s += String.fromCharCode(parseInt(text.slice(i+1,i+5),16)); i+=4; }
+        else s += c;
+      } else { s += text[i]; }
+      i++;
+    }
+    i++; // closing "
+    return s;
+  }
+
+  function skipStr() {
+    if (text[i] !== '"') return;
+    i++;
+    while (i < n && text[i] !== '"') { if (text[i] === '\\') i++; i++; }
+    i++;
+  }
+
+  function skipVal() {
+    ws();
+    const c = text[i];
+    if      (c === '"') skipStr();
+    else if (c === '{') skipObj();
+    else if (c === '[') skipArr();
+    else if (c === 't') i += 4;
+    else if (c === 'f') i += 5;
+    else if (c === 'n') i += 4;
+    else { while (i < n && /[0-9.eE+\-]/.test(text[i])) i++; }
+  }
+
+  function skipObj() {
+    i++; ws();
+    if (text[i] === '}') { i++; return; }
+    while (i < n) {
+      ws(); skipStr(); ws();
+      if (text[i] === ':') i++; ws();
+      skipVal(); ws();
+      if (text[i] === '}') { i++; return; }
+      if (text[i] === ',') i++;
+    }
+  }
+
+  function skipArr() {
+    i++; ws();
+    if (text[i] === ']') { i++; return; }
+    while (i < n) {
+      ws(); skipVal(); ws();
+      if (text[i] === ']') { i++; return; }
+      if (text[i] === ',') i++;
+    }
+  }
+
+  function follow(depth) {
+    ws();
+    if (depth >= path.length) return i;
+    const key = path[depth];
+    const isLast = depth === path.length - 1;
+
+    if (text[i] === '{') {
+      i++; ws();
+      if (text[i] === '}') return -1;
+      while (i < n) {
+        ws();
+        const keyStart = i;
+        const k = readStr();
+        if (k === null) return -1;
+        ws();
+        if (text[i] === ':') i++; ws();
+        if (String(k) === String(key)) {
+          return isLast ? keyStart : follow(depth + 1);
+        }
+        skipVal(); ws();
+        if (text[i] === '}') return -1;
+        if (text[i] === ',') i++;
+      }
+      return -1;
+    }
+
+    if (text[i] === '[') {
+      i++; ws();
+      if (text[i] === ']') return -1;
+      const idx = Number(key);
+      let cur = 0;
+      while (i < n) {
+        ws();
+        if (cur === idx) return isLast ? i : follow(depth + 1);
+        skipVal(); ws();
+        if (text[i] === ']') return -1;
+        if (text[i] === ',') i++;
+        cur++;
+      }
+      return -1;
+    }
+
+    return -1;
+  }
+
+  try { return follow(0); } catch { return -1; }
+}
+
+// Decoration handle for the "flash" highlight when syncing to Monaco
+let _jsonNavDecoration = [];
+
+// Scroll Monaco editor to the position described by a JSONEditor path array.
+function _syncJsonEditorToMonaco(path) {
+  if (!editor || !path) return;
+  const text = editor.getValue();
+  const offset = _jsonPathToOffset(text, path);
+  if (offset < 0) return;
+  const model = editor.getModel();
+  if (!model) return;
+  const pos = model.getPositionAt(offset);
+  editor.revealLineInCenter(pos.lineNumber, 1 /* immediate */);
+  editor.setPosition(pos);
+  // Flash-highlight the line for ~800 ms so the eye knows where to look
+  _jsonNavDecoration = editor.deltaDecorations(_jsonNavDecoration, [{
+    range: new monaco.Range(pos.lineNumber, 1, pos.lineNumber, model.getLineMaxColumn(pos.lineNumber)),
+    options: { isWholeLine: true, className: 'json-nav-highlight', overviewRuler: { color: '#f0c040', position: 1 } },
+  }]);
+  clearTimeout(_jsonNavDecoration._timer);
+  _jsonNavDecoration._timer = setTimeout(() => {
+    _jsonNavDecoration = editor.deltaDecorations(_jsonNavDecoration, []);
+  }, 800);
+}
+
+async function renderJsonPreview(content) {
+  const container = document.getElementById('preview-json-content');
+  if (!container) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    if (_jsonEditorInstance) { _jsonEditorInstance.destroy(); _jsonEditorInstance = null; }
+    container.innerHTML = `<div style="color:var(--error-fg,#c00000);padding:16px;font-size:12px;font-family:monospace;white-space:pre-wrap">JSON parse error:\n${e.message}</div>`;
+    return;
+  }
+
+  try {
+    const JSONEditorClass = await ensureJsonEditor();
+
+    if (!_jsonEditorInstance) {
+      container.innerHTML = '';
+      _jsonEditorInstance = new JSONEditorClass(container, {
+        mode: 'tree',
+        modes: ['tree', 'view', 'form', 'code', 'text'],
+        onChange() {
+          if (_jsonEditorUpdating) return;
+          try {
+            const val = _jsonEditorInstance.get();
+            const str = JSON.stringify(val, null, 2);
+            if (str !== editor.getValue()) {
+              _jsonEditorUpdating = true;
+              editor.setValue(str);
+              _jsonEditorUpdating = false;
+            }
+          } catch { /* ignore — user may have invalid state mid-edit */ }
+        },
+        // When the user clicks or keyboards to a node in the tree, scroll
+        // Monaco to the corresponding line in the source JSON.
+        onEvent(node, event) {
+          if (!node || !node.path) return;
+          if (event.type === 'click' || (event.type === 'keydown' && (event.key === 'ArrowUp' || event.key === 'ArrowDown'))) {
+            _syncJsonEditorToMonaco(node.path);
+          }
+        },
+      });
+    }
+
+    _jsonEditorUpdating = true;
+    _jsonEditorInstance.set(parsed);
+    _jsonEditorUpdating = false;
+
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--error-fg,#c00000);padding:16px;font-size:12px">Failed to load JSONEditor: ${e.message}</div>`;
+  }
 }
 
 // Detect if content is a raw Mermaid diagram (no markdown code fences)

@@ -420,6 +420,8 @@
                 </div>
               </div>
             </div>
+            <!-- JSON preview pane (JSONEditor tree view) -->
+            <div id="preview-json-content" class="hidden"></div>
             <!-- Mermaid Live (Fullscreen) View — plain div overlay rendered directly
                  by the main renderer using the in-process mermaid library.
                  Shown when the user clicks "🌐 Live"; hidden by default. -->
@@ -557,6 +559,59 @@
       <span id="status-git" class="status-item clickable hidden" title="Git status — click to open Source Control"></span>
       <span class="status-sep">|</span>
       <span id="status-lsp" class="status-item hidden" title="Language server status"></span>
+      <span class="status-sep" id="status-macro-sep-rec" style="display:none">|</span>
+      <span id="status-macro-rec" class="status-item hidden" title="Macro recording in progress — Ctrl+Shift+R to stop">⏺ REC</span>
+    </div>
+  </div>
+
+  <!-- ══ Macro dialogs ══════════════════════════════════════════════════════ -->
+
+  <!-- Save recorded macro -->
+  <div id="macro-save-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:340px">
+      <div class="modal-header"><span>Save Macro</span><button class="modal-close" data-modal="macro-save-dialog">×</button></div>
+      <div class="modal-body" style="padding:14px">
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Macro name</label>
+        <input type="text" id="macro-save-name" placeholder="My Macro"
+               style="width:100%;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;box-sizing:border-box">
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-primary" id="btn-macro-save-ok">Save</button>
+        <button class="modal-btn" id="btn-macro-save-cancel">Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run N times -->
+  <div id="macro-run-n-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:320px">
+      <div class="modal-header"><span>Run Macro N Times</span><button class="modal-close" data-modal="macro-run-n-dialog">×</button></div>
+      <div class="modal-body" style="padding:14px">
+        <div style="font-size:12px;color:#888;margin-bottom:8px">Macro: <strong id="macro-run-n-name"></strong></div>
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Repeat count (1 – 10 000)</label>
+        <input type="number" id="macro-run-n-count" value="10" min="1" max="10000"
+               style="width:100%;padding:6px;background:var(--find-input-bg);color:var(--tab-text);border:1px solid var(--find-border);border-radius:4px;box-sizing:border-box">
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-primary" id="btn-macro-run-n-ok">Run</button>
+        <button class="modal-btn" id="btn-macro-run-n-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage macros -->
+  <div id="macro-manage-dialog" class="modal-overlay hidden">
+    <div class="modal-box" style="width:480px">
+      <div class="modal-header"><span>Macros</span><button class="modal-close" data-modal="macro-manage-dialog">×</button></div>
+      <div class="modal-body" style="padding:14px">
+        <div style="font-size:11px;color:#888;margin-bottom:10px">
+          Record a macro with <kbd>Ctrl+Shift+R</kbd>. Run the last recorded macro with <kbd>F9</kbd>.
+        </div>
+        <div id="macro-list" style="max-height:280px;overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" id="btn-macro-manage-close">Close</button>
+      </div>
     </div>
   </div>
 
@@ -685,6 +740,14 @@
               <label>Tab bar:</label><br>
               <label><input type="checkbox" id="pref-tab-close" checked> Show close button</label><br>
               <label><input type="checkbox" id="pref-double-click-close" checked> Double click to close document</label>
+            </div>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Auto-save to disk:</label><br>
+              <label><input type="checkbox" id="pref-disk-autosave-enable"> Save modified files to disk automatically</label>
+              <div style="margin-top:4px;margin-left:20px">
+                Every <input type="number" id="pref-disk-autosave-interval" value="30" min="5" max="3600" style="width:55px"> seconds
+              </div>
+              <p style="font-size:11px;color:var(--text-muted,#888);margin-top:4px;line-height:1.4">Only applies to files already saved to disk. Skips encrypted files.</p>
             </div>
           </div>
           <div class="pref-page" id="pref-editing">

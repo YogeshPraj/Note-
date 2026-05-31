@@ -1,6 +1,8 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Electron 32 removed File.path on the renderer side; resolve via webUtils.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   openDialog:    (opts) => ipcRenderer.invoke('dialog-open', opts),
   saveDialog:    (opts) => ipcRenderer.invoke('dialog-save', opts),
   messageDialog: (opts) => ipcRenderer.invoke('dialog-message', opts),

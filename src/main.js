@@ -399,7 +399,7 @@ function buildMenu() {
       label: '&View',
       submenu: [
         { label: '&Always on Top', type: 'checkbox', click: (i) => mainWindow.setAlwaysOnTop(i.checked) },
-        { label: '&Full Screen', accelerator: 'F11', type: 'checkbox', click: (i) => mainWindow.setFullScreen(i.checked) },
+        { label: '&Zen Mode', accelerator: 'F11', click: () => send('menu-zen-mode') },
         { type: 'separator' },
         { label: '&Minimap', type: 'checkbox', checked: true, click: (i) => send('menu-minimap', i.checked) },
         { label: '&Word Wrap', accelerator: 'Alt+Z', type: 'checkbox', click: (i) => send('menu-word-wrap', i.checked) },
@@ -526,6 +526,17 @@ function buildMenu() {
       ]
     },
     {
+      label: '&Macros',
+      submenu: [
+        { label: 'Start / Stop &Recording', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('menu-macro-record') },
+        { type: 'separator' },
+        { label: '&Run Last Macro', accelerator: 'F9', click: () => send('menu-macro-run') },
+        { label: 'Run &N Times…', accelerator: 'CmdOrCtrl+F9', click: () => send('menu-macro-run-n') },
+        { type: 'separator' },
+        { label: '&Manage Macros…', click: () => send('menu-macro-manage') },
+      ]
+    },
+    {
       label: '&Window',
       submenu: [
         { label: '&Previous Document', accelerator: 'CmdOrCtrl+PageUp', click: () => send('menu-prev-tab') },
@@ -596,7 +607,10 @@ ipcMain.handle('dialog-save', async (e, opts) => dialog.showSaveDialog(mainWindo
 ipcMain.handle('dialog-message', async (e, opts) => dialog.showMessageBox(mainWindow, opts));
 
 ipcMain.handle('read-file', async (e, filePath) => {
-  try { return { success: true, content: fs.readFileSync(filePath, 'utf-8') }; }
+  try {
+    const size = fs.statSync(filePath).size;
+    return { success: true, content: fs.readFileSync(filePath, 'utf-8'), size };
+  }
   catch (err) { return { success: false, error: err.message }; }
 });
 

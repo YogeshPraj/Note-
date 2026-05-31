@@ -52,6 +52,25 @@ function ensureDiff() {
   return ensureDiff._loading;
 }
 
+// JSONEditor (~2 MB) — first JSON file preview.
+function ensureJsonEditor() {
+  if (window.JSONEditor) return Promise.resolve(window.JSONEditor);
+  if (ensureJsonEditor._loading) return ensureJsonEditor._loading;
+  ensureJsonEditor._loading = (async () => {
+    if (!document.getElementById('jsoneditor-css')) {
+      const link = document.createElement('link');
+      link.id = 'jsoneditor-css';
+      link.rel = 'stylesheet';
+      link.href = '../node_modules/jsoneditor/dist/jsoneditor.min.css';
+      document.head.appendChild(link);
+    }
+    await _loadUmdScript('../node_modules/jsoneditor/dist/jsoneditor.min.js');
+    if (!window.JSONEditor) throw new Error('JSONEditor did not register on window');
+    return window.JSONEditor;
+  })();
+  return ensureJsonEditor._loading;
+}
+
 // Mermaid (~3 MB) — first preview render that needs a diagram.
 // Initializes mermaid eagerly on first load with the current theme so
 // callers can call mermaid.render() immediately after ensureMermaid().

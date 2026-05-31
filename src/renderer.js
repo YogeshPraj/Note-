@@ -781,6 +781,17 @@ require(['vs/editor/editor.main'], () => {
           setState('ready', `Click to update${pendingVersion ? ` to v${pendingVersion}` : ''}`,
                    'Restart and install the downloaded update');
           break;
+        case 'error':
+          // Auto-updater failed (signature mismatch, network drop, etc.).
+          // Show a clickable pill that takes the user to the GitHub release
+          // page so they can grab the installer manually.
+          setState('error', 'Update failed — download manually',
+                   'Auto-update failed. Click to open the GitHub release page.');
+          pill.style.pointerEvents = '';
+          pill.onclick = () => {
+            try { window.electronAPI.shellOpen('https://github.com/YogeshPraj/Note-/releases/latest'); } catch {}
+          };
+          break;
         case 'none':
         case 'checking':
         default:

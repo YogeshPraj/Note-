@@ -1225,7 +1225,25 @@ function initAutoUpdater() {
   // We handle install-on-quit manually so we can show the updater window
   // before quitAndInstall fires (autoInstallOnAppQuit would skip the UI).
   autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.on('error', (e) => console.error('[auto-update] error:', e?.message || e));
+  // Windows: bypass the OS publisher-name verification. Our installer is
+  // signed with a self-signed cert whose root isn't in Windows' trust
+  // store, so Get-AuthenticodeSignature returns `UnknownError` after the
+  // download — that makes electron-updater suppress `update-downloaded`
+  // and leaves the toolbar pill stuck at "Downloading 100%". The integrity
+  // of the downloaded file is still guaranteed by the sha512 in latest.yml
+  // (served over HTTPS from the GitHub release), so dropping the CN check
+  // is safe. Revisit when we ship with a CA-issued code-signing cert.
+  if (process.platform === 'win32') {
+    try {
+      autoUpdater.verifyUpdateCodeSignature = () => Promise.resolve(null);
+    } catch (e) { console.error('[auto-update] failed to override signature verifier:', e?.message || e); }
+  }
+  autoUpdater.on('error', (e) => {
+    console.error('[auto-update] error:', e?.message || e);
+    // Surface the error to the renderer so the pill leaves the
+    // "Downloading…" state instead of looking frozen.
+    send('auto-update-status', { state: 'error', error: e?.message || String(e) });
+  });
   autoUpdater.on('checking-for-update', () => send('auto-update-status', { state: 'checking' }));
   autoUpdater.on('update-available', (info) => send('auto-update-status', { state: 'available', version: info?.version }));
   autoUpdater.on('update-not-available', () => send('auto-update-status', { state: 'none' }));

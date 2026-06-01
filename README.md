@@ -23,7 +23,7 @@
 [![macOS](https://img.shields.io/badge/macOS-Download-000000?logo=apple&logoColor=white)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-Download-FCC624?logo=linux&logoColor=black)](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-linux-x86_64.AppImage)
 
-[**📥 Download**](https://github.com/YogeshPraj/Note-/releases/latest) • [Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap)
+[**📥 Download**](https://github.com/YogeshPraj/Note-/releases/latest) • [Quick Start](#-quick-start) • [Features](#-features) • [Architecture](#-architecture) • [Roadmap](#-roadmap) • [🐞 Report a bug](https://github.com/YogeshPraj/Note-/issues/new?labels=bug&title=%5BBug%5D%20) • [✨ Request a feature](https://github.com/YogeshPraj/Note-/issues/new?labels=enhancement&title=%5BFeature%5D%20)
 
 </div>
 

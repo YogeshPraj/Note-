@@ -22,9 +22,20 @@ protocol.registerSchemesAsPrivileged([
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 
-// node-pty for true PTY terminal (proper resize, colours, interactive programs)
+// node-pty for true PTY terminal (proper resize, colours, interactive
+// programs). Lazy-required on the first terminal-create IPC so the
+// native binding (~200 KB load + N-API binding bootstrap) doesn't
+// block the cold app-start path. Falls back to plain child_process
+// if the require ever fails (no prebuilt for this arch, etc.).
 let pty;
-try { pty = require('node-pty'); } catch { pty = null; }
+let _ptyTried = false;
+function getPty() {
+  if (_ptyTried) return pty;
+  _ptyTried = true;
+  try { pty = require('node-pty'); }
+  catch { pty = null; }
+  return pty;
+}
 
 let mainWindow;
 const terminalProcesses = new Map();
@@ -126,9 +137,35 @@ function createWindow() {
       // backgroundThrottling: false on the renderer too, paired with the
       // app.commandLine switches above. Belt-and-braces.
       backgroundThrottling: false,
+      // Chromium's platform spellcheck pulls in dictionaries on the first
+      // <textarea> / contenteditable focus. Monaco owns its own text
+      // surface and never uses platform spellcheck, so disable it: saves
+      // ~20-50 ms of dictionary bootstrap on cold launch and a few MB of
+      // memory.
+      spellcheck: false,
     },
     backgroundColor: '#f0f0f0',
     show: false
+  });
+
+  // Route any window.open() call (Monaco's Ctrl+Click "open link" action
+  // fires this for http/https URLs in the editor) through the OS default
+  // browser instead of letting Electron open a child BrowserWindow.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      if (/^(https?:|mailto:)/i.test(url)) shell.openExternal(url);
+    } catch {}
+    return { action: 'deny' };
+  });
+  // Belt-and-braces: if anything tries to navigate the main window itself
+  // (e.g. a stray <a target="_self"> in HTML preview that escaped the
+  // sandboxed iframe), block the navigation and open externally instead.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url === mainWindow.webContents.getURL()) return; // self-reload, ignore
+    if (/^(https?:|mailto:)/i.test(url)) {
+      event.preventDefault();
+      try { shell.openExternal(url); } catch {}
+    }
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -827,11 +864,12 @@ ipcMain.handle('terminal-create', async (e, id, opts) => {
   const cwd   = process.env.USERPROFILE || process.env.HOME || '.';
 
   try {
-    if (pty) {
+    const ptyMod = getPty();
+    if (ptyMod) {
       // ── True PTY via node-pty ──────────────────────────────────────────────
       const isWin = process.platform === 'win32';
       const ptyArgs = isWin ? ['-NoLogo'] : [];
-      const proc = pty.spawn(sh, ptyArgs, {
+      const proc = ptyMod.spawn(sh, ptyArgs, {
         name: 'xterm-256color',
         cols, rows, cwd,
         env: process.env,
@@ -1594,10 +1632,16 @@ async function handleOpenFolder() {
 
 app.whenReady().then(() => {
   if (gotTheLock) createWindow();
-  // Register the drawio:// custom protocol now that app is ready. Safe to
-  // call even if the bundle isn't downloaded yet — protocol just returns
-  // ENOENT for any request until the user triggers the download.
-  try { getDrawioService().registerProtocol(); } catch (e) { console.error('[drawio] protocol register failed:', e); }
+  // Defer drawio protocol wiring — it requires `drawio-service.js` which
+  // pulls in `extract-zip` (and through it, several KB of zlib/yauzl
+  // setup). The renderer doesn't need the drawio:// scheme until the
+  // user actually opens a .drawio tab, so push this off the critical
+  // path. setImmediate runs after current I/O completes, giving the
+  // renderer load a clean main-process thread.
+  setImmediate(() => {
+    try { getDrawioService().registerProtocol(); }
+    catch (e) { console.error('[drawio] protocol register failed:', e); }
+  });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

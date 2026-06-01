@@ -17,7 +17,20 @@
     .native-titlebar-start #title-bar { display: none !important; }
   </style>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css">
+  <!--
+    Performance: kick off parallel downloads of the heaviest hits before
+    HTML parsing reaches their <script> tags. preload doesn't execute
+    these scripts — it just primes the disk cache so the eventual
+    synchronous <script> tags below are served from RAM. Order chosen
+    so the longest-pole files (renderer.js, Monaco's editor.main) start
+    first.
+  -->
+  <link rel="preload" as="script" href="renderer.js">
+  <link rel="preload" as="script" href="../node_modules/monaco-editor/min/vs/loader.js">
+  <link rel="preload" as="script" href="../node_modules/monaco-editor/min/vs/editor/editor.main.js">
+  <!-- xterm.css is no longer eager: ensureXterm() injects it lazily when
+       the terminal first opens (saves a stylesheet parse on launches
+       that never open the terminal). -->
 </head>
 <body class="theme-light">
   <script>
@@ -1241,26 +1254,11 @@
       }
     };
   </script>
-  <!-- marked MUST load before Monaco's AMD loader, otherwise Monaco's
-       global define() causes marked to register as an AMD module instead
-       of assigning window.marked. -->
-  <script src="../node_modules/marked/lib/marked.umd.js"></script>
-  <script>
-    // Safety: if AMD loader already intercepted, recover via require()
-    if (typeof window.marked === 'undefined' && typeof require === 'function') {
-      try { window.marked = require('marked'); } catch(e) {}
-    }
-  </script>
-
-  <!-- All UMD libs MUST load BEFORE vs/loader.js — Monaco's AMD loader installs
-       a global define() that hijacks any UMD script loaded after it, causing
-       e.g. "Terminal is not defined" / "Can only have one anonymous define call". -->
   <!--
-    UMD libraries (xterm + xterm-addon-fit ~270 KB, mermaid ~3 MB, diff
-    ~50 KB) are no longer loaded eagerly. The ensure*() helpers in
-    renderer.js inject each script dynamically on first use (xterm: first
-    terminal open, mermaid: first preview render, diff: first git-tracked
-    file with edits). Combined ~3.3 MB of parse work saved per session
+    UMD libraries (marked ~43 KB, xterm + xterm-addon-fit ~270 KB, mermaid
+    ~3 MB, diff ~50 KB, jsoneditor ~2 MB) are no longer loaded eagerly.
+    The ensure*() helpers in lazy-loaders.js inject each script
+    dynamically on first use. Combined parse work saved per session
     that doesn't touch any of those features.
 
     AMD-loader trap: by the time these dynamic loads run, vs/loader.js

@@ -34,14 +34,37 @@ function _loadUmdScript(src) {
 }
 
 // xterm + xterm-addon-fit (~270 KB combined) — first terminal open.
+// Also injects xterm.css on demand so launches that never open the
+// terminal don't pay the stylesheet-parse cost.
 function ensureXterm() {
   if (window.Terminal && window.FitAddon) return Promise.resolve();
   if (ensureXterm._loading) return ensureXterm._loading;
   ensureXterm._loading = (async () => {
+    if (!document.getElementById('xterm-css')) {
+      const link = document.createElement('link');
+      link.id = 'xterm-css';
+      link.rel = 'stylesheet';
+      link.href = '../node_modules/xterm/css/xterm.css';
+      document.head.appendChild(link);
+    }
     await _loadUmdScript('../node_modules/xterm/lib/xterm.js');
     await _loadUmdScript('../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js');
   })();
   return ensureXterm._loading;
+}
+
+// marked (~43 KB UMD) — first Markdown preview render. Loaded eagerly
+// before this lazy approach; deferring it saves the parse+execute cost
+// on every launch that doesn't open a Markdown preview.
+function ensureMarked() {
+  if (window.marked) return Promise.resolve(window.marked);
+  if (ensureMarked._loading) return ensureMarked._loading;
+  ensureMarked._loading = (async () => {
+    await _loadUmdScript('../node_modules/marked/lib/marked.umd.js');
+    if (!window.marked) throw new Error('marked did not register on window');
+    return window.marked;
+  })();
+  return ensureMarked._loading;
 }
 
 // jsdiff (~50 KB) — first inline git diff render.

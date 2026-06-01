@@ -590,7 +590,21 @@ body.native-titlebar #title-bar { display: none !important; }
   background: var(--tab-active-bg);
   border-bottom-color: var(--tab-active-bg);
   z-index: 1;
-  font-weight: 500;
+  font-weight: 600;
+  /* Notepad++-style top accent — uses each theme's status-bar accent
+     colour so it pops in dark themes (where active bg matches editor bg)
+     without changing tab geometry. `inset` keeps it inside the tab so
+     padding/height don't shift on activation. */
+  box-shadow: inset 0 2px 0 0 var(--statusbar-bg);
+}
+/* Dim inactive tab text in dark themes so the active tab's name reads
+   as the brighter one. No-op in light themes. */
+body.theme-dark .tab:not(.active) .tab-name,
+body.theme-dracula .tab:not(.active) .tab-name,
+body.theme-tokyonight .tab:not(.active) .tab-name,
+body.theme-nord .tab:not(.active) .tab-name,
+body.theme-monokai .tab:not(.active) .tab-name {
+  opacity: 0.62;
 }
 
 /* Drag-and-drop tab reordering */

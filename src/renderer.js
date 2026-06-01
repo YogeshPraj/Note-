@@ -613,7 +613,11 @@ require(['vs/editor/editor.main'], () => {
     scrollBeyondLastLine: false,
     wordWrap: 'off',
     automaticLayout: true,
-    minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+    // Heavy first-paint features (minimap, bracket-pair colorization,
+    // active-bracket guides) start OFF so the initial layout/paint is
+    // faster, then get switched on after the editor is interactive.
+    // See requestIdleCallback below.
+    minimap: { enabled: false },
     folding: true,
     foldingHighlight: true,
     foldingStrategy: 'indentation',
@@ -632,8 +636,8 @@ require(['vs/editor/editor.main'], () => {
     dragAndDrop: true,
     links: true,
     matchBrackets: 'always',
-    bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: true },
-    guides: { bracketPairs: 'active', indentation: true },
+    bracketPairColorization: { enabled: false },
+    guides: { bracketPairs: false, indentation: true },
     overviewRulerLanes: 3,
     overviewRulerBorder: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: true },
@@ -661,6 +665,28 @@ require(['vs/editor/editor.main'], () => {
   // Expose for lsp-client.js (finds tab by Monaco model + reads activeGitRepo)
   window.tabs = tabs;
   window.NotePPLsp?.attachEditor(editor);
+
+  // Post-paint upgrade: switch on heavy editor features (minimap,
+  // bracket-pair colorization, bracket guides) once the editor is
+  // actually visible. Saves ~50-100 ms on first paint by deferring the
+  // initial token-pair walk that those features trigger.
+  const enableHeavyEditorOptions = () => {
+    if (!editor) return;
+    const wantMinimap = (typeof window.__uiPrefMinimap === 'boolean')
+      ? window.__uiPrefMinimap : true;
+    editor.updateOptions({
+      minimap: wantMinimap
+        ? { enabled: true, scale: 1, showSlider: 'mouseover' }
+        : { enabled: false },
+      bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: true },
+      guides: { bracketPairs: 'active', indentation: true },
+    });
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(enableHeavyEditorOptions, { timeout: 1200 });
+  } else {
+    setTimeout(enableHeavyEditorOptions, 250);
+  }
 
   registerMermaidLanguage();
   // Load persisted preferences before restoring session
@@ -701,7 +727,10 @@ require(['vs/editor/editor.main'], () => {
       editor.updateOptions({ fontSize: currentFontSize });
     }
     if (typeof ui.minimap === 'boolean') {
-      editor.updateOptions({ minimap: { enabled: ui.minimap } });
+      window.__uiPrefMinimap = ui.minimap;
+      editor.updateOptions({ minimap: ui.minimap
+        ? { enabled: true, scale: 1, showSlider: 'mouseover' }
+        : { enabled: false } });
     }
     if (typeof ui.renderWhitespace === 'boolean') {
       editor.updateOptions({ renderWhitespace: ui.renderWhitespace ? 'all' : 'selection' });
@@ -2294,6 +2323,25 @@ function showFloatingMenu(x, y, items) {
 // ===== File Operations =====
 function newTab() { createTab(); }
 
+// Normalise a filesystem path for case-/separator-insensitive identity checks.
+// On Windows two strings can refer to the same file while differing in case
+// (`C:\…` vs `c:\…`) or in separator style — Explorer / file-association /
+// recent-files all hand us slightly different spellings. POSIX comparisons
+// stay case-sensitive.
+function _normalizePathForCompare(p) {
+  if (!p) return '';
+  let s = String(p).replace(/[\\/]+/g, '/');
+  // navigator.platform is "Win32" on 64-bit Windows too.
+  const isWin = (navigator.platform || '').toLowerCase().startsWith('win');
+  if (isWin) s = s.toLowerCase();
+  return s;
+}
+function _findTabByPath(fp) {
+  const key = _normalizePathForCompare(fp);
+  if (!key) return null;
+  return tabs.find(t => t.filePath && _normalizePathForCompare(t.filePath) === key) || null;
+}
+
 async function openFile(filePaths) {
   if (!filePaths) {
     const r = await window.electronAPI.openDialog({
@@ -2314,7 +2362,7 @@ async function openFile(filePaths) {
     filePaths = r.filePaths;
   }
   for (const fp of filePaths) {
-    const existing = tabs.find(t => t.filePath === fp);
+    const existing = _findTabByPath(fp);
     if (existing) { activateTab(existing.id); continue; }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
@@ -4631,7 +4679,7 @@ function showFifResults(searchString, fifResult, opts) {
       const col = parseInt(row.dataset.col, 10) || 1;
       body.querySelectorAll('.sr-row.active').forEach(r => r.classList.remove('active'));
       row.classList.add('active');
-      const existing = tabs.find(t => t.filePath === fp);
+      const existing = _findTabByPath(fp);
       if (existing) activateTab(existing.id);
       else await openFile([fp]);
       // Allow Monaco a tick to finish setting up the model before revealing
@@ -5506,6 +5554,18 @@ async function restoreSession(opts = {}) {
 
   for (const s of saved) {
     let content = s.content ?? '';
+
+    // If the user already opened this file via "Open with…" / argv before
+    // session restore got a chance to run, do not recreate a duplicate tab
+    // for the same path. Carry over the saved "active" flag onto the
+    // pre-existing tab so focus selection still respects the session.
+    if (s.filePath) {
+      const dupe = _findTabByPath(s.filePath);
+      if (dupe) {
+        if (s.active) activeId = dupe.id;
+        continue;
+      }
+    }
 
     // Restore whiteboard tabs without a Monaco model
     if (s.type === 'whiteboard' || s.language === 'whiteboard') {
@@ -8245,10 +8305,15 @@ function isBareRawMermaid(text) {
   return MERMAID_START.test(text.trim()) && !(/```/.test(text));
 }
 
-function renderMarkdownPreview(content, container) {
+async function renderMarkdownPreview(content, container) {
+  // Lazy-load marked on first Markdown preview render. The library is
+  // small (~43 KB) but parsing it eagerly hits every cold launch.
   if (!window.marked) {
-    container.innerHTML = '<div style="color:#c00000;padding:12px;font-size:12px">marked library not loaded. Restart the app.</div>';
-    return;
+    try { await ensureMarked(); }
+    catch (e) {
+      container.innerHTML = '<div style="color:#c00000;padding:12px;font-size:12px">Failed to load Markdown renderer: ' + escHtml(e.message || String(e)) + '</div>';
+      return;
+    }
   }
 
   // If the whole file is a raw Mermaid diagram (no code fences), render it directly

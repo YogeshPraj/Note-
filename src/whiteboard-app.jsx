@@ -19,8 +19,47 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw';
+import { Excalidraw, serializeAsJSON, FONT_FAMILY } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
+
+// Default appState used when a brand-new whiteboard is opened (no saved
+// scene, or saved scene didn't specify these). Excalidraw's stock
+// defaults are hand-drawn (Virgil font + medium roughness) which suits
+// sketching but reads as childish for diagrams in a professional
+// context. We default to a clean sans-serif + perfectly straight lines.
+// Users can still flip back via the toolbar at any time.
+const PROFESSIONAL_DEFAULTS = {
+  currentItemFontFamily: FONT_FAMILY.Helvetica, // 2 — Helvetica sans-serif
+  currentItemRoughness:  0,                     // architect (no roughness)
+  currentItemStrokeWidth: 2,                    // a touch thicker than 1px default
+};
+
+// ── Excalidraw library persistence ──────────────────────────────────────────
+// Libraries (Browse Libraries → install) are GLOBAL across whiteboards but
+// Excalidraw doesn't persist them on its own — the host app has to:
+//   1. read libraryItems on mount and feed them via initialData.libraryItems
+//   2. listen to onLibraryChange and save the new list anywhere durable
+// We use the iframe's own localStorage, which is scoped to whiteboard.html's
+// file:// origin and survives across Note++ launches.
+const LIBRARY_STORAGE_KEY = 'notepp.excalidraw.libraryItems.v1';
+function readSavedLibraryItems() {
+  try {
+    const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.warn('[wb] failed to read saved library items:', e);
+    return [];
+  }
+}
+function saveLibraryItems(items) {
+  try {
+    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(items || []));
+  } catch (e) {
+    console.warn('[wb] failed to persist library items:', e);
+  }
+}
 
 // Self-host fonts under ./excalidraw-fonts/  (avoids any CDN call)
 if (typeof window !== 'undefined') {
@@ -180,6 +219,10 @@ function buildEnvelope(elements, appState, files) {
 function App() {
   const [api, setApi] = useState(null);
   const [theme, setTheme] = useState('light');
+  // Read the persisted library once at first render — Excalidraw consumes
+  // initialData synchronously on mount, so we can't wait on async I/O.
+  // localStorage is sync, so this is safe.
+  const [initialLibraryItems] = useState(() => readSavedLibraryItems());
   // Debounce parent-state notifications: Excalidraw onChange fires *very*
   // often. We only need committed snapshots, not every pointer move.
   const stateTimer = useRef(null);
@@ -304,7 +347,13 @@ function App() {
       <Excalidraw
         excalidrawAPI={(a) => setApi(a)}
         onChange={handleChange}
+        onLibraryChange={saveLibraryItems}
         theme={theme}
+        initialData={{
+          appState: PROFESSIONAL_DEFAULTS,
+          libraryItems: initialLibraryItems,
+          scrollToContent: true,
+        }}
         UIOptions={{
           canvasActions: {
             // Hide cloud / library / share buttons that don't apply to a

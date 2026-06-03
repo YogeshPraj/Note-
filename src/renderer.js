@@ -8580,24 +8580,68 @@ function setupMermaidToolbar() {
     e.deltaY < 0 ? mermaidZoomIn() : mermaidZoomOut();
   }, { passive: false });
 
-  // Middle-mouse or Alt+drag → pan
+  // Pan controls
+  //  • Middle-mouse drag    → always pans (any mode)
+  //  • Alt + left-drag      → always pans (legacy power-user gesture)
+  //  • Plain left-drag      → pans, UNLESS visual edit mode is on (in
+  //                            which case clicks need to reach the
+  //                            nodes for the node-editor popup).
+  // A small movement threshold ensures a plain click still registers
+  // as a click (no scroll jitter from a release-without-move).
+  let mermaidPanArmed = false;        // mousedown registered, waiting to see if it's a drag or a click
+  const PAN_THRESHOLD = 4;            // px before we commit to panning
   zoomArea.addEventListener('mousedown', e => {
-    if (e.button !== 1 && !(e.button === 0 && e.altKey)) return;
-    e.preventDefault();
-    mermaidPanning = true;
+    const isMiddle = e.button === 1;
+    const isAltLeft = e.button === 0 && e.altKey;
+    const isPlainLeft = e.button === 0 && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    if (!isMiddle && !isAltLeft && !isPlainLeft) return;
+    // In visual edit mode plain left-clicks belong to the node editor,
+    // not the pan handler. Modifier-based pans still work.
+    if (isPlainLeft && zoomArea.classList.contains('mmd-edit-mode')) return;
+    // Don't hijack interactions on the node-editor popup itself
+    if (e.target.closest && e.target.closest('#mmd-node-editor')) return;
+    mermaidPanArmed = true;
+    mermaidPanning = false; // not yet — wait for movement past threshold
     mermaidPanStart = { x: e.clientX, y: e.clientY, sl: zoomArea.scrollLeft, st: zoomArea.scrollTop };
-    zoomArea.style.cursor = 'grabbing';
+    if (isMiddle || isAltLeft) {
+      // These gestures are unambiguous — engage immediately, no threshold.
+      e.preventDefault();
+      mermaidPanning = true;
+      zoomArea.style.cursor = 'grabbing';
+    }
   });
   document.addEventListener('mousemove', e => {
-    if (!mermaidPanning) return;
-    zoomArea.scrollLeft = mermaidPanStart.sl - (e.clientX - mermaidPanStart.x);
-    zoomArea.scrollTop  = mermaidPanStart.st - (e.clientY - mermaidPanStart.y);
+    if (!mermaidPanArmed && !mermaidPanning) return;
+    // Promote armed→panning once the cursor has moved far enough that
+    // this clearly isn't just a click.
+    if (mermaidPanArmed && !mermaidPanning) {
+      const dx = e.clientX - mermaidPanStart.x;
+      const dy = e.clientY - mermaidPanStart.y;
+      if (Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+      mermaidPanning = true;
+      zoomArea.style.cursor = 'grabbing';
+      // Prevent text-selection drift inside the SVG once panning kicks in
+      e.preventDefault();
+    }
+    if (mermaidPanning) {
+      zoomArea.scrollLeft = mermaidPanStart.sl - (e.clientX - mermaidPanStart.x);
+      zoomArea.scrollTop  = mermaidPanStart.st - (e.clientY - mermaidPanStart.y);
+    }
   });
   document.addEventListener('mouseup', e => {
-    if (!mermaidPanning) return;
+    if (!mermaidPanArmed && !mermaidPanning) return;
+    mermaidPanArmed = false;
     mermaidPanning = false;
     zoomArea.style.cursor = '';
   });
+  // Re-evaluate the cursor whenever the zoom changes, the diagram
+  // re-renders, or the pane is resized. The function itself lives at
+  // module scope (see updateMermaidPanCursor below) so applyMermaidZoom
+  // can call it directly without us monkey-patching applyMermaidZoom.
+  const _resizeObs = new ResizeObserver(updateMermaidPanCursor);
+  _resizeObs.observe(zoomArea);
+  _resizeObs.observe(document.getElementById('mermaid-diagram'));
+  updateMermaidPanCursor();
 
   // Wire up visual node editor
   setupMermaidVisualEditor();
@@ -8997,15 +9041,93 @@ function applyMermaidZoom() {
   const el    = document.getElementById('mermaid-diagram');
   const label = document.getElementById('mmde-zoom-label');
   if (!el) return;
-  el.style.transform       = `scale(${mermaidZoom})`;
-  el.style.transformOrigin = 'top center';
+  // Drive the SVG's own width/height instead of a CSS `transform: scale`.
+  // Transform-scale doesn't update the layout box, so when the diagram
+  // grows past the container size no scrollbars appear and the rest of
+  // the diagram is unreachable. Sizing the SVG directly makes the
+  // overflow flow through #mermaid-zoom-area's `overflow: auto`.
+  const svg = el.querySelector('svg');
+  if (svg) {
+    // Resolve natural size: prefer the viewBox (Mermaid always emits one),
+    // fall back to the original width/height attributes captured on first
+    // render. Cache once on the element so subsequent zoom calls don't
+    // chase a width that we've already mutated.
+    let naturalW = parseFloat(svg.dataset._origW || '');
+    let naturalH = parseFloat(svg.dataset._origH || '');
+    if (!naturalW || !naturalH) {
+      const vb = svg.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.trim().split(/\s+/).map(Number);
+        if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+          naturalW = parts[2];
+          naturalH = parts[3];
+        }
+      }
+      if (!naturalW || !naturalH) {
+        naturalW = parseFloat(svg.getAttribute('width')  || '') || svg.clientWidth  || 0;
+        naturalH = parseFloat(svg.getAttribute('height') || '') || svg.clientHeight || 0;
+      }
+      if (naturalW && naturalH) {
+        svg.dataset._origW = String(naturalW);
+        svg.dataset._origH = String(naturalH);
+      }
+    }
+    if (naturalW && naturalH) {
+      svg.style.width    = (naturalW * mermaidZoom) + 'px';
+      svg.style.height   = (naturalH * mermaidZoom) + 'px';
+      svg.style.maxWidth = 'none'; // override the global "fit to parent" rule
+    }
+  }
+  // Clear any leftover transform from the old approach so we don't double-scale.
+  el.style.transform = '';
+  el.style.transformOrigin = '';
   if (label) label.textContent = Math.round(mermaidZoom * 100) + '%';
   // Keep the shared preview-header zoom label in sync when Mermaid pane is active
   if (typeof updatePreviewZoomLabel === 'function') updatePreviewZoomLabel();
+  // The diagram likely just grew/shrank past the scroll threshold, so
+  // refresh the grab/default cursor hint immediately.
+  updateMermaidPanCursor();
 }
 
-function mermaidZoomIn()  { mermaidZoom = Math.min(+(mermaidZoom + 0.25).toFixed(2), 4.0); applyMermaidZoom(); }
-function mermaidZoomOut() { mermaidZoom = Math.max(+(mermaidZoom - 0.25).toFixed(2), 0.25); applyMermaidZoom(); }
+// Show a `grab` cursor over the mermaid zoom area whenever the diagram
+// visually overflows it (i.e. there's somewhere to pan to); fall back to
+// the default cursor when everything fits and in edit mode (where
+// left-click is reserved for the node-editor popup).
+function updateMermaidPanCursor() {
+  const zoomArea = document.getElementById('mermaid-zoom-area');
+  if (!zoomArea) return;
+  if (zoomArea.classList.contains('mmd-edit-mode')) {
+    zoomArea.style.cursor = '';
+    return;
+  }
+  const overflows =
+    zoomArea.scrollWidth  > zoomArea.clientWidth  + 1 ||
+    zoomArea.scrollHeight > zoomArea.clientHeight + 1;
+  zoomArea.style.cursor = overflows ? 'grab' : 'default';
+}
+
+// Zoom range: 10 % – 800 %. The previous 25 %–400 % was hit by users zooming
+// in to inspect labels on large sequence/architecture diagrams. Step is
+// adaptive so the same button-press feels right across the full range:
+// 25 % below 1.0×, 50 % up to 4.0×, then 100 % up to 8.0×.
+const MERMAID_ZOOM_MIN = 0.1;
+const MERMAID_ZOOM_MAX = 8.0;
+function _mermaidZoomStep(z) {
+  if (z >= 4.0) return 1.0;
+  if (z >= 1.0) return 0.5;
+  return 0.25;
+}
+function mermaidZoomIn() {
+  const step = _mermaidZoomStep(mermaidZoom);
+  mermaidZoom = Math.min(+(mermaidZoom + step).toFixed(2), MERMAID_ZOOM_MAX);
+  applyMermaidZoom();
+}
+function mermaidZoomOut() {
+  // Use the step that would land us at this zoom level, not the next one up
+  const step = _mermaidZoomStep(mermaidZoom - 0.001);
+  mermaidZoom = Math.max(+(mermaidZoom - step).toFixed(2), MERMAID_ZOOM_MIN);
+  applyMermaidZoom();
+}
 function mermaidZoomFit() { mermaidZoom = 1.0; applyMermaidZoom(); }
 
 async function exportMermaidSvg() {

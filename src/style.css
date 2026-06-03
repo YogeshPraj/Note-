@@ -1505,8 +1505,13 @@ body > svg[id^="mmd-r"] {
   flex: 1;
   overflow: auto;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  /* `safe center` keeps the diagram centred when it fits, but flips to
+     flex-start when it overflows. That matters because plain `center`
+     splits the overflow equally on both sides and the browser cannot
+     scroll past `scrollLeft = 0`, so anything to the LEFT of centre is
+     unreachable once the diagram grows past the pane width. */
+  justify-content: safe center;
+  align-items: safe flex-start;
   padding: 24px 16px;
   background: var(--editor-bg);
   cursor: default;
@@ -1718,19 +1723,22 @@ body > svg[id^="mmd-r"] {
 }
 
 .mmd-ne-shape {
-  padding: 4px 2px;
-  font-size: 10px;
-  font-family: monospace;
+  /* Now hosts an inline SVG icon instead of bracket text. Centre the
+     glyph with flex; explicit height keeps the row visually balanced
+     even though the SVGs themselves are only 16 px tall. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 2px;
   border: 1px solid var(--find-border);
   border-radius: 4px;
   background: var(--find-input-bg);
   color: var(--tab-text);
   cursor: pointer;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  transition: background 0.12s;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
+.mmd-ne-shape svg { display: block; }
 .mmd-ne-shape:hover { background: var(--btn-hover); }
 .mmd-ne-shape.active {
   background: #0078d4;

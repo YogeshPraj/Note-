@@ -418,13 +418,43 @@
                 <div class="mmd-ne-section">
                   <label class="mmd-ne-label">Shape</label>
                   <div class="mmd-ne-shapes">
-                    <button class="mmd-ne-shape active" data-s="rect"        title="Rectangle [ ]">[ ]</button>
-                    <button class="mmd-ne-shape"        data-s="round"       title="Rounded ( )"  >( )</button>
-                    <button class="mmd-ne-shape"        data-s="diamond"     title="Diamond { }"  >{ }</button>
-                    <button class="mmd-ne-shape"        data-s="circle"      title="Circle (( ))" >(( ))</button>
-                    <button class="mmd-ne-shape"        data-s="stadium"     title="Stadium ([ ])">([  ])</button>
-                    <button class="mmd-ne-shape"        data-s="hex"         title="Hexagon {{ }}">{{ }}</button>
-                    <button class="mmd-ne-shape"        data-s="subroutine"  title="Subroutine [[ ]]">[[ ]]</button>
+                    <button class="mmd-ne-shape active" data-s="rect"       title="Rectangle">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <rect x="2.5" y="2.5" width="19" height="11"/>
+                      </svg>
+                    </button>
+                    <button class="mmd-ne-shape" data-s="round"       title="Rounded rectangle">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <rect x="2.5" y="2.5" width="19" height="11" rx="3" ry="3"/>
+                      </svg>
+                    </button>
+                    <button class="mmd-ne-shape" data-s="diamond"     title="Diamond / Decision">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+                        <polygon points="12,2 21.5,8 12,14 2.5,8"/>
+                      </svg>
+                    </button>
+                    <button class="mmd-ne-shape" data-s="circle"      title="Circle">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <circle cx="12" cy="8" r="6"/>
+                      </svg>
+                    </button>
+                    <button class="mmd-ne-shape" data-s="stadium"     title="Stadium / Pill">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <rect x="2.5" y="2.5" width="19" height="11" rx="5.5" ry="5.5"/>
+                      </svg>
+                    </button>
+                    <button class="mmd-ne-shape" data-s="hex"         title="Hexagon">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+                        <polygon points="6,2.5 18,2.5 22,8 18,13.5 6,13.5 2,8"/>
+                      </svg>
+                    </button>
+                    <button class="mmd-ne-shape" data-s="subroutine"  title="Subroutine">
+                      <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <rect x="2.5" y="2.5" width="19" height="11"/>
+                        <line x1="6" y1="2.5" x2="6" y2="13.5"/>
+                        <line x1="18" y1="2.5" x2="18" y2="13.5"/>
+                      </svg>
+                    </button>
                   </div>
                 </div>
                 <div class="mmd-ne-actions">

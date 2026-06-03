@@ -1,6 +1,6 @@
 {
   "name": "notepp",
-  "version": "1.7.7",
+  "version": "1.7.8",
   "description": "Note++ - A powerful text editor",
   "main": "src/main.js",
   "author": "Yogesh Prajapati",
@@ -307,30 +307,6 @@
       {
         "ext": "lua",
         "name": "Lua File",
-        "description": "Open with Note++",
-        "role": "Editor"
-      },
-      {
-        "ext": "sh",
-        "name": "Shell Script",
-        "description": "Open with Note++",
-        "role": "Editor"
-      },
-      {
-        "ext": "bat",
-        "name": "Batch File",
-        "description": "Open with Note++",
-        "role": "Editor"
-      },
-      {
-        "ext": "cmd",
-        "name": "Command File",
-        "description": "Open with Note++",
-        "role": "Editor"
-      },
-      {
-        "ext": "ps1",
-        "name": "PowerShell Script",
         "description": "Open with Note++",
         "role": "Editor"
       },

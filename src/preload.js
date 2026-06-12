@@ -20,6 +20,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shellOpen:     (p)    => ipcRenderer.invoke('shell-open', p),
   shellShowItem: (p)    => ipcRenderer.invoke('shell-show-item', p),
 
+  // Markdown preview export (HTML / PDF / DOCX). HTML is just `writeFile`;
+  // PDF and DOCX route through main-process converters that return base64.
+  previewExport: {
+    toPdf:  (html) => ipcRenderer.invoke('preview-export:to-pdf', html),
+    toDocx: (html) => ipcRenderer.invoke('preview-export:to-docx', html),
+  },
+
+  // Binary-to-Markdown conversion (PDF / DOCX)
+  convert: {
+    canConvert:    (path)             => ipcRenderer.invoke('convert-to-markdown:can-convert', path),
+    supportedExts: ()                 => ipcRenderer.invoke('convert-to-markdown:supported-exts'),
+    start:         (path, jobId)      => ipcRenderer.invoke('convert-to-markdown:start', path, jobId),
+    onProgress:    (cb)               => {
+      const handler = (_e, payload) => cb(payload);
+      ipcRenderer.on('convert-to-markdown:progress', handler);
+      return () => ipcRenderer.removeListener('convert-to-markdown:progress', handler);
+    },
+  },
+
   // Terminal
   terminalCreate: (id, opts)   => ipcRenderer.invoke('terminal-create', id, opts),
   terminalInput:  (id, data)   => ipcRenderer.invoke('terminal-input', id, data),

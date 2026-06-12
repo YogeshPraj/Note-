@@ -749,15 +749,28 @@ ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
 // ---- Settings (persisted app preferences) ----
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 
-function readSettings() {
+// In-memory cache so the dozen+ ipcMain handlers that read settings on
+// every invocation don't all hit disk + reparse JSON. Invalidated on
+// every writeSettings; bypassable with `readSettings(true)` for the rare
+// case (none today) where we want to defeat the cache.
+let _settingsCache = null;
+function readSettings(forceFresh = false) {
+  if (!forceFresh && _settingsCache) return _settingsCache;
+  let parsed = {};
   try {
-    if (fs.existsSync(settingsPath())) return JSON.parse(fs.readFileSync(settingsPath(), 'utf-8'));
+    if (fs.existsSync(settingsPath())) {
+      parsed = JSON.parse(fs.readFileSync(settingsPath(), 'utf-8')) || {};
+    }
   } catch {}
-  return {};
+  _settingsCache = parsed;
+  return parsed;
 }
 
 function writeSettings(data) {
   try { fs.writeFileSync(settingsPath(), JSON.stringify(data, null, 2), 'utf-8'); } catch {}
+  // Refresh the cache from the just-written payload (cheaper + can't
+  // race a concurrent IPC) rather than re-reading from disk.
+  _settingsCache = data || {};
 }
 
 ipcMain.handle('read-settings', () => readSettings());
@@ -807,6 +820,104 @@ function detectCloudPaths() {
 ipcMain.handle('detect-cloud-paths', () => detectCloudPaths());
 
 ipcMain.handle('validate-path', (e, p2) => ({ exists: p2 ? fs.existsSync(p2) : false }));
+
+// ── Binary → Markdown conversion (PDF / DOCX) ───────────────────────────────
+// Loaded lazily on first use so the cold start path doesn't pay for it.
+let _mdConverter = null;
+function getMdConverter() {
+  if (!_mdConverter) _mdConverter = require('./markdown-converter');
+  return _mdConverter;
+}
+ipcMain.handle('convert-to-markdown:can-convert', (e, srcPath) => {
+  try { return getMdConverter().canConvert(srcPath); }
+  catch { return false; }
+});
+ipcMain.handle('convert-to-markdown:supported-exts', () => {
+  try { return getMdConverter().SUPPORTED_EXTENSIONS; }
+  catch { return []; }
+});
+// ── Markdown preview export (HTML / PDF / DOCX) ─────────────────────────────
+// Renderer passes a fully serialised HTML document (DOCTYPE + <html> + body
+// with inlined styles). For PDF we spin up an off-screen BrowserWindow,
+// load the HTML as a data URL, call `printToPDF`, then close it.
+// For DOCX we route through the html-to-docx library (Node-side).
+// Both return the bytes as base64 so the existing `writeFileBinary` IPC
+// can persist them.
+ipcMain.handle('preview-export:to-pdf', async (e, html) => {
+  let win = null;
+  try {
+    win = new BrowserWindow({
+      show: false,
+      width: 1100,
+      height: 1500,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        // Standalone — no preload / no electronAPI surface.
+      },
+    });
+    // Use a data URL so we don't need a temp file. Encode as base64 to
+    // sidestep the URL-length limits some Chromium versions had on
+    // percent-encoded data URLs.
+    const dataUrl = 'data:text/html;base64,' + Buffer.from(html, 'utf-8').toString('base64');
+    await win.loadURL(dataUrl);
+    // Give web fonts + images a couple hundred ms to settle before
+    // printToPDF snapshots the page.
+    await new Promise(r => setTimeout(r, 250));
+    const pdfBuf = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+    });
+    return { success: true, base64: pdfBuf.toString('base64') };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  } finally {
+    try { win?.close(); } catch {}
+  }
+});
+
+ipcMain.handle('preview-export:to-docx', async (e, html) => {
+  try {
+    // html-to-docx is a CommonJS default-export wrapper. Lazy-require so
+    // it stays out of the cold-start path.
+    const htmlToDocx = require('html-to-docx');
+    const buf = await htmlToDocx(html, null, {
+      orientation: 'portrait',
+      pageNumber: false,
+      table: { row: { cantSplit: true } },
+      footer: false,
+    });
+    // html-to-docx returns either a Node Buffer or a Blob depending on
+    // platform — coerce both into a Node Buffer.
+    let nodeBuf;
+    if (Buffer.isBuffer(buf)) {
+      nodeBuf = buf;
+    } else if (buf && typeof buf.arrayBuffer === 'function') {
+      nodeBuf = Buffer.from(await buf.arrayBuffer());
+    } else {
+      nodeBuf = Buffer.from(buf);
+    }
+    return { success: true, base64: nodeBuf.toString('base64') };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('convert-to-markdown:start', async (e, srcPath, jobId) => {
+  try {
+    const conv = getMdConverter();
+    const onProgress = (percent, stage) => {
+      try { e.sender.send('convert-to-markdown:progress', { jobId, percent, stage }); }
+      catch { /* sender gone */ }
+    };
+    const markdown = await conv.convert(srcPath, onProgress);
+    return { success: true, markdown };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+});
 
 ipcMain.handle('open-folder-picker', async () => {
   const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });

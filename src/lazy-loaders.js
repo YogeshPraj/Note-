@@ -53,6 +53,20 @@ function ensureXterm() {
   return ensureXterm._loading;
 }
 
+// json5 (~30 KB) — only needed when the JSON preview hits a parse error
+// and we want to try a forgiving re-parse (trailing commas, single
+// quotes, comments, unquoted keys, etc.) to offer an auto-fix.
+function ensureJson5() {
+  if (window.JSON5) return Promise.resolve(window.JSON5);
+  if (ensureJson5._loading) return ensureJson5._loading;
+  ensureJson5._loading = (async () => {
+    await _loadUmdScript('../node_modules/json5/dist/index.min.js');
+    if (!window.JSON5) throw new Error('JSON5 did not register on window');
+    return window.JSON5;
+  })();
+  return ensureJson5._loading;
+}
+
 // marked (~43 KB UMD) — first Markdown preview render. Loaded eagerly
 // before this lazy approach; deferring it saves the parse+execute cost
 // on every launch that doesn't open a Markdown preview.

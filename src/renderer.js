@@ -2344,18 +2344,42 @@ function _findTabByPath(fp) {
 
 async function openFile(filePaths) {
   if (!filePaths) {
+    // Per-category extension sets — these feed both the combined "Note++
+    // Files" default filter AND the individual category filters below.
+    // Order matters: the OS dialog picks the first entry as the default
+    // selected filter unless the user previously chose another.
+    const EXT_TEXT       = ['txt','md','markdown','log','rtf'];
+    const EXT_CONFIG     = ['json','jsonc','xml','ini','conf','cfg','yaml','yml','toml','env','properties','gitignore'];
+    const EXT_DATA       = ['csv','tsv'];
+    const EXT_SOURCE     = ['js','jsx','ts','tsx','mjs','cjs','py','java','c','h','cpp','hpp','cs','go','rs','rb','php','swift','kt','scala','dart','lua','sql','sh','bash','ps1','bat'];
+    const EXT_WEB        = ['html','htm','css','scss','sass','less','svg'];
+    const EXT_WHITEBOARD = ['whiteboard','excalidraw','drawio'];
+    const EXT_MERMAID    = ['mmd','mermaid'];
+    const EXT_DOCS       = ['pdf','docx']; // auto-converted to markdown on open
+    // De-dup while preserving insertion order — some extensions appear in
+    // multiple categories (e.g. json is both Config and Web-adjacent).
+    const NOTEPP_ALL = Array.from(new Set([
+      ...EXT_TEXT, ...EXT_CONFIG, ...EXT_DATA, ...EXT_SOURCE,
+      ...EXT_WEB, ...EXT_WHITEBOARD, ...EXT_MERMAID, ...EXT_DOCS,
+    ]));
+
     const r = await window.electronAPI.openDialog({
       properties: ['openFile', 'multiSelections'],
-      // "All Files" is the default so .txt, .json, .xml, .ini and everything
-      // else is visible the moment the dialog opens. The named category
-      // filters below let the user narrow when they want to.
+      // First filter is the dialog default. "Note++ Files" is a single
+      // umbrella that surfaces every extension Note++ understands —
+      // matches the user expectation of "show me files this app can
+      // actually open". The individual categories below let the user
+      // narrow further when they want to.
       filters: [
-        { name: 'All Files', extensions: ['*'] },
-        { name: 'Text', extensions: ['txt','md','markdown','log','rtf'] },
-        { name: 'Config / Data', extensions: ['json','xml','ini','conf','cfg','yaml','yml','toml','env','csv','tsv','properties'] },
-        { name: 'Source Code', extensions: ['js','jsx','ts','tsx','py','java','c','cpp','cs','go','rs','rb','php','swift','kt','scala','dart','sh','bash','ps1','bat','sql'] },
-        { name: 'Web', extensions: ['html','htm','css','scss','sass','less','xml','json'] },
-        { name: 'Whiteboard / Diagrams', extensions: ['mmd','mermaid','whiteboard','excalidraw','json'] },
+        { name: 'Note++ Files', extensions: NOTEPP_ALL },
+        { name: 'All Files',              extensions: ['*'] },
+        { name: 'Text',                   extensions: EXT_TEXT },
+        { name: 'Config / Data',          extensions: [...EXT_CONFIG, ...EXT_DATA] },
+        { name: 'Source Code',            extensions: EXT_SOURCE },
+        { name: 'Web',                    extensions: EXT_WEB },
+        { name: 'Whiteboard / Diagrams',  extensions: EXT_WHITEBOARD },
+        { name: 'Mermaid',                extensions: EXT_MERMAID },
+        { name: 'Documents (auto-convert)', extensions: EXT_DOCS },
       ]
     });
     if (r.canceled) return;
@@ -2364,6 +2388,14 @@ async function openFile(filePaths) {
   for (const fp of filePaths) {
     const existing = _findTabByPath(fp);
     if (existing) { activateTab(existing.id); continue; }
+    // Binary documents (.pdf, .docx) — route through the markdown converter
+    // and open the result as a new untitled .md tab. The source file is
+    // never modified; the original path is shown in the tab tooltip.
+    const _lcExt = fp.toLowerCase();
+    if (_lcExt.endsWith('.pdf') || _lcExt.endsWith('.docx')) {
+      await convertAndOpenAsMarkdown(fp);
+      continue;
+    }
     const res = await window.electronAPI.readFile(fp);
     if (!res.success) { showToast('Error: ' + res.error); continue; }
     // Track in Recent Files (main owns the persisted list + menu)
@@ -2404,6 +2436,111 @@ async function openFile(filePaths) {
       _checkLargeFile(createTab(fp, res.content), res.size);
     }
   }
+}
+
+// ── Binary-document → Markdown (PDF / DOCX) ─────────────────────────────────
+// User opens a PDF or DOCX → we route through the main-process converter
+// (pdf-parse / mammoth) and surface the result as a fresh untitled .md tab.
+// The original file is never modified. A small modal reflects progress
+// percent + stage so the user knows we're working, not frozen.
+let _convertJobSeq = 0;
+// Tracks in-flight jobIds — the dialog stays open until *every* in-flight
+// job has finished. Each job owns its own listener disposer locally, so
+// there's no shared `_convertOffProgress` that concurrent calls can stomp
+// on (the previous version did, and one of the listeners would be
+// orphaned every time the user double-opened a file).
+const _activeConvertJobs = new Set();
+
+function _showConvertProgress(srcPath) {
+  const dlg     = document.getElementById('convert-progress-dialog');
+  const nameEl  = document.getElementById('convert-progress-filename');
+  const stageEl = document.getElementById('convert-progress-stage');
+  const barEl   = document.getElementById('convert-progress-bar');
+  const pctEl   = document.getElementById('convert-progress-pct');
+  if (!dlg) return;
+  if (nameEl)  nameEl.textContent  = srcPath;
+  if (stageEl) stageEl.textContent = 'Starting…';
+  if (barEl)   { barEl.style.width = '0%'; barEl.classList.remove('indeterminate'); }
+  if (pctEl)   pctEl.textContent   = '0%';
+  dlg.classList.remove('hidden');
+}
+
+function _updateConvertProgress(percent, stage) {
+  const stageEl = document.getElementById('convert-progress-stage');
+  const barEl   = document.getElementById('convert-progress-bar');
+  const pctEl   = document.getElementById('convert-progress-pct');
+  if (stageEl && stage) stageEl.textContent = stage;
+  if (barEl && pctEl) {
+    if (typeof percent === 'number' && percent >= 0) {
+      barEl.classList.remove('indeterminate');
+      const clamped = Math.max(0, Math.min(100, percent));
+      barEl.style.width = clamped + '%';
+      pctEl.textContent = Math.round(clamped) + '%';
+    } else {
+      barEl.classList.add('indeterminate');
+      pctEl.textContent = '…';
+    }
+  }
+}
+
+function _hideConvertProgress() {
+  const dlg = document.getElementById('convert-progress-dialog');
+  if (dlg) dlg.classList.add('hidden');
+}
+
+async function convertAndOpenAsMarkdown(srcPath) {
+  const api = window.electronAPI?.convert;
+  if (!api) { showToast('Converter unavailable'); return; }
+
+  const jobId = ++_convertJobSeq;
+  _activeConvertJobs.add(jobId);
+  _showConvertProgress(srcPath);
+
+  // Subscribe to progress events for THIS job. The disposer is strictly
+  // local, so two parallel conversions each own and clean up their own
+  // listener. The previous version stored a single shared disposer that
+  // got stomped when a second conversion started.
+  const offProgress = api.onProgress((payload) => {
+    if (!payload || payload.jobId !== jobId) return;
+    _updateConvertProgress(payload.percent, payload.stage);
+  });
+
+  // Track in Recent Files so the user can re-open later
+  try { window.electronAPI.recentFileOpened(srcPath); } catch {}
+
+  let result;
+  try {
+    result = await api.start(srcPath, jobId);
+  } catch (err) {
+    showToast('Conversion failed: ' + (err?.message || String(err)));
+    return;
+  } finally {
+    // Always dispose THIS job's listener, even if start() threw.
+    try { offProgress(); } catch {}
+    _activeConvertJobs.delete(jobId);
+    // Keep the dialog open while any other job is still running.
+    if (_activeConvertJobs.size === 0) _hideConvertProgress();
+  }
+
+  if (!result || !result.success) {
+    showToast('Conversion failed: ' + (result?.error || 'unknown error'));
+    return;
+  }
+
+  // Create a fresh tab. Tab.filePath stays null so Ctrl+S prompts Save As
+  // (we never want to overwrite the original PDF/DOCX with markdown text).
+  const baseName = srcPath.split(/[\\/]/).pop().replace(/\.(pdf|docx)$/i, '');
+  const tab = createTab(null, result.markdown || '');
+  tab.name = baseName + '.md';
+  tab.language = 'markdown';
+  tab.dirty = true; // unsaved derived content
+  if (tab.model) {
+    try { monaco.editor.setModelLanguage(tab.model, 'markdown'); } catch {}
+  }
+  renderTabs();
+  updateTitle();
+  updateLanguageStatus();
+  showToast(`Converted ${baseName} → Markdown`);
 }
 
 // Open an already-detected encrypted file: validate profile, prompt unlock if
@@ -2536,8 +2673,21 @@ async function saveTabFile(tab, forceAs = false) {
     return true;
   }
   if (!tab.filePath || forceAs) {
-    const r = await window.electronAPI.saveDialog({ defaultPath: tab.name, filters: [{ name: 'All Files', extensions: ['*'] }] });
+    // Smart defaults: if the user picked a language on the tab (e.g.
+    // Markdown), pre-select the matching filter + extension so a quick
+    // "type filename + Enter" save lands on `name.md` instead of an
+    // extension-less file. _saveDialogOptionsForTab figures out the
+    // right defaultPath/filters from tab.language + tab.name.
+    const opts = _saveDialogOptionsForTab(tab);
+    const r = await window.electronAPI.saveDialog(opts);
     if (r.canceled) return false;
+    // Save-As: stop watching the previous path before overwriting
+    // tab.filePath, otherwise the old watcher leaks until the app
+    // exits. The new path gets its watcher added after the write
+    // succeeds, further down.
+    if (tab.filePath && tab.filePath !== r.filePath) {
+      try { window.electronAPI.unwatchFile(tab.filePath); } catch {}
+    }
     tab.filePath = r.filePath;
     tab.name = r.filePath.split(/[\\/]/).pop();
     tab.language = detectLanguage(tab.filePath);
@@ -2787,6 +2937,77 @@ function _scheduleAutoDetect(tab) {
     _applyAutoDetectedLanguage(tab, editor.getValue());
   }, 400);
 }
+// Reverse-lookup table for the Save As dialog: given a Monaco language
+// id, pick the canonical extension + a human-readable filter label.
+// Only entries here unlock the "smart save" path; anything else falls
+// back to the All-Files filter (and the user must type their own ext).
+const LANGUAGE_TO_EXT = {
+  markdown:   { ext: 'md',   label: 'Markdown' },
+  javascript: { ext: 'js',   label: 'JavaScript' },
+  typescript: { ext: 'ts',   label: 'TypeScript' },
+  python:     { ext: 'py',   label: 'Python' },
+  java:       { ext: 'java', label: 'Java' },
+  c:          { ext: 'c',    label: 'C source' },
+  cpp:        { ext: 'cpp',  label: 'C++ source' },
+  csharp:     { ext: 'cs',   label: 'C#' },
+  go:         { ext: 'go',   label: 'Go' },
+  rust:       { ext: 'rs',   label: 'Rust' },
+  ruby:       { ext: 'rb',   label: 'Ruby' },
+  php:        { ext: 'php',  label: 'PHP' },
+  html:       { ext: 'html', label: 'HTML' },
+  css:        { ext: 'css',  label: 'CSS' },
+  scss:       { ext: 'scss', label: 'SCSS' },
+  less:       { ext: 'less', label: 'LESS' },
+  xml:        { ext: 'xml',  label: 'XML' },
+  json:       { ext: 'json', label: 'JSON' },
+  yaml:       { ext: 'yaml', label: 'YAML' },
+  mermaid:    { ext: 'mmd',  label: 'Mermaid' },
+  sql:        { ext: 'sql',  label: 'SQL' },
+  shell:      { ext: 'sh',   label: 'Shell script' },
+  powershell: { ext: 'ps1',  label: 'PowerShell' },
+  bat:        { ext: 'bat',  label: 'Batch file' },
+  lua:        { ext: 'lua',  label: 'Lua' },
+  swift:      { ext: 'swift',label: 'Swift' },
+  kotlin:     { ext: 'kt',   label: 'Kotlin' },
+  ini:        { ext: 'ini',  label: 'INI / Config' },
+  hcl:        { ext: 'hcl',  label: 'HCL / Terraform' },
+  dockerfile: { ext: 'dockerfile', label: 'Dockerfile' },
+  plaintext:  { ext: 'txt',  label: 'Text' },
+};
+
+// Build the saveDialog options for a tab. The key trick is `defaultPath`:
+// Electron uses the *extension* of defaultPath to decide which filter the
+// OS dialog opens with, AND to append the extension when the user types a
+// bare filename. So if the tab is markdown and named "new 3", we hand it
+// "new 3.md" — Windows / macOS / Linux then default-select the Markdown
+// filter and silently add `.md` when the user hits Enter.
+function _saveDialogOptionsForTab(tab) {
+  const meta = LANGUAGE_TO_EXT[tab?.language] || null;
+  const baseName = (tab?.name || 'untitled').replace(/[\\/]+/g, '_');
+  // If the tab name already has an extension matching `meta.ext`, keep
+  // it as-is; otherwise tack on the canonical extension so the dialog
+  // primes with the right filter.
+  let defaultPath = baseName;
+  if (meta) {
+    const hasMatchingExt = new RegExp('\\.' + meta.ext + '$', 'i').test(baseName);
+    if (!hasMatchingExt) {
+      // Strip any *other* extension the user didn't intend, then add ours.
+      // We only strip if the existing extension is short (≤6 chars) and
+      // alphanumeric — protects names like "config.dev" that the user
+      // legitimately wants to keep.
+      const stripped = baseName.replace(/\.[a-z0-9]{1,6}$/i, '');
+      defaultPath = stripped + '.' + meta.ext;
+    }
+  }
+  const filters = meta
+    ? [
+        { name: meta.label, extensions: [meta.ext] },
+        { name: 'All Files', extensions: ['*'] },
+      ]
+    : [{ name: 'All Files', extensions: ['*'] }];
+  return { defaultPath, filters };
+}
+
 function detectLanguage(fp) {
   const ext = fp.split('.').pop().toLowerCase();
   const map = {
@@ -7949,6 +8170,17 @@ function setupPreview() {
   // Maximise toggle (preview takes full editor row)
   document.getElementById('btn-preview-maximize')?.addEventListener('click', () => togglePreviewMaximize());
 
+  // Export the rendered Markdown preview as HTML / PDF / Word
+  document.getElementById('btn-preview-export')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    showFloatingMenu(r.left, r.bottom + 2, [
+      ['📄 Export as HTML',         () => exportMarkdownPreviewAs('html')],
+      ['📕 Export as PDF',          () => exportMarkdownPreviewAs('pdf')],
+      ['📘 Export as Word (.docx)', () => exportMarkdownPreviewAs('docx')],
+    ]);
+  });
+
   // Ctrl+wheel inside the preview body → zoom
   document.getElementById('preview-body')?.addEventListener('wheel', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
@@ -8063,6 +8295,11 @@ function updatePreview() {
   frame.classList.add('hidden');
   mmdEl.classList.add('hidden');
   jsonEl.classList.add('hidden');
+
+  // Export button is only meaningful when there's rendered content to
+  // save out. Show it for Markdown previews; hide for everything else.
+  const exportBtn = document.getElementById('btn-preview-export');
+  if (exportBtn) exportBtn.classList.toggle('hidden', tab.language !== 'markdown');
 
   if (tab.language === 'markdown') {
     mdEl.classList.remove('hidden');
@@ -8254,7 +8491,54 @@ async function renderJsonPreview(content) {
     parsed = JSON.parse(content);
   } catch (e) {
     if (_jsonEditorInstance) { _jsonEditorInstance.destroy(); _jsonEditorInstance = null; }
-    container.innerHTML = `<div style="color:var(--error-fg,#c00000);padding:16px;font-size:12px;font-family:monospace;white-space:pre-wrap">JSON parse error:\n${e.message}</div>`;
+    // Recovery cascade. Each layer tries one more transformation and
+    // hands off if its parse still fails. We surface an Auto-fix button
+    // whenever ANY layer succeeds, plus a short label of what we did.
+    let recoverable = null;
+    let recoveryNote = '';
+    try {
+      const JSON5 = await ensureJson5();
+      // Pass 1: JSON5 alone — handles trailing commas, single quotes,
+      // comments, unquoted keys, hex/Infinity/NaN, etc.
+      try {
+        recoverable = JSON5.parse(content);
+        recoveryNote = 'trailing commas, single quotes, comments, unquoted keys';
+      } catch {}
+      // Pass 2: balance missing closing braces/brackets, then JSON5.
+      // Catches the common "file got truncated / user forgot a `}`" case.
+      if (recoverable === null) {
+        const balanced = _balanceJsonBraces(content);
+        if (balanced && balanced !== content) {
+          try {
+            recoverable = JSON5.parse(balanced);
+            recoveryNote = 'appended missing closing brace(s)/bracket(s)';
+          } catch {}
+        }
+      }
+    } catch { /* ensureJson5 failed — show error without fix offer */ }
+
+    const errMsg  = escHtml(e.message || String(e));
+    const fixHtml = recoverable !== null
+      ? `<div style="margin-top:12px;padding:10px 12px;background:var(--find-input-bg);border:1px solid var(--statusbar-bg);border-radius:4px">
+           <div style="font-size:12px;margin-bottom:8px">
+             We found a likely fix — ${escHtml(recoveryNote)}.
+           </div>
+           <button id="btn-json-autofix" class="modal-btn modal-btn-primary" style="font-size:12px">✨ Auto-fix syntax</button>
+         </div>`
+      : '';
+
+    container.innerHTML =
+      `<div style="padding:16px;font-size:12px">
+         <div style="color:var(--error-fg,#c00000);font-family:monospace;white-space:pre-wrap;font-weight:500">JSON parse error</div>
+         <div style="margin-top:6px;color:var(--error-fg,#c00000);font-family:monospace;white-space:pre-wrap">${errMsg}</div>
+         ${fixHtml}
+       </div>`;
+
+    if (recoverable !== null) {
+      document.getElementById('btn-json-autofix')?.addEventListener('click', () => {
+        applyJsonAutoFix(recoverable);
+      });
+    }
     return;
   }
 
@@ -8296,6 +8580,162 @@ async function renderJsonPreview(content) {
   } catch (e) {
     container.innerHTML = `<div style="color:var(--error-fg,#c00000);padding:16px;font-size:12px">Failed to load JSONEditor: ${e.message}</div>`;
   }
+}
+
+// ── Markdown preview → HTML / PDF / DOCX export ─────────────────────────────
+// Serialises whatever is currently rendered into #preview-md-content
+// alongside a minimal print-friendly stylesheet so the exported file
+// stands alone (no external font/CSS deps).
+function _buildExportableHtml(tab) {
+  const mdEl = document.getElementById('preview-md-content');
+  const innerHtml = mdEl ? mdEl.innerHTML : '';
+  const title = escHtml((tab?.name || 'document').replace(/\.[^.]+$/, ''));
+
+  // Print-friendly inline CSS. Keep it self-contained — once exported,
+  // the file has no access to Note++'s theme variables.
+  const css = `
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+           line-height: 1.55; color: #222; max-width: 880px; margin: 32px auto; padding: 0 16px; }
+    h1, h2, h3, h4, h5, h6 { color: #111; line-height: 1.25; margin-top: 1.6em; margin-bottom: 0.5em; }
+    h1 { border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }
+    h2 { border-bottom: 1px solid #eee; padding-bottom: 0.2em; }
+    p, ul, ol, blockquote, table, pre { margin: 0.6em 0; }
+    code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px;
+           font-family: "Cascadia Code", "Fira Code", Consolas, Menlo, monospace; font-size: 0.92em; }
+    pre  { background: #f6f8fa; padding: 12px 14px; border-radius: 5px; overflow-x: auto;
+           font-family: "Cascadia Code", "Fira Code", Consolas, Menlo, monospace; font-size: 0.9em; line-height: 1.45; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #ddd; padding: 0.2em 0.9em; color: #555; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 6px 10px; }
+    th { background: #f4f4f4; }
+    img { max-width: 100%; height: auto; }
+    a { color: #0366d6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    hr { border: 0; border-top: 1px solid #ddd; margin: 1.5em 0; }
+    .mermaid svg { max-width: 100%; height: auto; }
+  `;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${title}</title>
+<style>${css}</style>
+</head>
+<body>
+${innerHtml}
+</body>
+</html>`;
+}
+
+async function exportMarkdownPreviewAs(format) {
+  const tab = getActiveTab();
+  if (!tab || tab.language !== 'markdown') {
+    showToast('Open a Markdown preview first');
+    return;
+  }
+  // Wait one frame so the preview has settled (e.g. just after a refresh)
+  await new Promise(r => requestAnimationFrame(r));
+
+  const html = _buildExportableHtml(tab);
+  const baseName = (tab.name || 'document').replace(/\.[^.]+$/, '');
+
+  const formatMeta = {
+    html: { ext: 'html', name: 'HTML',      filterName: 'HTML' },
+    pdf:  { ext: 'pdf',  name: 'PDF',       filterName: 'PDF' },
+    docx: { ext: 'docx', name: 'Word DOCX', filterName: 'Word document' },
+  }[format];
+  if (!formatMeta) return;
+
+  const r = await window.electronAPI.saveDialog({
+    defaultPath: baseName + '.' + formatMeta.ext,
+    filters: [{ name: formatMeta.filterName, extensions: [formatMeta.ext] }],
+  });
+  if (r.canceled || !r.filePath) return;
+
+  showToast(`Exporting ${formatMeta.name}…`);
+
+  try {
+    if (format === 'html') {
+      const writeRes = await window.electronAPI.writeFile(r.filePath, html);
+      if (!writeRes.success) throw new Error(writeRes.error || 'write failed');
+    } else if (format === 'pdf') {
+      const res = await window.electronAPI.previewExport.toPdf(html);
+      if (!res.success) throw new Error(res.error || 'PDF render failed');
+      const writeRes = await window.electronAPI.writeFileBinary(r.filePath, res.base64);
+      if (!writeRes.success) throw new Error(writeRes.error || 'write failed');
+    } else if (format === 'docx') {
+      const res = await window.electronAPI.previewExport.toDocx(html);
+      if (!res.success) throw new Error(res.error || 'DOCX render failed');
+      const writeRes = await window.electronAPI.writeFileBinary(r.filePath, res.base64);
+      if (!writeRes.success) throw new Error(writeRes.error || 'write failed');
+    }
+    showToast(`Exported to ${r.filePath}`);
+  } catch (err) {
+    showToast(`${formatMeta.name} export failed: ${err.message || err}`);
+  }
+}
+
+// Walk the JSON-ish content tracking open `{` `[` (skipping over strings
+// and escapes) and return `content + missingClosers` if the nesting was
+// left dangling at EOF. Returns `null` when nothing's missing OR when we
+// detect a mismatched closer (e.g. `}` where `]` was expected) — the
+// latter is too ambiguous to auto-fix without risk.
+function _balanceJsonBraces(content) {
+  const stack = [];
+  let inString = false; // 'false' or the opening quote char ('"' or "'")
+  let escape = false;
+  let inLineComment = false, inBlockComment = false;
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    const next = content[i + 1];
+    if (inLineComment) { if (ch === '\n') inLineComment = false; continue; }
+    if (inBlockComment) { if (ch === '*' && next === '/') { inBlockComment = false; i++; } continue; }
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (ch === '\\') escape = true;
+      else if (ch === inString) inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inString = ch; continue; }
+    if (ch === '/' && next === '/') { inLineComment = true; i++; continue; }
+    if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') {
+      if (stack.length === 0) return null;            // extra closer at root
+      if (stack[stack.length - 1] !== ch) return null; // mismatched closer
+      stack.pop();
+    }
+  }
+  if (stack.length === 0) return null; // nothing to add
+  // Close inside-out (last opened, first closed).
+  return content + stack.reverse().join('');
+}
+
+// Replace the active editor content with a re-formatted strict-JSON
+// dump of `parsed`. Wrapped in a single Monaco edit so Ctrl+Z reverts
+// the fix cleanly. Re-runs the preview so the user sees the result.
+function applyJsonAutoFix(parsed) {
+  if (!editor) return;
+  const tab = getActiveTab();
+  if (!tab) return;
+  // Try to preserve the source file's indentation hint — match what
+  // Monaco's detected indentation says, defaulting to 2 spaces (json
+  // convention) when nothing's detected.
+  const model = tab.model;
+  let indent = '  ';
+  try {
+    const opts = model?.getOptions?.();
+    if (opts) indent = opts.insertSpaces ? ' '.repeat(opts.tabSize || 2) : '\t';
+  } catch {}
+  const fixed = JSON.stringify(parsed, null, indent);
+  const fullRange = model.getFullModelRange();
+  editor.executeEdits('json-autofix', [{ range: fullRange, text: fixed }]);
+  editor.focus();
+  showToast('JSON auto-fixed — Ctrl+Z to undo');
+  schedulePreviewUpdate();
 }
 
 // Detect if content is a raw Mermaid diagram (no markdown code fences)

@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob: data:; img-src 'self' data: blob:;">
   <title>new 1 - Note++</title>
+  <!-- Earliest possible boot mark — before any other script runs. The
+       distance from performance.timeOrigin to this mark is the cost of
+       Electron framework init + preload + HTML head parsing. Call
+       window.notepp_perf() in DevTools to dump all marks. -->
+  <script>performance.mark && performance.mark('html-head-start');</script>
   <script>
     (() => {
       try {
@@ -109,6 +114,7 @@
       <button class="tb-btn" title="Run File (F5)" data-action="run-file">▶</button>
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
       <button class="tb-btn" title="Encrypt / decrypt this file" data-action="encrypt-toggle" id="btn-encrypt">🔒</button>
+      <button class="tb-btn" title="Spell check — click to cycle: Off → Check → Auto-fix" data-action="spell-toggle" id="btn-spell">✓<span id="spell-mode-badge" class="spell-mode-badge"></span></button>
       <button class="tb-btn" title="Source Control (Ctrl+Shift+G)" data-action="source-control" id="btn-sc">⎇</button>
       <button class="tb-btn" title="AI Writing Assistant (Ctrl+Shift+A)" data-action="ai" id="btn-ai">🤖</button>
       <button class="tb-btn" title="Dev Arcade — take a break! (Ctrl+Alt+Shift+G)" data-action="games" id="btn-games">🎮</button>
@@ -800,6 +806,14 @@
           <div class="pref-page active" id="pref-general">
             <h3>General</h3>
             <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Startup</label><br>
+              <label><input type="checkbox" id="pref-startup-mode"> Launch Note++ on system startup</label>
+              <p style="font-size:11px;color:var(--text-muted,#888);margin-top:4px;margin-left:20px;line-height:1.45">
+                Note++ stays loaded in the system tray after boot. Double-click a file or click the tray icon to open the editor instantly — no cold start.
+                Closing the editor window returns it to the tray instead of quitting. Use the tray menu's "Quit" to fully exit.
+              </p>
+            </div>
+            <div class="pref-group">
               <label><input type="checkbox" id="pref-show-toolbar" checked> Show toolbar</label><br>
               <label><input type="checkbox" id="pref-show-statusbar" checked> Show status bar</label><br>
               <label><input type="checkbox" id="pref-show-tabbar" checked> Show tab bar</label>
@@ -1338,7 +1352,10 @@
        showDrawioDownloadModal, ensureDrawioInstalled, checkDrawioForUpdates,
        createDrawioTab). Same shared-globals pattern. -->
   <script src="drawio-helpers.js"></script>
-  <script src="crypto.js"></script>
+  <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
+       renderer.js await ensureCrypto() before touching window.NotePPCrypto,
+       saving the parse cost on every cold start that doesn't touch
+       encrypted files. -->
   <script src="lsp-client.js"></script>
   <script src="renderer.js"></script>
 </body>

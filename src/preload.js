@@ -20,6 +20,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shellOpen:     (p)    => ipcRenderer.invoke('shell-open', p),
   shellShowItem: (p)    => ipcRenderer.invoke('shell-show-item', p),
 
+  // Startup / tray mode — "Launch Note++ on system startup" checkbox.
+  startupMode: {
+    get: () => ipcRenderer.invoke('startup-mode:get'),
+    set: (enabled) => ipcRenderer.invoke('startup-mode:set', enabled),
+  },
+
+  // Spell-check (nspell + dictionary-en, lives in main process)
+  spell: {
+    check:   (words)    => ipcRenderer.invoke('spell:check', words),
+    suggest: (word, max) => ipcRenderer.invoke('spell:suggest', word, max),
+    addWord: (word)     => ipcRenderer.invoke('spell:add-word', word),
+  },
+
   // Markdown preview export (HTML / PDF / DOCX). HTML is just `writeFile`;
   // PDF and DOCX route through main-process converters that return base64.
   previewExport: {

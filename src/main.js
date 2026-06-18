@@ -1,7 +1,104 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, protocol } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+
+// ── Tray / startup mode flags ──────────────────────────────────────────────
+// `--hidden` is passed by the Windows / macOS / Linux autostart entry when
+// the user has opted into "Launch Note++ on system startup". In that mode
+// we boot tray-only: no BrowserWindow, no renderer, no Monaco. The window
+// is created on first user interaction (tray click, file-open, second
+// instance), which keeps idle memory near the Electron base (~40 MB)
+// instead of a fully-loaded ~250 MB renderer.
+const HIDDEN_BOOT = process.argv.includes('--hidden');
+
+// Tray-only boot doesn't render anything, so the entire GPU process is
+// dead weight (~30-50 MB RSS + ~50 ms spawn time). Disable hardware
+// acceleration when we know we won't draw. This MUST be called before
+// app is ready, hence the early placement.
+if (HIDDEN_BOOT) {
+  try { app.disableHardwareAcceleration(); } catch {}
+}
+
+let tray = null;
+// app.isQuitting is the convention used by Electron tray apps: when set,
+// the `close` handler stops intercepting + lets the app actually quit.
+app.isQuitting = false;
+
+// Settings.startupMode: 'off' | 'on'. When 'on', we register the OS login
+// item + start hidden + close-to-tray. Kept as a small string so future
+// modes ('on-tray-only', 'on-visible', etc.) slot in without a migration.
+function _isStayInTrayEnabled() {
+  try { return readSettings().startupMode === 'on'; }
+  catch { return false; }
+}
+
+// Bring up the main window: if it's already alive (just hidden) show it
+// instantly; otherwise create it cold. Either way, focus + restore from
+// minimized. Used by tray click, second-instance, and the open-file IPC.
+function showOrCreateMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    try { mainWindow.focus(); } catch {}
+    return;
+  }
+  createWindow();
+}
+
+// Pick the highest-quality tray icon available on this platform.
+function _trayIconPath() {
+  // assets/icon.ico is multi-resolution on Windows; PNG works for mac/linux.
+  const ico = path.join(__dirname, 'assets', 'icon.ico');
+  const png = path.join(__dirname, 'assets', 'icon.png');
+  if (process.platform === 'win32' && fs.existsSync(ico)) return ico;
+  if (fs.existsSync(png)) return png;
+  return ico; // fall back to whatever's there
+}
+
+function createTray() {
+  if (tray && !tray.isDestroyed()) return tray;
+  let icon;
+  try {
+    icon = nativeImage.createFromPath(_trayIconPath());
+    // macOS prefers a small template image; resize down for the menu bar.
+    if (process.platform === 'darwin') {
+      icon = icon.resize({ width: 16, height: 16 });
+      icon.setTemplateImage(true);
+    }
+  } catch (e) {
+    console.error('[tray] icon load failed:', e?.message || e);
+    return null;
+  }
+  try {
+    tray = new Tray(icon);
+  } catch (e) {
+    console.error('[tray] failed to create:', e?.message || e);
+    return null;
+  }
+  tray.setToolTip('Note++');
+  const menu = Menu.buildFromTemplate([
+    { label: 'Open Note++',  click: () => showOrCreateMainWindow() },
+    { label: 'New File',     click: () => { showOrCreateMainWindow(); setTimeout(() => send('menu-new'), 50); } },
+    { label: 'Open File…',   click: () => { showOrCreateMainWindow(); setTimeout(() => handleOpen(), 50); } },
+    { type: 'separator' },
+    { label: 'Quit Note++',  click: () => { app.isQuitting = true; app.exit(0); } },
+  ]);
+  tray.setContextMenu(menu);
+  // Single-click on Windows / Linux opens the window; macOS uses the menu only.
+  tray.on('click', () => {
+    if (process.platform !== 'darwin') showOrCreateMainWindow();
+  });
+  tray.on('double-click', () => showOrCreateMainWindow());
+  return tray;
+}
+
+function destroyTray() {
+  if (tray && !tray.isDestroyed()) {
+    try { tray.destroy(); } catch {}
+  }
+  tray = null;
+}
 
 // ── draw.io custom protocol (registered BEFORE app.ready) ───────────────────
 // drawio:// serves files from the on-demand download bundle in userData. The
@@ -78,10 +175,10 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    // If we booted in --hidden tray mode, mainWindow doesn't exist yet
+    // — creating it now is what makes "double-click a file in Explorer"
+    // pop the editor open quickly.
+    showOrCreateMainWindow();
     const file = fileFromArgv(argv);
     if (file) queueOpenFiles([file]);
   });
@@ -198,6 +295,11 @@ function createWindow() {
   });
 
   mainWindow.on('close', (e) => {
+    // The renderer's `app-before-close` handler runs saveSession() then
+    // calls `close-window` IPC. When tray mode is on AND the user hasn't
+    // explicitly chosen Quit, that path hides the window instead of
+    // exiting. Keep preventDefault here so the renderer always gets the
+    // save-pass chance regardless of tray state.
     e.preventDefault();
     mainWindow.webContents.send('app-before-close');
   });
@@ -591,6 +693,8 @@ function buildMenu() {
       submenu: [
         { label: '&About Note++', click: () => send('menu-about') },
         { type: 'separator' },
+        { label: 'Show &Boot Performance', click: () => send('menu-boot-perf') },
+        { type: 'separator' },
         { label: '&Keyboard Shortcuts Reference', click: () => send('menu-shortcuts-ref') },
         { type: 'separator' },
         {
@@ -722,7 +826,65 @@ ipcMain.handle('list-dir', async (e, dirPath) => {
 
 ipcMain.handle('set-title', (e, title) => mainWindow.setTitle(title));
 
-ipcMain.handle('close-window',  () => app.exit(0));
+// close-window is the "renderer says it's OK to close now" signal (it
+// already finished saveSession). When tray-stay mode is on, we just hide
+// the window so subsequent opens are instant. Quit happens only via
+// tray-menu "Quit" or another explicit exit gesture (both flip
+// app.isQuitting first).
+ipcMain.handle('close-window', () => {
+  if (!app.isQuitting && _isStayInTrayEnabled() && mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.hide(); } catch {}
+    return;
+  }
+  app.exit(0);
+});
+
+// ── Startup / tray IPC ─────────────────────────────────────────────────────
+ipcMain.handle('startup-mode:get', () => {
+  const s = readSettings();
+  // Cross-check with the OS — if the user removed the autostart entry
+  // through Windows Task Manager / macOS Login Items, reflect reality.
+  let osConfigured = false;
+  try {
+    const li = app.getLoginItemSettings();
+    osConfigured = !!li.openAtLogin;
+  } catch {}
+  return {
+    enabled: s.startupMode === 'on',
+    osConfigured,
+  };
+});
+
+ipcMain.handle('startup-mode:set', (e, enabled) => {
+  const s = readSettings();
+  s.startupMode = enabled ? 'on' : 'off';
+  writeSettings(s);
+  try {
+    if (enabled) {
+      // openAsHidden gives macOS the "start hidden" affordance; on
+      // Windows + Linux electron-builder ships an autostart entry that
+      // includes our `args` array — we add --hidden so the boot path
+      // routes into createTray() + skips createWindow().
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        openAsHidden: true,
+        args: ['--hidden'],
+      });
+      // Create the tray now so the user sees the icon immediately.
+      createTray();
+    } else {
+      app.setLoginItemSettings({ openAtLogin: false });
+      // Don't tear down the tray right away — the user may have just
+      // unchecked the option but still have a window open. Leaving the
+      // tray in place is harmless; it goes away at next quit. Removing
+      // it here would mean the user loses the "stay in tray" affordance
+      // even though their window is still open.
+    }
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+  return { success: true };
+});
 ipcMain.handle('relaunch-app', () => { app.relaunch(); app.exit(0); });
 
 // Theme — sync the Win32 window-controls overlay colour with the active theme.
@@ -903,6 +1065,27 @@ ipcMain.handle('preview-export:to-docx', async (e, html) => {
   } catch (err) {
     return { success: false, error: err?.message || String(err) };
   }
+});
+
+// ── Spell-check IPC ────────────────────────────────────────────────────────
+// Lazy-required so the dictionary (~555 KB) isn't loaded for sessions
+// that never enable spell-check.
+let _spellService = null;
+function getSpellService() {
+  if (!_spellService) _spellService = require('./spell-service');
+  return _spellService;
+}
+ipcMain.handle('spell:check', async (e, words) => {
+  try { return { success: true, results: await getSpellService().checkWords(words) }; }
+  catch (err) { return { success: false, error: err?.message || String(err) }; }
+});
+ipcMain.handle('spell:suggest', async (e, word, max) => {
+  try { return { success: true, suggestions: await getSpellService().suggest(word, max) }; }
+  catch (err) { return { success: false, error: err?.message || String(err) }; }
+});
+ipcMain.handle('spell:add-word', async (e, word) => {
+  try { await getSpellService().ensureLoaded(); return { success: getSpellService().addWord(word) }; }
+  catch (err) { return { success: false, error: err?.message || String(err) }; }
 });
 
 ipcMain.handle('convert-to-markdown:start', async (e, srcPath, jobId) => {
@@ -1742,7 +1925,27 @@ async function handleOpenFolder() {
 }
 
 app.whenReady().then(() => {
-  if (gotTheLock) createWindow();
+  if (!gotTheLock) return;
+
+  const stayInTray = _isStayInTrayEnabled();
+
+  // ── Boot strategy ────────────────────────────────────────────────────────
+  // HIDDEN_BOOT (--hidden flag from OS autostart) OR explicit tray mode
+  // means "stay resident, no window unless asked". In that case we skip
+  // createWindow() entirely — the renderer + Monaco aren't loaded until
+  // the user first interacts, which keeps idle memory at the Electron
+  // base (~40 MB) instead of a fully-loaded renderer (~250 MB).
+  if (HIDDEN_BOOT) {
+    // Tray-only boot. If the tray API isn't available (rare: headless
+    // Linux without a system-tray, missing icon asset, etc.) fall back
+    // to a normal window so the user isn't stranded with no UI.
+    const t = createTray();
+    if (!t) createWindow();
+  } else {
+    createWindow();
+    if (stayInTray) createTray();
+  }
+
   // Defer drawio protocol wiring — it requires `drawio-service.js` which
   // pulls in `extract-zip` (and through it, several KB of zlib/yauzl
   // setup). The renderer doesn't need the drawio:// scheme until the
@@ -1754,6 +1957,11 @@ app.whenReady().then(() => {
     catch (e) { console.error('[drawio] protocol register failed:', e); }
   });
 });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => {
+  // When we have a tray icon, "all windows closed" is not a quit signal —
+  // it's just the user hiding the editor while keeping Note++ resident.
+  if (tray && !tray.isDestroyed()) return;
+  if (process.platform !== 'darwin') app.quit();
+});
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 app.on('quit', () => { terminalProcesses.forEach(p => p.kill()); });

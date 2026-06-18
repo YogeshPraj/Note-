@@ -2804,6 +2804,43 @@ body.drag-over::after {
 }
 .file-tree-icon-btn:hover { opacity: 1; }
 
+/* ===== Spell check ===== */
+/* Small dot on the spell toolbar button shown only when autocorrect
+   is ON. */
+.spell-mode-badge {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 700;
+  vertical-align: super;
+  margin-left: 1px;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+#btn-spell.spell-auto {
+  background: var(--btn-active);
+  border-color: #316ac5;
+  color: #fff;
+}
+/* Red wavy underline under misspellings. We render this ourselves
+   instead of using Monaco's built-in .squiggly-warning class because
+   the latter is hardcoded to depend on VS Code CSS variables
+   (--vscode-editorWarning-border, etc.) that our themes don't define,
+   so the squiggle would be invisible. `text-decoration: underline
+   wavy` is supported by Chrome 128 (Electron 32) and renders cleanly
+   across every Monaco theme + zoom level.
+
+   The .monaco-editor scope keeps this from leaking into outside DOM
+   that happens to use the same class name. */
+.monaco-editor .notepp-spell-error {
+  text-decoration: underline wavy #ef4444;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+.monaco-editor.theme-light-active .notepp-spell-error,
+.monaco-editor.vs-light .notepp-spell-error {
+  text-decoration-color: #dc2626;
+}
+
 /* ===== Markdown conversion progress modal ===== */
 .convert-progress-track {
   width: 100%;

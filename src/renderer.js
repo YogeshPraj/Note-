@@ -1,5 +1,449 @@
 'use strict';
 
+// Build a friendly Boot Performance report and show it in a modal.
+// Stays self-contained — no DevTools needed. Adds a "Copy report"
+// button so the user can paste numbers into a bug report.
+function showBootPerfDialog() {
+  if (!performance?.getEntriesByType) {
+    window.electronAPI.messageDialog({
+      type: 'warning',
+      title: 'Boot Performance',
+      message: 'Performance API unavailable on this platform.',
+      buttons: ['OK'],
+    });
+    return;
+  }
+  const marks = performance.getEntriesByType('mark')
+    .map(m => ({ name: m.name, ms: Math.round(m.startTime) }))
+    .sort((a, b) => a.ms - b.ms);
+  const idx = Object.fromEntries(marks.map(m => [m.name, m.ms]));
+  const phases = [];
+  const addPhase = (label, from, to) => {
+    if (idx[from] != null && idx[to] != null) phases.push({ label, ms: idx[to] - idx[from] });
+  };
+  addPhase('HTML head → script parse',     'html-head-start',        'renderer-script-parsed');
+  addPhase('Script parse → Monaco AMD',    'renderer-script-parsed', 'monaco-amd-loaded');
+  addPhase('Monaco AMD → editor created',  'monaco-amd-loaded',      'monaco-editor-created');
+  addPhase('Editor created → ready',       'monaco-editor-created',  'renderer-ready');
+  addPhase('Total (head → ready)',         'html-head-start',        'renderer-ready');
+
+  // Strip an existing dialog if user opened this twice in a row
+  document.getElementById('boot-perf-dialog')?.remove();
+
+  const dlg = document.createElement('div');
+  dlg.id = 'boot-perf-dialog';
+  dlg.className = 'modal-overlay';
+
+  const markRows = marks.map(m =>
+    `<tr><td style="font-family:monospace;font-size:11px">${escHtml(m.name)}</td><td style="text-align:right;font-family:monospace;font-size:11px">${m.ms} ms</td></tr>`
+  ).join('');
+  const phaseRows = phases.map((p, i) => {
+    const isTotal = i === phases.length - 1;
+    return `<tr style="${isTotal ? 'font-weight:600;border-top:1px solid var(--find-border)' : ''}"><td style="font-size:12px">${escHtml(p.label)}</td><td style="text-align:right;font-family:monospace;font-size:12px">${p.ms} ms</td></tr>`;
+  }).join('');
+
+  dlg.innerHTML = `
+    <div class="modal-box" style="width:520px;max-height:80vh;overflow:auto">
+      <div class="modal-header">
+        <span>⚡ Boot Performance</span>
+        <button class="modal-close" id="boot-perf-close">×</button>
+      </div>
+      <div class="modal-body" style="padding:14px 18px">
+        <p style="font-size:12px;color:#888;margin:0 0 10px;line-height:1.45">
+          Cold-start timing for this session. All numbers are milliseconds since
+          the V8 isolate started (<code>performance.timeOrigin</code>).
+          Lower is better — the totals row below is the at-a-glance number.
+        </p>
+        <div style="font-weight:600;font-size:12px;margin:14px 0 4px">Phase deltas</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${phaseRows || '<tr><td colspan="2" style="color:#888;font-size:11px">No phase data yet</td></tr>'}
+        </table>
+        <div style="font-weight:600;font-size:12px;margin:18px 0 4px">Absolute marks</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${markRows || '<tr><td colspan="2" style="color:#888;font-size:11px">No marks recorded</td></tr>'}
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-primary" id="boot-perf-copy">📋 Copy report</button>
+        <button class="modal-btn" id="boot-perf-ok">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(dlg);
+
+  const close = () => dlg.remove();
+  dlg.querySelector('#boot-perf-close')?.addEventListener('click', close);
+  dlg.querySelector('#boot-perf-ok')?.addEventListener('click', close);
+  dlg.querySelector('#boot-perf-copy')?.addEventListener('click', async () => {
+    const text =
+      'Note++ Boot Performance\n' +
+      '======================\n\n' +
+      'Phase deltas:\n' +
+      phases.map(p => `  ${p.label.padEnd(36, ' ')} ${String(p.ms).padStart(6, ' ')} ms`).join('\n') +
+      '\n\nAbsolute marks:\n' +
+      marks.map(m => `  ${m.name.padEnd(28, ' ')} ${String(m.ms).padStart(6, ' ')} ms`).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Boot performance report copied to clipboard');
+    } catch {
+      showToast('Copy failed');
+    }
+  });
+}
+
+// ===== Spell check =====
+// Simple 2-state model matching user intent:
+//   Toolbar button OFF — squiggles + right-click suggestions
+//   Toolbar button ON  — squiggles + right-click + autocorrect on space
+//
+// Spell-check itself (squiggles) is always on for prose files. The
+// toolbar button just controls whether typed misspellings are auto-
+// replaced when the user hits a word boundary.
+//
+// Only active for natural-language languages (markdown/plaintext/log).
+// In source code the dictionary would mark every identifier wrong,
+// which is the opposite of useful.
+const SPELL_PROSE_LANGS = new Set(['markdown', 'plaintext', 'log']);
+let spellAutocorrect = false;
+const _spellCache = new Map();      // word → bool (correct?)
+const _spellSuggestCache = new Map(); // word → string[]
+let _spellScanTimer = null;
+let _spellDecorationIds = [];
+let _spellLastTokens = null;        // last scanned [{word, start, end, range}]
+let _spellCodeActionsRegistered = false;
+let _spellAutoCorrectActive = false; // re-entrancy guard for the editor edit
+const SPELL_SCAN_DEBOUNCE_MS = 500;
+
+function _spellBtn() { return document.getElementById('btn-spell'); }
+function _spellBadge() { return document.getElementById('spell-mode-badge'); }
+
+function updateSpellButtonAppearance() {
+  const btn = _spellBtn();
+  const badge = _spellBadge();
+  if (!btn) return;
+  btn.classList.toggle('spell-auto', spellAutocorrect);
+  if (badge) badge.textContent = spellAutocorrect ? 'A' : '';
+  btn.title = 'Autocorrect — ' + (spellAutocorrect
+    ? 'ON (typos are fixed on space). Click to turn OFF.'
+    : 'OFF (squiggles + right-click suggestions). Click to turn ON.');
+}
+
+// Toolbar click: toggle autocorrect on/off. Spell-check itself is
+// always active for prose files — see runSpellScan.
+function cycleSpellMode() {
+  spellAutocorrect = !spellAutocorrect;
+  saveSetting('ui.spellAutocorrect', spellAutocorrect);
+  updateSpellButtonAppearance();
+  // Re-scan so any cached state stays consistent.
+  scheduleSpellScan();
+  _ensureSpellCodeActions();
+}
+
+// Back-compat shim — earlier versions used a tri-state setting key.
+// Translate it on load so users who already had spell-check active
+// don't have to re-enable.
+function _hydrateSpellFromLegacySetting(ui) {
+  if (typeof ui.spellAutocorrect === 'boolean') {
+    spellAutocorrect = ui.spellAutocorrect;
+  } else if (typeof ui.spellMode === 'string') {
+    spellAutocorrect = ui.spellMode === 'auto';
+  }
+  updateSpellButtonAppearance();
+  scheduleSpellScan();
+  _ensureSpellCodeActions();
+}
+
+function _clearSpellDecorations() {
+  if (!editor) return;
+  if (_spellDecorationIds.length) {
+    _spellDecorationIds = editor.deltaDecorations(_spellDecorationIds, []);
+  }
+  _spellLastTokens = null;
+}
+
+function isSpellEligibleTab(tab) {
+  if (!tab || tab.type !== 'editor') return false;
+  return SPELL_PROSE_LANGS.has(tab.language);
+}
+
+function scheduleSpellScan() {
+  clearTimeout(_spellScanTimer);
+  _spellScanTimer = setTimeout(runSpellScan, SPELL_SCAN_DEBOUNCE_MS);
+}
+
+// Tokenize a text range into word tokens. We keep this simple: any run
+// of Latin letters (incl. apostrophes for contractions) is a candidate.
+// Acronyms/all-caps and tokens shorter than 3 chars are skipped to
+// avoid false positives.
+function _tokenizeForSpell(text, baseOffset = 0) {
+  const out = [];
+  // Match contractions (don't, I'll, you're) but not numbers / underscores.
+  const re = /[A-Za-z]+(?:'[A-Za-z]+)?/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const word = m[0];
+    if (word.length < 3) continue;
+    // Skip all-caps acronyms / shouts — usually not misspellings worth flagging.
+    if (word === word.toUpperCase() && word.length <= 5) continue;
+    // Skip CamelCase / mixed-case identifiers
+    if (/[A-Z]/.test(word.slice(1)) && /[a-z]/.test(word)) continue;
+    out.push({
+      word,
+      lookup: word.toLowerCase(),
+      start: baseOffset + m.index,
+      end:   baseOffset + m.index + word.length,
+    });
+  }
+  return out;
+}
+
+async function runSpellScan() {
+  if (!editor) return;
+  const tab = getActiveTab();
+  if (!isSpellEligibleTab(tab)) { _clearSpellDecorations(); return; }
+  const model = editor.getModel();
+  if (!model) return;
+
+  // Limit work to the visible range (+ a bit of padding). For huge
+  // documents this keeps the scan capped at ~200 lines instead of the
+  // whole file.
+  const vis = editor.getVisibleRanges?.()[0];
+  const startLine = vis ? Math.max(1, vis.startLineNumber - 30) : 1;
+  const endLine   = vis ? Math.min(model.getLineCount(), vis.endLineNumber + 30) : model.getLineCount();
+  const text = model.getValueInRange({
+    startLineNumber: startLine, startColumn: 1,
+    endLineNumber: endLine, endColumn: model.getLineMaxColumn(endLine),
+  });
+  const baseOffset = model.getOffsetAt({ lineNumber: startLine, column: 1 });
+  const tokens = _tokenizeForSpell(text, baseOffset);
+  if (!tokens.length) { _clearSpellDecorations(); return; }
+
+  // Resolve correctness using cache first. Only query main for unknowns.
+  const needed = [];
+  for (const t of tokens) {
+    if (!_spellCache.has(t.lookup)) needed.push(t.lookup);
+  }
+  if (needed.length) {
+    try {
+      const r = await window.electronAPI.spell.check(needed);
+      if (r?.success && Array.isArray(r.results)) {
+        needed.forEach((w, i) => _spellCache.set(w, !!r.results[i]));
+      }
+    } catch { /* swallow — leave cache as-is */ }
+  }
+
+  // Build inline decorations using OUR own CSS class. We don't use
+  // Monaco's built-in `squiggly-warning` because that class is hard-
+  // coded to depend on VS Code CSS variables our themes don't define,
+  // so the squiggle would be invisible. `text-decoration: underline
+  // wavy` (see .notepp-spell-error in style.css) renders cleanly in
+  // every Monaco theme without relying on any external variable.
+  const decos = [];
+  for (const t of tokens) {
+    if (_spellCache.get(t.lookup) === false) {
+      const startPos = model.getPositionAt(t.start);
+      const endPos   = model.getPositionAt(t.end);
+      const range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column);
+      t.range = range;
+      decos.push({
+        range,
+        options: {
+          inlineClassName: 'notepp-spell-error',
+          hoverMessage: { value: 'Misspelled: **' + t.word + '** — right-click for suggestions' },
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      });
+    }
+  }
+  _spellLastTokens = tokens.filter(t => _spellCache.get(t.lookup) === false);
+  _spellDecorationIds = editor.deltaDecorations(_spellDecorationIds, decos);
+  if (decos.length > 0) {
+    console.log('[spell] flagged', decos.length, 'word(s):', _spellLastTokens.map(t => t.word).join(', '));
+  }
+}
+
+// Right-click code action — surfaces "Replace with ..." entries in the
+// editor context menu when the cursor is over a misspelled word.
+function _ensureSpellCodeActions() {
+  if (_spellCodeActionsRegistered) return;
+  _spellCodeActionsRegistered = true;
+
+  // Replace command — applies one edit using serialised numeric range
+  // data. We pass primitives (numbers + string) rather than an object so
+  // Monaco's command system can't lose the args during serialisation.
+  monaco.editor.registerCommand?.('notepp.spell.applyReplace', (_acc, sl, sc, el, ec, text) => {
+    if (!editor) return;
+    try {
+      const range = new monaco.Range(sl, sc, el, ec);
+      editor.executeEdits('spell-replace', [{ range, text }]);
+      editor.focus();
+    } catch (e) { console.warn('[spell] applyReplace failed', e); }
+  });
+
+  // Add-to-dictionary command
+  monaco.editor.registerCommand?.('notepp.spell.addWord', async (_acc, word) => {
+    try {
+      await window.electronAPI.spell.addWord(word);
+      _spellCache.set(String(word).toLowerCase(), true);
+      _spellSuggestCache.delete(String(word).toLowerCase());
+      scheduleSpellScan();
+      showToast('Added "' + word + '" to dictionary');
+    } catch (e) { showToast('Add failed: ' + (e?.message || e)); }
+  });
+
+  monaco.languages.registerCodeActionProvider('*', {
+    async provideCodeActions(model, range) {
+      const tab = getActiveTab();
+      if (!isSpellEligibleTab(tab)) return { actions: [], dispose() {} };
+      // Find any misspelled token that the current cursor/click range
+      // overlaps. Position-only `containsPosition` was too strict — if
+      // the user selects the whole word, range.start is exactly the
+      // word start and that's still fine, but a slight off-by-one from
+      // Monaco's bulb positioning could miss. Use overlap instead.
+      const t = (_spellLastTokens || []).find(tok => {
+        if (!tok.range) return false;
+        return monaco.Range.areIntersectingOrTouching
+          ? monaco.Range.areIntersectingOrTouching(tok.range, range)
+          : tok.range.containsPosition({ lineNumber: range.startLineNumber, column: range.startColumn });
+      });
+      if (!t) return { actions: [], dispose() {} };
+
+      let suggestions = _spellSuggestCache.get(t.lookup);
+      if (!suggestions) {
+        try {
+          const r = await window.electronAPI.spell.suggest(t.word, 6);
+          if (r && r.success) suggestions = r.suggestions || [];
+        } catch (e) { console.warn('[spell] suggest IPC failed', e); }
+        suggestions = suggestions || [];
+        _spellSuggestCache.set(t.lookup, suggestions);
+      }
+      console.log('[spell] code actions for "' + t.word + '" — suggestions:', suggestions);
+
+      const actions = suggestions.slice(0, 6).map((s) => ({
+        title: '✓ Replace with "' + s + '"',
+        kind: 'quickfix',
+        // Command form with primitive arguments — matches the working
+        // "Add to dictionary" entry which also uses primitive args.
+        command: {
+          id: 'notepp.spell.applyReplace',
+          title: 'Replace',
+          arguments: [
+            t.range.startLineNumber,
+            t.range.startColumn,
+            t.range.endLineNumber,
+            t.range.endColumn,
+            _matchCase(t.word, s),
+          ],
+        },
+        isPreferred: false,
+      }));
+      actions.push({
+        title: '📚 Add "' + t.word + '" to dictionary',
+        kind: 'quickfix',
+        command: { id: 'notepp.spell.addWord', title: 'Add to dictionary', arguments: [t.word] },
+      });
+      return { actions, dispose() {} };
+    },
+  });
+}
+
+function _matchCase(original, replacement) {
+  if (!original || !replacement) return replacement;
+  if (original === original.toUpperCase()) return replacement.toUpperCase();
+  if (original[0] === original[0].toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
+  return replacement;
+}
+
+// Auto-correct: when in 'auto' mode and the user just typed a delimiter,
+// look at the word they just finished and replace it with the top
+// suggestion *if* nspell reports it as misspelled AND offers any options.
+// Conservative — we only act on single-word boundaries to keep surprises
+// minimal.
+async function _maybeAutoCorrect(e) {
+  if (!spellAutocorrect || !editor || _spellAutoCorrectActive) return;
+  if (!e || !e.changes || e.changes.length !== 1) return;
+  const ch = e.changes[0];
+  // Only trigger on insertion of a single delimiter (space, newline, punctuation)
+  if (!ch.text || ch.text.length !== 1) return;
+  if (!/[\s.,;:!?]/.test(ch.text)) return;
+  const tab = getActiveTab();
+  if (!isSpellEligibleTab(tab)) return;
+  const model = editor.getModel();
+  if (!model) return;
+  const pos = ch.range.getStartPosition();
+  const line = model.getLineContent(pos.lineNumber);
+  const upTo = line.slice(0, pos.column - 1);
+  const m = /([A-Za-z]+(?:'[A-Za-z]+)?)\s*$/.exec(upTo);
+  if (!m) return;
+  const word = m[1];
+  if (word.length < 3) return;
+  const lookup = word.toLowerCase();
+  let isCorrect = _spellCache.get(lookup);
+  if (isCorrect === undefined) {
+    try {
+      const r = await window.electronAPI.spell.check([lookup]);
+      if (r?.success) { isCorrect = !!r.results[0]; _spellCache.set(lookup, isCorrect); }
+    } catch { return; }
+  }
+  if (isCorrect !== false) return; // word is fine OR check failed → bail
+  let suggestions = _spellSuggestCache.get(lookup);
+  if (!suggestions) {
+    try {
+      const r = await window.electronAPI.spell.suggest(word, 3);
+      if (r?.success) suggestions = r.suggestions || [];
+    } catch {}
+    suggestions = suggestions || [];
+    _spellSuggestCache.set(lookup, suggestions);
+  }
+  if (!suggestions.length) return;
+  const top = _matchCase(word, suggestions[0]);
+  // Edit the previous word — placement: line `pos.lineNumber`, columns
+  // from (pos.column - 1 - word.length) to (pos.column - 1).
+  const startCol = pos.column - word.length;
+  const endCol   = pos.column;
+  _spellAutoCorrectActive = true;
+  try {
+    editor.executeEdits('spell-autocorrect', [{
+      range: new monaco.Range(pos.lineNumber, startCol, pos.lineNumber, endCol),
+      text: top,
+    }]);
+  } finally {
+    _spellAutoCorrectActive = false;
+  }
+}
+
+// ===== Boot performance instrumentation =====
+// performance.mark() is essentially free at runtime; we use it to track
+// the critical-path stages of cold start so any future optimisation
+// can be measured rather than guessed at. Call `notepp_perf()` from
+// DevTools console to dump a sorted timing table. Stages we mark:
+//   • renderer-script-parsed   — top of renderer.js parsed
+//   • monaco-amd-loaded        — require(['vs/editor/editor.main']) cb
+//   • monaco-editor-created    — monaco.editor.create() returned
+//   • renderer-ready           — main was signalled we're done wiring
+performance.mark?.('renderer-script-parsed');
+window.notepp_perf = function () {
+  if (!performance.getEntriesByType) {
+    console.log('Performance API unavailable');
+    return;
+  }
+  const marks = performance.getEntriesByType('mark')
+    .map(m => ({ name: m.name, ms: Math.round(m.startTime) }))
+    .sort((a, b) => a.ms - b.ms);
+  console.table(marks);
+  // Also dump phase deltas for at-a-glance reading.
+  const idx = Object.fromEntries(marks.map(m => [m.name, m.ms]));
+  const phases = [];
+  const add = (label, from, to) => {
+    if (idx[from] != null && idx[to] != null) phases.push({ phase: label, ms: idx[to] - idx[from] });
+  };
+  add('script parse → Monaco AMD loaded', 'renderer-script-parsed', 'monaco-amd-loaded');
+  add('Monaco AMD → editor created',     'monaco-amd-loaded',      'monaco-editor-created');
+  add('editor created → renderer-ready', 'monaco-editor-created',  'renderer-ready');
+  add('TOTAL (script parsed → ready)',   'renderer-script-parsed', 'renderer-ready');
+  console.table(phases);
+};
+
 // ===== State =====
 const tabs = [];
 let activeTabId = null;
@@ -472,6 +916,8 @@ const MENU_STRUCTURE = [
   { label: '?', items: [
     { label: 'About Note++',              ch: 'menu-about' },
     { sep: true },
+    { label: 'Show Boot Performance',     ch: 'menu-boot-perf' },
+    { sep: true },
     { label: 'Keyboard Shortcuts Reference', ch: 'menu-shortcuts-ref' },
     { sep: true },
     { label: 'Check for Updates Now',    ch: 'menu-check-updates' },
@@ -587,15 +1033,42 @@ function setupCustomMenuBar() {
 require.config({ paths: { vs: '../node_modules/monaco-editor/min/vs' } });
 
 require(['vs/editor/editor.main'], () => {
-  // Register a Monaco theme for every entry in THEMES
-  Object.entries(THEMES).forEach(([id, t]) => {
-    monaco.editor.defineTheme('notepp-' + id, {
+  performance.mark?.('monaco-amd-loaded');
+  // Register ONLY the active theme upfront — `monaco.editor.create()`
+  // below needs that one resolved, the other 7 are only consulted when
+  // the user opens the theme picker. We push the rest to
+  // requestIdleCallback so they don't delay first paint. Each
+  // defineTheme call iterates the rules array (~300 entries per theme)
+  // and converts colours; doing all 8 eagerly cost ~20-30 ms of cold
+  // start for no first-paint benefit.
+  (function _defineActiveTheme() {
+    const t = THEMES[currentTheme];
+    if (!t) return;
+    monaco.editor.defineTheme('notepp-' + currentTheme, {
       base: t.monacoBase,
       inherit: true,
       rules: t.monacoRules,
       colors: t.monacoColors,
     });
-  });
+  })();
+  const _defineRemainingThemes = () => {
+    Object.entries(THEMES).forEach(([id, t]) => {
+      if (id === currentTheme) return; // already registered upfront
+      try {
+        monaco.editor.defineTheme('notepp-' + id, {
+          base: t.monacoBase,
+          inherit: true,
+          rules: t.monacoRules,
+          colors: t.monacoColors,
+        });
+      } catch (e) { console.warn('[theme] late-register failed for', id, e); }
+    });
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(_defineRemainingThemes, { timeout: 2000 });
+  } else {
+    setTimeout(_defineRemainingThemes, 350);
+  }
 
   editor = monaco.editor.create(document.getElementById('monaco-editor'), {
     value: '',
@@ -661,6 +1134,7 @@ require(['vs/editor/editor.main'], () => {
     stickyScroll: { enabled: false },         // was true — no floating header while scrolling
     padding: { top: 4, bottom: 4 },
   });
+  performance.mark?.('monaco-editor-created');
 
   // Expose for lsp-client.js (finds tab by Monaco model + reads activeGitRepo)
   window.tabs = tabs;
@@ -732,6 +1206,7 @@ require(['vs/editor/editor.main'], () => {
         ? { enabled: true, scale: 1, showSlider: 'mouseover' }
         : { enabled: false } });
     }
+    _hydrateSpellFromLegacySetting(ui);
     if (typeof ui.renderWhitespace === 'boolean') {
       editor.updateOptions({ renderWhitespace: ui.renderWhitespace ? 'all' : 'selection' });
     }
@@ -861,7 +1336,10 @@ require(['vs/editor/editor.main'], () => {
   // Events
   editor.onDidChangeCursorPosition(updateStatusBar);
   editor.onDidChangeCursorSelection(updateStatusBar);
-  editor.onDidChangeModelContent(() => {
+  // Spell-check: rescan the newly visible range when the user scrolls
+  // (debounced — many scroll events fire in a single drag).
+  editor.onDidScrollChange?.(() => scheduleSpellScan());
+  editor.onDidChangeModelContent((e) => {
     const tab = getActiveTab();
     if (tab && !tab.dirty) { tab.dirty = true; renderTabs(); }
     updateStatusBar();
@@ -870,6 +1348,10 @@ require(['vs/editor/editor.main'], () => {
     if (!_jsonEditorUpdating) schedulePreviewUpdate();
     scheduleGitDiffUpdate(tab);   // re-paint inline git-diff gutter
     try { window.NotePPLsp?.onTabContentChange(tab); } catch {}
+    // Spell-check: try auto-correct of the just-finished word (no-op
+    // unless mode === 'auto'), then schedule a debounced re-scan.
+    try { _maybeAutoCorrect(e); } catch {}
+    scheduleSpellScan();
     // Fallback auto-detect: catches pastes via Edit menu / execCommand that
     // don't fire onDidPaste. Guard: only plaintext, only once per tab, only
     // after the content is big enough to be meaningful (> 60 chars, multi-line).
@@ -1013,6 +1495,7 @@ require(['vs/editor/editor.main'], () => {
   // Signal main that all our IPC listeners (especially 'open-files') are now
   // wired up. Main will flush any files queued from double-click / "Open with".
   try { window.electronAPI.rendererReady(); } catch {}
+  performance.mark?.('renderer-ready');
 });
 
 // ===== Mermaid Language Registration =====
@@ -1829,6 +2312,11 @@ function activateTab(id) {
   updateActiveGitRepo();        // Git status follows the active tab's repo
   // LSP — start (or sync) the language server for this tab's language
   try { window.NotePPLsp?.onTabActivated(tab); } catch (e) { console.warn('[lsp]', e); }
+  // Spell-check: clear any squiggles from the previous tab if the new
+  // one isn't eligible (e.g. user just switched from .md to .js), then
+  // re-scan the new tab's visible range.
+  _clearSpellDecorations();
+  if (isSpellEligibleTab(tab)) scheduleSpellScan();
 }
 
 // Reflect active-tab encryption state on the toolbar 🔒 button.
@@ -2323,6 +2811,16 @@ function showFloatingMenu(x, y, items) {
 // ===== File Operations =====
 function newTab() { createTab(); }
 
+// Cheap pre-check used before lazy-loading crypto.js — Note++ encrypted
+// envelopes start with this magic JSON key. Files that don't match
+// definitely aren't encrypted, so we skip the crypto module load
+// entirely on the cold-start path for the vast majority of opens.
+function _maybeEncrypted(content) {
+  if (!content || typeof content !== 'string') return false;
+  // Allow leading whitespace just in case the source got reformatted.
+  return /^\s*\{\s*"_notepp_encrypted"\s*:\s*true/.test(content.slice(0, 64));
+}
+
 // Normalise a filesystem path for case-/separator-insensitive identity checks.
 // On Windows two strings can refer to the same file while differing in case
 // (`C:\…` vs `c:\…`) or in separator style — Explorer / file-association /
@@ -2404,7 +2902,14 @@ async function openFile(filePaths) {
     try { window.electronAPI.watchFile(fp); } catch {}
 
     // ── Encrypted file? — detect, unlock, decrypt, then open as editor tab.
-    const envelope = window.NotePPCrypto.detectEncrypted(res.content);
+    // Quick-check first so we skip the crypto.js module load entirely on
+    // the ~100 % of files that aren't encrypted. Note++ encrypted files
+    // are JSON envelopes whose first ~32 chars contain this magic.
+    let envelope = null;
+    if (_maybeEncrypted(res.content)) {
+      await ensureCrypto();
+      envelope = window.NotePPCrypto.detectEncrypted(res.content);
+    }
     if (envelope) {
       const ok = await openEncryptedFile(fp, envelope);
       if (!ok) continue; // user cancelled or wrong profile
@@ -2577,6 +3082,7 @@ async function openEncryptedFile(fp, envelope) {
   // Decrypt
   let plaintext;
   try {
+    await ensureCrypto();
     plaintext = await window.NotePPCrypto.decryptFile(envelope, appEnc.rawDek);
   } catch (e) {
     showToast('Failed to decrypt file: ' + (e.message || e));
@@ -2709,6 +3215,7 @@ async function saveTabFile(tab, forceAs = false) {
       if (!unlocked) return false;
     }
     try {
+      await ensureCrypto();
       const originalExt = (tab.filePath.match(/\.([^.\\/]+)$/) || [, ''])[1].toLowerCase();
       const envelope = await window.NotePPCrypto.encryptFile(
         content, appEnc.rawDek, appEnc.profile.fingerprint, originalExt
@@ -4672,23 +5179,125 @@ function escHtml(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 
 // ===== Context Menu =====
 function setupContextMenu() {
-  document.getElementById('monaco-editor').addEventListener('contextmenu', (e) => {
+  document.getElementById('monaco-editor').addEventListener('contextmenu', async (e) => {
     e.preventDefault();
     dismissFloatingMenus();
     const menu = contextMenu;
+    // Inject spell suggestions at the top of the menu if the user right-
+    // clicked on a misspelled word. This is the path most users expect —
+    // Monaco's bulb / quick-fix popup is in a separate UI layer that
+    // we've intentionally disabled in favour of our own context menu.
+    await _injectSpellSuggestionsIntoContextMenu(e.clientX, e.clientY);
     menu.classList.remove('hidden');
     menu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 260) + 'px';
   });
-  document.addEventListener('click', () => contextMenu.classList.add('hidden'));
+  document.addEventListener('click', () => {
+    contextMenu.classList.add('hidden');
+    _clearSpellSuggestionsFromContextMenu();
+  });
   // Right-clicking anywhere else (e.g., on a tab header) should also dismiss
   // the static editor menu — `click` doesn't fire for right-clicks.
   document.addEventListener('contextmenu', (e) => {
-    if (!e.target.closest('#monaco-editor')) contextMenu.classList.add('hidden');
+    if (!e.target.closest('#monaco-editor')) {
+      contextMenu.classList.add('hidden');
+      _clearSpellSuggestionsFromContextMenu();
+    }
   }, true);
   document.querySelectorAll('.ctx-item[data-action]').forEach(item => {
     item.addEventListener('click', () => { handleContextAction(item.dataset.action); contextMenu.classList.add('hidden'); });
   });
+}
+
+// Dynamically-injected spell items live under this marker so we can
+// strip them when the menu closes without disturbing the static entries.
+const SPELL_CTX_CLASS = 'ctx-item-spell-dyn';
+
+function _clearSpellSuggestionsFromContextMenu() {
+  if (!contextMenu) return;
+  contextMenu.querySelectorAll('.' + SPELL_CTX_CLASS).forEach(el => el.remove());
+}
+
+async function _injectSpellSuggestionsIntoContextMenu(clientX, clientY) {
+  _clearSpellSuggestionsFromContextMenu();
+  if (!editor) return;
+  const tab = getActiveTab();
+  if (!isSpellEligibleTab(tab)) return;
+
+  // Map screen coords to a Monaco position.
+  const target = editor.getTargetAtClientPoint?.(clientX, clientY);
+  const pos = target?.position;
+  if (!pos) return;
+
+  // Find a misspelled token at the clicked position. Use containsPosition
+  // for a precise hit-test — we only want to surface suggestions when the
+  // user clicked exactly on a flagged word.
+  const t = (_spellLastTokens || []).find(tok =>
+    tok.range && tok.range.containsPosition(pos)
+  );
+  if (!t) return;
+
+  // Resolve suggestions (cache-aware, single IPC at most).
+  let suggestions = _spellSuggestCache.get(t.lookup);
+  if (!suggestions) {
+    try {
+      const r = await window.electronAPI.spell.suggest(t.word, 6);
+      if (r && r.success) suggestions = r.suggestions || [];
+    } catch (e) { console.warn('[spell] suggest IPC failed', e); }
+    suggestions = suggestions || [];
+    _spellSuggestCache.set(t.lookup, suggestions);
+  }
+
+  const frag = document.createDocumentFragment();
+  if (suggestions.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'ctx-item ' + SPELL_CTX_CLASS;
+    empty.style.opacity = '0.6';
+    empty.style.fontStyle = 'italic';
+    empty.textContent = 'No suggestions for "' + t.word + '"';
+    frag.appendChild(empty);
+  } else {
+    suggestions.slice(0, 6).forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'ctx-item ' + SPELL_CTX_CLASS;
+      item.textContent = '✓ Replace with "' + s + '"';
+      const replacement = _matchCase(t.word, s);
+      item.addEventListener('click', () => {
+        try {
+          editor.executeEdits('spell-replace', [{ range: t.range, text: replacement }]);
+          editor.focus();
+        } catch (err) { showToast('Replace failed: ' + (err?.message || err)); }
+        contextMenu.classList.add('hidden');
+        _clearSpellSuggestionsFromContextMenu();
+      });
+      frag.appendChild(item);
+    });
+  }
+  // "Add to dictionary" entry — always present so the user can teach
+  // Note++ a name / acronym / domain term they use often.
+  const addItem = document.createElement('div');
+  addItem.className = 'ctx-item ' + SPELL_CTX_CLASS;
+  addItem.textContent = '📚 Add "' + t.word + '" to dictionary';
+  addItem.addEventListener('click', async () => {
+    try {
+      await window.electronAPI.spell.addWord(t.word);
+      _spellCache.set(t.lookup, true);
+      _spellSuggestCache.delete(t.lookup);
+      scheduleSpellScan();
+      showToast('Added "' + t.word + '" to dictionary');
+    } catch (err) { showToast('Add failed: ' + (err?.message || err)); }
+    contextMenu.classList.add('hidden');
+    _clearSpellSuggestionsFromContextMenu();
+  });
+  frag.appendChild(addItem);
+
+  // Separator between dynamic spell items and the static Cut/Copy/Paste
+  const sep = document.createElement('div');
+  sep.className = 'ctx-sep ' + SPELL_CTX_CLASS;
+  frag.appendChild(sep);
+
+  // Inject at the top of the menu.
+  contextMenu.insertBefore(frag, contextMenu.firstChild);
 }
 
 function handleContextAction(action) {
@@ -5045,12 +5654,47 @@ function applyPreferences() {
 
 async function openPreferences() {
   document.getElementById('prefs-dialog').classList.remove('hidden');
+  await loadStartupModePref();
   await loadCloudPrefs();
   await loadNewDocPrefs();
   await loadBackupPrefs();
   await loadDiskAutoSavePrefs();
   await loadTerminalPrefs();
   refreshEncryptionPrefsPage();
+}
+
+// ── Launch-on-startup pref ─────────────────────────────────────────────────
+// Lives on the General page. Reads the current state (both Note++'s own
+// settings and the OS-level login item) so the checkbox reflects reality
+// even if the user disabled the autostart entry through Task Manager.
+async function loadStartupModePref() {
+  const cb = document.getElementById('pref-startup-mode');
+  if (!cb) return;
+  try {
+    const s = await window.electronAPI.startupMode.get();
+    cb.checked = !!(s && (s.enabled || s.osConfigured));
+  } catch { cb.checked = false; }
+  // Attach the listener once. The flag is stored on the element itself
+  // so re-opening the prefs dialog doesn't stack handlers.
+  if (cb.dataset._wired === '1') return;
+  cb.dataset._wired = '1';
+  cb.addEventListener('change', async () => {
+    const enabled = cb.checked;
+    try {
+      const r = await window.electronAPI.startupMode.set(enabled);
+      if (!r?.success) {
+        cb.checked = !enabled; // revert UI
+        showToast('Could not change startup setting: ' + (r?.error || 'unknown'));
+        return;
+      }
+      showToast(enabled
+        ? 'Note++ will launch on system startup (and stay in the tray)'
+        : 'Note++ will no longer launch on system startup');
+    } catch (e) {
+      cb.checked = !enabled;
+      showToast('Startup setting change failed: ' + (e?.message || String(e)));
+    }
+  });
 }
 
 // ===== Cloud Storage Prefs =====
@@ -5192,9 +5836,10 @@ function setupToolbar() {
         'ai': toggleAiPanel,
         'encrypt-toggle': () => toggleTabEncryption(),
         'source-control': () => toggleSourceControlPanel(),
+        'spell-toggle': () => cycleSpellMode(),
       };
       map[a]?.();
-      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control') editor.focus();
+      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle') editor.focus();
     });
   });
 
@@ -5427,6 +6072,7 @@ function setupMenuListeners() {
 
   m('menu-preferences', openPreferences);
   m('menu-about', () => document.getElementById('about-dialog').classList.remove('hidden'));
+  m('menu-boot-perf', () => showBootPerfDialog());
 
   // ── draw.io ─────────────────────────────────────────────────────────────
   m('menu-new-drawio', () => createDrawioTab(null, ''));
@@ -5853,7 +6499,9 @@ async function restoreSession(opts = {}) {
       if (r.success) {
         // Detect encrypted file even if the session record didn't flag it
         // (e.g., user encrypted the file in another app session).
-        if (window.NotePPCrypto.detectEncrypted(r.content)) {
+        // Quick-check first so we skip the crypto.js load if it's plainly
+        // not an encrypted envelope.
+        if (_maybeEncrypted(r.content) && (await ensureCrypto()) && window.NotePPCrypto.detectEncrypted(r.content)) {
           await openFile([s.filePath]);
           const newTab = tabs[tabs.length - 1];
           if (newTab && s.active) activeId = newTab.id;
@@ -7639,6 +8287,7 @@ async function loadEncryptionProfile() {
     const p = await encryptionProfilePath();
     const res = await window.electronAPI.readFile(p);
     if (!res.success) { appEnc.profile = null; return null; }
+    await ensureCrypto();
     const parsed = window.NotePPCrypto.parseProfile(res.content);
     appEnc.profile = parsed;
     return parsed;
@@ -7657,6 +8306,7 @@ async function saveEncryptionProfile(profile) {
 // First-time setup. Creates a new profile + DEK + recovery key and writes the
 // profile file. The recovery key is returned to the caller to display once.
 async function createEncryptionProfile(password) {
+  await ensureCrypto();
   const { profile, rawDek, recoveryKey } = await window.NotePPCrypto.createProfile(password);
   const res = await saveEncryptionProfile(profile);
   if (!res.success) throw new Error('Failed to write profile: ' + (res.error || 'unknown'));
@@ -7669,6 +8319,7 @@ async function createEncryptionProfile(password) {
 async function unlockEncryptionWithPassword(password) {
   if (!appEnc.profile) return false;
   try {
+    await ensureCrypto();
     const dek = await window.NotePPCrypto.unlockWithPassword(appEnc.profile, password);
     appEnc.rawDek = dek;
     return true;
@@ -7681,6 +8332,7 @@ async function unlockEncryptionWithPassword(password) {
 async function unlockEncryptionWithRecoveryKey(recoveryKey) {
   if (!appEnc.profile) return false;
   try {
+    await ensureCrypto();
     const dek = await window.NotePPCrypto.unlockWithRecoveryKey(appEnc.profile, recoveryKey);
     appEnc.rawDek = dek;
     return true;
@@ -7701,6 +8353,7 @@ function lockEncryption() {
 // Re-wraps the DEK with a new password KEK — files on disk don't need to change.
 async function changeEncryptionPassword(newPassword) {
   if (!isEncUnlocked()) throw new Error('Profile is locked');
+  await ensureCrypto();
   await window.NotePPCrypto.setPasswordOnProfile(appEnc.profile, appEnc.rawDek, newPassword);
   const res = await saveEncryptionProfile(appEnc.profile);
   if (!res.success) throw new Error('Failed to save profile: ' + (res.error || 'unknown'));
@@ -7710,6 +8363,7 @@ async function changeEncryptionPassword(newPassword) {
 // Generate a fresh recovery key, replacing the existing one. Profile must be unlocked.
 async function regenerateEncryptionRecoveryKey() {
   if (!isEncUnlocked()) throw new Error('Profile is locked');
+  await ensureCrypto();
   const { recoveryKey } = await window.NotePPCrypto.regenerateRecoveryKey(appEnc.profile, appEnc.rawDek);
   const res = await saveEncryptionProfile(appEnc.profile);
   if (!res.success) throw new Error('Failed to save profile: ' + (res.error || 'unknown'));

@@ -53,6 +53,23 @@ function ensureXterm() {
   return ensureXterm._loading;
 }
 
+// crypto.js (~372 lines) — wraps Web Crypto primitives for the encrypted-
+// pad feature. Only invoked on encrypt/decrypt actions, restore of an
+// encrypted file, or the encryption preferences page — none of which
+// happen on cold start. Lazy-load it so non-encryption sessions don't
+// pay the parse cost. The file's an internal classic script (not UMD)
+// that hangs `window.NotePPCrypto` once it executes.
+function ensureCrypto() {
+  if (window.NotePPCrypto) return Promise.resolve(window.NotePPCrypto);
+  if (ensureCrypto._loading) return ensureCrypto._loading;
+  ensureCrypto._loading = (async () => {
+    await _loadUmdScript('./crypto.js');
+    if (!window.NotePPCrypto) throw new Error('crypto.js did not register NotePPCrypto');
+    return window.NotePPCrypto;
+  })();
+  return ensureCrypto._loading;
+}
+
 // json5 (~30 KB) — only needed when the JSON preview hits a parse error
 // and we want to try a forgiving re-parse (trailing commas, single
 // quotes, comments, unquoted keys, etc.) to offer an auto-fix.

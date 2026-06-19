@@ -489,6 +489,13 @@ const wbFileSaveTimers = new Map(); // tabId → timer handle
 
 // File tree state
 let fileTreeRootPath = null;
+// Whether the user explicitly wants the file tree visible. We track
+// this separately from the DOM `hidden` class so we can auto-hide the
+// panel when the active tab's file is outside the current tree root
+// (no point showing a folder tree for an unrelated workspace), then
+// restore it automatically when the user switches back to a file
+// that IS under the root.
+let fileTreeUserShown = false;
 
 // Zen mode
 let isZenMode = false;
@@ -2317,6 +2324,10 @@ function activateTab(id) {
   // re-scan the new tab's visible range.
   _clearSpellDecorations();
   if (isSpellEligibleTab(tab)) scheduleSpellScan();
+  // File tree: hide it when the active tab's file lives outside the
+  // workspace root, restore it when the file IS under the root. Keeps
+  // the tree from sticking around for unrelated tabs.
+  updateFileTreeForActiveTab();
 }
 
 // Reflect active-tab encryption state on the toolbar 🔒 button.
@@ -5895,7 +5906,12 @@ function setupToolbar() {
     showFloatingMenu(langRect.left, langRect.bottom, items);
   });
 
-  document.getElementById('file-tree-close').addEventListener('click', () => document.getElementById('file-tree').classList.add('hidden'));
+  document.getElementById('file-tree-close').addEventListener('click', () => {
+    document.getElementById('file-tree').classList.add('hidden');
+    // User explicitly dismissed the tree — don't auto-restore it on
+    // the next tab switch.
+    fileTreeUserShown = false;
+  });
 }
 
 // ===== Menu Listeners =====
@@ -6137,12 +6153,36 @@ function setupMenuListeners() {
 // ===== File Tree =====
 async function openFolderTree(folderPath) {
   fileTreeRootPath = folderPath;
+  fileTreeUserShown = true;
   const tree = document.getElementById('file-tree');
   const content = document.getElementById('file-tree-content');
   document.getElementById('file-tree-title').textContent = folderPath.split(/[\\/]/).pop();
   tree.classList.remove('hidden');
   content.innerHTML = '';
   await renderTreeDir(content, folderPath, 0);
+}
+
+// Show / hide the tree based on whether the active tab's file lives
+// inside the tree root. Called from activateTab. Idea: if you've opened
+// a folder as your workspace and then click a tab whose file is in a
+// totally different folder, the tree shouldn't be sticking around
+// pretending it represents that tab too.
+function updateFileTreeForActiveTab() {
+  const tree = document.getElementById('file-tree');
+  if (!tree || !fileTreeRootPath || !fileTreeUserShown) return;
+  const tab = getActiveTab();
+  const fp = tab?.filePath;
+  // Untitled / scratch tab — leave the tree as-is; the user might be
+  // about to save it under the workspace root.
+  if (!fp) return;
+  const normRoot = fileTreeRootPath.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+  const normPath = fp.replace(/\\/g, '/').toLowerCase();
+  const underRoot = normPath === normRoot || normPath.startsWith(normRoot + '/');
+  if (underRoot) {
+    tree.classList.remove('hidden');
+  } else {
+    tree.classList.add('hidden');
+  }
 }
 
 async function renderTreeDir(container, dirPath, depth) {

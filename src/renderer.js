@@ -2168,6 +2168,24 @@ function activateTab(id) {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
     prev.previewOpen = previewOpen; // persist per-tab preview visibility
+    // Clear find / mark decorations from the OUTGOING tab's model so
+    // they don't get stranded there. Without this, switching from a
+    // tab where you Found "foo" would leave "foo" highlights painted
+    // on that tab's model forever (or until the next Find action on
+    // it). We use model.deltaDecorations directly because the editor
+    // is about to swap its model — `editor.deltaDecorations` would
+    // operate on the wrong target.
+    if (prev.model) {
+      try {
+        if (searchDecorations.length) prev.model.deltaDecorations(searchDecorations, []);
+        for (const ids of markDecorations) {
+          if (ids && ids.length) prev.model.deltaDecorations(ids, []);
+        }
+      } catch (e) { console.warn('[tab-switch] decoration cleanup failed', e); }
+    }
+    searchDecorations = [];
+    markDecorations = [];
+    setFindStatus('');
   }
   activeTabId = id;
 

@@ -1392,6 +1392,16 @@ require(['vs/editor/editor.main'], () => {
     _applyAutoDetectedLanguage(tab, editor.getValue());
   });
 
+  // Strip "rich" Unicode characters that sneak in when pasting from
+  // Word / browsers / Slack / etc. Smart quotes, em-dashes, non-
+  // breaking spaces, zero-width chars — they look like normal text
+  // but break code, regex, JSON, command-line snippets. We intercept
+  // the DOM-level `paste` event in the capture phase so Monaco never
+  // sees the original; then we re-insert the cleaned text via
+  // `executeEdits` so format-on-paste / multi-cursor / undo all
+  // behave correctly.
+  setupPastePreprocessor();
+
   // Keyboard shortcuts
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, () => newTab());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, () => openFile());
@@ -3448,6 +3458,90 @@ async function closeOtherTabs(keepId) { for (const id of tabs.filter(t => t.id !
 
 // ===== Language Detection =====
 
+// ── Paste normalisation ────────────────────────────────────────────────────
+// Maps "rich" Unicode characters that come in from Word / browsers /
+// chat apps to their plain-ASCII equivalents. These look like normal
+// text but break JSON, regex, code, command-line snippets — every
+// developer has been bitten by smart quotes pasted into a config file.
+const PASTE_NORMALISE_MAP = {
+  '‘': "'", '’': "'", '‚': "'", '‛': "'", // single smart quotes
+  '“': '"', '”': '"', '„': '"', '‟': '"', // double smart quotes
+  '′': "'", '″': '"',                               // prime / double-prime
+  '–': '-', '—': '-', '―': '-',                // en/em/horizontal dash
+  '·': '.',                                              // middle dot (rare paste artefact)
+  ' ': ' ',                                              // non-breaking space
+  ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', // en/em/three-per/four-per em
+  ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', // six-per/figure/punctuation/thin
+  ' ': ' ', ' ': ' ', ' ': ' ',                // hair/narrow/medium math space
+  ' ': '\n', ' ': '\n',                             // line/paragraph separator
+  '…': '...',                                            // horizontal ellipsis
+};
+const PASTE_NORMALISE_RE = new RegExp(
+  '[' +
+    Object.keys(PASTE_NORMALISE_MAP).join('') +
+    '​-‍﻿' +  // zero-width space / non-joiner / joiner / BOM
+  ']',
+  'g'
+);
+
+function normalizeForPaste(text) {
+  if (!text) return text;
+  return text.replace(PASTE_NORMALISE_RE, (ch) => PASTE_NORMALISE_MAP[ch] ?? '');
+}
+
+// DOM-level paste interceptor — runs in capture phase before Monaco's
+// own paste handler. When the clipboard text has rich characters, we
+// stop Monaco from inserting the original and substitute our cleaned
+// version. This is the primary path for Ctrl+V and the editor's
+// right-click → Paste.
+function setupPastePreprocessor() {
+  const el = document.getElementById('monaco-editor');
+  if (!el) return;
+  el.addEventListener('paste', (e) => {
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text) return;
+    const cleaned = normalizeForPaste(text);
+    if (cleaned === text) return; // nothing to do — let Monaco insert normally
+    e.preventDefault();
+    e.stopPropagation();
+    _insertAsPaste(cleaned);
+  }, true);
+}
+
+// Insert text using Monaco's edit pipeline so undo/redo + multi-cursor
+// + selection-replace all behave correctly. We use executeEdits rather
+// than 'type' because we want to skip format-on-paste — the whole
+// point is "paste exactly what was on the clipboard, no transforms".
+function _insertAsPaste(text) {
+  if (!editor) return;
+  const selections = editor.getSelections() || [editor.getSelection()].filter(Boolean);
+  if (!selections.length) return;
+  const edits = selections.map(sel => ({
+    range: sel,
+    text,
+    forceMoveMarkers: true,
+  }));
+  editor.executeEdits('paste-normalized', edits);
+  editor.pushUndoStop();
+}
+
+// Used by the toolbar / Edit menu / context-menu "Paste" actions so
+// they go through the same normalisation as Ctrl+V. Reads via
+// navigator.clipboard so it works even when Monaco's own paste action
+// would have bypassed the DOM paste event.
+async function pasteFromClipboardClean() {
+  if (!editor) return;
+  let text = '';
+  try { text = await navigator.clipboard.readText(); }
+  catch {
+    // Permissions / unfocused window → fall back to Monaco's native paste.
+    editor.trigger('cleanpaste', 'editor.action.clipboardPasteAction', null);
+    return;
+  }
+  if (!text) return;
+  _insertAsPaste(normalizeForPaste(text));
+}
+
 // Apply a detected language to a tab (shared by onDidPaste and the debounced fallback).
 function _applyAutoDetectedLanguage(tab, content) {
   if (!tab || !content.trim()) return;
@@ -5333,7 +5427,7 @@ function handleContextAction(action) {
   const acts = {
     'cut': () => editor.trigger('ctx', 'editor.action.clipboardCutAction', null),
     'copy': () => editor.trigger('ctx', 'editor.action.clipboardCopyAction', null),
-    'paste': () => editor.trigger('ctx', 'editor.action.clipboardPasteAction', null),
+    'paste': () => pasteFromClipboardClean(),
     'select-all': () => editor.trigger('ctx', 'selectAll', null),
     'format-doc': formatDocument,
     'toggle-comment': toggleComment,
@@ -5849,7 +5943,7 @@ function setupToolbar() {
         'close': () => closeTab(activeTabId), 'print': () => window.print(),
         'cut': () => editor.trigger('tb', 'editor.action.clipboardCutAction', null),
         'copy': () => editor.trigger('tb', 'editor.action.clipboardCopyAction', null),
-        'paste': () => editor.trigger('tb', 'editor.action.clipboardPasteAction', null),
+        'paste': () => pasteFromClipboardClean(),
         'undo': () => editor.trigger('tb', 'undo', null),
         'redo': () => editor.trigger('tb', 'redo', null),
         'find': () => openFindReplace('find'), 'replace': () => openFindReplace('replace'),

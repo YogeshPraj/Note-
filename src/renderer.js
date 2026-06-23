@@ -4496,7 +4496,20 @@ async function applyTheme(pref, save = true) {
   });
   document.body.classList.add('theme-' + currentTheme);
 
-  monaco.editor.setTheme('notepp-' + currentTheme);
+  // Define the Monaco theme on demand right before applying it. Monaco only
+  // registers the *active* theme upfront and the rest lazily (on idle), so a
+  // theme switch that lands before that idle work (e.g. starting in dark via
+  // "Follow Windows") could call setTheme() on an unregistered theme — which
+  // Monaco silently ignores, leaving the editor pane light while the chrome
+  // (pure CSS) goes dark. Defining first makes setTheme always succeed.
+  const monacoThemeId = 'notepp-' + currentTheme;
+  monaco.editor.defineTheme(monacoThemeId, {
+    base: theme.monacoBase,
+    inherit: true,
+    rules: theme.monacoRules,
+    colors: theme.monacoColors,
+  });
+  monaco.editor.setTheme(monacoThemeId);
   document.getElementById('btn-darkmode')?.classList.toggle('active', isDarkMode);
   syncMermaidThemeToAppMode();
   sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });

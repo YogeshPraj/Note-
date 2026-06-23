@@ -48,10 +48,16 @@
 
         const saved = localStorage.getItem('notepp.ui.theme');
         const allowed = new Set(['light', 'dark', 'flower', 'dracula', 'tokyonight', 'nord', 'monokai', 'solarizedLight']);
-        if (!saved || !allowed.has(saved)) return;
+        // 'system' (Follow Windows) is resolved here via the prefers-color-scheme
+        // media query (cross-platform: Windows/macOS/Linux) for a flash-free first paint.
+        let resolved = saved;
+        if (saved === 'system') {
+          resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        if (!resolved || !allowed.has(resolved)) return;
         const keep = Array.from(document.body.classList).filter(c => !c.startsWith('theme-'));
         document.body.className = keep.join(' ');
-        document.body.classList.add('theme-' + saved);
+        document.body.classList.add('theme-' + resolved);
       } catch {}
     })();
   </script>

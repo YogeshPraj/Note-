@@ -451,7 +451,8 @@ let editor = null;
 let isDarkMode = false;
 let isWordWrap = false;
 let isColumnSelectMode = false;
-let currentTheme = 'light';
+let currentTheme = 'light';   // RESOLVED theme actually applied (a THEMES key)
+let themePref = 'light';      // user PREFERENCE: 'light' | 'dark' | 'system'
 let isThemedTitlebar = false;  // custom HTML title bar + menu vs native OS chrome
 let tabCounter = 0;
 let searchDecorations = [];
@@ -4510,6 +4511,23 @@ function setupAltMouseColumnSelect() {
 
 // ===== Theme System =====
 
+// OS theme bridge. `prefers-color-scheme` is a standard Chromium/Electron media
+// query that reflects the host OS theme on Windows, macOS AND Linux — no
+// platform-specific code needed. Used to implement the "Follow Windows" option.
+const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+/** Resolve a user preference ('light'|'dark'|'system') to a concrete THEMES key. */
+function resolveThemePref(pref) {
+  if (pref === 'system') return systemThemeQuery.matches ? 'dark' : 'light';
+  return pref in THEMES ? pref : 'light';
+}
+
+// When the OS theme changes while the user is on "Follow Windows", re-apply
+// immediately so the switch is instant. Don't re-save (preference is unchanged).
+systemThemeQuery.addEventListener('change', () => {
+  if (themePref === 'system') applyTheme('system', false);
+});
+
 /**
  * Apply a theme by id ('light', 'dark', 'flower', …).
  * @param {string} id   - key in THEMES
@@ -4539,7 +4557,7 @@ async function applyTitlebarMode(themed, save = true) {
     // concurrent applyTheme saveSetting can't race and lose either value.
     const s = await window.electronAPI.readSettings();
     (s.ui = s.ui || {}).themedTitlebar = themed;
-    s.ui.theme = currentTheme;
+    s.ui.theme = themePref;
     await window.electronAPI.writeSettings(s);
     // titleBarStyle is a BrowserWindow constructor option — only takes effect on restart.
     const r = await window.electronAPI?.messageDialog?.({
@@ -4554,13 +4572,17 @@ async function applyTitlebarMode(themed, save = true) {
   }
 }
 
-async function applyTheme(id, save = true) {
+async function applyTheme(pref, save = true) {
+  // `pref` is the user preference: 'light' | 'dark' | 'system' (or any THEMES key).
+  themePref = (pref === 'system' || pref in THEMES) ? pref : 'light';
+  const id = resolveThemePref(themePref);
   const theme = THEMES[id] || THEMES.light;
   currentTheme = id in THEMES ? id : 'light';
   isDarkMode = theme.isDark;
 
-  // Keep a synchronous cache for first-paint startup (prevents theme flash on restart).
-  try { localStorage.setItem('notepp.ui.theme', currentTheme); } catch {}
+  // Keep a synchronous cache for first-paint startup (prevents theme flash on
+  // restart). Store the PREFERENCE so 'system' can be re-resolved on next boot.
+  try { localStorage.setItem('notepp.ui.theme', themePref); } catch {}
 
   // Remove all theme-* classes, then add the one we want
   document.body.classList.forEach(cls => {
@@ -4568,7 +4590,20 @@ async function applyTheme(id, save = true) {
   });
   document.body.classList.add('theme-' + currentTheme);
 
-  monaco.editor.setTheme('notepp-' + currentTheme);
+  // Define the Monaco theme on demand right before applying it. Monaco only
+  // registers the *active* theme upfront and the rest lazily (on idle), so a
+  // theme switch that lands before that idle work (e.g. starting in dark via
+  // "Follow Windows") could call setTheme() on an unregistered theme — which
+  // Monaco silently ignores, leaving the editor pane light while the chrome
+  // (pure CSS) goes dark. Defining first makes setTheme always succeed.
+  const monacoThemeId = 'notepp-' + currentTheme;
+  monaco.editor.defineTheme(monacoThemeId, {
+    base: theme.monacoBase,
+    inherit: true,
+    rules: theme.monacoRules,
+    colors: theme.monacoColors,
+  });
+  monaco.editor.setTheme(monacoThemeId);
   document.getElementById('btn-darkmode')?.classList.toggle('active', isDarkMode);
   syncMermaidThemeToAppMode();
   sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });
@@ -4585,7 +4620,7 @@ async function applyTheme(id, save = true) {
     // Single read-modify-write so the two keys can't race against each other
     // (or against a concurrent applyTitlebarMode save) and lose one of the values.
     const s = await window.electronAPI.readSettings();
-    (s.ui = s.ui || {}).theme = currentTheme;
+    (s.ui = s.ui || {}).theme = themePref; // persist the PREFERENCE (incl. 'system')
     s.ui.darkMode = isDarkMode; // keep legacy key in sync
     await window.electronAPI.writeSettings(s);
   }
@@ -5720,6 +5755,14 @@ function setupModals() {
     document.getElementById('prefs-dialog').classList.add('hidden');
   });
 
+  // Apply the theme immediately when a Dark Mode radio is picked, so the user
+  // sees the switch right away (incl. "Follow Windows") without waiting for OK.
+  document.querySelectorAll('input[name="pref-theme"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (radio.checked && radio.value !== themePref) applyTheme(radio.value);
+    });
+  });
+
   setupCloudPrefButtons();
   setupAiPrefsPage();
   setupNewDocPrefsPage();
@@ -5755,8 +5798,9 @@ function applyPreferences() {
   });
 
   const theme = document.querySelector('input[name="pref-theme"]:checked')?.value || 'light';
-  if (theme === 'dark' && !isDarkMode) toggleDarkMode();
-  else if (theme === 'light' && isDarkMode) toggleDarkMode();
+  // 'light' | 'dark' | 'system' (Follow Windows). applyTheme handles all three,
+  // persists the preference, and resolves 'system' to the live OS theme.
+  if (theme !== themePref) applyTheme(theme);
 
   // New-document defaults
   newDocDefaults.encoding = document.querySelector('input[name="pref-encoding"]:checked')?.value || 'UTF-8';
@@ -5777,6 +5821,7 @@ function applyPreferences() {
 
 async function openPreferences() {
   document.getElementById('prefs-dialog').classList.remove('hidden');
+  loadThemePref();
   await loadStartupModePref();
   await loadCloudPrefs();
   await loadNewDocPrefs();
@@ -5784,6 +5829,13 @@ async function openPreferences() {
   await loadDiskAutoSavePrefs();
   await loadTerminalPrefs();
   refreshEncryptionPrefsPage();
+}
+
+// Sync the Dark Mode radios (Light / Dark / Follow Windows) to the saved
+// preference whenever Preferences opens, so the dialog reflects reality.
+function loadThemePref() {
+  const el = document.getElementById('pref-theme-' + themePref);
+  if (el) el.checked = true;
 }
 
 // ── Launch-on-startup pref ─────────────────────────────────────────────────

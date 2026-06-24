@@ -104,6 +104,15 @@ function showBootPerfDialog() {
 // In source code the dictionary would mark every identifier wrong,
 // which is the opposite of useful.
 const SPELL_PROSE_LANGS = new Set(['markdown', 'plaintext', 'log']);
+// Toolbar-driven: when off, no spell-check work happens at all. Defaults
+// to off because the en_US dictionary flags common technical terms
+// ("autoscale", "kubectl", etc.) as misspelled, which is more noise
+// than signal for most developer documents.
+let spellEnabled = false;
+// Preferences-driven: when both this AND spellEnabled are true,
+// misspellings get auto-replaced on space/punctuation. Independent of
+// spellEnabled — flipping it in Preferences only takes effect when
+// spell-check is active on the toolbar.
 let spellAutocorrect = false;
 const _spellCache = new Map();      // word → bool (correct?)
 const _spellSuggestCache = new Map(); // word → string[]
@@ -121,36 +130,57 @@ function updateSpellButtonAppearance() {
   const btn = _spellBtn();
   const badge = _spellBadge();
   if (!btn) return;
-  btn.classList.toggle('spell-auto', spellAutocorrect);
-  if (badge) badge.textContent = spellAutocorrect ? 'A' : '';
-  btn.title = 'Autocorrect — ' + (spellAutocorrect
-    ? 'ON (typos are fixed on space). Click to turn OFF.'
-    : 'OFF (squiggles + right-click suggestions). Click to turn ON.');
+  btn.classList.toggle('spell-active', spellEnabled);
+  btn.classList.toggle('spell-auto', spellEnabled && spellAutocorrect);
+  if (badge) badge.textContent = (spellEnabled && spellAutocorrect) ? 'A' : '';
+  if (!spellEnabled) {
+    btn.title = 'Spell check — OFF. Click to turn ON.';
+  } else if (spellAutocorrect) {
+    btn.title = 'Spell check — ON (autocorrect active, fixes typos on space). Click to turn OFF.';
+  } else {
+    btn.title = 'Spell check — ON (squiggles + right-click suggestions). Enable autocorrect in Preferences → Editing.';
+  }
 }
 
-// Toolbar click: toggle autocorrect on/off. Spell-check itself is
-// always active for prose files — see runSpellScan.
+// Toolbar click: toggle spell check on/off. Autocorrect remains a
+// separate preference (see Preferences → Editing).
 function cycleSpellMode() {
-  spellAutocorrect = !spellAutocorrect;
+  spellEnabled = !spellEnabled;
+  saveSetting('ui.spellEnabled', spellEnabled);
+  updateSpellButtonAppearance();
+  if (spellEnabled) {
+    scheduleSpellScan();
+    _ensureSpellCodeActions();
+  } else {
+    _clearSpellDecorations();
+  }
+}
+
+// Called by the Preferences "Enable autocorrect" checkbox handler.
+function setSpellAutocorrect(value) {
+  spellAutocorrect = !!value;
   saveSetting('ui.spellAutocorrect', spellAutocorrect);
   updateSpellButtonAppearance();
-  // Re-scan so any cached state stays consistent.
-  scheduleSpellScan();
-  _ensureSpellCodeActions();
 }
 
-// Back-compat shim — earlier versions used a tri-state setting key.
-// Translate it on load so users who already had spell-check active
-// don't have to re-enable.
+// Hydrate from saved settings. Old tri-state `ui.spellMode` is
+// translated for back-compat. New users get both flags off by default.
 function _hydrateSpellFromLegacySetting(ui) {
+  if (typeof ui.spellEnabled === 'boolean') {
+    spellEnabled = ui.spellEnabled;
+  } else if (typeof ui.spellMode === 'string') {
+    spellEnabled = ui.spellMode !== 'off';
+  }
   if (typeof ui.spellAutocorrect === 'boolean') {
     spellAutocorrect = ui.spellAutocorrect;
   } else if (typeof ui.spellMode === 'string') {
     spellAutocorrect = ui.spellMode === 'auto';
   }
   updateSpellButtonAppearance();
-  scheduleSpellScan();
-  _ensureSpellCodeActions();
+  if (spellEnabled) {
+    scheduleSpellScan();
+    _ensureSpellCodeActions();
+  }
 }
 
 function _clearSpellDecorations() {
@@ -198,7 +228,7 @@ function _tokenizeForSpell(text, baseOffset = 0) {
 }
 
 async function runSpellScan() {
-  if (!editor) return;
+  if (!editor || !spellEnabled) return;
   const tab = getActiveTab();
   if (!isSpellEligibleTab(tab)) { _clearSpellDecorations(); return; }
   const model = editor.getModel();
@@ -360,7 +390,7 @@ function _matchCase(original, replacement) {
 // Conservative — we only act on single-word boundaries to keep surprises
 // minimal.
 async function _maybeAutoCorrect(e) {
-  if (!spellAutocorrect || !editor || _spellAutoCorrectActive) return;
+  if (!spellEnabled || !spellAutocorrect || !editor || _spellAutoCorrectActive) return;
   if (!e || !e.changes || e.changes.length !== 1) return;
   const ch = e.changes[0];
   // Only trigger on insertion of a single delimiter (space, newline, punctuation)
@@ -873,7 +903,6 @@ const MENU_STRUCTURE = [
   { label: 'Settings', items: [
     { label: 'Preferences…',      ch: 'menu-preferences',   key: 'Ctrl+,' },
     { sep: true },
-    { label: 'Theme Picker…',     ch: 'menu-theme-picker',  key: 'Ctrl+Alt+T' },
     { label: 'Toggle Dark Mode',  ch: 'menu-dark-mode',     key: 'Ctrl+Alt+D' },
     { sep: true },
     { label: 'Font Size +',       ch: 'menu-zoom-in',       key: 'Ctrl+=' },
@@ -1474,9 +1503,8 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.PageDown,
     () => editor.trigger('keyboard', 'cursorColumnSelectPageDown', null));
 
-  // Open theme picker (Ctrl+Alt+T)
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyT,
-    () => openThemePicker());
+  // Theme picker was retired in favour of Preferences → Themes. The
+  // Ctrl+Alt+T shortcut and the menu entry are no longer registered.
 
   setupMenuListeners();
   setupExternalChangeWatcher();
@@ -2352,7 +2380,7 @@ function activateTab(id) {
   // one isn't eligible (e.g. user just switched from .md to .js), then
   // re-scan the new tab's visible range.
   _clearSpellDecorations();
-  if (isSpellEligibleTab(tab)) scheduleSpellScan();
+  if (spellEnabled && isSpellEligibleTab(tab)) scheduleSpellScan();
   // File tree: hide it when the active tab's file lives outside the
   // workspace root, restore it when the file IS under the root. Keeps
   // the tree from sticking around for unrelated tabs.
@@ -5341,6 +5369,10 @@ function setupContextMenu() {
     e.preventDefault();
     dismissFloatingMenus();
     const menu = contextMenu;
+    // Filter static items based on the active tab's language so the
+    // menu only shows entries that make sense for the current file
+    // type (e.g. no "Pretty Print JSON" in a Markdown tab).
+    _applyContextMenuLanguageFilter();
     // Inject spell suggestions at the top of the menu if the user right-
     // clicked on a misspelled word. This is the path most users expect —
     // Monaco's bulb / quick-fix popup is in a separate UI layer that
@@ -5472,6 +5504,11 @@ function handleContextAction(action) {
     'b64-encode': base64Encode,
     'b64-decode': base64Decode,
     'json-format': jsonFormat,
+    'json-minify': jsonMinify,
+    'md-toggle-bold':   () => _mdWrapSelection('**', '**'),
+    'md-toggle-italic': () => _mdWrapSelection('*', '*'),
+    'md-insert-code':   () => _mdInsertCodeBlock(),
+    'html-format':      formatDocument,
     'add-cursor-above':  () => editor.getAction('editor.action.insertCursorAbove')?.run(),
     'add-cursor-below':  () => editor.getAction('editor.action.insertCursorBelow')?.run(),
     'cursor-line-ends':  () => editor.getAction('editor.action.insertCursorAtEndOfEachLineSelected')?.run(),
@@ -5480,6 +5517,99 @@ function handleContextAction(action) {
   };
   acts[action]?.();
   editor.focus();
+}
+
+// ── New context-menu helpers ───────────────────────────────────────────────
+function jsonMinify() {
+  try {
+    const parsed = JSON.parse(editor.getValue());
+    editor.setValue(JSON.stringify(parsed));
+  } catch (e) {
+    showToast('Invalid JSON: ' + (e?.message || e));
+  }
+}
+
+// Markdown wrap: surround the current selection with `prefix` and
+// `suffix`. If nothing is selected, insert the markers around the
+// caret so the user can start typing in between (matches the bold/
+// italic affordance most editors provide).
+function _mdWrapSelection(prefix, suffix) {
+  if (!editor) return;
+  const sel = editor.getSelection();
+  const model = editor.getModel();
+  if (!sel || !model) return;
+  if (sel.isEmpty()) {
+    editor.executeEdits('md-wrap', [{ range: sel, text: prefix + suffix }]);
+    // Move the caret between the markers
+    const after = editor.getPosition();
+    editor.setPosition({ lineNumber: after.lineNumber, column: after.column - suffix.length });
+  } else {
+    const text = model.getValueInRange(sel);
+    editor.executeEdits('md-wrap', [{ range: sel, text: prefix + text + suffix }]);
+  }
+}
+
+function _mdInsertCodeBlock() {
+  if (!editor) return;
+  const sel = editor.getSelection();
+  const model = editor.getModel();
+  if (!sel || !model) return;
+  const text = sel.isEmpty() ? '' : model.getValueInRange(sel);
+  const block = '```\n' + text + '\n```\n';
+  editor.executeEdits('md-codeblock', [{ range: sel, text: block }]);
+  if (!text) {
+    // Drop caret into the empty block so the user can start typing
+    const pos = editor.getPosition();
+    editor.setPosition({ lineNumber: pos.lineNumber - 2, column: 1 });
+  }
+}
+
+// Apply the data-langs / data-not-langs filter on the static context-
+// menu items so only entries relevant to the active tab's language
+// are visible. Also collapses runs of separators that end up adjacent
+// after items are hidden (so the menu doesn't look gappy).
+function _applyContextMenuLanguageFilter() {
+  const menu = contextMenu;
+  if (!menu) return;
+  const tab = getActiveTab();
+  const lang = (tab && tab.type === 'editor') ? tab.language : null;
+
+  // Pass 1 — show/hide individual items based on language gates.
+  menu.querySelectorAll('.ctx-item').forEach(item => {
+    // Skip the dynamically-injected spell items — they manage their
+    // own visibility lifecycle.
+    if (item.classList.contains('ctx-item-spell-dyn')) return;
+    const allowed = item.dataset.langs    ? item.dataset.langs.split(',').map(s => s.trim()) : null;
+    const denied  = item.dataset.notLangs ? item.dataset.notLangs.split(',').map(s => s.trim()) : null;
+    let visible = true;
+    if (allowed && (!lang || !allowed.includes(lang))) visible = false;
+    if (denied && lang && denied.includes(lang))      visible = false;
+    item.style.display = visible ? '' : 'none';
+  });
+
+  // Pass 2 — collapse separators that no longer divide anything.
+  // Walk the children: a separator is only visible if there's at least
+  // one visible non-separator item between it and the previous visible
+  // separator (or the start of the menu).
+  let sawItemSinceLastSep = false;
+  let lastVisibleSep = null;
+  for (const child of menu.children) {
+    if (child.classList.contains('ctx-sep')) {
+      if (!sawItemSinceLastSep) {
+        child.style.display = 'none';
+      } else {
+        child.style.display = '';
+        lastVisibleSep = child;
+        sawItemSinceLastSep = false;
+      }
+    } else if (child.style.display !== 'none') {
+      sawItemSinceLastSep = true;
+    }
+  }
+  // Trailing separator with nothing after it — also hide.
+  if (lastVisibleSep && !sawItemSinceLastSep) {
+    lastVisibleSep.style.display = 'none';
+  }
 }
 
 // ===== Drag & Drop =====
@@ -5755,12 +5885,36 @@ function setupModals() {
     document.getElementById('prefs-dialog').classList.add('hidden');
   });
 
-  // Apply the theme immediately when a Dark Mode radio is picked, so the user
-  // sees the switch right away (incl. "Follow Windows") without waiting for OK.
-  document.querySelectorAll('input[name="pref-theme"]').forEach(radio => {
+  // Themes page: two-mode model — "Custom" (user picks a specific theme
+  // via the dropdown) or "Follow Windows" (live OS theme tracking).
+  // Each user gesture applies immediately so the change is visible
+  // without waiting for OK.
+  const _setCustomDropdownVisible = () => {
+    const wrap = document.getElementById('pref-custom-theme-wrap');
+    const isCustom = document.getElementById('pref-theme-mode-custom')?.checked;
+    if (wrap) wrap.style.opacity = isCustom ? '1' : '0.4';
+    const sel = document.getElementById('pref-custom-theme');
+    if (sel) sel.disabled = !isCustom;
+  };
+  document.querySelectorAll('input[name="pref-theme-mode"]').forEach(radio => {
     radio.addEventListener('change', () => {
-      if (radio.checked && radio.value !== themePref) applyTheme(radio.value);
+      if (!radio.checked) return;
+      _setCustomDropdownVisible();
+      if (radio.value === 'system') {
+        applyTheme('system');
+      } else {
+        // Custom — apply whichever theme the dropdown has selected.
+        const sel = document.getElementById('pref-custom-theme');
+        const themeId = sel?.value || 'light';
+        applyTheme(themeId);
+      }
     });
+  });
+  document.getElementById('pref-custom-theme')?.addEventListener('change', (e) => {
+    // Switching the dropdown implicitly means the user wants Custom mode.
+    document.getElementById('pref-theme-mode-custom').checked = true;
+    _setCustomDropdownVisible();
+    applyTheme(e.target.value);
   });
 
   setupCloudPrefButtons();
@@ -5797,10 +5951,18 @@ function applyPreferences() {
     renderWhitespace: whitespace ? 'all' : 'selection',
   });
 
-  const theme = document.querySelector('input[name="pref-theme"]:checked')?.value || 'light';
-  // 'light' | 'dark' | 'system' (Follow Windows). applyTheme handles all three,
-  // persists the preference, and resolves 'system' to the live OS theme.
+  // Themes — read the two-radio model. 'system' or the dropdown's
+  // currently-selected THEMES key. applyTheme persists the preference.
+  const mode = document.querySelector('input[name="pref-theme-mode"]:checked')?.value || 'custom';
+  const theme = mode === 'system'
+    ? 'system'
+    : (document.getElementById('pref-custom-theme')?.value || 'light');
   if (theme !== themePref) applyTheme(theme);
+
+  // Spell-check autocorrect (Editing tab). Only takes effect when
+  // spell-check is also enabled via the toolbar — see _maybeAutoCorrect.
+  const acCb = document.getElementById('pref-spell-autocorrect');
+  if (acCb && acCb.checked !== spellAutocorrect) setSpellAutocorrect(acCb.checked);
 
   // New-document defaults
   newDocDefaults.encoding = document.querySelector('input[name="pref-encoding"]:checked')?.value || 'UTF-8';
@@ -5822,6 +5984,7 @@ function applyPreferences() {
 async function openPreferences() {
   document.getElementById('prefs-dialog').classList.remove('hidden');
   loadThemePref();
+  loadSpellAutocorrectPref();
   await loadStartupModePref();
   await loadCloudPrefs();
   await loadNewDocPrefs();
@@ -5831,11 +5994,41 @@ async function openPreferences() {
   refreshEncryptionPrefsPage();
 }
 
-// Sync the Dark Mode radios (Light / Dark / Follow Windows) to the saved
-// preference whenever Preferences opens, so the dialog reflects reality.
+// Sync the Editing → "Enable autocorrect" checkbox to its persisted
+// value whenever Preferences opens.
+function loadSpellAutocorrectPref() {
+  const cb = document.getElementById('pref-spell-autocorrect');
+  if (cb) cb.checked = !!spellAutocorrect;
+}
+
+// Sync the Themes radios + custom-theme dropdown to the saved
+// preference whenever Preferences opens, so the dialog reflects
+// reality. Also populates the dropdown the first time it's opened.
 function loadThemePref() {
-  const el = document.getElementById('pref-theme-' + themePref);
-  if (el) el.checked = true;
+  const sel = document.getElementById('pref-custom-theme');
+  if (sel && !sel.options.length) {
+    // Populate from the THEMES table on first open.
+    for (const [id, t] of Object.entries(THEMES)) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = t.label || id;
+      sel.appendChild(opt);
+    }
+  }
+  const isSystem = themePref === 'system';
+  const sysRadio = document.getElementById('pref-theme-mode-system');
+  const cusRadio = document.getElementById('pref-theme-mode-custom');
+  if (sysRadio) sysRadio.checked = isSystem;
+  if (cusRadio) cusRadio.checked = !isSystem;
+  // For Custom mode, the dropdown should reflect the actively-applied
+  // theme. For Follow-Windows mode, fall back to the resolved currentTheme
+  // (still useful — it lets the user see what's currently in effect).
+  if (sel) {
+    sel.value = isSystem ? currentTheme : (themePref in THEMES ? themePref : 'light');
+    sel.disabled = isSystem;
+  }
+  const wrap = document.getElementById('pref-custom-theme-wrap');
+  if (wrap) wrap.style.opacity = isSystem ? '0.4' : '1';
 }
 
 // ── Launch-on-startup pref ─────────────────────────────────────────────────
@@ -6181,7 +6374,8 @@ function setupMenuListeners() {
     else showToast('No macro recorded yet — press Ctrl+Shift+R to start recording');
   });
   m('menu-macro-manage', openManageMacrosDialog);
-  m('menu-theme-picker', () => openThemePicker());
+  // menu-theme-picker dispatch retired — Preferences → Themes is now
+  // the single entry point for theme selection.
   // Individual theme items from the Settings > Theme submenu
   Object.keys(THEMES).forEach(id => m('menu-theme-' + id, () => applyTheme(id)));
   m('menu-toolbar', show => {

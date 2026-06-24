@@ -800,7 +800,7 @@
           <div class="prefs-item active" data-pref="general">General</div>
           <div class="prefs-item" data-pref="editing">Editing</div>
           <div class="prefs-item" data-pref="dev">Developer</div>
-          <div class="prefs-item" data-pref="darkmode">Dark Mode</div>
+          <div class="prefs-item" data-pref="darkmode">Themes</div>
           <div class="prefs-item" data-pref="new-doc">New Document</div>
           <div class="prefs-item" data-pref="cloud">☁ Cloud Storage</div>
           <div class="prefs-item" data-pref="backup">Backup</div>
@@ -849,6 +849,13 @@
               <label><input type="checkbox" id="pref-auto-indent" checked> Enable auto-indent</label><br>
               <label><input type="checkbox" id="pref-format-paste" checked> Format on paste</label>
             </div>
+            <div class="pref-group">
+              <label style="font-weight:600;font-size:12px">Spell check</label><br>
+              <label><input type="checkbox" id="pref-spell-autocorrect"> Enable autocorrect</label>
+              <p style="font-size:11px;color:var(--text-muted,#888);margin:4px 0 0 20px;line-height:1.4">
+                Auto-replaces misspelled words on space or punctuation. Only takes effect when spell check is also turned on via the toolbar (the ✓ button).
+              </p>
+            </div>
           </div>
           <div class="pref-page" id="pref-dev">
             <h3>Developer Settings</h3>
@@ -870,10 +877,22 @@
             </div>
           </div>
           <div class="pref-page" id="pref-darkmode">
-            <h3>Dark Mode</h3>
-            <label><input type="radio" name="pref-theme" value="light" id="pref-theme-light" checked> Light mode</label><br>
-            <label><input type="radio" name="pref-theme" value="dark" id="pref-theme-dark"> Dark mode</label><br>
-            <label><input type="radio" name="pref-theme" value="system" id="pref-theme-system"> Follow Windows</label>
+            <h3>Themes</h3>
+            <div class="pref-group">
+              <label><input type="radio" name="pref-theme-mode" value="custom" id="pref-theme-mode-custom" checked> Custom</label><br>
+              <div id="pref-custom-theme-wrap" style="margin-left:20px;margin-top:6px">
+                <label style="font-size:12px;color:var(--text-muted,#888);display:block;margin-bottom:4px">Choose theme:</label>
+                <select id="pref-custom-theme" style="min-width:200px;padding:4px">
+                  <!-- Populated at runtime from the THEMES table. -->
+                </select>
+              </div>
+            </div>
+            <div class="pref-group">
+              <label><input type="radio" name="pref-theme-mode" value="system" id="pref-theme-mode-system"> Follow Windows</label>
+              <p style="font-size:11px;color:var(--text-muted,#888);margin:4px 0 0 20px;line-height:1.4">
+                Switches between Light and Dark automatically based on your OS theme.
+              </p>
+            </div>
           </div>
           <!-- New Document -->
           <div class="pref-page" id="pref-new-doc">
@@ -1274,23 +1293,33 @@
 
   <!-- Context Menu -->
   <div id="context-menu" class="hidden">
+    <!-- Universal clipboard / selection actions -->
     <div class="ctx-item" data-action="cut">Cut</div>
     <div class="ctx-item" data-action="copy">Copy</div>
     <div class="ctx-item" data-action="paste">Paste</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="select-all">Select All</div>
     <div class="ctx-sep"></div>
-    <div class="ctx-item" data-action="format-doc">Format Document</div>
-    <div class="ctx-item" data-action="toggle-comment">Toggle Comment</div>
+    <!-- Code-only actions — meaningless for plaintext / log -->
+    <div class="ctx-item" data-action="format-doc"     data-not-langs="plaintext,log">Format Document</div>
+    <div class="ctx-item" data-action="toggle-comment" data-not-langs="plaintext,log,markdown">Toggle Comment</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="find">Find...</div>
     <div class="ctx-item" data-action="replace">Replace...</div>
     <div class="ctx-sep"></div>
+    <!-- Universal text utilities -->
     <div class="ctx-item" data-action="google-search">Google Search</div>
     <div class="ctx-item" data-action="b64-encode">Base64 Encode</div>
     <div class="ctx-item" data-action="b64-decode">Base64 Decode</div>
-    <div class="ctx-item" data-action="json-format">Pretty Print JSON</div>
+    <!-- Language-specific transforms -->
+    <div class="ctx-item" data-action="json-format" data-langs="json,jsonc">Pretty Print JSON</div>
+    <div class="ctx-item" data-action="json-minify" data-langs="json,jsonc">Minify JSON</div>
+    <div class="ctx-item" data-action="md-toggle-bold"     data-langs="markdown">Toggle Bold</div>
+    <div class="ctx-item" data-action="md-toggle-italic"   data-langs="markdown">Toggle Italic</div>
+    <div class="ctx-item" data-action="md-insert-code"     data-langs="markdown">Insert Code Block</div>
+    <div class="ctx-item" data-action="html-format"        data-langs="html,xml,svg">Format HTML / XML</div>
     <div class="ctx-sep"></div>
+    <!-- Multi-cursor / selection — useful for any editing -->
     <div class="ctx-item" data-action="add-cursor-above">Add Cursor Above</div>
     <div class="ctx-item" data-action="add-cursor-below">Add Cursor Below</div>
     <div class="ctx-item" data-action="cursor-line-ends">Add Cursors to Line Ends</div>

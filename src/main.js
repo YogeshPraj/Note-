@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell, protocol } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, nativeTheme, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -200,9 +200,38 @@ function fileFromArgv(argv) {
   return null;
 }
 
+// Theme keys → BrowserWindow.backgroundColor. These ONLY have to match the
+// CSS `background` of each theme well enough that the brief native-window
+// fill before the renderer paints doesn't look jarringly different from
+// the eventual first paint. Kept in main so we don't have to load the
+// renderer's THEMES table here.
+const THEME_BG = {
+  light:          '#f0f0f0',
+  dark:           '#1e1e1e',
+  flower:         '#fff0f5',
+  dracula:        '#282a36',
+  tokyonight:     '#1a1b26',
+  nord:           '#2e3440',
+  monokai:        '#272822',
+  solarizedLight: '#fdf6e3',
+};
+
+// Resolve the user's saved theme preference (which may be 'system') to a
+// concrete backgroundColor so the BrowserWindow opens with the right
+// fill colour from the very first frame. Eliminates the "flash of white
+// before the editor goes dark" on cold start.
+function _initialBackgroundColor(settings) {
+  let pref = settings?.ui?.theme;
+  // First-launch fallback: if no setting yet but the OS is dark, follow it.
+  if (!pref) pref = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  if (pref === 'system') pref = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return THEME_BG[pref] || THEME_BG.light;
+}
+
 function createWindow() {
   const initSettings    = readSettings();
   const themedTitlebar  = initSettings?.ui?.themedTitlebar === true; // default off (native)
+  const initBgColor     = _initialBackgroundColor(initSettings);
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -216,8 +245,12 @@ function createWindow() {
     titleBarStyle: themedTitlebar ? 'hidden' : 'default',
     ...(themedTitlebar ? {
       titleBarOverlay: {
-        color:       '#f0f0f0',   // synced via set-title-bar-overlay IPC on theme change
-        symbolColor: '#333333',
+        // Match the resolved theme so even the title-bar overlay doesn't
+        // flash light on cold start. Updated later via the
+        // set-title-bar-overlay IPC when the user changes themes.
+        color:       initBgColor,
+        symbolColor: /^#([0-9a-f]{6})$/i.test(initBgColor) && parseInt(initBgColor.slice(1), 16) < 0x808080
+          ? '#dddddd' : '#333333',
         height: 30,
       },
     } : {}),
@@ -241,7 +274,11 @@ function createWindow() {
       // memory.
       spellcheck: false,
     },
-    backgroundColor: '#f0f0f0',
+    // Set the window-fill colour to match the user's saved theme so the
+    // brief pre-renderer paint doesn't flash light before the page goes
+    // dark. The renderer's inline-script theme application still runs in
+    // parallel; this just makes the pre-paint background harmonious.
+    backgroundColor: initBgColor,
     show: false
   });
 
@@ -625,7 +662,6 @@ function buildMenu() {
       submenu: [
         { label: '&Preferences...', accelerator: 'CmdOrCtrl+,', click: () => send('menu-preferences') },
         { type: 'separator' },
-        { label: '&Theme Picker…',  accelerator: 'CmdOrCtrl+Alt+T', click: () => send('menu-theme-picker') },
         { label: 'Toggle &Dark Mode', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('menu-dark-mode') },
         { type: 'separator' },
         { label: 'Font &Size +', accelerator: 'CmdOrCtrl+=', click: () => send('menu-zoom-in') },

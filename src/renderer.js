@@ -5498,6 +5498,7 @@ function handleContextAction(action) {
     'select-all': () => editor.trigger('ctx', 'selectAll', null),
     'format-doc': formatDocument,
     'toggle-comment': toggleComment,
+    'toggle-preview': () => togglePreview(),
     'find': () => openFindReplace('find'),
     'replace': () => openFindReplace('replace'),
     'google-search': () => { const sel = editor.getSelection(); const text = sel && !sel.isEmpty() ? editor.getModel().getValueInRange(sel) : ''; if (text) window.open(`https://www.google.com/search?q=${encodeURIComponent(text)}`); },

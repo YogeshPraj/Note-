@@ -17,9 +17,36 @@
 
 const fs = require('fs');
 const path = require('path');
+const { app } = require('electron');
 
 let _spell = null;
 let _loadPromise = null;
+
+// Path where user-added words are persisted across restarts. Lives in
+// userData so it survives app upgrades. Only created when the first
+// custom word gets added.
+function _userWordsPath() {
+  try { return path.join(app.getPath('userData'), 'spell-custom-words.json'); }
+  catch { return null; }
+}
+
+function _readUserWords() {
+  const p = _userWordsPath();
+  if (!p) return [];
+  try {
+    if (!fs.existsSync(p)) return [];
+    const arr = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return Array.isArray(arr) ? arr.filter(w => typeof w === 'string' && w.length > 0) : [];
+  } catch { return []; }
+}
+
+function _writeUserWords(words) {
+  const p = _userWordsPath();
+  if (!p) return;
+  try {
+    fs.writeFileSync(p, JSON.stringify(Array.from(new Set(words)).sort(), null, 2), 'utf-8');
+  } catch (e) { console.warn('[spell] persist user words failed:', e?.message || e); }
+}
 
 function _dictPaths() {
   // dictionary-en ships .aff + .dic alongside its loader. Modern versions
@@ -53,6 +80,25 @@ async function ensureLoaded() {
     const affText = fs.readFileSync(aff, 'utf-8');
     const dicText = fs.readFileSync(dic, 'utf-8');
     _spell = nspell({ aff: affText, dic: dicText });
+
+    // Seed with our curated developer wordlist so common tech vocabulary
+    // (autoscale, kubectl, webhook, OAuth, …) isn't flagged out of the
+    // box. en_US Hunspell doesn't know any of these.
+    try {
+      const devWords = require('./spell-dev-words');
+      for (const w of devWords) {
+        try { _spell.add(w); } catch {}
+      }
+    } catch (e) { console.warn('[spell] dev wordlist load failed:', e?.message || e); }
+
+    // Then replay any words the user has personally added in previous
+    // sessions via the "Add to dictionary" right-click action.
+    try {
+      for (const w of _readUserWords()) {
+        try { _spell.add(w); } catch {}
+      }
+    } catch (e) { console.warn('[spell] user wordlist load failed:', e?.message || e); }
+
     return _spell;
   })();
   return _loadPromise;
@@ -107,12 +153,20 @@ async function suggest(word, max = 6) {
   return out.slice(0, Math.max(1, Math.min(50, max)));
 }
 
-// User-added words override the dictionary for this process lifetime.
-// Persisted by the renderer side via electronAPI.writeSettings — on
-// startup it replays the stored list via `addWord` IPC.
+// Add a word to the in-memory dictionary AND persist it to userData so
+// it survives the next restart. Previously the addition was lost on
+// every relaunch.
 function addWord(word) {
   if (!_spell || !word) return false;
-  try { _spell.add(word); return true; } catch { return false; }
+  try { _spell.add(word); } catch { return false; }
+  try {
+    const existing = _readUserWords();
+    if (!existing.includes(word)) {
+      existing.push(word);
+      _writeUserWords(existing);
+    }
+  } catch (e) { console.warn('[spell] persist add failed:', e?.message || e); }
+  return true;
 }
 
 module.exports = { ensureLoaded, checkWords, suggest, addWord };

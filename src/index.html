@@ -1303,6 +1303,9 @@
     <!-- Code-only actions — meaningless for plaintext / log -->
     <div class="ctx-item" data-action="format-doc"     data-not-langs="plaintext,log">Format Document</div>
     <div class="ctx-item" data-action="toggle-comment" data-not-langs="plaintext,log,markdown">Toggle Comment</div>
+    <!-- Preview — shown only for languages that have a preview pane.
+         Mirrors isPreviewable() in renderer.js. -->
+    <div class="ctx-item" data-action="toggle-preview" data-langs="markdown,html,mermaid,json">Toggle Preview</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="find">Find...</div>
     <div class="ctx-item" data-action="replace">Replace...</div>

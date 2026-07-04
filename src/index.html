@@ -119,6 +119,8 @@
       <button class="tb-btn" title="Toggle Terminal (Ctrl+`)" data-action="terminal" id="btn-terminal">⌨</button>
       <button class="tb-btn" title="Run File (F5)" data-action="run-file">▶</button>
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
+      <button class="tb-btn" title="New Whiteboard" data-action="whiteboard-new" id="btn-whiteboard">🎨</button>
+      <button class="tb-btn hidden" title="Azure icon library (whiteboard only)" data-action="icons" id="btn-icons">🖼️</button>
       <button class="tb-btn" title="Encrypt / decrypt this file" data-action="encrypt-toggle" id="btn-encrypt">🔒</button>
       <button class="tb-btn" title="Spell check — click to cycle: Off → Check → Auto-fix" data-action="spell-toggle" id="btn-spell">✓<span id="spell-mode-badge" class="spell-mode-badge"></span></button>
       <button class="tb-btn" title="Source Control (Ctrl+Shift+G)" data-action="source-control" id="btn-sc">⎇</button>
@@ -400,10 +402,10 @@
               <button class="tb-btn" id="btn-preview-zoomout"  title="Zoom out (Ctrl+−)">−</button>
               <span id="preview-zoom-label" title="Zoom level — click to reset">100%</span>
               <button class="tb-btn" id="btn-preview-zoomin"   title="Zoom in (Ctrl++)">＋</button>
-              <button class="tb-btn hidden" id="btn-preview-export" title="Export rendered preview…">⬇ Export</button>
+              <button class="tb-btn hidden" id="btn-preview-export" title="Export rendered preview…">⤓</button>
               <button class="tb-btn" id="btn-preview-maximize" title="Maximise preview (hide editor)">⛶</button>
               <button class="tb-btn" id="btn-preview-refresh"  title="Refresh Preview">↺</button>
-              <button class="tb-btn" id="btn-preview-close"    title="Close Preview">×</button>
+              <button class="tb-btn" id="btn-preview-close"    title="Close Preview">✕</button>
             </div>
           </div>
           <div id="preview-body">
@@ -509,6 +511,29 @@
         <div id="terminal-body">
           <div id="xterm-container"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Icons library panel (docked RIGHT, whiteboard-only). Fetches
+         Azure icon metadata + SVGs from maskati.github.io on first
+         open, caches to userData. Drag any tile onto the whiteboard
+         to insert it as an image element. -->
+    <div id="icons-panel-resize" class="hidden"></div>
+    <div id="icons-panel" class="hidden">
+      <div id="icons-panel-header">
+        <span id="icons-panel-title">Icon Library</span>
+        <div id="icons-panel-header-btns">
+          <button class="sc-icon-btn" id="icons-refresh-btn" title="Refresh manifest from web">⟳</button>
+          <button class="sc-icon-btn" id="icons-close-btn"   title="Close">×</button>
+        </div>
+      </div>
+      <div id="icons-panel-search-row">
+        <input type="text" id="icons-search-input" placeholder="Search icons — try &quot;vm&quot;, &quot;storage&quot;, &quot;kubernetes&quot;…">
+        <span id="icons-panel-count" title="Icons matching current search">—</span>
+      </div>
+      <div id="icons-panel-body">
+        <div id="icons-panel-status" class="icons-status-msg">Loading icon manifest…</div>
+        <div id="icons-panel-grid"></div>
       </div>
     </div>
   </div>

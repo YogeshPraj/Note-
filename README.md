@@ -462,6 +462,22 @@ Powered by **Excalidraw 0.18** running in an iframe. Same engine as excalidraw.c
 - Open existing `.excalidraw` files from anywhere — Note++ detects raw Excalidraw exports and routes them correctly
 - v1 → v2 format migration on load — old auto-backed whiteboards (pre-v1.5.1) still open; first save migrates them out of `%AppData%\notepp\Whiteboards\` to a user-picked location
 
+### 🖼️ Azure icon library (new in 1.7.13)
+
+A dedicated **🖼️ Icons** toolbar button on whiteboard tabs opens a docked right-pane browser for **1264 Microsoft Azure icons** sourced from [maskati.github.io/azure-icons](https://maskati.github.io/azure-icons/) — including full type + keyword metadata for search.
+
+| | |
+|---|---|
+| Data source | `maskati.github.io/azure-icons` static HTML table (name + type + keywords + SVG paths) |
+| First-use | Main process fetches the index page, parses it into a JSON manifest, caches to `%AppData%/notepp/icon-cache/` |
+| SVG loading | Lazy — each thumbnail is fetched + cached to disk on first scroll into view (IntersectionObserver upgrades placeholders) |
+| Search | Live-filter across name + type + keywords with all-terms-must-match; 150 ms debounce |
+| Insert | Drag any tile onto the whiteboard canvas → SVG lands at the exact drop coords as a native Excalidraw image element (resizable, rotatable, groupable) |
+| Refresh | `⟳` button in the panel header forces a re-fetch of the manifest (icons are added upstream regularly) |
+| Offline | Fully offline after first use; only manifest refresh needs the network |
+
+The panel + button appear **only on whiteboard tabs** — switch to any other tab type and both hide themselves.
+
 ---
 
 ## 🆚 Compare (File & Folder Diff)
@@ -637,6 +653,7 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] Preview pane zoom + maximise
 - [x] Snappy editor defaults (no ligatures / caret animations / smooth scroll)
 - [x] Find live decorations (gutter + minimap markers, current-match indicator)
+- [x] **Azure icon library** — searchable right-side panel with 1264 Azure icons (fetch-and-cache from maskati.github.io); drag-drop straight onto the whiteboard
 
 ### Next
 - [ ] **LSP for more languages** — Go (gopls), Rust (rust-analyzer), TypeScript (deeper than Monaco's built-in), etc. The registry pattern in `lsp-service.js` makes each new language a one-entry addition.

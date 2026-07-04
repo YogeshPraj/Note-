@@ -1510,6 +1510,7 @@ require(['vs/editor/editor.main'], () => {
   setupExternalChangeWatcher();
   setupContextMenu();
   setupDragDrop();
+  setupIconsPanel();
   setupFindReplace();
   setupModals();
   setupThemePicker();
@@ -2385,6 +2386,25 @@ function activateTab(id) {
   // workspace root, restore it when the file IS under the root. Keeps
   // the tree from sticking around for unrelated tabs.
   updateFileTreeForActiveTab();
+  // Icons library toolbar button: whiteboard tab only. When leaving a
+  // whiteboard tab with the panel open, hide the panel (it makes no
+  // sense over the editor / diff view).
+  updateIconsButtonVisibility();
+}
+
+// Show the "🎨 Icons" toolbar button only on whiteboard tabs, and hide
+// the icons panel automatically when the active tab isn't a whiteboard.
+function updateIconsButtonVisibility() {
+  const btn = document.getElementById('btn-icons');
+  const panel = document.getElementById('icons-panel');
+  const resize = document.getElementById('icons-panel-resize');
+  const tab = getActiveTab();
+  const isWb = !!(tab && tab.type === 'whiteboard');
+  if (btn) btn.classList.toggle('hidden', !isWb);
+  if (!isWb) {
+    panel?.classList.add('hidden');
+    resize?.classList.add('hidden');
+  }
 }
 
 // Reflect active-tab encryption state on the toolbar 🔒 button.
@@ -5614,10 +5634,26 @@ function _applyContextMenuLanguageFilter() {
 }
 
 // ===== Drag & Drop =====
+// Skip the "Drop files to open" overlay when the active tab hosts an
+// iframe (whiteboard / drawio). Those iframes handle their own file
+// drops natively — Excalidraw imports the SVG as an image, drawio adds
+// the file to the diagram. Intercepting them here strands the file on
+// the parent overlay ("Drop files to open" stuck on screen) and never
+// forwards it, because the parent's `preventDefault` on `dragover`
+// eats the events before the iframe can see them.
+function _dropShouldBypassIframe() {
+  const t = getActiveTab();
+  return t && (t.type === 'whiteboard' || t.type === 'drawio');
+}
 function setupDragDrop() {
-  document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drag-over'); });
+  document.addEventListener('dragover', (e) => {
+    if (_dropShouldBypassIframe()) return;   // Let the iframe handle it.
+    e.preventDefault();
+    document.body.classList.add('drag-over');
+  });
   document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('drag-over'); });
   document.addEventListener('drop', (e) => {
+    if (_dropShouldBypassIframe()) return;   // Iframe already handled it.
     e.preventDefault(); document.body.classList.remove('drag-over');
     const files = Array.from(e.dataTransfer.files)
       .map(f => {
@@ -6206,9 +6242,11 @@ function setupToolbar() {
         'encrypt-toggle': () => toggleTabEncryption(),
         'source-control': () => toggleSourceControlPanel(),
         'spell-toggle': () => cycleSpellMode(),
+        'whiteboard-new': () => createWhiteboardTab(null, ''),
+        'icons': () => toggleIconsPanel(),
       };
       map[a]?.();
-      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle') editor.focus();
+      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons') editor.focus();
     });
   });
 
@@ -7944,6 +7982,7 @@ function setupBackupPrefsPage() {
       document.getElementById('pref-backup-path').value = chosen;
     }
   });
+
 }
 
 async function loadBackupPrefs() {
@@ -8278,6 +8317,288 @@ function toggleSourceControlPanel() {
     renderSourceControlPanel();
     if (activeGitRepo) refreshGitStatus(activeGitRepo);
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Azure Icons library — docked right pane
+// ─────────────────────────────────────────────────────────────────────────
+// Toolbar 🎨 → fetches the maskati.github.io/azure-icons manifest via IPC,
+// renders a searchable grid of SVG thumbnails, lets the user drag any tile
+// onto the whiteboard iframe to insert it as an image element.
+//
+// Data flow:
+//   fetch manifest (IPC) → iconLibState.icons
+//   thumbnail render: fetch each SVG on first paint, cache the data URL
+//     in iconLibState.svgCache; subsequent grid renders reuse the cache
+//     with no additional IPC round-trip
+//   drag: dragstart on tile → we intercept via a transparent overlay
+//     that catches drops over the whiteboard iframe (the iframe swallows
+//     DOM drag events, so we sit above it during drag); on drop we
+//     compute canvas coords + postMessage `wb-add-icon` to the iframe
+// ═════════════════════════════════════════════════════════════════════════
+const iconLibState = {
+  icons: null,           // array of { name, type, keywords, description, svgPath }
+  filtered: null,        // current search-filtered subset
+  svgCache: new Map(),   // svgPath → { svg: string, dataURL: string }
+  loading: false,
+  dragIcon: null,        // { svgPath, name, dataURL } during drag
+  overlayEl: null,
+};
+
+function toggleIconsPanel() {
+  const panel = document.getElementById('icons-panel');
+  const resize = document.getElementById('icons-panel-resize');
+  if (!panel) return;
+  const willShow = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  resize?.classList.toggle('hidden');
+  if (willShow) {
+    // First open? Populate lazily.
+    if (!iconLibState.icons) loadIconManifest(false);
+    else renderIconsGrid();
+    document.getElementById('icons-search-input')?.focus();
+  }
+}
+
+async function loadIconManifest(force) {
+  if (iconLibState.loading) return;
+  iconLibState.loading = true;
+  const statusEl = document.getElementById('icons-panel-status');
+  const grid = document.getElementById('icons-panel-grid');
+  if (grid) grid.innerHTML = '';
+  if (statusEl) {
+    statusEl.classList.remove('error');
+    statusEl.textContent = force
+      ? 'Refreshing manifest from maskati.github.io/azure-icons…'
+      : 'Loading icon manifest…';
+    statusEl.style.display = '';
+  }
+  try {
+    const res = await window.electronAPI.iconLib.fetchManifest(!!force);
+    if (!res?.success) {
+      if (statusEl) {
+        statusEl.classList.add('error');
+        statusEl.innerHTML = `Failed to load manifest: ${escapeIconHtml(res?.error || 'unknown')}<br><br><em>Check your internet connection and click Refresh.</em>`;
+      }
+      return;
+    }
+    iconLibState.icons = res.icons;
+    if (statusEl) statusEl.style.display = 'none';
+    applyIconSearch();
+  } catch (err) {
+    if (statusEl) {
+      statusEl.classList.add('error');
+      statusEl.textContent = 'Failed: ' + (err.message || String(err));
+    }
+  } finally {
+    iconLibState.loading = false;
+  }
+}
+
+// Apply the current search string. Match against name + type + keywords.
+function applyIconSearch() {
+  if (!iconLibState.icons) return;
+  const q = (document.getElementById('icons-search-input')?.value || '').trim().toLowerCase();
+  if (!q) {
+    iconLibState.filtered = iconLibState.icons;
+  } else {
+    const terms = q.split(/\s+/).filter(Boolean);
+    iconLibState.filtered = iconLibState.icons.filter(icon => {
+      const hay = (icon.name + ' ' + icon.type + ' ' + icon.keywords).toLowerCase();
+      return terms.every(t => hay.includes(t));
+    });
+  }
+  const countEl = document.getElementById('icons-panel-count');
+  if (countEl) countEl.textContent = `${iconLibState.filtered.length} / ${iconLibState.icons.length}`;
+  renderIconsGrid();
+}
+
+// Cap DOM size to keep the panel responsive when the search is broad.
+// 500 tiles is enough to see full results after searching; scrolling to
+// see all 1000+ icons in the unfiltered view is a niche need.
+const ICONS_MAX_RENDER = 500;
+
+function renderIconsGrid() {
+  const grid = document.getElementById('icons-panel-grid');
+  if (!grid) return;
+  const list = iconLibState.filtered || [];
+  const truncated = list.length > ICONS_MAX_RENDER;
+  const view = truncated ? list.slice(0, ICONS_MAX_RENDER) : list;
+  grid.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const icon of view) {
+    const tile = document.createElement('div');
+    tile.className = 'icon-tile';
+    tile.title = `${icon.name}\n${icon.type}\n${icon.keywords || ''}`.trim();
+    tile.draggable = true;
+    tile.dataset.svgPath = icon.svgPath;
+
+    const cached = iconLibState.svgCache.get(icon.svgPath);
+    if (cached) {
+      const img = document.createElement('img');
+      img.src = cached.dataURL;
+      img.alt = icon.name;
+      tile.appendChild(img);
+    } else {
+      // Placeholder while we lazy-fetch. IntersectionObserver upgrades on scroll.
+      const ph = document.createElement('div');
+      ph.style.cssText = 'width:100%;height:100%;background:rgba(128,128,128,0.1);border-radius:2px';
+      tile.appendChild(ph);
+    }
+    frag.appendChild(tile);
+  }
+  grid.appendChild(frag);
+  if (truncated) {
+    const more = document.createElement('div');
+    more.style.cssText = 'grid-column: 1 / -1; padding: 10px; text-align: center; color: #888; font-size: 11px; font-style: italic';
+    more.textContent = `Showing first ${ICONS_MAX_RENDER} of ${list.length}. Refine your search to narrow.`;
+    grid.appendChild(more);
+  }
+  observeIconTiles();
+}
+
+// Lazy-load thumbnails as they scroll into view. Icons are ~1 KB each so
+// downloading them all upfront would work — but on first open with a
+// cold cache that's 1000+ concurrent IPC calls, which chokes the UI.
+let _iconObserver = null;
+function observeIconTiles() {
+  if (_iconObserver) _iconObserver.disconnect();
+  _iconObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const tile = e.target;
+      _iconObserver.unobserve(tile);
+      const svgPath = tile.dataset.svgPath;
+      if (!svgPath || iconLibState.svgCache.has(svgPath)) continue;
+      window.electronAPI.iconLib.getSvg(svgPath).then(res => {
+        if (!res?.success) return;
+        const dataURL = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(res.svg)));
+        iconLibState.svgCache.set(svgPath, { svg: res.svg, dataURL });
+        // Only inject the img if this tile is still the same icon
+        // (grid may have been re-rendered by a search change).
+        if (tile.dataset.svgPath === svgPath && tile.isConnected) {
+          tile.innerHTML = '';
+          const img = document.createElement('img');
+          img.src = dataURL;
+          img.alt = tile.title.split('\n')[0];
+          tile.appendChild(img);
+        }
+      }).catch(() => {});
+    }
+  }, { root: document.getElementById('icons-panel-body'), rootMargin: '200px' });
+  document.querySelectorAll('.icon-tile').forEach(t => _iconObserver.observe(t));
+}
+
+function escapeIconHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── Drag from panel → drop on whiteboard iframe ──────────────────────────
+// The iframe swallows drag events on its own body, so the parent's drop
+// handler never fires while the cursor is over the whiteboard canvas.
+// Workaround: while dragging an icon, we lay a transparent overlay over
+// the whiteboard-container so the parent catches the dragover / drop and
+// can compute canvas-relative coords. On drop we postMessage the SVG to
+// the iframe, which calls api.addFiles + creates the image element.
+function setupIconsPanel() {
+  const closeBtn = document.getElementById('icons-close-btn');
+  const refreshBtn = document.getElementById('icons-refresh-btn');
+  const searchInput = document.getElementById('icons-search-input');
+  const grid = document.getElementById('icons-panel-grid');
+
+  closeBtn?.addEventListener('click', toggleIconsPanel);
+  refreshBtn?.addEventListener('click', () => loadIconManifest(true));
+
+  let searchDebounce;
+  searchInput?.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(applyIconSearch, 150);
+  });
+
+  // Delegated dragstart on the grid so we don't need to attach to every tile.
+  grid?.addEventListener('dragstart', async (e) => {
+    const tile = e.target.closest('.icon-tile');
+    if (!tile) return;
+    const svgPath = tile.dataset.svgPath;
+    const cached = iconLibState.svgCache.get(svgPath);
+    // If not cached yet, fetch synchronously-ish. In practice the tile
+    // must already be visible to be draggable, so it's usually cached.
+    if (!cached) {
+      try {
+        const res = await window.electronAPI.iconLib.getSvg(svgPath);
+        if (res?.success) {
+          const dataURL = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(res.svg)));
+          iconLibState.svgCache.set(svgPath, { svg: res.svg, dataURL });
+        }
+      } catch {}
+    }
+    const now = iconLibState.svgCache.get(svgPath);
+    iconLibState.dragIcon = now
+      ? { svgPath, name: tile.title.split('\n')[0], dataURL: now.dataURL, svg: now.svg }
+      : null;
+    tile.classList.add('dragging');
+    // Native drag ghost — set a small drag image so the cursor shows
+    // what's being dragged.
+    if (now) {
+      const img = new Image();
+      img.src = now.dataURL;
+      try { e.dataTransfer.setDragImage(img, 24, 24); } catch {}
+    }
+    // Also stash a fallback plain-text payload so external drop targets
+    // (e.g. Excalidraw's built-in drop-URL handler) get something usable.
+    if (now) e.dataTransfer.setData('text/plain', now.svg);
+    e.dataTransfer.effectAllowed = 'copy';
+    showIconDragOverlay(true);
+  });
+
+  grid?.addEventListener('dragend', (e) => {
+    const tile = e.target.closest('.icon-tile');
+    tile?.classList.remove('dragging');
+    iconLibState.dragIcon = null;
+    showIconDragOverlay(false);
+  });
+}
+
+function showIconDragOverlay(on) {
+  const wbContainer = document.getElementById('whiteboard-container');
+  if (!wbContainer || wbContainer.classList.contains('hidden')) return;
+  let ov = document.getElementById('icons-drag-overlay');
+  if (!ov && on) {
+    ov = document.createElement('div');
+    ov.id = 'icons-drag-overlay';
+    wbContainer.appendChild(ov);
+    iconLibState.overlayEl = ov;
+    // Only enable pointer-events during drag so the overlay actually
+    // catches dragover / drop instead of the iframe below.
+    ov.style.pointerEvents = 'auto';
+    ov.addEventListener('dragover', (e) => {
+      if (!iconLibState.dragIcon) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    ov.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const drag = iconLibState.dragIcon;
+      showIconDragOverlay(false);
+      if (!drag) return;
+      const iframe = document.getElementById('whiteboard-frame');
+      if (!iframe) return;
+      // Post drop coords in iframe-relative pixel space; the iframe
+      // translates to canvas coords using its current viewport transform.
+      const rect = iframe.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      sendToWhiteboard({
+        type: 'wb-add-icon',
+        dataURL: drag.dataURL,
+        name: drag.name,
+        svgPath: drag.svgPath,
+        clientX: px,
+        clientY: py,
+      });
+    });
+  }
+  if (ov) ov.classList.toggle('active', !!on);
 }
 
 // ── Source Control panel rendering ────────────────────────────────────────
@@ -9206,9 +9527,94 @@ function togglePreviewMaximize() {
   if (btn) {
     btn.classList.toggle('active', previewMaximized);
     btn.title = previewMaximized ? 'Restore split view' : 'Maximise preview (hide editor)';
-    btn.textContent = previewMaximized ? '⤬' : '⛶';
+    // Restore uses the "overlapping windows" glyph — visually distinct
+    // from the close ✕ so users can tell them apart at a glance.
+    // Maximise uses the corner-frame ⛶.
+    btn.textContent = previewMaximized ? '❐' : '⛶';
   }
   editor?.layout();
+}
+
+// ── Preview ↔ editor scroll sync ───────────────────────────────────────────
+// Two-way binding: scrolling the editor scrolls the preview to the
+// matching block (found via data-source-line), and vice versa. A shared
+// "suppress" flag stops the two listeners from ping-ponging each other
+// after the first jump.
+let previewScrollSync = true;       // user toggle (persisted)
+let _syncSuppressUntil = 0;         // timestamp: ignore scroll events before this
+const SYNC_SUPPRESS_MS = 120;
+
+function _isMdPreviewActive() {
+  const mdEl = document.getElementById('preview-md-content');
+  return mdEl && !mdEl.classList.contains('hidden');
+}
+
+// Find the last `.md-block` whose source-line is at or before `line`.
+// Binary search — the preview can have hundreds of blocks in a long doc.
+function _findBlockForLine(line) {
+  const blocks = document.querySelectorAll('#preview-md-content .md-block');
+  if (!blocks.length) return null;
+  let lo = 0, hi = blocks.length - 1, best = blocks[0];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const bLine = +blocks[mid].dataset.sourceLine || 0;
+    if (bLine <= line) { best = blocks[mid]; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return best;
+}
+
+// Find the first `.md-block` whose top edge is at or below the scroll
+// container's top edge — i.e. the block currently at the top of the
+// preview viewport.
+function _findTopmostVisibleBlock() {
+  const scroller = document.getElementById('preview-md-content');
+  const blocks = scroller?.querySelectorAll('.md-block');
+  if (!scroller || !blocks?.length) return null;
+  const anchorY = scroller.getBoundingClientRect().top;
+  for (const b of blocks) {
+    if (b.getBoundingClientRect().bottom >= anchorY) return b;
+  }
+  return blocks[blocks.length - 1];
+}
+
+function setupPreviewScrollSync() {
+  const scroller = document.getElementById('preview-md-content');
+  if (!scroller || !editor) return;
+
+  // Editor → preview
+  editor.onDidScrollChange?.(() => {
+    if (!previewScrollSync || !previewOpen) return;
+    if (!_isMdPreviewActive()) return;
+    if (Date.now() < _syncSuppressUntil) return;
+    const vis = editor.getVisibleRanges?.()[0];
+    if (!vis) return;
+    const block = _findBlockForLine(vis.startLineNumber - 1);
+    if (!block) return;
+    _syncSuppressUntil = Date.now() + SYNC_SUPPRESS_MS;
+    const anchorY = scroller.getBoundingClientRect().top;
+    const blockY  = block.getBoundingClientRect().top;
+    scroller.scrollTop += (blockY - anchorY);
+  });
+
+  // Preview → editor (debounced via rAF so drag-scrolling doesn't
+  // fire hundreds of setPosition calls per second)
+  let pending = false;
+  scroller.addEventListener('scroll', () => {
+    if (!previewScrollSync || !previewOpen || pending) return;
+    if (!_isMdPreviewActive()) return;
+    if (Date.now() < _syncSuppressUntil) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      if (Date.now() < _syncSuppressUntil) return;
+      const block = _findTopmostVisibleBlock();
+      if (!block) return;
+      const line = +block.dataset.sourceLine + 1; // Monaco is 1-indexed
+      _syncSuppressUntil = Date.now() + SYNC_SUPPRESS_MS;
+      editor.revealLine(line, monaco.editor.ScrollType.Immediate);
+    });
+  }, { passive: true });
 }
 
 function setupPreview() {
@@ -9242,6 +9648,7 @@ function setupPreview() {
   }, { passive: false });
 
   setupMermaidToolbar();
+  setupPreviewScrollSync();
 
   // Horizontal resize handle
   const handle = document.getElementById('preview-resize-handle');
@@ -9837,10 +10244,27 @@ async function renderMarkdownPreview(content, container) {
     return;
   }
 
-  // Parse with one-time options (does NOT mutate global marked state)
+  // Parse with one-time options. We use the lexer + parser split
+  // instead of `marked.parse` so we can tag each top-level block with
+  // its source line number for scroll-sync. Wraps each block in a
+  // `<div class="md-block" data-source-line="N">` so scroll-sync can
+  // map Monaco lines ↔ preview positions.
   let html;
   try {
-    html = marked.parse(content, { renderer, gfm: true, breaks: false, pedantic: false });
+    const tokens = marked.lexer(content);
+    let lineCursor = 0;
+    const parts = [];
+    for (const tok of tokens) {
+      const startLine = lineCursor;
+      const rendered = marked.parser([tok], { renderer, gfm: true, breaks: false, pedantic: false });
+      parts.push(`<div class="md-block" data-source-line="${startLine}">${rendered}</div>`);
+      // Advance the cursor by the number of source lines this token
+      // consumed. `raw` includes trailing whitespace / newlines when
+      // marked has any (e.g. paragraph tokens end with \n\n).
+      const rawLines = (tok.raw ? tok.raw.split('\n').length - 1 : 0);
+      lineCursor += rawLines;
+    }
+    html = parts.join('');
   } catch (e) {
     container.innerHTML = `<div style="color:#c00000;padding:12px;font-family:monospace;font-size:12px">Markdown parse error: ${escHtml(e.message)}</div>`;
     return;
@@ -10791,4 +11215,5 @@ window.addEventListener('message', (e) => {
     const tab = tabs.find(t => t.type === 'whiteboard' && t.id === activeTabId);
     if (tab) saveTabFile(tab);
   }
+
 });

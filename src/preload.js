@@ -33,8 +33,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addWord: (word)     => ipcRenderer.invoke('spell:add-word', word),
   },
 
+  // Azure Icons library — fetch-and-cache from maskati.github.io/azure-icons.
+  iconLib: {
+    fetchManifest: (force)   => ipcRenderer.invoke('icons:fetch-manifest', !!force),
+    getSvg:        (relPath) => ipcRenderer.invoke('icons:get-svg', relPath),
+    clearCache:    ()        => ipcRenderer.invoke('icons:clear-cache'),
+  },
+
   // Markdown preview export (HTML / PDF / DOCX). HTML is just `writeFile`;
   // PDF and DOCX route through main-process converters that return base64.
+
   previewExport: {
     toPdf:  (html) => ipcRenderer.invoke('preview-export:to-pdf', html),
     toDocx: (html) => ipcRenderer.invoke('preview-export:to-docx', html),

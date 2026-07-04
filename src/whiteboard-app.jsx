@@ -42,6 +42,20 @@ const PROFESSIONAL_DEFAULTS = {
 // We use the iframe's own localStorage, which is scoped to whiteboard.html's
 // file:// origin and survives across Note++ launches.
 const LIBRARY_STORAGE_KEY = 'notepp.excalidraw.libraryItems.v1';
+// One-shot cleanup: earlier builds shipped a converted Azure icon library
+// that got auto-loaded into every user's personal library on first launch.
+// That feature was reverted; this wipe removes the leftover items so users
+// don't keep seeing them. Excalidraw's built-in "Insert image" tool is the
+// intended path for using SVG icons on the whiteboard now.
+const CLEANUP_MARKER = 'notepp.excalidraw.cleanup.v20260703-revert';
+if (typeof window !== 'undefined') {
+  try {
+    if (!localStorage.getItem(CLEANUP_MARKER)) {
+      localStorage.removeItem(LIBRARY_STORAGE_KEY);
+      localStorage.setItem(CLEANUP_MARKER, '1');
+    }
+  } catch {}
+}
 function readSavedLibraryItems() {
   try {
     const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
@@ -316,10 +330,63 @@ function App() {
         }, '*');
         return;
       }
+
+      if (m.type === 'wb-add-icon') {
+        // Icon-panel drag-drop: insert an SVG as an image element at
+        // the drop coords. clientX/clientY arrive in iframe-pixel
+        // space; convert to canvas coords via the current viewport
+        // transform (scrollX/scrollY/zoom).
+        if (!api || !m.dataURL) return;
+        try {
+          const st = api.getAppState();
+          const zoom = st.zoom?.value || 1;
+          const canvasX = (m.clientX - (st.scrollX || 0) * zoom) / zoom - 24;
+          const canvasY = (m.clientY - (st.scrollY || 0) * zoom) / zoom - 24;
+          const fileId = 'ic-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+          api.addFiles([{
+            id: fileId,
+            mimeType: 'image/svg+xml',
+            dataURL: m.dataURL,
+            created: Date.now(),
+            lastRetrieved: Date.now(),
+          }]);
+          const newEl = {
+            id: 'el-' + Math.random().toString(36).slice(2, 10),
+            type: 'image',
+            x: canvasX, y: canvasY,
+            width: 48, height: 48,
+            angle: 0,
+            strokeColor: 'transparent',
+            backgroundColor: 'transparent',
+            fillStyle: 'solid',
+            strokeWidth: 1,
+            strokeStyle: 'solid',
+            roughness: 0,
+            opacity: 100,
+            groupIds: [],
+            seed: Math.floor(Math.random() * 2 ** 31),
+            version: 1,
+            versionNonce: Math.floor(Math.random() * 2 ** 31),
+            isDeleted: false,
+            frameId: null,
+            roundness: null,
+            boundElements: null,
+            updated: Date.now(),
+            link: null,
+            locked: false,
+            crop: null,
+            fileId,
+            status: 'saved',
+            scale: [1, 1],
+          };
+          const cur = api.getSceneElements();
+          api.updateScene({ elements: [...cur, newEl] });
+        } catch (err) { console.warn('[wb] add-icon failed', err); }
+        return;
+      }
+
     };
     window.addEventListener('message', onMsg);
-    // Announce ready as soon as the api is available so the parent can flush
-    // any queued wb-load.
     if (api) {
       window.parent?.postMessage({ type: 'wb-ready' }, '*');
     }

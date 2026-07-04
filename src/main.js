@@ -1497,6 +1497,125 @@ function getDrawioService() {
   return drawioService;
 }
 
+
+// ── Azure Icons library (maskati.github.io/azure-icons) ──────────────────
+// Fetch-and-cache: on first "Icons" panel open, main-process pulls the
+// static HTML page, parses its table into a JSON manifest, and stores it
+// under userData. Individual SVGs are downloaded on demand and cached
+// permanently under `icon-cache/svgs/`. Zero network cost on subsequent
+// uses once fetched. A "Refresh" button in the panel forces a re-fetch.
+const ICON_LIB_HOST = 'https://maskati.github.io';
+const ICON_LIB_INDEX = ICON_LIB_HOST + '/azure-icons/';
+const _iconCacheRoot = () => path.join(app.getPath('userData'), 'icon-cache');
+const _iconManifestFile = () => path.join(_iconCacheRoot(), 'manifest.json');
+const _iconSvgDir = () => path.join(_iconCacheRoot(), 'svgs');
+
+function _httpsGet(url) {
+  // Thin promise wrapper around Node's https.get. Follows one redirect.
+  const https = require('https');
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'notepp' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const next = res.headers.location.startsWith('http')
+          ? res.headers.location
+          : new URL(res.headers.location, url).toString();
+        res.resume(); // drain
+        return _httpsGet(next).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(20000, () => { req.destroy(new Error('timeout')); });
+  });
+}
+
+// Parse maskati's HTML table. Each <tr> contains:
+//   <td><img src="svg/Namespace/File.svg"></td>
+//   <td>Display name</td>
+//   <td>type namespace</td>
+//   <td>space-separated keywords</td>
+//   <td>optional description</td>
+// We ignore markup we don't need and pull just the fields for search+drag.
+function _parseIconManifest(html) {
+  const rows = [];
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+  const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
+  const imgRegex = /<img[^>]+src=["']([^"']+)["']/i;
+  const stripTags = s => s.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const decode = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  let m;
+  while ((m = trRegex.exec(html))) {
+    const tds = [];
+    let tm;
+    tdRegex.lastIndex = 0;
+    while ((tm = tdRegex.exec(m[1]))) tds.push(tm[1]);
+    if (tds.length < 4) continue;
+    const img = imgRegex.exec(tds[0]);
+    if (!img) continue;
+    rows.push({
+      svgPath:     decode(img[1].trim()),
+      name:        decode(stripTags(tds[1])),
+      type:        decode(stripTags(tds[2])),
+      keywords:    decode(stripTags(tds[3])),
+      description: decode(stripTags(tds[4] || '')),
+    });
+  }
+  return rows;
+}
+
+ipcMain.handle('icons:fetch-manifest', async (_e, force) => {
+  try {
+    fs.mkdirSync(_iconCacheRoot(), { recursive: true });
+    if (!force && fs.existsSync(_iconManifestFile())) {
+      const cached = JSON.parse(fs.readFileSync(_iconManifestFile(), 'utf-8'));
+      return { success: true, cached: true, count: cached.length, icons: cached };
+    }
+    const html = await _httpsGet(ICON_LIB_INDEX);
+    const icons = _parseIconManifest(html);
+    if (!icons.length) return { success: false, error: 'no icons parsed from index page' };
+    fs.writeFileSync(_iconManifestFile(), JSON.stringify(icons));
+    return { success: true, cached: false, count: icons.length, icons };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Get an SVG by its relative manifest path. Downloads + caches on first
+// request. Returns the raw SVG string.
+ipcMain.handle('icons:get-svg', async (_e, relPath) => {
+  try {
+    if (typeof relPath !== 'string' || relPath.includes('..')) {
+      return { success: false, error: 'invalid path' };
+    }
+    const cacheFile = path.join(_iconSvgDir(), relPath);
+    if (fs.existsSync(cacheFile)) {
+      return { success: true, cached: true, svg: fs.readFileSync(cacheFile, 'utf-8') };
+    }
+    const svg = await _httpsGet(ICON_LIB_INDEX + relPath);
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, svg);
+    return { success: true, cached: false, svg };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('icons:clear-cache', () => {
+  try {
+    if (fs.existsSync(_iconCacheRoot())) fs.rmSync(_iconCacheRoot(), { recursive: true, force: true });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle('drawio:status',    () => getDrawioService().getStatus());
 ipcMain.handle('drawio:download',  async () => {
   try { return await getDrawioService().download(); }

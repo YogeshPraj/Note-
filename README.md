@@ -29,19 +29,6 @@
 
 ---
 
-> ### ⚠️ Important — Existing Windows users on 1.7.4 or earlier
->
-> **Auto-update is broken for the 1.7.4 → 1.7.5/1.7.6 hop.** The toolbar pill freezes at `Downloading 100%` and the install never starts (electron-updater rejects our self-signed certificate's untrusted root). The fix is already shipping in **1.7.6 onwards** — but the broken code is the one *running on your machine*, so the very next update has to be done by hand, this one time only.
->
-> **What to do:**
-> 1. Download the latest installer: **[notepp-win-x64.exe](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.exe)**
-> 2. **Right-click the downloaded `.exe` → `Run as administrator`** (required so it can replace the existing install)
-> 3. Let it overwrite your current installation
->
-> From 1.7.6 onward, in-app auto-update works normally again — this is a one-time manual step.
-
----
-
 ## 📖 About
 
 **Note++** is what happens when you take the spirit of Notepad++ and rebuild it on a modern foundation. It's not trying to be another VS Code, and it's not trying to be a generic notepad — it sits comfortably in between: fast to launch, low-friction to use, with the editing power developers actually need day to day, plus a handful of opinionated extras you won't find anywhere else.
@@ -577,8 +564,6 @@ flowchart LR
 ## 🔄 Auto-Update
 
 Note++ ships with `electron-updater` wired to the GitHub releases provider — silent background download, explicit click-to-install. Default-on, persisted setting.
-
-> **⚠️ One-time manual upgrade required if you're on 1.7.4 or earlier (Windows).** Auto-update freezes at `Downloading 100%` for that one hop because the Windows trust store rejects our self-signed code-signing certificate's root. Download [notepp-win-x64.exe](https://github.com/YogeshPraj/Note-/releases/latest/download/notepp-win-x64.exe) and run it **as administrator** (right-click → `Run as administrator`). Auto-update works normally from 1.7.6 onward.
 
 ### How it surfaces
 

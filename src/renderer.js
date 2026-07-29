@@ -1503,8 +1503,10 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.PageDown,
     () => editor.trigger('keyboard', 'cursorColumnSelectPageDown', null));
 
-  // Theme picker was retired in favour of Preferences → Themes. The
-  // Ctrl+Alt+T shortcut and the menu entry are no longer registered.
+  // Ctrl+Alt+T (reopen closed tab) and Ctrl± / Ctrl0 (zoom) are wired
+  // as document-level shortcuts in setupGlobalShortcuts() so they fire
+  // from whiteboard/drawio/game tabs too — Monaco's addCommand only
+  // fires while the editor has focus.
 
   setupMenuListeners();
   setupExternalChangeWatcher();
@@ -1523,6 +1525,7 @@ require(['vs/editor/editor.main'], () => {
   setupCmdPalette();
   setupPreview();
   setupGlobalEscape();
+  setupGlobalShortcuts();
   setupAltMouseColumnSelect();
   updateStatusBar();
   statusCol?.addEventListener('click', () => toggleColumnSelectMode());
@@ -2667,6 +2670,51 @@ function initTabDrag(e, tabId, tabEl) {
   e.preventDefault();
 }
 
+// ── Reopen-closed-tab stack (Ctrl+Alt+T) ────────────────────────────────
+// LIFO of snapshots taken at the moment a tab is confirmed to close
+// (after the "Save?" prompt, before splice). Reopen restores editor,
+// whiteboard, and drawio tabs — never compare views (they're transient)
+// and never the Dev Arcade (reopen it from the toolbar). Cap keeps the
+// stack from growing unbounded across a long session.
+const closedTabStack = [];
+const CLOSED_TAB_STACK_MAX = 20;
+function pushClosedTab(tab) {
+  if (!tab) return;
+  // Compare tabs are transient; games are trivial to reopen from the toolbar.
+  if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff' || tab.type === 'game') return;
+  let content = tab.content || '';
+  if (tab.type === 'editor' && tab.model) {
+    try { content = tab.model.getValue(); } catch {}
+  }
+  closedTabStack.push({
+    type: tab.type,
+    name: tab.name,
+    filePath: tab.filePath || null,
+    content,
+    language: tab.language || null,
+  });
+  while (closedTabStack.length > CLOSED_TAB_STACK_MAX) closedTabStack.shift();
+}
+function reopenClosedTab() {
+  const entry = closedTabStack.pop();
+  if (!entry) { showToast('Nothing to reopen'); return; }
+  // If the tab had a real file backing it, openFile handles everything —
+  // it also gives us de-duplication if that file is already open in
+  // another tab (focuses the existing one instead of duplicating).
+  if (entry.filePath) { openFile([entry.filePath]); return; }
+  // Unsaved tab — recreate with its stashed content.
+  try {
+    if (entry.type === 'whiteboard') { createWhiteboardTab(null, entry.content || ''); return; }
+    if (entry.type === 'drawio')     { createDrawioTab(null, entry.content || ''); return; }
+    // Default: editor.
+    const tab = createTab(null, entry.content || '');
+    if (tab && entry.language) { tab.language = entry.language; try { monaco.editor.setModelLanguage(tab.model, entry.language); } catch {} }
+  } catch (err) {
+    console.warn('[reopen-tab] failed', err);
+    showToast('Failed to reopen tab');
+  }
+}
+
 async function closeTab(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
@@ -2726,6 +2774,7 @@ async function closeTab(id) {
         if (!ok) return;
       }
     }
+    pushClosedTab(tab);
     const idx = tabs.findIndex(t => t.id === id);
     tabs.splice(idx, 1);
     // If no more whiteboard tabs exist, unload the iframe to free memory
@@ -2753,6 +2802,7 @@ async function closeTab(id) {
       if (r.response === 2) return;
       if (r.response === 0) { const ok = await saveTabFile(tab); if (!ok) return; }
     }
+    pushClosedTab(tab);
     const idx = tabs.findIndex(t => t.id === id);
     tabs.splice(idx, 1);
     if (!tabs.some(t => t.type === 'drawio')) {
@@ -2785,6 +2835,9 @@ async function closeTab(id) {
   }
   // LSP: send textDocument/didClose
   try { window.NotePPLsp?.onTabClosed(tab); } catch {}
+  // Snapshot BEFORE model.dispose — pushClosedTab reads model.getValue()
+  // for editor tabs.
+  pushClosedTab(tab);
   tab.model.dispose();
   tabs.splice(idx, 1);
   if (tabs.length === 0) createTab();
@@ -9409,6 +9462,59 @@ function setupAiPrefsPage() {
   document.getElementById('pref-ai-system').addEventListener('change', e => {
     saveSetting('ai.systemPrompt', e.target.value);
   });
+}
+
+// ===== Global keyboard shortcuts =====
+// These fire regardless of which tab type is active (Monaco's addCommand
+// only works while the editor has focus, so whiteboard / drawio / game
+// tabs would miss them without a document-level listener).
+//
+// Uses the CAPTURE phase so it beats Monaco's own key handling — otherwise
+// Monaco would swallow Ctrl+= etc. as its own default zoom before we saw
+// them. When we handle a match we stopPropagation to keep everyone else
+// from double-firing.
+function setupGlobalShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    // Skip when the user is typing in a form field — don't want to steal
+    // Ctrl+- inside a numeric input, for example.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
+    if (!e.ctrlKey && !e.metaKey) return;
+    const k = e.key;
+
+    // Ctrl+Alt+T → reopen the most recently closed tab.
+    if (e.altKey && !e.shiftKey && (k === 't' || k === 'T')) {
+      e.preventDefault(); e.stopPropagation();
+      reopenClosedTab();
+      return;
+    }
+
+    // Zoom in — Ctrl+= / Ctrl++ / Ctrl+NumpadAdd
+    if (!e.altKey && (k === '=' || k === '+' || e.code === 'NumpadAdd')) {
+      e.preventDefault(); e.stopPropagation();
+      zoomIn();
+      return;
+    }
+
+    // Zoom out — Ctrl+- / Ctrl+NumpadSubtract
+    if (!e.altKey && !e.shiftKey && (k === '-' || e.code === 'NumpadSubtract')) {
+      e.preventDefault(); e.stopPropagation();
+      zoomOut();
+      return;
+    }
+
+    // Ctrl+0 / Ctrl+Numpad0 → reset zoom (bonus — matches VS Code / browsers)
+    if (!e.altKey && !e.shiftKey && (k === '0' || e.code === 'Numpad0')) {
+      // Only claim this if there's actually a zoom to reset — Ctrl+0 is
+      // used by some other flows and we don't want to steal it universally.
+      if (typeof currentFontSize === 'number' && currentFontSize !== 14) {
+        e.preventDefault(); e.stopPropagation();
+        currentFontSize = 14;
+        applyZoom();
+      }
+    }
+  }, true /* capture */);
 }
 
 // ===== Global ESC Handler =====

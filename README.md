@@ -588,6 +588,7 @@ Note++ ships with `electron-updater` wired to the GitHub releases provider — s
 | `Ctrl+O`             | Open file                             |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save All                 |
 | `Ctrl+W`             | Close tab                             |
+| `Ctrl+Alt+T`         | Reopen last closed tab                |
 | `Ctrl+P`             | Quick Open                            |
 | `Ctrl+Shift+P`       | Command Palette                       |
 | `Ctrl+Shift+G`       | Toggle Source Control                 |

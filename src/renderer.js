@@ -953,6 +953,7 @@ const MENU_STRUCTURE = [
   { label: '?', items: [
     { label: 'About Note++',              ch: 'menu-about' },
     { sep: true },
+    { label: 'Show Feature Tour',         ch: 'menu-feature-tour' },
     { label: 'Show Boot Performance',     ch: 'menu-boot-perf' },
     { sep: true },
     { label: 'Keyboard Shortcuts Reference', ch: 'menu-shortcuts-ref' },
@@ -1526,6 +1527,14 @@ require(['vs/editor/editor.main'], () => {
   setupPreview();
   setupGlobalEscape();
   setupGlobalShortcuts();
+  // First-run tour — fires ~1.2 s after boot so the app is fully painted
+  // and the toolbar buttons are guaranteed to be laid out. Marker in
+  // localStorage prevents repeat. Users can replay via ? menu.
+  try {
+    if (!localStorage.getItem(FEATURE_TOUR_MARKER)) {
+      setTimeout(() => runFeatureTour(), 1200);
+    }
+  } catch {}
   setupAltMouseColumnSelect();
   updateStatusBar();
   statusCol?.addEventListener('click', () => toggleColumnSelectMode());
@@ -2393,6 +2402,31 @@ function activateTab(id) {
   // whiteboard tab with the panel open, hide the panel (it makes no
   // sense over the editor / diff view).
   updateIconsButtonVisibility();
+  // First-run contextual tips — fired here because activateTab is the
+  // one path all tab-visibility transitions flow through. Each individual
+  // tip is guarded by a localStorage marker (see showTipOnce).
+  try {
+    if (tab.type === 'whiteboard') {
+      maybeFireContextualTip('whiteboard-open');
+    } else if (tab.type === 'editor') {
+      const lang = tab.language || '';
+      if (lang === 'markdown' || lang === 'html' || lang === 'mermaid') {
+        maybeFireContextualTip('previewable-file', { lang });
+      }
+      // Git tip — active file lives in a repo we already detected.
+      if (tab.filePath && typeof gitFileToRepo !== 'undefined' && gitFileToRepo?.get?.(tab.filePath)) {
+        maybeFireContextualTip('git-repo-file');
+      }
+      // Python + no LSP — only fire if the LSP pill is showing the
+      // "missing" state (className has 'lsp-missing' etc.)
+      if (lang === 'python') {
+        const pill = document.getElementById('status-lsp');
+        if (pill && /missing|install/i.test(pill.textContent || '')) {
+          maybeFireContextualTip('python-no-lsp');
+        }
+      }
+    }
+  } catch (e) { console.warn('[tips] trigger failed', e); }
 }
 
 // Show the "🎨 Icons" toolbar button only on whiteboard tabs, and hide
@@ -6539,6 +6573,7 @@ function setupMenuListeners() {
   m('menu-preferences', openPreferences);
   m('menu-about', () => document.getElementById('about-dialog').classList.remove('hidden'));
   m('menu-boot-perf', () => showBootPerfDialog());
+  m('menu-feature-tour', () => runFeatureTour());
 
   // ── draw.io ─────────────────────────────────────────────────────────────
   m('menu-new-drawio', () => createDrawioTab(null, ''));
@@ -9520,6 +9555,269 @@ function setupGlobalShortcuts() {
     }
   }, true /* capture */);
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// Feature-callout system — powers BOTH the first-run tour and one-shot
+// contextual tips. Shared primitive: a translucent overlay + spotlight
+// ring around a target button + popover with title/body/buttons.
+// ═════════════════════════════════════════════════════════════════════
+const FEATURE_TIP_PREFIX = 'notepp.tip.';
+const FEATURE_TOUR_MARKER = 'notepp.tour.v1.done';
+let _fcCleanup = null;
+
+// Show a callout. `opts` shape:
+//   { targetSelector?: string, target?: Element,
+//     title, body,
+//     nextLabel = 'Next', onNext, onSkip, skipLabel = 'Skip',
+//     step?: number, totalSteps?: number,   // shown as "3 / 8"
+//     side?: 'top'|'bottom'|'left'|'right'  // auto if omitted }
+// Returns a `close()` function.
+function showFeatureCallout(opts) {
+  hideFeatureCallout();  // only one at a time
+
+  const overlay  = document.createElement('div');
+  overlay.id     = 'feature-callout-overlay';
+  const spot     = document.createElement('div');
+  spot.id        = 'feature-callout-spotlight';
+  const popover  = document.createElement('div');
+  popover.id     = 'feature-callout-popover';
+  overlay.appendChild(spot);
+
+  const target = opts.target || (opts.targetSelector ? document.querySelector(opts.targetSelector) : null);
+  if (!target) overlay.classList.add('no-target');
+
+  // Popover content — plain HTML because content is fully controlled by us.
+  const stepHtml = (opts.step && opts.totalSteps)
+    ? `<span class="fc-step">Step ${opts.step} of ${opts.totalSteps}</span>`
+    : '<span class="fc-step"></span>';
+  const skipBtn = opts.onSkip
+    ? `<button class="fc-btn" data-fc-action="skip">${escapeFcHtml(opts.skipLabel || 'Skip')}</button>`
+    : '';
+  popover.innerHTML = `
+    <h3>${escapeFcHtml(opts.title || '')}</h3>
+    <p>${escapeFcHtml(opts.body || '')}</p>
+    <div class="fc-actions">
+      ${stepHtml}
+      <div class="fc-btn-row">
+        ${skipBtn}
+        <button class="fc-btn fc-btn-primary" data-fc-action="next">${escapeFcHtml(opts.nextLabel || 'Next')}</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(popover);
+
+  // Position spotlight + popover relative to the target. Recompute on
+  // resize / scroll because the underlying app can reflow (tab switches,
+  // panel toggles, etc.) while a callout is up.
+  const layout = () => {
+    if (!target) {
+      // Centered popover, no spotlight.
+      popover.style.top  = `calc(50% - ${popover.offsetHeight / 2}px)`;
+      popover.style.left = `calc(50% - ${popover.offsetWidth / 2}px)`;
+      popover.removeAttribute('data-arrow');
+      return;
+    }
+    const r = target.getBoundingClientRect();
+    // Spotlight around target with a small padding
+    const pad = 6;
+    spot.style.top    = (r.top - pad) + 'px';
+    spot.style.left   = (r.left - pad) + 'px';
+    spot.style.width  = (r.width + pad * 2) + 'px';
+    spot.style.height = (r.height + pad * 2) + 'px';
+
+    // Popover side: auto — prefer below the target if there's room, else above.
+    // If the target is on the top-right of the toolbar we drop the popover
+    // below so it doesn't clip off the window edge.
+    const pw = popover.offsetWidth || 300;
+    const ph = popover.offsetHeight || 140;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const side = opts.side || (spaceBelow > ph + 24 ? 'bottom' : 'top');
+    let top, left, arrow;
+    if (side === 'bottom') {
+      top   = r.bottom + 14;
+      left  = Math.min(Math.max(r.left - 8, 12), window.innerWidth - pw - 12);
+      arrow = 'top';
+    } else if (side === 'top') {
+      top   = r.top - ph - 14;
+      left  = Math.min(Math.max(r.left - 8, 12), window.innerWidth - pw - 12);
+      arrow = 'bottom';
+    } else if (side === 'right') {
+      top   = Math.max(r.top - 8, 12);
+      left  = r.right + 14;
+      arrow = 'left';
+    } else {
+      top   = Math.max(r.top - 8, 12);
+      left  = r.left - pw - 14;
+      arrow = 'right';
+    }
+    popover.style.top  = top  + 'px';
+    popover.style.left = left + 'px';
+    popover.setAttribute('data-arrow', arrow);
+  };
+  layout();
+  requestAnimationFrame(layout);  // re-layout once dimensions are real
+  const relayout = () => requestAnimationFrame(layout);
+  window.addEventListener('resize', relayout);
+  window.addEventListener('scroll', relayout, true);
+
+  const cleanup = () => {
+    window.removeEventListener('resize', relayout);
+    window.removeEventListener('scroll', relayout, true);
+    overlay.remove();
+    popover.remove();
+    if (_fcCleanup === cleanup) _fcCleanup = null;
+  };
+  _fcCleanup = cleanup;
+
+  popover.querySelector('[data-fc-action="next"]')?.addEventListener('click', () => {
+    cleanup();
+    try { opts.onNext && opts.onNext(); } catch (e) { console.warn('[callout] onNext failed', e); }
+  });
+  popover.querySelector('[data-fc-action="skip"]')?.addEventListener('click', () => {
+    cleanup();
+    try { opts.onSkip && opts.onSkip(); } catch (e) { console.warn('[callout] onSkip failed', e); }
+  });
+  // Click on the dimmed area = skip (or dismiss if no skip handler)
+  overlay.addEventListener('click', (e) => {
+    if (e.target !== overlay) return;
+    cleanup();
+    try { (opts.onSkip || opts.onNext || (() => {}))(); } catch {}
+  });
+
+  return cleanup;
+}
+
+function hideFeatureCallout() {
+  if (_fcCleanup) _fcCleanup();
+}
+
+function escapeFcHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── First-run tour ──────────────────────────────────────────────────────
+// Fires once on the very first launch (marker in localStorage). Also
+// available on-demand from ? menu → Feature Tour.
+function runFeatureTour() {
+  const steps = [
+    {
+      title: '👋 Welcome to Note++',
+      body: "Note++ has a lot more under the hood than a typical text editor. Let's take 45 seconds to point out the highlights — you can skip anytime.",
+    },
+    {
+      target: '#btn-whiteboard',
+      title: '🎨 Whiteboards',
+      body: 'Click here to open an Excalidraw-powered hand-drawn whiteboard tab — great for quick sketches, wireframes, and diagrams. When a whiteboard is active, an 🖼️ icon library (1264 Azure icons) appears next to this button.',
+    },
+    {
+      target: '#btn-preview',
+      title: '👁 Live preview',
+      body: 'Click while editing Markdown, HTML, or Mermaid to open a resizable preview pane alongside the editor. Updates as you type.',
+    },
+    {
+      target: '#btn-terminal',
+      title: '⌨ Integrated terminal',
+      body: 'Full PowerShell / bash terminal embedded in the app — proper resize, colors, no cold-start.',
+    },
+    {
+      target: '#btn-sc',
+      title: '⎇ Source Control',
+      body: 'Full git panel — stage, commit, branches, push/pull. Auto-detects any repo the active file lives in.',
+    },
+    {
+      target: '#btn-ai',
+      title: '🤖 AI Assistant',
+      body: 'Local, private, free AI via Ollama. One-click setup installs the daemon and downloads a model. Chat mode for discussion, Agent mode to rewrite your file with a diff preview.',
+    },
+    {
+      title: "✅ You're all set",
+      body: "That's the tour. Ctrl+Shift+P opens the command palette — everything else is one keystroke away. Re-run this tour anytime from the ? menu → Show Feature Tour.",
+    },
+  ];
+
+  let i = 0;
+  const total = steps.length;
+  const finish = () => { try { localStorage.setItem(FEATURE_TOUR_MARKER, '1'); } catch {} };
+  const next = () => {
+    if (i >= steps.length) { finish(); return; }
+    const s = steps[i]; i++;
+    showFeatureCallout({
+      targetSelector: s.target,
+      title: s.title,
+      body: s.body,
+      step: i,
+      totalSteps: total,
+      nextLabel: i === total ? 'Done' : 'Next',
+      onNext: next,
+      onSkip: finish,
+    });
+  };
+  next();
+}
+
+// ── One-shot contextual tips ────────────────────────────────────────────
+// Fire once per user (marker in localStorage) when triggering condition
+// is met. Skips silently if the tour is currently on screen so we don't
+// stack overlays.
+function showTipOnce(id, opts) {
+  try { if (localStorage.getItem(FEATURE_TIP_PREFIX + id)) return; } catch { return; }
+  if (_fcCleanup) return;  // tour or another tip already up — skip this trigger
+  // Also skip if the target isn't visible (e.g., button hidden on non-whiteboard tabs).
+  const target = opts.targetSelector ? document.querySelector(opts.targetSelector) : null;
+  if (opts.targetSelector && (!target || target.classList.contains('hidden') || target.offsetParent === null)) return;
+  showFeatureCallout({
+    ...opts,
+    target: target || opts.target,
+    nextLabel: 'Got it',
+    onNext: () => { try { localStorage.setItem(FEATURE_TIP_PREFIX + id, '1'); } catch {} },
+  });
+}
+
+// Called from various hot paths whenever a triggering condition is met.
+// Each tip fires at most once per user; guard checks happen inside showTipOnce.
+function maybeFireContextualTip(kind, ctx) {
+  ctx = ctx || {};
+  if (kind === 'previewable-file') {
+    // Open .md / .html — hint about the 👁 preview button
+    showTipOnce('preview', {
+      targetSelector: '#btn-preview',
+      title: '💡 Live preview available',
+      body: `You just opened a ${ctx.lang || 'preview-able'} file — click the 👁 button in the toolbar to see it rendered live alongside the editor. Toggle with Ctrl+Shift+V.`,
+    });
+    return;
+  }
+  if (kind === 'whiteboard-open') {
+    // First whiteboard tab activated — hint about the icons library
+    // Slight delay so the 🖼️ button has time to un-hide via updateIconsButtonVisibility.
+    setTimeout(() => showTipOnce('icons', {
+      targetSelector: '#btn-icons',
+      title: '🖼️ 1264 Azure icons',
+      body: 'Click here to open the icon library — search by name/tag and drag any tile onto the whiteboard to insert it as an image.',
+    }), 300);
+    return;
+  }
+  if (kind === 'git-repo-file') {
+    showTipOnce('git', {
+      targetSelector: '#btn-sc',
+      title: '⎇ Full git panel',
+      body: 'This file lives in a git repo. Click ⎇ (or Ctrl+Shift+G) to stage, commit, and push without leaving the editor.',
+    });
+    return;
+  }
+  if (kind === 'python-no-lsp') {
+    showTipOnce('lsp-install', {
+      targetSelector: '#status-lsp',
+      title: '💡 One-click Pyright install',
+      body: 'This Python file could get real diagnostics, hover docs, and completion. Click the LSP pill in the status bar to install Pyright globally.',
+    });
+    return;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// End feature-callout system
+// ═════════════════════════════════════════════════════════════════════
 
 // ===== Global ESC Handler =====
 function setupGlobalEscape() {

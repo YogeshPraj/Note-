@@ -2732,6 +2732,128 @@ body.theme-dark #icons-panel-resize:hover { background: #3a3a3a; }
 .zen-mode #icons-panel,
 .zen-mode #icons-panel-resize { display: none !important; }
 
+/* ═════════════════════════════════════════════════════════════════════
+   Feature-callout overlay — powers the first-run tour AND the one-shot
+   contextual tips. A translucent scrim covers the whole app; a bright
+   spotlight ring is drawn around the target button; a popover floats
+   near the target with title, body, Next/Skip/Got-it buttons and a
+   step counter (tour only).
+   ═════════════════════════════════════════════════════════════════════ */
+#feature-callout-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 100000;
+  animation: fc-overlay-in 180ms ease;
+}
+@keyframes fc-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+
+#feature-callout-spotlight {
+  position: fixed;
+  border: 3px solid #4a9eff;
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px rgba(74, 158, 255, 0.35),
+              0 0 20px 4px rgba(74, 158, 255, 0.55),
+              0 0 0 9999px rgba(0, 0, 0, 0.55);  /* fake cutout — dims everything outside the ring */
+  pointer-events: none;
+  z-index: 100001;
+  transition: top 200ms ease, left 200ms ease, width 200ms ease, height 200ms ease;
+  animation: fc-pulse 1.6s ease-in-out infinite;
+}
+@keyframes fc-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(74, 158, 255, 0.35),
+                          0 0 20px 4px rgba(74, 158, 255, 0.55),
+                          0 0 0 9999px rgba(0, 0, 0, 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(74, 158, 255, 0.45),
+                          0 0 30px 8px rgba(74, 158, 255, 0.65),
+                          0 0 0 9999px rgba(0, 0, 0, 0.55); }
+}
+/* When there's no target (welcome / done step), skip the spotlight and
+   just dim everything uniformly — the overlay handles that on its own. */
+#feature-callout-overlay.no-target #feature-callout-spotlight { display: none; }
+#feature-callout-overlay.no-target { background: rgba(0, 0, 0, 0.72); }
+
+#feature-callout-popover {
+  position: fixed;
+  min-width: 260px;
+  max-width: 360px;
+  background: #ffffff;
+  color: #1a1a1a;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+  padding: 16px 18px 14px;
+  z-index: 100002;
+  font-size: 13px;
+  line-height: 1.45;
+  transition: top 200ms ease, left 200ms ease;
+}
+#feature-callout-popover h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+#feature-callout-popover p {
+  margin: 0 0 12px;
+  color: #444;
+}
+#feature-callout-popover .fc-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#feature-callout-popover .fc-step {
+  font-size: 11px;
+  color: #888;
+  letter-spacing: 0.5px;
+}
+#feature-callout-popover .fc-btn-row { display: flex; gap: 6px; }
+#feature-callout-popover .fc-btn {
+  padding: 5px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #f5f5f5;
+  color: #333;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+#feature-callout-popover .fc-btn:hover { background: #eaeaea; }
+#feature-callout-popover .fc-btn-primary {
+  background: #4a9eff;
+  color: #fff;
+  border-color: #4a9eff;
+}
+#feature-callout-popover .fc-btn-primary:hover { background: #3a8eef; }
+/* Small arrow that points from the popover toward the target. Direction
+   is set by adding data-arrow="top|right|bottom|left" on the popover. */
+#feature-callout-popover::before {
+  content: '';
+  position: absolute;
+  width: 0; height: 0;
+  border: 8px solid transparent;
+}
+#feature-callout-popover[data-arrow="top"]::before    { top: -16px;   left: 24px;                border-bottom-color: #fff; }
+#feature-callout-popover[data-arrow="bottom"]::before { bottom: -16px; left: 24px;                border-top-color: #fff; }
+#feature-callout-popover[data-arrow="left"]::before   { left: -16px;   top: 20px;                 border-right-color: #fff; }
+#feature-callout-popover[data-arrow="right"]::before  { right: -16px;  top: 20px;                 border-left-color: #fff; }
+
+body.theme-dark #feature-callout-popover {
+  background: #2a2a2e;
+  color: #e0e0e0;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+body.theme-dark #feature-callout-popover h3 { color: #e0e0e0; }
+body.theme-dark #feature-callout-popover p { color: #b0b0b0; }
+body.theme-dark #feature-callout-popover .fc-btn {
+  background: #3a3a3e; color: #e0e0e0; border-color: #4a4a4e;
+}
+body.theme-dark #feature-callout-popover .fc-btn:hover { background: #46464a; }
+body.theme-dark #feature-callout-popover[data-arrow="top"]::before    { border-bottom-color: #2a2a2e; }
+body.theme-dark #feature-callout-popover[data-arrow="bottom"]::before { border-top-color:    #2a2a2e; }
+body.theme-dark #feature-callout-popover[data-arrow="left"]::before   { border-right-color:  #2a2a2e; }
+body.theme-dark #feature-callout-popover[data-arrow="right"]::before  { border-left-color:   #2a2a2e; }
+
 /* Drag over */
 body.drag-over::after {
   content: 'Drop files to open';

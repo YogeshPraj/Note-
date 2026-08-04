@@ -729,6 +729,7 @@ function buildMenu() {
       submenu: [
         { label: '&About Note++', click: () => send('menu-about') },
         { type: 'separator' },
+        { label: 'Show &Feature Tour', click: () => send('menu-feature-tour') },
         { label: 'Show &Boot Performance', click: () => send('menu-boot-perf') },
         { type: 'separator' },
         { label: '&Keyboard Shortcuts Reference', click: () => send('menu-shortcuts-ref') },

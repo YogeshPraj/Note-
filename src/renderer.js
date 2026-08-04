@@ -1527,14 +1527,15 @@ require(['vs/editor/editor.main'], () => {
   setupPreview();
   setupGlobalEscape();
   setupGlobalShortcuts();
-  // First-run tour — fires ~1.2 s after boot so the app is fully painted
-  // and the toolbar buttons are guaranteed to be laid out. Marker in
-  // localStorage prevents repeat. Users can replay via ? menu.
-  try {
-    if (!localStorage.getItem(FEATURE_TOUR_MARKER)) {
+  // Load onboarding state from settings.json (survives quota clears,
+  // Chromium upgrades, etc. — unlike localStorage). Then, if the tour
+  // has never been seen, fire it ~1.2 s after paint. Users can replay
+  // any time from ? menu → Show Feature Tour.
+  loadOnboardingState().then(() => {
+    if (!onboardingState.tourSeen) {
       setTimeout(() => runFeatureTour(), 1200);
     }
-  } catch {}
+  });
   setupAltMouseColumnSelect();
   updateStatusBar();
   statusCol?.addEventListener('click', () => toggleColumnSelectMode());
@@ -9560,10 +9561,76 @@ function setupGlobalShortcuts() {
 // Feature-callout system — powers BOTH the first-run tour and one-shot
 // contextual tips. Shared primitive: a translucent overlay + spotlight
 // ring around a target button + popover with title/body/buttons.
+//
+// Persistence: markers live in settings.json (onboarding.tourSeen and
+// onboarding.tips.<id>) — NOT in localStorage. localStorage is stored
+// under Chromium's Local Storage dir, which can be nuked by quota
+// errors, dev-tools "clear site data", or some Electron upgrade paths.
+// settings.json is where every other persistent user setting lives and
+// survives all of those. The in-memory `onboardingState` mirror below
+// is populated at boot from readSettings() and updated in lockstep with
+// every write, so hot paths (fired 100+ times per session) don't need
+// to hit disk to check whether a tip has been seen.
 // ═════════════════════════════════════════════════════════════════════
-const FEATURE_TIP_PREFIX = 'notepp.tip.';
-const FEATURE_TOUR_MARKER = 'notepp.tour.v1.done';
 let _fcCleanup = null;
+const onboardingState = {
+  ready: false,       // becomes true once settings.json has been read
+  tourSeen: false,
+  tips: {},           // { [tipId]: true }
+};
+
+// One-time migration from the previous localStorage-based markers so
+// existing users don't re-see the tour or tips after this upgrade.
+// Runs inside loadOnboardingState() on first read.
+const LEGACY_TOUR_KEY = 'notepp.tour.v1.done';
+const LEGACY_TIP_PREFIX = 'notepp.tip.';
+
+async function loadOnboardingState() {
+  try {
+    const s = await window.electronAPI.readSettings();
+    const ob = s.onboarding || {};
+    onboardingState.tourSeen = !!ob.tourSeen;
+    onboardingState.tips = ob.tips || {};
+    // Migrate legacy localStorage markers → settings.json (one-time).
+    let migrated = false;
+    try {
+      if (!onboardingState.tourSeen && localStorage.getItem(LEGACY_TOUR_KEY)) {
+        onboardingState.tourSeen = true; migrated = true;
+      }
+      // Sweep every legacy tip marker into the new shape.
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(LEGACY_TIP_PREFIX)) continue;
+        const id = k.slice(LEGACY_TIP_PREFIX.length);
+        if (!onboardingState.tips[id]) { onboardingState.tips[id] = true; migrated = true; }
+      }
+    } catch {}
+    if (migrated) await persistOnboardingState();
+  } catch (err) {
+    console.warn('[onboarding] failed to read settings — treating as first-run', err);
+  } finally {
+    onboardingState.ready = true;
+  }
+}
+
+async function persistOnboardingState() {
+  try {
+    await saveSetting('onboarding.tourSeen', !!onboardingState.tourSeen);
+    await saveSetting('onboarding.tips', onboardingState.tips || {});
+  } catch (err) {
+    console.warn('[onboarding] failed to persist state', err);
+  }
+}
+
+function markTourSeen() {
+  onboardingState.tourSeen = true;
+  persistOnboardingState();
+}
+function markTipSeen(id) {
+  onboardingState.tips = onboardingState.tips || {};
+  onboardingState.tips[id] = true;
+  persistOnboardingState();
+}
 
 // Show a callout. `opts` shape:
 //   { targetSelector?: string, target?: Element,
@@ -9738,7 +9805,7 @@ function runFeatureTour() {
 
   let i = 0;
   const total = steps.length;
-  const finish = () => { try { localStorage.setItem(FEATURE_TOUR_MARKER, '1'); } catch {} };
+  const finish = () => markTourSeen();
   const next = () => {
     if (i >= steps.length) { finish(); return; }
     const s = steps[i]; i++;
@@ -9761,7 +9828,10 @@ function runFeatureTour() {
 // is met. Skips silently if the tour is currently on screen so we don't
 // stack overlays.
 function showTipOnce(id, opts) {
-  try { if (localStorage.getItem(FEATURE_TIP_PREFIX + id)) return; } catch { return; }
+  // Skip until the settings.json marker map has loaded — better to defer
+  // one tip than fire a duplicate that we'd have suppressed if we'd waited.
+  if (!onboardingState.ready) return;
+  if (onboardingState.tips && onboardingState.tips[id]) return;
   if (_fcCleanup) return;  // tour or another tip already up — skip this trigger
   // Also skip if the target isn't visible (e.g., button hidden on non-whiteboard tabs).
   const target = opts.targetSelector ? document.querySelector(opts.targetSelector) : null;
@@ -9770,7 +9840,7 @@ function showTipOnce(id, opts) {
     ...opts,
     target: target || opts.target,
     nextLabel: 'Got it',
-    onNext: () => { try { localStorage.setItem(FEATURE_TIP_PREFIX + id, '1'); } catch {} },
+    onNext: () => markTipSeen(id),
   });
 }
 

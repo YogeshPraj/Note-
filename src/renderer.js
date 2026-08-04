@@ -1503,7 +1503,7 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.PageDown,
     () => editor.trigger('keyboard', 'cursorColumnSelectPageDown', null));
 
-  // Ctrl+Alt+T (reopen closed tab) and Ctrl± / Ctrl0 (zoom) are wired
+  // Ctrl+Shift+T (reopen closed tab) and Ctrl± / Ctrl0 (zoom) are wired
   // as document-level shortcuts in setupGlobalShortcuts() so they fire
   // from whiteboard/drawio/game tabs too — Monaco's addCommand only
   // fires while the editor has focus.
@@ -2670,7 +2670,7 @@ function initTabDrag(e, tabId, tabEl) {
   e.preventDefault();
 }
 
-// ── Reopen-closed-tab stack (Ctrl+Alt+T) ────────────────────────────────
+// ── Reopen-closed-tab stack (Ctrl+Shift+T) ──────────────────────────────
 // LIFO of snapshots taken at the moment a tab is confirmed to close
 // (after the "Save?" prompt, before splice). Reopen restores editor,
 // whiteboard, and drawio tabs — never compare views (they're transient)
@@ -9475,20 +9475,24 @@ function setupAiPrefsPage() {
 // from double-firing.
 function setupGlobalShortcuts() {
   document.addEventListener('keydown', (e) => {
-    // Skip when the user is typing in a form field — don't want to steal
-    // Ctrl+- inside a numeric input, for example.
-    const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-
     if (!e.ctrlKey && !e.metaKey) return;
     const k = e.key;
 
-    // Ctrl+Alt+T → reopen the most recently closed tab.
-    if (e.altKey && !e.shiftKey && (k === 't' || k === 'T')) {
+    // Reopen the most recently closed tab — Ctrl+Shift+T (matches browsers /
+    // VS Code). Handled *before* the text-field guard below so it fires even
+    // while the Monaco editor (a hidden <textarea>) or any input has focus —
+    // reopening a closed note should work no matter where the caret is, just
+    // like in a browser.
+    if (e.shiftKey && !e.altKey && (k === 't' || k === 'T')) {
       e.preventDefault(); e.stopPropagation();
       reopenClosedTab();
       return;
     }
+
+    // Skip the remaining shortcuts when the user is typing in a form field —
+    // don't want to steal Ctrl+- inside a numeric input, for example.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
 
     // Zoom in — Ctrl+= / Ctrl++ / Ctrl+NumpadAdd
     if (!e.altKey && (k === '=' || k === '+' || e.code === 'NumpadAdd')) {

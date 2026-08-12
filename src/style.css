@@ -1397,6 +1397,11 @@ body.theme-dark .ai-quick-btn:hover { background: #3a3a3a; border-color: #58a6ff
   font-size: 12px;
   color: var(--tab-text);
 }
+.jwt-sig {
+  color: #c2255c;
+  word-break: break-all;
+  min-height: 32px;
+}
 #jwt-claims:empty { display: none; }
 .jwt-verify-row {
   display: flex;

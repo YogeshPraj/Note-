@@ -4073,25 +4073,27 @@ function decodeJwt() {
   const errEl     = document.getElementById('jwt-error');
   const headerEl  = document.getElementById('jwt-header');
   const payloadEl = document.getElementById('jwt-payload');
+  const sigEl     = document.getElementById('jwt-signature');
   const claimsEl  = document.getElementById('jwt-claims');
   const verifyEl  = document.getElementById('jwt-verify-status');
   if (!inputEl) return;
   errEl.textContent = '';
   verifyEl.textContent = '';
+  if (sigEl) sigEl.textContent = '';
   _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
 
   const raw = inputEl.value.trim().replace(/^Bearer\s+/i, '');
-  if (!raw) { headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; return; }
+  if (!raw) { headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = ''; return; }
 
   const parts = raw.split('.');
   if (parts.length === 5) {
     errEl.textContent = 'This looks like an encrypted JWT (JWE, 5 segments). It cannot be decoded without the decryption key.';
-    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = '';
+    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = '';
     return;
   }
   if (parts.length < 2 || parts.length > 3) {
     errEl.textContent = 'Not a valid JWT. Expected 3 dot-separated segments (header.payload.signature).';
-    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = '';
+    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = '';
     return;
   }
 
@@ -4108,6 +4110,7 @@ function decodeJwt() {
   };
   headerEl.textContent  = JSON.stringify(header, null, 2);
   payloadEl.textContent = JSON.stringify(payload, null, 2);
+  if (sigEl) sigEl.textContent = parts[2] ? parts[2] : '(none — unsigned token)';
   claimsEl.innerHTML    = _jwtRenderClaims(payload, _jwtLast.alg);
   if (!parts[2]) verifyEl.innerHTML = '<span style="color:#e8590c">No signature segment present (unsigned token).</span>';
 }

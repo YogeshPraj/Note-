@@ -147,6 +147,7 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 ### Developer tools
 - **Code formatting** — JSON, XML, language-aware
 - **Base64** encode / decode
+- **JWT decoder** — decode header + payload, humanized `exp`/`iat`/`nbf` claims with expiry badge, optional HS256/384/512 signature verification (see [`JWT.md`](./features/JWT.md))
 - **Regex tester** with live matching
 - **Sort lines**, remove duplicates, remove empty lines, case conversion
 

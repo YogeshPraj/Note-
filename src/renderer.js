@@ -917,6 +917,8 @@ const MENU_STRUCTURE = [
     { label: 'Base64 Encode',     ch: 'menu-b64-encode' },
     { label: 'Base64 Decode',     ch: 'menu-b64-decode' },
     { sep: true },
+    { label: 'JWT Decoder…',      ch: 'menu-jwt-decoder' },
+    { sep: true },
     { label: 'Pretty Print JSON', ch: 'menu-json-format' },
     { label: 'Pretty Print XML',  ch: 'menu-xml-format' },
     { label: 'Minify JSON',       ch: 'menu-json-minify' },
@@ -4011,6 +4013,176 @@ function base64Decode() {
   catch { showToast('Invalid Base64'); }
 }
 
+// ===== JWT Decoder ==========================================================
+// Decodes (NOT decrypts) a JSON Web Token: header + payload are base64url-encoded
+// JSON and just need decoding. Optional HS256/384/512 signature verification uses
+// Web Crypto HMAC. Encrypted tokens (JWE, 5 segments) can't be decoded without the key.
+// Self-contained, no dependencies. UI: #jwt-decoder modal (index.html).
+let _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
+let _jwtWired = false;
+
+function _jwtB64urlToBytes(b64url) {
+  // base64url → base64, restore padding, decode to bytes.
+  let s = String(b64url || '').replace(/-/g, '+').replace(/_/g, '/');
+  const pad = s.length % 4;
+  if (pad === 2) s += '==';
+  else if (pad === 3) s += '=';
+  else if (pad === 1) throw new Error('Invalid base64url length');
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function _jwtB64urlToStr(b64url) {
+  return new TextDecoder().decode(_jwtB64urlToBytes(b64url));
+}
+
+function _jwtFmtTime(sec) {
+  if (typeof sec !== 'number' || !isFinite(sec)) return String(sec);
+  const d = new Date(sec * 1000);
+  if (isNaN(d.getTime())) return String(sec);
+  return `${sec} — ${d.toLocaleString()}`;
+}
+
+function _jwtRenderClaims(payload, alg) {
+  if (!payload || typeof payload !== 'object') return '';
+  const rows = [];
+  const now = Math.floor(Date.now() / 1000);
+  if (alg) rows.push(`<div><b>alg:</b> ${escapeHtml(alg)}</div>`);
+  if ('iss' in payload) rows.push(`<div><b>iss</b> (issuer): ${escapeHtml(String(payload.iss))}</div>`);
+  if ('sub' in payload) rows.push(`<div><b>sub</b> (subject): ${escapeHtml(String(payload.sub))}</div>`);
+  if ('aud' in payload) rows.push(`<div><b>aud</b> (audience): ${escapeHtml(JSON.stringify(payload.aud))}</div>`);
+  if ('iat' in payload) rows.push(`<div><b>iat</b> (issued at): ${escapeHtml(_jwtFmtTime(payload.iat))}</div>`);
+  if ('nbf' in payload) {
+    const notYet = typeof payload.nbf === 'number' && payload.nbf > now;
+    rows.push(`<div><b>nbf</b> (not before): ${escapeHtml(_jwtFmtTime(payload.nbf))}` +
+      (notYet ? ` <span style="color:#e8590c">⚠ not valid yet</span>` : '') + `</div>`);
+  }
+  if ('exp' in payload) {
+    const expired = typeof payload.exp === 'number' && payload.exp < now;
+    const badge = expired
+      ? ` <span style="color:#e03131;font-weight:600">✗ EXPIRED</span>`
+      : ` <span style="color:#2f9e44;font-weight:600">✓ valid</span>`;
+    rows.push(`<div><b>exp</b> (expires): ${escapeHtml(_jwtFmtTime(payload.exp))}${badge}</div>`);
+  }
+  return rows.length ? `<div style="border:1px solid var(--find-border);padding:6px;line-height:1.6">${rows.join('')}</div>` : '';
+}
+
+function decodeJwt() {
+  const inputEl   = document.getElementById('jwt-input');
+  const errEl     = document.getElementById('jwt-error');
+  const headerEl  = document.getElementById('jwt-header');
+  const payloadEl = document.getElementById('jwt-payload');
+  const claimsEl  = document.getElementById('jwt-claims');
+  const verifyEl  = document.getElementById('jwt-verify-status');
+  if (!inputEl) return;
+  errEl.textContent = '';
+  verifyEl.textContent = '';
+  _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
+
+  const raw = inputEl.value.trim().replace(/^Bearer\s+/i, '');
+  if (!raw) { headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; return; }
+
+  const parts = raw.split('.');
+  if (parts.length === 5) {
+    errEl.textContent = 'This looks like an encrypted JWT (JWE, 5 segments). It cannot be decoded without the decryption key.';
+    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = '';
+    return;
+  }
+  if (parts.length < 2 || parts.length > 3) {
+    errEl.textContent = 'Not a valid JWT. Expected 3 dot-separated segments (header.payload.signature).';
+    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = '';
+    return;
+  }
+
+  let header, payload;
+  try { header = JSON.parse(_jwtB64urlToStr(parts[0])); }
+  catch (e) { errEl.textContent = 'Failed to decode header: ' + e.message; headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; return; }
+  try { payload = JSON.parse(_jwtB64urlToStr(parts[1])); }
+  catch (e) { errEl.textContent = 'Failed to decode payload: ' + e.message; payloadEl.textContent = ''; claimsEl.innerHTML = ''; headerEl.textContent = JSON.stringify(header, null, 2); return; }
+
+  _jwtLast = {
+    header, payload,
+    headerB64: parts[0], payloadB64: parts[1], sigB64: parts[2] || '',
+    alg: header && header.alg ? String(header.alg) : '',
+  };
+  headerEl.textContent  = JSON.stringify(header, null, 2);
+  payloadEl.textContent = JSON.stringify(payload, null, 2);
+  claimsEl.innerHTML    = _jwtRenderClaims(payload, _jwtLast.alg);
+  if (!parts[2]) verifyEl.innerHTML = '<span style="color:#e8590c">No signature segment present (unsigned token).</span>';
+}
+
+async function verifyJwtSignature() {
+  const secretEl = document.getElementById('jwt-secret');
+  const verifyEl = document.getElementById('jwt-verify-status');
+  if (!verifyEl) return;
+  if (!_jwtLast.header || !_jwtLast.sigB64) {
+    verifyEl.innerHTML = '<span style="color:#e8590c">Decode a signed token first.</span>';
+    return;
+  }
+  const alg = (_jwtLast.alg || '').toUpperCase();
+  const hashMap = { HS256: 'SHA-256', HS384: 'SHA-384', HS512: 'SHA-512' };
+  if (!hashMap[alg]) {
+    verifyEl.innerHTML = `<span style="color:#e8590c">Signature verification here supports HS256/384/512 only. This token uses "${escapeHtml(_jwtLast.alg || 'none')}" (RS/ES need a public key — not yet supported).</span>`;
+    return;
+  }
+  const secret = secretEl.value;
+  if (!secret) { verifyEl.innerHTML = '<span style="color:#e8590c">Enter the HMAC secret to verify.</span>'; return; }
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', enc.encode(secret), { name: 'HMAC', hash: hashMap[alg] }, false, ['sign']
+    );
+    const signingInput = enc.encode(`${_jwtLast.headerB64}.${_jwtLast.payloadB64}`);
+    const sigBuf = await crypto.subtle.sign('HMAC', key, signingInput);
+    const expected = btoa(String.fromCharCode.apply(null, new Uint8Array(sigBuf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    if (expected === _jwtLast.sigB64) {
+      verifyEl.innerHTML = `<span style="color:#2f9e44;font-weight:600">✓ Signature valid (${escapeHtml(alg)})</span>`;
+    } else {
+      verifyEl.innerHTML = `<span style="color:#e03131;font-weight:600">✗ Signature does NOT match (wrong secret or tampered token)</span>`;
+    }
+  } catch (e) {
+    verifyEl.innerHTML = '<span style="color:#e03131">Verify failed: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+function openJwtDecoder() {
+  const modal = document.getElementById('jwt-decoder');
+  if (!modal) return;
+  const inputEl = document.getElementById('jwt-input');
+  // Prefill from the current selection if it looks like a JWT.
+  try {
+    const sel = editor && editor.getSelection && editor.getSelection();
+    if (sel && !sel.isEmpty()) {
+      const t = editor.getModel().getValueInRange(sel).trim();
+      if (/^(Bearer\s+)?[\w-]+\.[\w-]+\.[\w-]*$/.test(t)) inputEl.value = t.replace(/^Bearer\s+/i, '');
+    }
+  } catch {}
+  if (!_jwtWired) {
+    _jwtWired = true;
+    inputEl.addEventListener('input', decodeJwt);
+    document.getElementById('btn-jwt-verify')?.addEventListener('click', verifyJwtSignature);
+    document.getElementById('btn-jwt-load')?.addEventListener('click', () => {
+      try {
+        const model = editor.getModel();
+        const sel = editor.getSelection();
+        const t = (sel && !sel.isEmpty() ? model.getValueInRange(sel) : model.getValue()).trim();
+        inputEl.value = t.replace(/^Bearer\s+/i, '');
+        decodeJwt();
+      } catch {}
+    });
+    document.getElementById('btn-jwt-copy')?.addEventListener('click', () => {
+      if (_jwtLast.payload == null) { showToast('Nothing to copy — decode a token first'); return; }
+      navigator.clipboard.writeText(JSON.stringify(_jwtLast.payload, null, 2))
+        .then(() => showToast('Payload copied')).catch(() => showToast('Copy failed'));
+    });
+  }
+  modal.classList.remove('hidden');
+  decodeJwt();
+  setTimeout(() => inputEl.focus(), 30);
+}
+
 function jsonFormat() {
   const model = editor.getModel();
   const sel = editor.getSelection();
@@ -5337,6 +5509,7 @@ const COMMANDS = [
   { label: 'Minify JSON', icon: '{}', action: () => jsonMinify() },
   { label: 'Base64 Encode', icon: '🔡', action: () => base64Encode() },
   { label: 'Base64 Decode', icon: '🔤', action: () => base64Decode() },
+  { label: 'JWT Decoder', icon: '🔑', action: () => openJwtDecoder() },
   { label: 'Sort Lines Ascending', icon: '↑', action: () => sortLines(1) },
   { label: 'Sort Lines Descending', icon: '↓', action: () => sortLines(-1) },
   { label: 'Remove Duplicate Lines', icon: '⊘', action: () => removeDuplicateLines() },
@@ -6432,6 +6605,7 @@ function setupMenuListeners() {
   m('menu-move-line-down', () => editor.getAction('editor.action.moveLinesDownAction')?.run());
   m('menu-b64-encode', base64Encode);
   m('menu-b64-decode', base64Decode);
+  m('menu-jwt-decoder', openJwtDecoder);
   m('menu-readonly', () => editor.updateOptions({ readOnly: true }));
   m('menu-clear-readonly', () => editor.updateOptions({ readOnly: false }));
 
@@ -9906,6 +10080,9 @@ function setupGlobalEscape() {
     }
     if (!document.getElementById('regex-tester').classList.contains('hidden')) {
       document.getElementById('regex-tester').classList.add('hidden'); editor.focus(); return;
+    }
+    if (!document.getElementById('jwt-decoder').classList.contains('hidden')) {
+      document.getElementById('jwt-decoder').classList.add('hidden'); editor.focus(); return;
     }
     if (!document.getElementById('about-dialog').classList.contains('hidden')) {
       document.getElementById('about-dialog').classList.add('hidden'); editor.focus(); return;

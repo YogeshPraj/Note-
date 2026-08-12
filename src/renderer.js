@@ -2223,6 +2223,7 @@ function activateTab(id) {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
     prev.previewOpen = previewOpen; // persist per-tab preview visibility
+    prev.jwtOpen = _jwtPanelOpen;   // persist per-tab JWT panel visibility
     // Clear find / mark decorations from the OUTGOING tab's model so
     // they don't get stranded there. Without this, switching from a
     // tab where you Found "foo" would leave "foo" highlights painted
@@ -2262,6 +2263,10 @@ function activateTab(id) {
   diffContainer?.classList.add('hidden');
   fdiffContainer?.classList.add('hidden');
   qdiffContainer?.classList.add('hidden');
+
+  // JWT panel is bound to its owner tab (like the Preview pane): hide it on
+  // every switch; the editor branch below re-shows it for tabs that had it open.
+  if (_jwtPanelOpen) _jwtSetVisible(false);
 
   if (tab.type === 'diff') {
     monacoEl.style.display = 'none';
@@ -2371,6 +2376,8 @@ function activateTab(id) {
     }
     // Show/hide Mermaid toolbar based on active language
     updateMermaidToolbar(tab.language === 'mermaid');
+    // Restore the per-tab JWT panel (bound to this tab like the preview pane).
+    if (tab.jwtOpen === true && !_jwtPanelOpen) _jwtSetVisible(true);
   }
 
   renderTabs();
@@ -4175,6 +4182,18 @@ async function verifyJwtSignature() {
 
 let _jwtPanelOpen = false;
 
+// Show/hide the docked panel without touching per-tab intent. Used both by
+// the user-facing open/close and by the tab-switch binding below.
+function _jwtSetVisible(show) {
+  const panel  = document.getElementById('jwt-panel');
+  const handle = document.getElementById('jwt-resize-handle');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !show);
+  handle?.classList.toggle('hidden', !show);
+  _jwtPanelOpen = !!show;
+  editor?.layout();
+}
+
 function openJwtDecoder() {
   const panel = document.getElementById('jwt-panel');
   const handle = document.getElementById('jwt-resize-handle');
@@ -4207,19 +4226,19 @@ function openJwtDecoder() {
     document.getElementById('btn-jwt-panel-close')?.addEventListener('click', closeJwtPanel);
     _setupJwtResize();
   }
-  panel.classList.remove('hidden');
-  handle?.classList.remove('hidden');
-  _jwtPanelOpen = true;
+  _jwtSetVisible(true);
+  // Bind the panel to the tab it was opened from, like the Mermaid preview:
+  // switching away hides it, switching back restores it, closing the tab drops it.
+  const owner = getActiveTab();
+  if (owner) owner.jwtOpen = true;
   decodeJwt();
-  editor?.layout();
   setTimeout(() => inputEl.focus(), 30);
 }
 
 function closeJwtPanel() {
-  document.getElementById('jwt-panel')?.classList.add('hidden');
-  document.getElementById('jwt-resize-handle')?.classList.add('hidden');
-  _jwtPanelOpen = false;
-  editor?.layout();
+  _jwtSetVisible(false);
+  const owner = getActiveTab();
+  if (owner) owner.jwtOpen = false;   // user explicitly closed → don't auto-restore
   editor?.focus();
 }
 

@@ -2842,7 +2842,25 @@ function reopenClosedTab() {
   }
 }
 
+const _closingTabs = new Set();
 async function closeTab(id) {
+  // Re-entrancy guard. While a tab's Save/close prompt is awaiting, ignore
+  // repeat close requests for the SAME tab. Without this, pressing Ctrl+W or
+  // clicking the tab's × several times in quick succession (the native dialog
+  // can appear behind the window, so it's easy to double-fire) spawns
+  // duplicate "Save?" dialogs. Worse: the later invocations still hold the
+  // same `tab` reference, so they run pushClosedTab AFTER the first one has
+  // disposed the model — getValue() throws and an EMPTY snapshot is pushed
+  // onto the reopen stack, so Ctrl+Shift+T then restores blank tabs.
+  if (_closingTabs.has(id)) return;
+  _closingTabs.add(id);
+  try {
+    return await _closeTabInner(id);
+  } finally {
+    _closingTabs.delete(id);
+  }
+}
+async function _closeTabInner(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   if (tab.pinned) { showToast('Unpin the tab before closing it'); return; }

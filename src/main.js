@@ -453,6 +453,7 @@ function buildMenu() {
         { label: '&Compare', submenu: [
           { label: 'Compare &Files…',         click: () => send('menu-compare-files') },
           { label: 'Compare &with Saved…',    click: () => send('menu-compare-with-saved') },
+          { label: 'Compare with &Clipboard', click: () => send('menu-compare-clipboard') },
           { type: 'separator' },
           { label: 'Compare F&olders…',       click: () => send('menu-compare-folders') },
         ]},

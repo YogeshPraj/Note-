@@ -736,6 +736,7 @@ const MENU_STRUCTURE = [
     { label: 'Compare', sub: [
       { label: 'Compare Files…',      ch: 'menu-compare-files' },
       { label: 'Compare with Saved…', ch: 'menu-compare-with-saved' },
+      { label: 'Compare with Clipboard', ch: 'menu-compare-clipboard' },
       { sep: true },
       { label: 'Compare Folders…',    ch: 'menu-compare-folders' },
     ]},
@@ -2137,10 +2138,46 @@ async function quickCompareFlow(tabId) {
   renderTabs();
 }
 
+// Compare the current tab's (possibly unsaved) buffer against clipboard text.
+// Solves "I have two unsaved files open — how do I diff them?": copy one
+// (Ctrl+A, Ctrl+C), switch to the other tab, then Compare with Clipboard.
+async function compareWithClipboardFlow(tabId) {
+  const tab = tabs.find(t => t.id === tabId);
+  if (!tab || tab.type !== 'editor') { showToast('Open a text tab to compare'); return; }
+  let clip = '';
+  try { clip = await navigator.clipboard.readText(); }
+  catch { showToast('Could not read clipboard'); return; }
+  if (!clip) { showToast('Clipboard is empty — copy some text first'); return; }
+
+  const leftContent = (tab.id === activeTabId && editor && tab.type === 'editor')
+    ? editor.getValue()
+    : (tab.content || '');
+  const leftName = tab.name;
+  const leftLang = tab.language || 'plaintext';
+
+  tabCounter++;
+  const qdTab = {
+    id: tabCounter, name: `↔ ${leftName}`,
+    filePath: null, content: '', dirty: false,
+    language: leftLang, encoding: 'UTF-8', eol: 'Windows (CR LF)',
+    model: null, viewState: null,
+    type: 'quick-diff', encrypted: false, protectedBy: null,
+    diff: {
+      leftContent, leftName, leftLang,
+      rightPath: null, rightContent: clip, rightName: 'Clipboard',
+      rightLabel: 'Clipboard', rightLang: leftLang, isCustom: true,
+      originalModel: null, modifiedModel: null, mounted: false,
+    },
+  };
+  tabs.push(qdTab);
+  activateTab(qdTab.id);
+  renderTabs();
+}
+
 function mountQuickDiffTab(tab) {
   const d = tab.diff;
   document.getElementById('quick-diff-left-label').textContent  = d.leftName;
-  document.getElementById('quick-diff-right-label').textContent = d.isCustom ? 'Custom text' : d.rightName;
+  document.getElementById('quick-diff-right-label').textContent = d.rightLabel || (d.isCustom ? 'Custom text' : d.rightName);
   const hint = document.getElementById('quick-diff-hint');
   if (hint) hint.classList.toggle('hidden', !d.isCustom);
 
@@ -2910,6 +2947,7 @@ function showTabContextMenu(e, tabId) {
   // Quick Compare — available for any editor tab (saved or unsaved)
   if (tab.type === 'editor') {
     items.push(['Compare…', () => quickCompareFlow(tabId)]);
+    items.push(['Compare with Clipboard', () => compareWithClipboardFlow(tabId)]);
     items.push(null);
   }
   // Classic diff entry points — only for saved editor tabs
@@ -6452,6 +6490,7 @@ function setupMenuListeners() {
   m('menu-json-minify', jsonMinify);
   m('menu-compare-files',       compareFilesFlow);
   m('menu-compare-with-saved',  compareWithSavedFlow);
+  m('menu-compare-clipboard',   () => { if (activeTabId != null) compareWithClipboardFlow(activeTabId); else showToast('Open a text tab to compare'); });
   m('menu-compare-folders',     compareFoldersFlow);
   m('menu-indent-increase', () => editor.trigger('m', 'editor.action.indentLines', null));
   m('menu-indent-decrease', () => editor.trigger('m', 'editor.action.outdentLines', null));

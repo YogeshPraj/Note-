@@ -1300,6 +1300,116 @@ body.theme-dark .ai-quick-btn:hover { background: #3a3a3a; border-color: #58a6ff
   display: block;
 }
 
+/* ===== JWT Decoder Side Panel (docked, mirrors Preview) ===== */
+#jwt-resize-handle {
+  width: 4px;
+  background: var(--toolbar-border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  z-index: 10;
+}
+#jwt-resize-handle:hover, #jwt-resize-handle:active { background: var(--modal-header-bg); }
+
+#jwt-panel {
+  width: 42%;
+  min-width: 260px;
+  max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--editor-bg);
+}
+
+#jwt-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 2px 4px 2px 10px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  flex-shrink: 0;
+}
+#jwt-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--tab-text);
+  opacity: 0.8;
+  user-select: none;
+}
+#jwt-panel-header .tb-btn {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#jwt-panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+.jwt-sec-label {
+  font-size: 11px;
+  color: #888;
+  margin-top: 6px;
+}
+#jwt-input {
+  width: 100%;
+  height: 90px;
+  box-sizing: border-box;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+  border: 1px solid var(--find-border);
+  background: var(--find-input-bg);
+  color: var(--tab-text);
+  padding: 6px;
+  word-break: break-all;
+}
+#jwt-error {
+  font-size: 12px;
+  color: #e03131;
+  white-space: pre-wrap;
+}
+#jwt-error:empty { display: none; }
+.jwt-json {
+  min-height: 48px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  padding: 6px;
+  border: 1px solid var(--find-border);
+  background: var(--find-input-bg);
+  color: var(--tab-text);
+  white-space: pre-wrap;
+}
+#jwt-claims {
+  font-size: 12px;
+  color: var(--tab-text);
+}
+#jwt-claims:empty { display: none; }
+.jwt-verify-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.jwt-verify-row .fr-input { flex: 1; min-width: 0; }
+#jwt-verify-status {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 /* ===== Preview Resize Handle ===== */
 #preview-resize-handle {
   width: 4px;

@@ -35,9 +35,11 @@ pre-filled automatically.
 
 ## UI
 
-- Modal: `#jwt-decoder` in `src/index.html`.
-- Logic: `decodeJwt()`, `verifyJwtSignature()`, `openJwtDecoder()` in `src/renderer.js`
-  (near the other developer tools).
+- Docked **side panel**: `#jwt-panel` (with `#jwt-resize-handle`) inside `#editor-preview-row`
+  in `src/index.html` — opens on the right like the Mermaid/Preview panel, not a modal popup.
+  Drag the handle to resize; press **Esc** or the header **✕** to close.
+- Logic: `decodeJwt()`, `verifyJwtSignature()`, `openJwtDecoder()` / `closeJwtPanel()` in
+  `src/renderer.js` (near the other developer tools).
 - Wired into the Tools menu (`menu-jwt-decoder`), the command palette, and the `m()` handler
   block, mirroring the Regex Tester.
 
@@ -46,5 +48,5 @@ pre-filled automatically.
 - Wrong number of segments → clear "not a valid JWT" message.
 - 5 segments → detected as **JWE (encrypted)**; explains it can't be decoded without the key.
 - Malformed Base64URL or non-JSON header/payload → the offending part is reported without
-  crashing the modal.
+  crashing the panel.
 - Unsigned token (no signature segment) → noted; verification is skipped.

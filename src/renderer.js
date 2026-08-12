@@ -4017,7 +4017,7 @@ function base64Decode() {
 // Decodes (NOT decrypts) a JSON Web Token: header + payload are base64url-encoded
 // JSON and just need decoding. Optional HS256/384/512 signature verification uses
 // Web Crypto HMAC. Encrypted tokens (JWE, 5 segments) can't be decoded without the key.
-// Self-contained, no dependencies. UI: #jwt-decoder modal (index.html).
+// Self-contained, no dependencies. UI: #jwt-panel docked side panel (index.html).
 let _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
 let _jwtWired = false;
 
@@ -4147,9 +4147,12 @@ async function verifyJwtSignature() {
   }
 }
 
+let _jwtPanelOpen = false;
+
 function openJwtDecoder() {
-  const modal = document.getElementById('jwt-decoder');
-  if (!modal) return;
+  const panel = document.getElementById('jwt-panel');
+  const handle = document.getElementById('jwt-resize-handle');
+  if (!panel) return;
   const inputEl = document.getElementById('jwt-input');
   // Prefill from the current selection if it looks like a JWT.
   try {
@@ -4163,6 +4166,9 @@ function openJwtDecoder() {
     _jwtWired = true;
     inputEl.addEventListener('input', decodeJwt);
     document.getElementById('btn-jwt-verify')?.addEventListener('click', verifyJwtSignature);
+    document.getElementById('jwt-secret')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); verifyJwtSignature(); }
+    });
     document.getElementById('btn-jwt-load')?.addEventListener('click', () => {
       try {
         const model = editor.getModel();
@@ -4177,11 +4183,54 @@ function openJwtDecoder() {
       navigator.clipboard.writeText(JSON.stringify(_jwtLast.payload, null, 2))
         .then(() => showToast('Payload copied')).catch(() => showToast('Copy failed'));
     });
+    document.getElementById('btn-jwt-panel-close')?.addEventListener('click', closeJwtPanel);
+    _setupJwtResize();
   }
-  modal.classList.remove('hidden');
+  panel.classList.remove('hidden');
+  handle?.classList.remove('hidden');
+  _jwtPanelOpen = true;
   decodeJwt();
+  editor?.layout();
   setTimeout(() => inputEl.focus(), 30);
 }
+
+function closeJwtPanel() {
+  document.getElementById('jwt-panel')?.classList.add('hidden');
+  document.getElementById('jwt-resize-handle')?.classList.add('hidden');
+  _jwtPanelOpen = false;
+  editor?.layout();
+  editor?.focus();
+}
+
+// Drag-to-resize for the docked JWT panel (mirrors the Preview panel handle).
+function _setupJwtResize() {
+  const handle = document.getElementById('jwt-resize-handle');
+  const panel = document.getElementById('jwt-panel');
+  if (!handle || !panel) return;
+  let dragging = false, startX = 0, startW = 0;
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = startX - e.clientX; // panel is docked on the right
+    const newW = Math.max(260, Math.min(startW + delta, window.innerWidth * 0.8));
+    panel.style.width = newW + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    editor?.layout();
+  });
+}
+
 
 function jsonFormat() {
   const model = editor.getModel();
@@ -10081,8 +10130,8 @@ function setupGlobalEscape() {
     if (!document.getElementById('regex-tester').classList.contains('hidden')) {
       document.getElementById('regex-tester').classList.add('hidden'); editor.focus(); return;
     }
-    if (!document.getElementById('jwt-decoder').classList.contains('hidden')) {
-      document.getElementById('jwt-decoder').classList.add('hidden'); editor.focus(); return;
+    if (_jwtPanelOpen) {
+      closeJwtPanel(); return;
     }
     if (!document.getElementById('about-dialog').classList.contains('hidden')) {
       document.getElementById('about-dialog').classList.add('hidden'); editor.focus(); return;

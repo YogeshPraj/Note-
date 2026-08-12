@@ -490,6 +490,34 @@
             </div>
           </div>
         </div>
+
+        <!-- JWT Decoder Resize Handle -->
+        <div id="jwt-resize-handle" class="hidden"></div>
+        <!-- JWT Decoder Side Panel (docked on the right, like Preview) -->
+        <div id="jwt-panel" class="hidden">
+          <div id="jwt-panel-header">
+            <span id="jwt-panel-title">JWT DECODER</span>
+            <div style="flex:1"></div>
+            <button class="tb-btn" id="btn-jwt-load" title="Load token from editor selection or whole file">Load</button>
+            <button class="tb-btn" id="btn-jwt-copy" title="Copy decoded payload JSON">Copy</button>
+            <button class="tb-btn" id="btn-jwt-panel-close" title="Close JWT Decoder">&#10005;</button>
+          </div>
+          <div id="jwt-panel-body">
+            <div class="jwt-sec-label">Encoded token (header.payload.signature)</div>
+            <textarea id="jwt-input" spellcheck="false" placeholder="Paste a JSON Web Token here…"></textarea>
+            <div id="jwt-error"></div>
+            <div class="jwt-sec-label">Header</div>
+            <div id="jwt-header" class="jwt-json"></div>
+            <div class="jwt-sec-label">Payload</div>
+            <div id="jwt-payload" class="jwt-json"></div>
+            <div id="jwt-claims"></div>
+            <div class="jwt-verify-row">
+              <input type="text" id="jwt-secret" class="fr-input" placeholder="HMAC secret (HS256/384/512) — optional">
+              <button class="modal-btn" id="btn-jwt-verify">Verify</button>
+            </div>
+            <div id="jwt-verify-status"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Terminal Resize Handle -->
@@ -768,42 +796,7 @@
     </div>
   </div>
 
-  <!-- JWT Decoder -->
-  <div id="jwt-decoder" class="modal-overlay hidden">
-    <div class="modal-box" style="width:680px">
-      <div class="modal-header">
-        <span>JWT Decoder</span>
-        <button class="modal-close" data-modal="jwt-decoder">×</button>
-      </div>
-      <div class="modal-body" style="padding:12px">
-        <div style="margin-bottom:6px;font-size:11px;color:#888">Paste a JSON Web Token (header.payload.signature):</div>
-        <textarea id="jwt-input" spellcheck="false" style="width:100%;height:84px;font-family:monospace;font-size:12px;resize:vertical;border:1px solid var(--find-border);background:var(--find-input-bg);color:var(--tab-text);padding:6px;word-break:break-all"></textarea>
-        <div id="jwt-error" style="margin-top:6px;font-size:12px;color:#e03131;white-space:pre-wrap"></div>
-        <div style="display:flex;gap:14px;margin-top:8px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:11px;color:#888;margin-bottom:4px">Header</div>
-            <div id="jwt-header" style="min-height:70px;max-height:150px;overflow:auto;font-family:monospace;font-size:12px;padding:6px;border:1px solid var(--find-border);background:var(--find-input-bg);color:var(--tab-text);white-space:pre-wrap"></div>
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:11px;color:#888;margin-bottom:4px">Payload</div>
-            <div id="jwt-payload" style="min-height:70px;max-height:150px;overflow:auto;font-family:monospace;font-size:12px;padding:6px;border:1px solid var(--find-border);background:var(--find-input-bg);color:var(--tab-text);white-space:pre-wrap"></div>
-          </div>
-        </div>
-        <div id="jwt-claims" style="margin-top:8px;font-size:12px;color:var(--tab-text)"></div>
-        <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-          <label style="font-size:12px;width:70px">Verify:</label>
-          <input type="text" id="jwt-secret" class="fr-input" style="flex:1" placeholder="HMAC secret (HS256/384/512) — optional">
-          <button class="modal-btn" id="btn-jwt-verify">Verify Signature</button>
-        </div>
-        <div id="jwt-verify-status" style="margin-top:6px;font-size:12px"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-btn" id="btn-jwt-load">Load from Editor</button>
-        <button class="modal-btn" id="btn-jwt-copy">Copy Payload</button>
-        <button class="modal-btn" data-modal="jwt-decoder">Close</button>
-      </div>
-    </div>
-  </div>
+  <!-- JWT Decoder is now a docked side panel (#jwt-panel) inside #editor-preview-row -->
 
   <!-- About Dialog -->
   <div id="about-dialog" class="modal-overlay hidden">

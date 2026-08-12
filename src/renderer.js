@@ -736,6 +736,7 @@ const MENU_STRUCTURE = [
     { label: 'Compare', sub: [
       { label: 'Compare Files…',      ch: 'menu-compare-files' },
       { label: 'Compare with Saved…', ch: 'menu-compare-with-saved' },
+      { label: 'Compare with Clipboard', ch: 'menu-compare-clipboard' },
       { sep: true },
       { label: 'Compare Folders…',    ch: 'menu-compare-folders' },
     ]},
@@ -2137,24 +2138,65 @@ async function quickCompareFlow(tabId) {
   renderTabs();
 }
 
+// Compare the current tab's (possibly unsaved) buffer against clipboard text.
+// Solves "I have two unsaved files open — how do I diff them?": copy one
+// (Ctrl+A, Ctrl+C), switch to the other tab, then Compare with Clipboard.
+async function compareWithClipboardFlow(tabId) {
+  const tab = tabs.find(t => t.id === tabId);
+  if (!tab || tab.type !== 'editor') { showToast('Open a text tab to compare'); return; }
+  let clip = '';
+  try { clip = await navigator.clipboard.readText(); }
+  catch { showToast('Could not read clipboard'); return; }
+  if (!clip) { showToast('Clipboard is empty — copy some text first'); return; }
+
+  const leftContent = (tab.id === activeTabId && editor && tab.type === 'editor')
+    ? editor.getValue()
+    : (tab.content || '');
+  const leftName = tab.name;
+  const leftLang = tab.language || 'plaintext';
+
+  tabCounter++;
+  const qdTab = {
+    id: tabCounter, name: `↔ ${leftName}`,
+    filePath: null, content: '', dirty: false,
+    language: leftLang, encoding: 'UTF-8', eol: 'Windows (CR LF)',
+    model: null, viewState: null,
+    type: 'quick-diff', encrypted: false, protectedBy: null,
+    diff: {
+      leftContent, leftName, leftLang,
+      rightPath: null, rightContent: clip, rightName: 'Clipboard',
+      rightLabel: 'Clipboard', rightLang: leftLang, isCustom: true,
+      originalModel: null, modifiedModel: null, mounted: false,
+    },
+  };
+  tabs.push(qdTab);
+  activateTab(qdTab.id);
+  renderTabs();
+}
+
 function mountQuickDiffTab(tab) {
   const d = tab.diff;
   document.getElementById('quick-diff-left-label').textContent  = d.leftName;
-  document.getElementById('quick-diff-right-label').textContent = d.isCustom ? 'Custom text' : d.rightName;
+  document.getElementById('quick-diff-right-label').textContent = d.rightLabel || (d.isCustom ? 'Custom text' : d.rightName);
   const hint = document.getElementById('quick-diff-hint');
   if (hint) hint.classList.toggle('hidden', !d.isCustom);
 
   const host = document.getElementById('quick-diff-monaco');
-  if (!quickDiffEditor) {
-    quickDiffEditor = monaco.editor.createDiffEditor(host, {
-      automaticLayout: true,
-      renderSideBySide: quickDiffSideBySide,
-      fontSize: 13,
-      fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-    });
-  }
+  // Recreate the diff editor fresh on every mount. Reusing a single shared
+  // instance across mounts intermittently renders BLANK on both sides: once the
+  // host has been hidden (tab switch / tab close) and reshown, the reused editor
+  // keeps a stale zero-size layout and never repaints its models. A fresh editor
+  // per mount sidesteps that entirely.
+  try { quickDiffEditor?.setModel(null); } catch {}
+  try { quickDiffEditor?.dispose(); } catch {}
+  quickDiffEditor = monaco.editor.createDiffEditor(host, {
+    automaticLayout: true,
+    renderSideBySide: quickDiffSideBySide,
+    fontSize: 13,
+    fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+  });
 
   // Dispose old models before creating new ones.
   try { d.originalModel?.dispose(); } catch {}
@@ -2167,7 +2209,12 @@ function mountQuickDiffTab(tab) {
   quickDiffEditor.getOriginalEditor().updateOptions({ readOnly: true });
   quickDiffEditor.getModifiedEditor().updateOptions({ readOnly: !d.isCustom });
 
-  setTimeout(() => { try { quickDiffEditor.layout(); } catch {} }, 50);
+  // Force a layout once the host has real dimensions. A double rAF (plus a
+  // safety timeout) guarantees we run after the container's `hidden` class was
+  // removed and the browser has laid it out.
+  const relayout = () => { try { quickDiffEditor.layout(); } catch {} };
+  requestAnimationFrame(() => requestAnimationFrame(relayout));
+  setTimeout(relayout, 60);
   d.mounted = true;
 }
 
@@ -2340,6 +2387,16 @@ function activateTab(id) {
     qdiffContainer.classList.remove('hidden');
     if (previewOpen) closePreview();
     mountQuickDiffTab(tab);
+    // Hand keyboard focus to the diff editor so shortcuts (Ctrl+W, etc.)
+    // unambiguously target THIS tab. Clicking a compare tab already lands focus
+    // inside the diff editor and behaves correctly; keyboard-driven activation
+    // (e.g. Ctrl+Shift+T reopen) otherwise leaves focus on <body>, which is the
+    // one observable difference that made Ctrl+W act on the previously-focused
+    // tab. Deferred with a double rAF to match mountQuickDiffTab's relayout so
+    // focus lands after the editor has real dimensions.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try { quickDiffEditor?.focus(); } catch {}
+    }));
   } else {
     monacoEl.style.display = '';
     if (editor) {
@@ -2715,8 +2772,31 @@ const closedTabStack = [];
 const CLOSED_TAB_STACK_MAX = 20;
 function pushClosedTab(tab) {
   if (!tab) return;
-  // Compare tabs are transient; games are trivial to reopen from the toolbar.
-  if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff' || tab.type === 'game') return;
+  // File/folder compare tabs reference on-disk paths (re-openable from the
+  // menu); games are trivial to reopen from the toolbar.
+  if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'game') return;
+  // Quick-compare tabs (Compare / Compare with Clipboard) hold their content
+  // in-memory, so stash a serialisable snapshot to allow Ctrl+Shift+T reopen.
+  if (tab.type === 'quick-diff') {
+    const d = tab.diff || {};
+    let leftContent = d.leftContent || '';
+    let rightContent = d.rightContent || '';
+    // Capture whatever is live in the diff editor (the right pane is editable
+    // in custom/clipboard mode, so the user may have changed it).
+    try { if (d.originalModel) leftContent  = d.originalModel.getValue(); } catch {}
+    try { if (d.modifiedModel) rightContent = d.modifiedModel.getValue(); } catch {}
+    closedTabStack.push({
+      type: 'quick-diff', name: tab.name,
+      diff: {
+        leftContent, leftName: d.leftName, leftLang: d.leftLang || 'plaintext',
+        rightPath: d.rightPath || null, rightContent,
+        rightName: d.rightName, rightLabel: d.rightLabel || null,
+        rightLang: d.rightLang || 'plaintext', isCustom: !!d.isCustom,
+      },
+    });
+    while (closedTabStack.length > CLOSED_TAB_STACK_MAX) closedTabStack.shift();
+    return;
+  }
   let content = tab.content || '';
   if (tab.type === 'editor' && tab.model) {
     try { content = tab.model.getValue(); } catch {}
@@ -2733,6 +2813,28 @@ function pushClosedTab(tab) {
 function reopenClosedTab() {
   const entry = closedTabStack.pop();
   if (!entry) { showToast('Nothing to reopen'); return; }
+  // Quick-compare tabs are recreated from their stashed snapshot.
+  if (entry.type === 'quick-diff' && entry.diff) {
+    try {
+      tabCounter++;
+      const d = entry.diff;
+      const qdTab = {
+        id: tabCounter, name: `↔ ${d.leftName || 'compare'}`,
+        filePath: null, content: '', dirty: false,
+        language: d.leftLang || 'plaintext', encoding: 'UTF-8', eol: 'Windows (CR LF)',
+        model: null, viewState: null,
+        type: 'quick-diff', encrypted: false, protectedBy: null,
+        diff: { ...d, originalModel: null, modifiedModel: null, mounted: false },
+      };
+      tabs.push(qdTab);
+      activateTab(qdTab.id);
+      renderTabs();
+    } catch (err) {
+      console.warn('[reopen-tab] quick-diff failed', err);
+      showToast('Failed to reopen compare tab');
+    }
+    return;
+  }
   // If the tab had a real file backing it, openFile handles everything —
   // it also gives us de-duplication if that file is already open in
   // another tab (focuses the existing one instead of duplicating).
@@ -2750,12 +2852,48 @@ function reopenClosedTab() {
   }
 }
 
+const _closingTabs = new Set();
+let _closeTabDepth = 0;
 async function closeTab(id) {
+  // Nested-close guard (fixes Ctrl+W closing MULTIPLE tabs when a compare
+  // / quick-diff tab is active). Closing a tab calls activateTab() on the
+  // neighbour, which synchronously calls editor.focus(). When the close was
+  // triggered by the Monaco Ctrl+W command, that focus() happening mid-dispatch
+  // makes Monaco re-dispatch the SAME still-pending Ctrl+W keystroke — which
+  // fires closeTab() again for the newly-active tab, cascading through the
+  // tab strip (one physical press closed 2-3+ tabs, silently closing saved
+  // tabs and popping a Save prompt for the one dirty tab). Normal editor tabs
+  // rarely re-triggered, so the symptom only showed for compare tabs.
+  // Any closeTab call that begins SYNCHRONOUSLY inside another (i.e. a
+  // re-dispatch, not a real user action) is ignored. Sequential closers such
+  // as closeAllTabs/closeOtherTabs await each closeTab to completion, so they
+  // never nest and are unaffected.
+  if (_closeTabDepth > 0) return;
+  // Re-entrancy guard. While a tab's Save/close prompt is awaiting, ignore
+  // repeat close requests for the SAME tab. Without this, pressing Ctrl+W or
+  // clicking the tab's × several times in quick succession (the native dialog
+  // can appear behind the window, so it's easy to double-fire) spawns
+  // duplicate "Save?" dialogs. Worse: the later invocations still hold the
+  // same `tab` reference, so they run pushClosedTab AFTER the first one has
+  // disposed the model — getValue() throws and an EMPTY snapshot is pushed
+  // onto the reopen stack, so Ctrl+Shift+T then restores blank tabs.
+  if (_closingTabs.has(id)) return;
+  _closingTabs.add(id);
+  _closeTabDepth++;
+  try {
+    return await _closeTabInner(id);
+  } finally {
+    _closeTabDepth--;
+    _closingTabs.delete(id);
+  }
+}
+async function _closeTabInner(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   if (tab.pinned) { showToast('Unpin the tab before closing it'); return; }
   if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff') {
     // Compare tabs: no save prompt, just dispose models and remove
+    if (tab.type === 'quick-diff') pushClosedTab(tab); // stash before models are disposed
     if (tab.type === 'diff')       disposeDiffTab(tab);
     if (tab.type === 'quick-diff') disposeQuickDiffTab(tab);
     const idx = tabs.findIndex(t => t.id === id);
@@ -2910,6 +3048,7 @@ function showTabContextMenu(e, tabId) {
   // Quick Compare — available for any editor tab (saved or unsaved)
   if (tab.type === 'editor') {
     items.push(['Compare…', () => quickCompareFlow(tabId)]);
+    items.push(['Compare with Clipboard', () => compareWithClipboardFlow(tabId)]);
     items.push(null);
   }
   // Classic diff entry points — only for saved editor tabs
@@ -6452,6 +6591,7 @@ function setupMenuListeners() {
   m('menu-json-minify', jsonMinify);
   m('menu-compare-files',       compareFilesFlow);
   m('menu-compare-with-saved',  compareWithSavedFlow);
+  m('menu-compare-clipboard',   () => { if (activeTabId != null) compareWithClipboardFlow(activeTabId); else showToast('Open a text tab to compare'); });
   m('menu-compare-folders',     compareFoldersFlow);
   m('menu-indent-increase', () => editor.trigger('m', 'editor.action.indentLines', null));
   m('menu-indent-decrease', () => editor.trigger('m', 'editor.action.outdentLines', null));
@@ -6615,7 +6755,11 @@ function setupMenuListeners() {
   });
 
   m('app-before-close', async () => {
-    await saveSession();          // always auto-save before closing
+    // Never let a failure here block the window from closing. saveSession() is
+    // best-effort; if it throws (e.g. an unexpected tab shape), we still MUST
+    // call closeWindow() or the main process's preventDefault()'d 'close' keeps
+    // the window open and the X button appears dead.
+    try { await saveSession(); } catch (err) { console.warn('[close] saveSession failed', err); }
     window.electronAPI.closeWindow();
   });
 
@@ -6862,7 +7006,16 @@ function scheduleAutoSave() {
 }
 
 async function saveSession() {
-  const sessionTabs = tabs.filter(tab => tab.type !== 'game').map(tab => {
+  const sessionTabs = tabs.filter(tab =>
+    tab.type !== 'game' &&
+    // Compare/diff tabs are ephemeral: they hold no persistable single model
+    // (their content lives in diff.originalModel / modifiedModel, and the
+    // restore path has no diff branch). Including them here made the map hit
+    // `tab.model.getValue()` on a null model and THROW, which rejected
+    // saveSession() and stopped app-before-close from ever calling
+    // closeWindow() — so the window X did nothing while a compare tab existed.
+    tab.type !== 'diff' && tab.type !== 'folder-diff' && tab.type !== 'quick-diff'
+  ).map(tab => {
     // Whiteboard tabs store content directly (JSON state synced via postMessage)
     if (tab.type === 'whiteboard') {
       return {

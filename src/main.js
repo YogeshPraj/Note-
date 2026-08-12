@@ -328,6 +328,28 @@ function createWindow() {
       if (isShiftCombo || isAltCombo) {
         event.preventDefault();
       }
+      // ── Close-tab (Ctrl/Cmd+W) — single authoritative handler ───────────
+      // Own Ctrl+W entirely from the main process so a single physical press
+      // closes exactly ONE tab, for every tab type (editor, compare/quick-diff,
+      // folder-diff, …). Two independent paths used to fire for one press:
+      //   1. the native menu accelerator 'CmdOrCtrl+W' (File ▸ Close), and
+      //   2. Monaco's own editor.addCommand(Ctrl+W) in the renderer.
+      // For a normal editor tab Monaco consumes the key (so the accelerator is
+      // suppressed) and only one close happens. But when a compare/diff editor
+      // is focused, focus juggling during the close made Monaco re-dispatch the
+      // still-pending keystroke, cascading closeTab() across the tab strip —
+      // silently closing saved tabs and popping a lone Save prompt. OS key
+      // auto-repeat (holding the combo a moment) produced the same cascade.
+      // Calling preventDefault() here blocks BOTH the page keydown (so Monaco's
+      // binding never fires / can't re-dispatch) AND the menu accelerator, then
+      // we emit exactly one 'menu-close', ignoring auto-repeat. Deterministic,
+      // in the main process, immune to renderer focus/re-dispatch races.
+      if (ctrlOrCmd && !input.alt && !input.shift && key === 'W') {
+        event.preventDefault();
+        if (!input.isAutoRepeat) {
+          try { mainWindow.webContents.send('menu-close'); } catch {}
+        }
+      }
     });
   });
 
@@ -453,13 +475,19 @@ function buildMenu() {
         { label: '&Compare', submenu: [
           { label: 'Compare &Files…',         click: () => send('menu-compare-files') },
           { label: 'Compare &with Saved…',    click: () => send('menu-compare-with-saved') },
+          { label: 'Compare with &Clipboard', click: () => send('menu-compare-clipboard') },
           { type: 'separator' },
           { label: 'Compare F&olders…',       click: () => send('menu-compare-folders') },
         ]},
         { type: 'separator' },
         { label: 'Reload from &Disk', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('menu-reload') },
         { type: 'separator' },
-        { label: 'C&lose', accelerator: 'CmdOrCtrl+W', click: () => send('menu-close') },
+        // No accelerator here on purpose: Ctrl/Cmd+W is owned solely by the
+        // main-process before-input-event handler (see mainWindow ready-to-show),
+        // which emits exactly one 'menu-close' per physical press. Registering an
+        // accelerator here too would fire 'menu-close' a SECOND time for one press,
+        // closing multiple tabs. The click handler keeps File ▸ Close working.
+        { label: 'C&lose', click: () => send('menu-close') },
         { label: 'Close &All', click: () => send('menu-close-all') },
         { label: 'Close All &But Current', click: () => send('menu-close-others') },
         { type: 'separator' },

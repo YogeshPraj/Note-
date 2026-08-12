@@ -76,9 +76,23 @@ Click a **folder** row → expand/collapse.
 |---|---|
 | `File → Compare → Compare Files…` | Two file pickers → opens diff tab |
 | `File → Compare → Compare with Saved…` | Compare current tab content vs a picked file |
+| `File → Compare → Compare with Clipboard` | Compare current (unsaved) tab content vs clipboard text |
 | `File → Compare → Compare Folders…` | Two folder pickers → opens folder-diff tab |
 | Right-click a tab → **Select for Compare** | Marks the tab as "left" |
 | Right-click another tab → **Compare with Selected** | Opens diff (current as right) |
+| Right-click a tab → **Compare with Clipboard** | Diff the live buffer against clipboard text |
+
+## Compare with Clipboard
+
+Fast path for diffing content that isn't saved to disk yet (e.g. two things you
+just pasted into separate tabs).
+
+- **Left pane** = the current tab's live editor buffer (works on unsaved tabs).
+- **Right pane** = the current OS clipboard text, labelled **Clipboard**.
+- The right pane is **editable** — paste or type and the diff updates live.
+
+To compare two open unsaved tabs: in tab A press `Ctrl+A` `Ctrl+C`, switch to
+tab B, then **Compare with Clipboard**.
 
 ## IPC additions
 

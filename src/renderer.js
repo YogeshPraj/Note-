@@ -2853,7 +2853,22 @@ function reopenClosedTab() {
 }
 
 const _closingTabs = new Set();
+let _closeTabDepth = 0;
 async function closeTab(id) {
+  // Nested-close guard (fixes Ctrl+W closing MULTIPLE tabs when a compare
+  // / quick-diff tab is active). Closing a tab calls activateTab() on the
+  // neighbour, which synchronously calls editor.focus(). When the close was
+  // triggered by the Monaco Ctrl+W command, that focus() happening mid-dispatch
+  // makes Monaco re-dispatch the SAME still-pending Ctrl+W keystroke — which
+  // fires closeTab() again for the newly-active tab, cascading through the
+  // tab strip (one physical press closed 2-3+ tabs, silently closing saved
+  // tabs and popping a Save prompt for the one dirty tab). Normal editor tabs
+  // rarely re-triggered, so the symptom only showed for compare tabs.
+  // Any closeTab call that begins SYNCHRONOUSLY inside another (i.e. a
+  // re-dispatch, not a real user action) is ignored. Sequential closers such
+  // as closeAllTabs/closeOtherTabs await each closeTab to completion, so they
+  // never nest and are unaffected.
+  if (_closeTabDepth > 0) return;
   // Re-entrancy guard. While a tab's Save/close prompt is awaiting, ignore
   // repeat close requests for the SAME tab. Without this, pressing Ctrl+W or
   // clicking the tab's × several times in quick succession (the native dialog
@@ -2864,9 +2879,11 @@ async function closeTab(id) {
   // onto the reopen stack, so Ctrl+Shift+T then restores blank tabs.
   if (_closingTabs.has(id)) return;
   _closingTabs.add(id);
+  _closeTabDepth++;
   try {
     return await _closeTabInner(id);
   } finally {
+    _closeTabDepth--;
     _closingTabs.delete(id);
   }
 }

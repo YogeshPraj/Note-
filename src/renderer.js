@@ -2182,16 +2182,21 @@ function mountQuickDiffTab(tab) {
   if (hint) hint.classList.toggle('hidden', !d.isCustom);
 
   const host = document.getElementById('quick-diff-monaco');
-  if (!quickDiffEditor) {
-    quickDiffEditor = monaco.editor.createDiffEditor(host, {
-      automaticLayout: true,
-      renderSideBySide: quickDiffSideBySide,
-      fontSize: 13,
-      fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-    });
-  }
+  // Recreate the diff editor fresh on every mount. Reusing a single shared
+  // instance across mounts intermittently renders BLANK on both sides: once the
+  // host has been hidden (tab switch / tab close) and reshown, the reused editor
+  // keeps a stale zero-size layout and never repaints its models. A fresh editor
+  // per mount sidesteps that entirely.
+  try { quickDiffEditor?.setModel(null); } catch {}
+  try { quickDiffEditor?.dispose(); } catch {}
+  quickDiffEditor = monaco.editor.createDiffEditor(host, {
+    automaticLayout: true,
+    renderSideBySide: quickDiffSideBySide,
+    fontSize: 13,
+    fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+  });
 
   // Dispose old models before creating new ones.
   try { d.originalModel?.dispose(); } catch {}
@@ -2204,7 +2209,12 @@ function mountQuickDiffTab(tab) {
   quickDiffEditor.getOriginalEditor().updateOptions({ readOnly: true });
   quickDiffEditor.getModifiedEditor().updateOptions({ readOnly: !d.isCustom });
 
-  setTimeout(() => { try { quickDiffEditor.layout(); } catch {} }, 50);
+  // Force a layout once the host has real dimensions. A double rAF (plus a
+  // safety timeout) guarantees we run after the container's `hidden` class was
+  // removed and the browser has laid it out.
+  const relayout = () => { try { quickDiffEditor.layout(); } catch {} };
+  requestAnimationFrame(() => requestAnimationFrame(relayout));
+  setTimeout(relayout, 60);
   d.mounted = true;
 }
 
@@ -2752,8 +2762,31 @@ const closedTabStack = [];
 const CLOSED_TAB_STACK_MAX = 20;
 function pushClosedTab(tab) {
   if (!tab) return;
-  // Compare tabs are transient; games are trivial to reopen from the toolbar.
-  if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff' || tab.type === 'game') return;
+  // File/folder compare tabs reference on-disk paths (re-openable from the
+  // menu); games are trivial to reopen from the toolbar.
+  if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'game') return;
+  // Quick-compare tabs (Compare / Compare with Clipboard) hold their content
+  // in-memory, so stash a serialisable snapshot to allow Ctrl+Shift+T reopen.
+  if (tab.type === 'quick-diff') {
+    const d = tab.diff || {};
+    let leftContent = d.leftContent || '';
+    let rightContent = d.rightContent || '';
+    // Capture whatever is live in the diff editor (the right pane is editable
+    // in custom/clipboard mode, so the user may have changed it).
+    try { if (d.originalModel) leftContent  = d.originalModel.getValue(); } catch {}
+    try { if (d.modifiedModel) rightContent = d.modifiedModel.getValue(); } catch {}
+    closedTabStack.push({
+      type: 'quick-diff', name: tab.name,
+      diff: {
+        leftContent, leftName: d.leftName, leftLang: d.leftLang || 'plaintext',
+        rightPath: d.rightPath || null, rightContent,
+        rightName: d.rightName, rightLabel: d.rightLabel || null,
+        rightLang: d.rightLang || 'plaintext', isCustom: !!d.isCustom,
+      },
+    });
+    while (closedTabStack.length > CLOSED_TAB_STACK_MAX) closedTabStack.shift();
+    return;
+  }
   let content = tab.content || '';
   if (tab.type === 'editor' && tab.model) {
     try { content = tab.model.getValue(); } catch {}
@@ -2770,6 +2803,28 @@ function pushClosedTab(tab) {
 function reopenClosedTab() {
   const entry = closedTabStack.pop();
   if (!entry) { showToast('Nothing to reopen'); return; }
+  // Quick-compare tabs are recreated from their stashed snapshot.
+  if (entry.type === 'quick-diff' && entry.diff) {
+    try {
+      tabCounter++;
+      const d = entry.diff;
+      const qdTab = {
+        id: tabCounter, name: `↔ ${d.leftName || 'compare'}`,
+        filePath: null, content: '', dirty: false,
+        language: d.leftLang || 'plaintext', encoding: 'UTF-8', eol: 'Windows (CR LF)',
+        model: null, viewState: null,
+        type: 'quick-diff', encrypted: false, protectedBy: null,
+        diff: { ...d, originalModel: null, modifiedModel: null, mounted: false },
+      };
+      tabs.push(qdTab);
+      activateTab(qdTab.id);
+      renderTabs();
+    } catch (err) {
+      console.warn('[reopen-tab] quick-diff failed', err);
+      showToast('Failed to reopen compare tab');
+    }
+    return;
+  }
   // If the tab had a real file backing it, openFile handles everything —
   // it also gives us de-duplication if that file is already open in
   // another tab (focuses the existing one instead of duplicating).
@@ -2793,6 +2848,7 @@ async function closeTab(id) {
   if (tab.pinned) { showToast('Unpin the tab before closing it'); return; }
   if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff') {
     // Compare tabs: no save prompt, just dispose models and remove
+    if (tab.type === 'quick-diff') pushClosedTab(tab); // stash before models are disposed
     if (tab.type === 'diff')       disposeDiffTab(tab);
     if (tab.type === 'quick-diff') disposeQuickDiffTab(tab);
     const idx = tabs.findIndex(t => t.id === id);

@@ -918,6 +918,8 @@ const MENU_STRUCTURE = [
     { label: 'Base64 Encode',     ch: 'menu-b64-encode' },
     { label: 'Base64 Decode',     ch: 'menu-b64-decode' },
     { sep: true },
+    { label: 'JWT Decoder…',      ch: 'menu-jwt-decoder' },
+    { sep: true },
     { label: 'Pretty Print JSON', ch: 'menu-json-format' },
     { label: 'Pretty Print XML',  ch: 'menu-xml-format' },
     { label: 'Minify JSON',       ch: 'menu-json-minify' },
@@ -2268,6 +2270,7 @@ function activateTab(id) {
     prev.viewState = editor.saveViewState();
     prev.content = editor.getValue();
     prev.previewOpen = previewOpen; // persist per-tab preview visibility
+    prev.jwtOpen = _jwtPanelOpen;   // persist per-tab JWT panel visibility
     // Clear find / mark decorations from the OUTGOING tab's model so
     // they don't get stranded there. Without this, switching from a
     // tab where you Found "foo" would leave "foo" highlights painted
@@ -2307,6 +2310,10 @@ function activateTab(id) {
   diffContainer?.classList.add('hidden');
   fdiffContainer?.classList.add('hidden');
   qdiffContainer?.classList.add('hidden');
+
+  // JWT panel is bound to its owner tab (like the Preview pane): hide it on
+  // every switch; the editor branch below re-shows it for tabs that had it open.
+  if (_jwtPanelOpen) _jwtSetVisible(false);
 
   if (tab.type === 'diff') {
     monacoEl.style.display = 'none';
@@ -2426,6 +2433,8 @@ function activateTab(id) {
     }
     // Show/hide Mermaid toolbar based on active language
     updateMermaidToolbar(tab.language === 'mermaid');
+    // Restore the per-tab JWT panel (bound to this tab like the preview pane).
+    if (tab.jwtOpen === true && !_jwtPanelOpen) _jwtSetVisible(true);
   }
 
   renderTabs();
@@ -4150,6 +4159,258 @@ function base64Decode() {
   catch { showToast('Invalid Base64'); }
 }
 
+// ===== JWT Decoder ==========================================================
+// Decodes (NOT decrypts) a JSON Web Token: header + payload are base64url-encoded
+// JSON and just need decoding. Optional HS256/384/512 signature verification uses
+// Web Crypto HMAC. Encrypted tokens (JWE, 5 segments) can't be decoded without the key.
+// Self-contained, no dependencies. UI: #jwt-panel docked side panel (index.html).
+let _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
+let _jwtWired = false;
+
+function _jwtB64urlToBytes(b64url) {
+  // base64url → base64, restore padding, decode to bytes.
+  let s = String(b64url || '').replace(/-/g, '+').replace(/_/g, '/');
+  const pad = s.length % 4;
+  if (pad === 2) s += '==';
+  else if (pad === 3) s += '=';
+  else if (pad === 1) throw new Error('Invalid base64url length');
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function _jwtB64urlToStr(b64url) {
+  return new TextDecoder().decode(_jwtB64urlToBytes(b64url));
+}
+
+function _jwtFmtTime(sec) {
+  if (typeof sec !== 'number' || !isFinite(sec)) return String(sec);
+  const d = new Date(sec * 1000);
+  if (isNaN(d.getTime())) return String(sec);
+  return `${sec} — ${d.toLocaleString()}`;
+}
+
+function _jwtRenderClaims(payload, alg) {
+  if (!payload || typeof payload !== 'object') return '';
+  const rows = [];
+  const now = Math.floor(Date.now() / 1000);
+  if (alg) rows.push(`<div><b>alg:</b> ${escapeHtml(alg)}</div>`);
+  if ('iss' in payload) rows.push(`<div><b>iss</b> (issuer): ${escapeHtml(String(payload.iss))}</div>`);
+  if ('sub' in payload) rows.push(`<div><b>sub</b> (subject): ${escapeHtml(String(payload.sub))}</div>`);
+  if ('aud' in payload) rows.push(`<div><b>aud</b> (audience): ${escapeHtml(JSON.stringify(payload.aud))}</div>`);
+  if ('iat' in payload) rows.push(`<div><b>iat</b> (issued at): ${escapeHtml(_jwtFmtTime(payload.iat))}</div>`);
+  if ('nbf' in payload) {
+    const notYet = typeof payload.nbf === 'number' && payload.nbf > now;
+    rows.push(`<div><b>nbf</b> (not before): ${escapeHtml(_jwtFmtTime(payload.nbf))}` +
+      (notYet ? ` <span style="color:#e8590c">⚠ not valid yet</span>` : '') + `</div>`);
+  }
+  if ('exp' in payload) {
+    const expired = typeof payload.exp === 'number' && payload.exp < now;
+    const badge = expired
+      ? ` <span style="color:#e03131;font-weight:600">✗ EXPIRED</span>`
+      : ` <span style="color:#2f9e44;font-weight:600">✓ valid</span>`;
+    rows.push(`<div><b>exp</b> (expires): ${escapeHtml(_jwtFmtTime(payload.exp))}${badge}</div>`);
+  }
+  return rows.length ? `<div style="border:1px solid var(--find-border);padding:6px;line-height:1.6">${rows.join('')}</div>` : '';
+}
+
+function decodeJwt() {
+  const inputEl   = document.getElementById('jwt-input');
+  const errEl     = document.getElementById('jwt-error');
+  const headerEl  = document.getElementById('jwt-header');
+  const payloadEl = document.getElementById('jwt-payload');
+  const sigEl     = document.getElementById('jwt-signature');
+  const claimsEl  = document.getElementById('jwt-claims');
+  const verifyEl  = document.getElementById('jwt-verify-status');
+  if (!inputEl) return;
+  errEl.textContent = '';
+  verifyEl.textContent = '';
+  if (sigEl) sigEl.textContent = '';
+  _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
+
+  const raw = inputEl.value.trim().replace(/^Bearer\s+/i, '');
+  if (!raw) { headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = ''; _jwtUpdateVerifyAvailability(); return; }
+
+  const parts = raw.split('.');
+  if (parts.length === 5) {
+    errEl.textContent = 'This looks like an encrypted JWT (JWE, 5 segments). It cannot be decoded without the decryption key.';
+    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = '';
+    return;
+  }
+  if (parts.length < 2 || parts.length > 3) {
+    errEl.textContent = 'Not a valid JWT. Expected 3 dot-separated segments (header.payload.signature).';
+    headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = '';
+    return;
+  }
+
+  let header, payload;
+  try { header = JSON.parse(_jwtB64urlToStr(parts[0])); }
+  catch (e) { errEl.textContent = 'Failed to decode header: ' + e.message; headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; return; }
+  try { payload = JSON.parse(_jwtB64urlToStr(parts[1])); }
+  catch (e) { errEl.textContent = 'Failed to decode payload: ' + e.message; payloadEl.textContent = ''; claimsEl.innerHTML = ''; headerEl.textContent = JSON.stringify(header, null, 2); return; }
+
+  _jwtLast = {
+    header, payload,
+    headerB64: parts[0], payloadB64: parts[1], sigB64: parts[2] || '',
+    alg: header && header.alg ? String(header.alg) : '',
+  };
+  headerEl.textContent  = JSON.stringify(header, null, 2);
+  payloadEl.textContent = JSON.stringify(payload, null, 2);
+  if (sigEl) sigEl.textContent = parts[2] ? parts[2] : '(none — unsigned token)';
+  claimsEl.innerHTML    = _jwtRenderClaims(payload, _jwtLast.alg);
+  _jwtUpdateVerifyAvailability();
+  if (!parts[2]) verifyEl.innerHTML = '<span style="color:#e8590c">No signature segment present (unsigned token).</span>';
+}
+
+// Enable the HMAC-secret verify controls only for HS* tokens; otherwise
+// disable them and explain that RS/ES tokens need a public key instead.
+function _jwtUpdateVerifyAvailability() {
+  const secretEl = document.getElementById('jwt-secret');
+  const btnEl    = document.getElementById('btn-jwt-verify');
+  const verifyEl = document.getElementById('jwt-verify-status');
+  const alg = (_jwtLast.alg || '').toUpperCase();
+  const isHmac = alg === 'HS256' || alg === 'HS384' || alg === 'HS512';
+  const noToken = !_jwtLast.header;
+  const enable = isHmac || noToken;
+  if (secretEl) {
+    secretEl.disabled = !enable;
+    secretEl.placeholder = enable
+      ? 'HMAC secret (HS256/384/512)'
+      : 'HMAC secret — not applicable for ' + (_jwtLast.alg || 'this alg');
+  }
+  if (btnEl) btnEl.disabled = !enable;
+  if (verifyEl && !enable && _jwtLast.sigB64) {
+    verifyEl.innerHTML = `<span style="color:#868e96">"${escapeHtml(_jwtLast.alg || 'none')}" is asymmetric — verify with the issuer's public key (JWKS), not a shared secret. HMAC verify applies to HS256/384/512 only.</span>`;
+  }
+}
+
+async function verifyJwtSignature() {
+  const secretEl = document.getElementById('jwt-secret');
+  const verifyEl = document.getElementById('jwt-verify-status');
+  if (!verifyEl) return;
+  if (!_jwtLast.header || !_jwtLast.sigB64) {
+    verifyEl.innerHTML = '<span style="color:#e8590c">Decode a signed token first.</span>';
+    return;
+  }
+  const alg = (_jwtLast.alg || '').toUpperCase();
+  const hashMap = { HS256: 'SHA-256', HS384: 'SHA-384', HS512: 'SHA-512' };
+  if (!hashMap[alg]) {
+    verifyEl.innerHTML = `<span style="color:#e8590c">Signature verification here supports HS256/384/512 only. This token uses "${escapeHtml(_jwtLast.alg || 'none')}" (RS/ES need a public key — not yet supported).</span>`;
+    return;
+  }
+  const secret = secretEl.value;
+  if (!secret) { verifyEl.innerHTML = '<span style="color:#e8590c">Enter the HMAC secret to verify.</span>'; return; }
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', enc.encode(secret), { name: 'HMAC', hash: hashMap[alg] }, false, ['sign']
+    );
+    const signingInput = enc.encode(`${_jwtLast.headerB64}.${_jwtLast.payloadB64}`);
+    const sigBuf = await crypto.subtle.sign('HMAC', key, signingInput);
+    const expected = btoa(String.fromCharCode.apply(null, new Uint8Array(sigBuf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    if (expected === _jwtLast.sigB64) {
+      verifyEl.innerHTML = `<span style="color:#2f9e44;font-weight:600">✓ Signature valid (${escapeHtml(alg)})</span>`;
+    } else {
+      verifyEl.innerHTML = `<span style="color:#e03131;font-weight:600">✗ Signature does NOT match (wrong secret or tampered token)</span>`;
+    }
+  } catch (e) {
+    verifyEl.innerHTML = '<span style="color:#e03131">Verify failed: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+let _jwtPanelOpen = false;
+
+// Show/hide the docked panel without touching per-tab intent. Used both by
+// the user-facing open/close and by the tab-switch binding below.
+function _jwtSetVisible(show) {
+  const panel  = document.getElementById('jwt-panel');
+  const handle = document.getElementById('jwt-resize-handle');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !show);
+  handle?.classList.toggle('hidden', !show);
+  _jwtPanelOpen = !!show;
+  editor?.layout();
+}
+
+function openJwtDecoder() {
+  const panel = document.getElementById('jwt-panel');
+  const handle = document.getElementById('jwt-resize-handle');
+  if (!panel) return;
+  const inputEl = document.getElementById('jwt-input');
+  // Prefill from the current selection if it looks like a JWT.
+  try {
+    const sel = editor && editor.getSelection && editor.getSelection();
+    if (sel && !sel.isEmpty()) {
+      const t = editor.getModel().getValueInRange(sel).trim();
+      if (/^(Bearer\s+)?[\w-]+\.[\w-]+\.[\w-]*$/.test(t)) inputEl.value = t.replace(/^Bearer\s+/i, '');
+    }
+  } catch {}
+  if (!_jwtWired) {
+    _jwtWired = true;
+    inputEl.addEventListener('input', decodeJwt);
+    document.getElementById('btn-jwt-verify')?.addEventListener('click', verifyJwtSignature);
+    document.getElementById('jwt-secret')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); verifyJwtSignature(); }
+    });
+    document.getElementById('btn-jwt-load')?.addEventListener('click', () => {
+      try {
+        const model = editor.getModel();
+        const sel = editor.getSelection();
+        const t = (sel && !sel.isEmpty() ? model.getValueInRange(sel) : model.getValue()).trim();
+        inputEl.value = t.replace(/^Bearer\s+/i, '');
+        decodeJwt();
+      } catch {}
+    });
+    document.getElementById('btn-jwt-panel-close')?.addEventListener('click', closeJwtPanel);
+    _setupJwtResize();
+  }
+  _jwtSetVisible(true);
+  // Bind the panel to the tab it was opened from, like the Mermaid preview:
+  // switching away hides it, switching back restores it, closing the tab drops it.
+  const owner = getActiveTab();
+  if (owner) owner.jwtOpen = true;
+  decodeJwt();
+  setTimeout(() => inputEl.focus(), 30);
+}
+
+function closeJwtPanel() {
+  _jwtSetVisible(false);
+  const owner = getActiveTab();
+  if (owner) owner.jwtOpen = false;   // user explicitly closed → don't auto-restore
+  editor?.focus();
+}
+
+// Drag-to-resize for the docked JWT panel (mirrors the Preview panel handle).
+function _setupJwtResize() {
+  const handle = document.getElementById('jwt-resize-handle');
+  const panel = document.getElementById('jwt-panel');
+  if (!handle || !panel) return;
+  let dragging = false, startX = 0, startW = 0;
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = startX - e.clientX; // panel is docked on the right
+    const newW = Math.max(260, Math.min(startW + delta, window.innerWidth * 0.8));
+    panel.style.width = newW + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    editor?.layout();
+  });
+}
+
+
 function jsonFormat() {
   const model = editor.getModel();
   const sel = editor.getSelection();
@@ -5476,6 +5737,7 @@ const COMMANDS = [
   { label: 'Minify JSON', icon: '{}', action: () => jsonMinify() },
   { label: 'Base64 Encode', icon: '🔡', action: () => base64Encode() },
   { label: 'Base64 Decode', icon: '🔤', action: () => base64Decode() },
+  { label: 'JWT Decoder', icon: '🔑', action: () => openJwtDecoder() },
   { label: 'Sort Lines Ascending', icon: '↑', action: () => sortLines(1) },
   { label: 'Sort Lines Descending', icon: '↓', action: () => sortLines(-1) },
   { label: 'Remove Duplicate Lines', icon: '⊘', action: () => removeDuplicateLines() },
@@ -6571,6 +6833,7 @@ function setupMenuListeners() {
   m('menu-move-line-down', () => editor.getAction('editor.action.moveLinesDownAction')?.run());
   m('menu-b64-encode', base64Encode);
   m('menu-b64-decode', base64Decode);
+  m('menu-jwt-decoder', openJwtDecoder);
   m('menu-readonly', () => editor.updateOptions({ readOnly: true }));
   m('menu-clear-readonly', () => editor.updateOptions({ readOnly: false }));
 
@@ -10059,6 +10322,9 @@ function setupGlobalEscape() {
     }
     if (!document.getElementById('regex-tester').classList.contains('hidden')) {
       document.getElementById('regex-tester').classList.add('hidden'); editor.focus(); return;
+    }
+    if (_jwtPanelOpen) {
+      closeJwtPanel(); return;
     }
     if (!document.getElementById('about-dialog').classList.contains('hidden')) {
       document.getElementById('about-dialog').classList.add('hidden'); editor.focus(); return;

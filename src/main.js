@@ -711,6 +711,8 @@ function buildMenu() {
         { label: 'Base64 &Encode', click: () => send('menu-b64-encode') },
         { label: 'Base64 &Decode', click: () => send('menu-b64-decode') },
         { type: 'separator' },
+        { label: '&JWT Decoder…', click: () => send('menu-jwt-decoder') },
+        { type: 'separator' },
         { label: 'Pretty Print &JSON', click: () => send('menu-json-format') },
         { label: 'Pretty Print &XML', click: () => send('menu-xml-format') },
         { label: '&Minify JSON', click: () => send('menu-json-minify') },

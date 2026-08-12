@@ -490,6 +490,35 @@
             </div>
           </div>
         </div>
+
+        <!-- JWT Decoder Resize Handle -->
+        <div id="jwt-resize-handle" class="hidden"></div>
+        <!-- JWT Decoder Side Panel (docked on the right, like Preview) -->
+        <div id="jwt-panel" class="hidden">
+          <div id="jwt-panel-header">
+            <span id="jwt-panel-title">JWT DECODER</span>
+            <div style="flex:1"></div>
+            <button class="tb-btn" id="btn-jwt-load" title="Load token from editor selection or whole file">Load</button>
+            <button class="tb-btn" id="btn-jwt-panel-close" title="Close JWT Decoder">&#10005;</button>
+          </div>
+          <div id="jwt-panel-body">
+            <div class="jwt-sec-label">Encoded token (header.payload.signature)</div>
+            <textarea id="jwt-input" spellcheck="false" placeholder="Paste a JSON Web Token here…"></textarea>
+            <div id="jwt-error"></div>
+            <div class="jwt-sec-label">Header</div>
+            <div id="jwt-header" class="jwt-json"></div>
+            <div class="jwt-sec-label">Payload</div>
+            <div id="jwt-payload" class="jwt-json"></div>
+            <div class="jwt-sec-label">Signature</div>
+            <div id="jwt-signature" class="jwt-json jwt-sig"></div>
+            <div id="jwt-claims"></div>
+            <div class="jwt-verify-row">
+              <input type="text" id="jwt-secret" class="fr-input" placeholder="HMAC secret (HS256/384/512) — optional">
+              <button class="modal-btn" id="btn-jwt-verify">Verify</button>
+            </div>
+            <div id="jwt-verify-status"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Terminal Resize Handle -->
@@ -767,6 +796,8 @@
       </div>
     </div>
   </div>
+
+  <!-- JWT Decoder is now a docked side panel (#jwt-panel) inside #editor-preview-row -->
 
   <!-- About Dialog -->
   <div id="about-dialog" class="modal-overlay hidden">

@@ -6755,7 +6755,11 @@ function setupMenuListeners() {
   });
 
   m('app-before-close', async () => {
-    await saveSession();          // always auto-save before closing
+    // Never let a failure here block the window from closing. saveSession() is
+    // best-effort; if it throws (e.g. an unexpected tab shape), we still MUST
+    // call closeWindow() or the main process's preventDefault()'d 'close' keeps
+    // the window open and the X button appears dead.
+    try { await saveSession(); } catch (err) { console.warn('[close] saveSession failed', err); }
     window.electronAPI.closeWindow();
   });
 
@@ -7002,7 +7006,16 @@ function scheduleAutoSave() {
 }
 
 async function saveSession() {
-  const sessionTabs = tabs.filter(tab => tab.type !== 'game').map(tab => {
+  const sessionTabs = tabs.filter(tab =>
+    tab.type !== 'game' &&
+    // Compare/diff tabs are ephemeral: they hold no persistable single model
+    // (their content lives in diff.originalModel / modifiedModel, and the
+    // restore path has no diff branch). Including them here made the map hit
+    // `tab.model.getValue()` on a null model and THROW, which rejected
+    // saveSession() and stopped app-before-close from ever calling
+    // closeWindow() — so the window X did nothing while a compare tab existed.
+    tab.type !== 'diff' && tab.type !== 'folder-diff' && tab.type !== 'quick-diff'
+  ).map(tab => {
     // Whiteboard tabs store content directly (JSON state synced via postMessage)
     if (tab.type === 'whiteboard') {
       return {

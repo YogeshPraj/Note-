@@ -2387,6 +2387,16 @@ function activateTab(id) {
     qdiffContainer.classList.remove('hidden');
     if (previewOpen) closePreview();
     mountQuickDiffTab(tab);
+    // Hand keyboard focus to the diff editor so shortcuts (Ctrl+W, etc.)
+    // unambiguously target THIS tab. Clicking a compare tab already lands focus
+    // inside the diff editor and behaves correctly; keyboard-driven activation
+    // (e.g. Ctrl+Shift+T reopen) otherwise leaves focus on <body>, which is the
+    // one observable difference that made Ctrl+W act on the previously-focused
+    // tab. Deferred with a double rAF to match mountQuickDiffTab's relayout so
+    // focus lands after the editor has real dimensions.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try { quickDiffEditor?.focus(); } catch {}
+    }));
   } else {
     monacoEl.style.display = '';
     if (editor) {

@@ -19,12 +19,16 @@ pre-filled automatically.
     local date/time
   - `exp` gets a **✓ valid / ✗ EXPIRED** badge; `nbf` warns if the token isn't valid yet
   - the header `alg` is shown alongside
+- **Signature (raw)** — the Base64URL signature segment is shown in its own box so you can copy
+  it. Unsigned tokens show `(none)`.
 - **Signature verification (optional)** — for `HS256` / `HS384` / `HS512`, enter the shared
-  secret and click **Verify Signature**. Uses the Web Crypto `HMAC` primitive to recompute the
-  signature and compares it constant-length against the token's own. Reports
-  **✓ valid** or **✗ does NOT match**. `RS*` / `ES*` (asymmetric) aren't verified here — they
-  need a public key.
-- **Copy Payload** — copies the decoded payload JSON to the clipboard.
+  secret and click **Verify**. Uses the Web Crypto `HMAC` primitive to recompute the
+  signature and compares it against the token's own. Reports **✓ valid** or **✗ does NOT match**.
+  For `RS*` / `ES*` (asymmetric) tokens the secret field and Verify button are **automatically
+  disabled** with a hint — those are signed with a private key and verified with the issuer's
+  **public key (JWKS)**, so a shared secret doesn't apply.
+- **Copy by selection** — the Header, Payload, and Signature boxes are text-selectable; select
+  any part and copy it with `Ctrl+C`. (There is no separate Copy button.)
 - **Load from Editor** — pulls the current selection (or whole document) into the decoder.
 
 ## Safety / privacy

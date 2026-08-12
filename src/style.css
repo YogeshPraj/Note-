@@ -1392,10 +1392,15 @@ body.theme-dark .ai-quick-btn:hover { background: #3a3a3a; border-color: #58a6ff
   background: var(--find-input-bg);
   color: var(--tab-text);
   white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 #jwt-claims {
   font-size: 12px;
   color: var(--tab-text);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .jwt-sig {
   color: #c2255c;

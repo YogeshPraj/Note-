@@ -4083,7 +4083,7 @@ function decodeJwt() {
   _jwtLast = { header: null, payload: null, headerB64: '', payloadB64: '', sigB64: '', alg: '' };
 
   const raw = inputEl.value.trim().replace(/^Bearer\s+/i, '');
-  if (!raw) { headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = ''; return; }
+  if (!raw) { headerEl.textContent = ''; payloadEl.textContent = ''; claimsEl.innerHTML = ''; if (sigEl) sigEl.textContent = ''; _jwtUpdateVerifyAvailability(); return; }
 
   const parts = raw.split('.');
   if (parts.length === 5) {
@@ -4112,7 +4112,30 @@ function decodeJwt() {
   payloadEl.textContent = JSON.stringify(payload, null, 2);
   if (sigEl) sigEl.textContent = parts[2] ? parts[2] : '(none — unsigned token)';
   claimsEl.innerHTML    = _jwtRenderClaims(payload, _jwtLast.alg);
+  _jwtUpdateVerifyAvailability();
   if (!parts[2]) verifyEl.innerHTML = '<span style="color:#e8590c">No signature segment present (unsigned token).</span>';
+}
+
+// Enable the HMAC-secret verify controls only for HS* tokens; otherwise
+// disable them and explain that RS/ES tokens need a public key instead.
+function _jwtUpdateVerifyAvailability() {
+  const secretEl = document.getElementById('jwt-secret');
+  const btnEl    = document.getElementById('btn-jwt-verify');
+  const verifyEl = document.getElementById('jwt-verify-status');
+  const alg = (_jwtLast.alg || '').toUpperCase();
+  const isHmac = alg === 'HS256' || alg === 'HS384' || alg === 'HS512';
+  const noToken = !_jwtLast.header;
+  const enable = isHmac || noToken;
+  if (secretEl) {
+    secretEl.disabled = !enable;
+    secretEl.placeholder = enable
+      ? 'HMAC secret (HS256/384/512)'
+      : 'HMAC secret — not applicable for ' + (_jwtLast.alg || 'this alg');
+  }
+  if (btnEl) btnEl.disabled = !enable;
+  if (verifyEl && !enable && _jwtLast.sigB64) {
+    verifyEl.innerHTML = `<span style="color:#868e96">"${escapeHtml(_jwtLast.alg || 'none')}" is asymmetric — verify with the issuer's public key (JWKS), not a shared secret. HMAC verify applies to HS256/384/512 only.</span>`;
+  }
 }
 
 async function verifyJwtSignature() {
@@ -4180,11 +4203,6 @@ function openJwtDecoder() {
         inputEl.value = t.replace(/^Bearer\s+/i, '');
         decodeJwt();
       } catch {}
-    });
-    document.getElementById('btn-jwt-copy')?.addEventListener('click', () => {
-      if (_jwtLast.payload == null) { showToast('Nothing to copy — decode a token first'); return; }
-      navigator.clipboard.writeText(JSON.stringify(_jwtLast.payload, null, 2))
-        .then(() => showToast('Payload copied')).catch(() => showToast('Copy failed'));
     });
     document.getElementById('btn-jwt-panel-close')?.addEventListener('click', closeJwtPanel);
     _setupJwtResize();

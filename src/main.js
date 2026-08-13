@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, nativeTheme, shell, protocol } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, nativeTheme, shell, protocol, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -1646,6 +1646,458 @@ ipcMain.handle('icons:clear-cache', () => {
     return { success: false, error: err.message || String(err) };
   }
 });
+
+// ── Tasks & Schedule ──────────────────────────────────────────────────────
+// Main process owns the merged task list: manual tasks from the store plus
+// derived tasks scanned out of the workspace, with overlay state (sticky
+// geometry / snooze) folded in. The renderer asks for the merged view; it
+// never assembles it itself, so the scheduler and the UI can never disagree
+// about what's due.
+const taskService = require('./task-service');
+
+const _tasks = {
+  workspaceRoot: null,
+  storeFile: null,
+  store: taskService.emptyStore(),
+  derived: [],
+  merged: [],
+  scanStats: null,
+  scheduler: null,
+};
+
+function _tasksStoreFile() {
+  return taskService.storePathFor(_tasks.workspaceRoot, app.getPath('userData'));
+}
+
+// Merge = manual tasks + derived tasks, with per-derived overlay applied.
+// Derived tasks whose overlay marks them done are filtered to `done` without
+// touching the file — lets someone tick a TODO off without a source edit.
+function _rebuildMergedTasks() {
+  const overlay = _tasks.store.overlay || {};
+  const manual = (_tasks.store.tasks || []).map(taskService.normalizeTask);
+  const derived = (_tasks.derived || []).map(d => {
+    const ov = overlay[d.id] || {};
+    return taskService.normalizeTask({
+      ...d,
+      status: ov.status || d.status,
+      sticky: ov.sticky || null,
+      snoozedUntil: ov.snoozedUntil || null,
+      remindMinsBefore: ov.remindMinsBefore ?? null,
+      notes: ov.notes || '',
+      completedAt: ov.completedAt || null,
+    });
+  });
+  _tasks.merged = [...manual, ...derived];
+  if (_tasks.scheduler) _tasks.scheduler.setTasks(_tasks.merged);
+  _updateTaskBadge();
+  return _tasks.merged;
+}
+
+// Tray tooltip + taskbar overlay reflect how much is overdue / due today, so
+// the count is visible even when the window is hidden in tray mode.
+function _updateTaskBadge() {
+  const now = Date.now();
+  const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+  let overdue = 0, today = 0;
+  for (const t of _tasks.merged) {
+    if (t.status === 'done' || !t.due) continue;
+    const due = new Date(t.due).getTime();
+    if (isNaN(due)) continue;
+    if (due < now) overdue++;
+    else if (due <= endOfDay.getTime()) today++;
+  }
+  const total = overdue + today;
+  try {
+    if (tray && !tray.isDestroyed()) {
+      tray.setToolTip(total
+        ? `Note++ — ${overdue} overdue, ${today} due today`
+        : 'Note++');
+    }
+  } catch {}
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (process.platform === 'darwin') {
+        app.setBadgeCount(overdue);
+      } else if (process.platform === 'win32') {
+        // Windows taskbar overlay — a small numeric badge on the app icon.
+        if (overdue > 0) {
+          const label = overdue > 9 ? '9+' : String(overdue);
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+            <circle cx="16" cy="16" r="15" fill="#e5534b"/>
+            <text x="16" y="22" font-family="Segoe UI,sans-serif" font-size="${overdue > 9 ? 14 : 18}"
+                  fill="#fff" text-anchor="middle" font-weight="600">${label}</text></svg>`;
+          const img = nativeImage.createFromDataURL(
+            'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64'));
+          mainWindow.setOverlayIcon(img, `${overdue} overdue tasks`);
+        } else {
+          mainWindow.setOverlayIcon(null, '');
+        }
+      }
+    }
+  } catch {}
+  return { overdue, today, total };
+}
+
+function _sendToRenderer(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
+
+function _initTaskScheduler() {
+  if (_tasks.scheduler) return _tasks.scheduler;
+  _tasks.scheduler = new taskService.ReminderScheduler((task, meta) => {
+    // Native OS notification — fires regardless of window visibility, which
+    // is the whole point of running in the tray.
+    try {
+      if (Notification.isSupported()) {
+        const n = new Notification({
+          title: meta.overdue ? '⏰ Overdue task' : '⏰ Task due',
+          body: task.title + (task.source?.filePath
+            ? `\n${path.basename(task.source.filePath)}:${task.source.line}` : ''),
+          urgency: task.priority >= 3 ? 'critical' : 'normal',
+          timeoutType: 'default',
+        });
+        n.on('click', () => {
+          showOrCreateMainWindow();
+          _sendToRenderer('task-notification-click', task.id);
+        });
+        n.show();
+      }
+    } catch (err) { console.error('[tasks] notification failed:', err); }
+    _sendToRenderer('task-reminder-fired', { task, meta });
+  });
+  _tasks.scheduler.start();
+  return _tasks.scheduler;
+}
+
+// Point the task system at a workspace (or null for the personal store).
+// Reloads the store and rescans. Called by the renderer whenever the folder
+// tree root changes.
+ipcMain.handle('tasks:set-workspace', async (_e, root) => {
+  try {
+    const normalized = root && typeof root === 'string' ? root : null;
+    const rootChanged = normalized !== _tasks.workspaceRoot;
+    _tasks.workspaceRoot = normalized;
+
+    // The store is global (see storePathFor) — load it once and keep it.
+    // Changing the scan root must never swap the user's task list.
+    if (!_tasks.storeFile) {
+      _tasks.storeFile = _tasksStoreFile();
+      _tasks.store = taskService.loadStore(_tasks.storeFile);
+    }
+    // Only the DERIVED half is workspace-dependent, so that's all we clear.
+    if (rootChanged) {
+      _tasks.derived = [];
+      _tasks.scanStats = null;
+    }
+    _initTaskScheduler();
+    _rebuildMergedTasks();
+    return { success: true, tasks: _tasks.merged, workspaceRoot: _tasks.workspaceRoot };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('tasks:list', () => {
+  _initTaskScheduler();
+  return {
+    success: true,
+    tasks: _tasks.merged,
+    workspaceRoot: _tasks.workspaceRoot,
+    scanStats: _tasks.scanStats,
+    badge: _updateTaskBadge(),
+  };
+});
+
+// Full workspace scan for TODO/FIXME comments + markdown checkboxes.
+ipcMain.handle('tasks:scan', async () => {
+  if (!_tasks.workspaceRoot) {
+    _tasks.derived = [];
+    _rebuildMergedTasks();
+    return { success: true, tasks: _tasks.merged, scanStats: null, noWorkspace: true };
+  }
+  try {
+    const { tasks, stats } = await taskService.scanWorkspace(_tasks.workspaceRoot);
+    // Dedupe by id — the same text in the same file twice is one task.
+    const seen = new Set();
+    _tasks.derived = tasks.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id); return true;
+    });
+    _tasks.scanStats = stats;
+    _rebuildMergedTasks();
+    return { success: true, tasks: _tasks.merged, scanStats: stats };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Create / update a manual task.
+ipcMain.handle('tasks:save', (_e, task) => {
+  try {
+    const t = taskService.normalizeTask(task || {});
+    if (!t.title) return { success: false, error: 'Task needs a title' };
+    const list = _tasks.store.tasks || (_tasks.store.tasks = []);
+    const idx = list.findIndex(x => x.id === t.id);
+    if (idx >= 0) list[idx] = t; else list.push(t);
+    taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+    _rebuildMergedTasks();
+    return { success: true, task: t, tasks: _tasks.merged };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('tasks:delete', (_e, id) => {
+  try {
+    _tasks.store.tasks = (_tasks.store.tasks || []).filter(t => t.id !== id);
+    if (_tasks.store.overlay) delete _tasks.store.overlay[id];
+    taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+    _rebuildMergedTasks();
+    return { success: true, tasks: _tasks.merged };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Toggle done. For derived tasks this writes back to the source file so the
+// change lives in git — a checked markdown box becomes `[x]`, a completed
+// code TODO becomes `DONE`. Falls back to overlay if the rewrite fails
+// (file moved, read-only, etc.) so the UI still reflects the user's intent.
+ipcMain.handle('tasks:toggle-done', (_e, id, done) => {
+  try {
+    const task = _tasks.merged.find(t => t.id === id);
+    if (!task) return { success: false, error: 'not found' };
+    const kind = task.source?.kind;
+
+    if (kind === 'manual') {
+      const t = (_tasks.store.tasks || []).find(x => x.id === id);
+      if (t) {
+        t.status = done ? 'done' : 'open';
+        t.completedAt = done ? Date.now() : null;
+      }
+    } else {
+      let rewrote = false;
+      try {
+        if (kind === 'markdown') {
+          rewrote = taskService.toggleMarkdownCheckbox(task.source.filePath, task.source.line, done);
+        } else if (kind === 'code' && done) {
+          rewrote = taskService.markCodeTagDone(task.source.filePath, task.source.line);
+        }
+      } catch (err) {
+        console.warn('[tasks] source rewrite failed, falling back to overlay:', err.message);
+      }
+      // Overlay always records intent — belt and braces if the rewrite missed.
+      _tasks.store.overlay = _tasks.store.overlay || {};
+      _tasks.store.overlay[id] = {
+        ..._tasks.store.overlay[id],
+        status: done ? 'done' : 'open',
+        completedAt: done ? Date.now() : null,
+      };
+      if (rewrote) _sendToRenderer('task-source-changed', task.source.filePath);
+    }
+    taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+    _rebuildMergedTasks();
+    return { success: true, tasks: _tasks.merged };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Change a due date. For derived tasks this rewrites the `due:` token in the
+// source line, which is what makes calendar drag-to-reschedule work.
+ipcMain.handle('tasks:set-due', (_e, id, dueIso) => {
+  try {
+    const task = _tasks.merged.find(t => t.id === id);
+    if (!task) return { success: false, error: 'not found' };
+    if (task.source?.kind === 'manual') {
+      const t = (_tasks.store.tasks || []).find(x => x.id === id);
+      if (t) t.due = dueIso || null;
+    } else {
+      try {
+        const ok = taskService.setSourceDue(task.source.filePath, task.source.line, dueIso);
+        if (ok) _sendToRenderer('task-source-changed', task.source.filePath);
+      } catch (err) {
+        return { success: false, error: 'Could not update the source file: ' + err.message };
+      }
+    }
+    taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+    _rebuildMergedTasks();
+    return { success: true, tasks: _tasks.merged };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('tasks:snooze', (_e, id, minutes) => {
+  try {
+    const until = _tasks.scheduler?.snooze(id, minutes);
+    // Persist so a restart doesn't resurrect the reminder immediately.
+    _tasks.store.overlay = _tasks.store.overlay || {};
+    const manual = (_tasks.store.tasks || []).find(x => x.id === id);
+    if (manual) manual.snoozedUntil = until;
+    else _tasks.store.overlay[id] = { ..._tasks.store.overlay[id], snoozedUntil: until };
+    taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+    _rebuildMergedTasks();
+    return { success: true, until, tasks: _tasks.merged };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('tasks:badge', () => _updateTaskBadge());
+
+// ── Sticky note windows ───────────────────────────────────────────────────
+// A sticky note is not a separate entity — it's a task rendered as a small
+// frameless always-on-top window. One data model, two presentations. Same
+// aux-window pattern as the updater window.
+const _stickyWindows = new Map();   // taskId → BrowserWindow
+
+const STICKY_COLORS = {
+  yellow: { bg: '#fef3a8', fg: '#4a3f00', accent: '#e8d24a' },
+  green:  { bg: '#c8f0c4', fg: '#14401a', accent: '#6fc96f' },
+  blue:   { bg: '#c3e4fb', fg: '#0b3350', accent: '#5aaeea' },
+  pink:   { bg: '#fbd0e2', fg: '#4d0f2c', accent: '#ea8ab5' },
+  purple: { bg: '#e0d4fb', fg: '#2e1a53', accent: '#a98ce8' },
+  grey:   { bg: '#e2e5e9', fg: '#25292e', accent: '#a8b0b8' },
+};
+
+function _persistStickyState(taskId, patch) {
+  const manual = (_tasks.store.tasks || []).find(t => t.id === taskId);
+  if (manual) {
+    manual.sticky = { ...(manual.sticky || {}), ...patch };
+  } else {
+    _tasks.store.overlay = _tasks.store.overlay || {};
+    const prev = _tasks.store.overlay[taskId] || {};
+    _tasks.store.overlay[taskId] = { ...prev, sticky: { ...(prev.sticky || {}), ...patch } };
+  }
+  taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+  _rebuildMergedTasks();
+}
+
+function _openStickyWindow(task) {
+  const existing = _stickyWindows.get(task.id);
+  if (existing && !existing.isDestroyed()) { existing.focus(); return existing; }
+
+  const s = task.sticky || {};
+  const color = STICKY_COLORS[s.color] ? s.color : 'yellow';
+  const win = new BrowserWindow({
+    width:  Math.max(200, s.w || 280),
+    height: Math.max(160, s.h || 220),
+    x: Number.isFinite(s.x) ? s.x : undefined,
+    y: Number.isFinite(s.y) ? s.y : undefined,
+    frame: false,
+    transparent: false,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,          // stickies shouldn't clutter the taskbar
+    title: task.title || 'Sticky',
+    backgroundColor: STICKY_COLORS[color].bg,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'sticky-preload.js'),
+      additionalArguments: [`--sticky-task-id=${task.id}`],
+    },
+  });
+  win.setMenuBarVisibility(false);
+  win.loadFile(path.join(__dirname, 'sticky.html'));
+
+  // Persist geometry as the user moves/resizes. Debounced so a drag doesn't
+  // hammer the store with a write per pixel.
+  let geomTimer = null;
+  const saveGeom = () => {
+    clearTimeout(geomTimer);
+    geomTimer = setTimeout(() => {
+      if (win.isDestroyed()) return;
+      const [x, y] = win.getPosition();
+      const [w, h] = win.getSize();
+      _persistStickyState(task.id, { x, y, w, h, open: true });
+    }, 400);
+  };
+  win.on('move', saveGeom);
+  win.on('resize', saveGeom);
+  win.on('closed', () => {
+    clearTimeout(geomTimer);
+    _stickyWindows.delete(task.id);
+  });
+
+  _stickyWindows.set(task.id, win);
+  return win;
+}
+
+ipcMain.handle('sticky:open', (_e, taskId) => {
+  try {
+    const task = _tasks.merged.find(t => t.id === taskId);
+    if (!task) return { success: false, error: 'task not found' };
+    _persistStickyState(taskId, { open: true, color: task.sticky?.color || 'yellow' });
+    const fresh = _tasks.merged.find(t => t.id === taskId) || task;
+    _openStickyWindow(fresh);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('sticky:close', (_e, taskId) => {
+  const win = _stickyWindows.get(taskId);
+  if (win && !win.isDestroyed()) win.close();
+  _persistStickyState(taskId, { open: false });
+  return { success: true };
+});
+
+// The sticky window asks who it is on load.
+ipcMain.handle('sticky:get-task', (_e, taskId) => {
+  const task = _tasks.merged.find(t => t.id === taskId);
+  if (!task) return { success: false, error: 'not found' };
+  const color = STICKY_COLORS[task.sticky?.color] ? task.sticky.color : 'yellow';
+  return { success: true, task, palette: STICKY_COLORS[color], colorName: color, colors: STICKY_COLORS };
+});
+
+ipcMain.handle('sticky:set-color', (_e, taskId, colorName) => {
+  if (!STICKY_COLORS[colorName]) return { success: false, error: 'bad colour' };
+  _persistStickyState(taskId, { color: colorName });
+  const win = _stickyWindows.get(taskId);
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('sticky-color-changed', colorName, STICKY_COLORS[colorName]);
+  }
+  return { success: true, palette: STICKY_COLORS[colorName] };
+});
+
+// Sticky edits write straight through to the task store.
+ipcMain.handle('sticky:update-task', (_e, taskId, patch) => {
+  try {
+    const manual = (_tasks.store.tasks || []).find(t => t.id === taskId);
+    if (manual) {
+      if (typeof patch.title === 'string') manual.title = patch.title;
+      if (typeof patch.notes === 'string') manual.notes = patch.notes;
+      if (patch.status) { manual.status = patch.status; manual.completedAt = patch.status === 'done' ? Date.now() : null; }
+    } else {
+      _tasks.store.overlay = _tasks.store.overlay || {};
+      _tasks.store.overlay[taskId] = { ..._tasks.store.overlay[taskId], ...patch };
+    }
+    taskService.saveStore(_tasks.storeFile || _tasksStoreFile(), _tasks.store);
+    _rebuildMergedTasks();
+    _sendToRenderer('tasks-changed');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Re-open every sticky the user had open last session.
+function restoreOpenStickies() {
+  try {
+    for (const t of _tasks.merged) {
+      if (t.sticky && t.sticky.open) _openStickyWindow(t);
+    }
+  } catch (err) { console.warn('[sticky] restore failed:', err.message); }
+}
+ipcMain.handle('sticky:restore-all', () => { restoreOpenStickies(); return { success: true }; });
 
 ipcMain.handle('drawio:status',    () => getDrawioService().getStatus());
 ipcMain.handle('drawio:download',  async () => {

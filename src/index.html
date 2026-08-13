@@ -121,6 +121,7 @@
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
       <button class="tb-btn" title="New Whiteboard" data-action="whiteboard-new" id="btn-whiteboard">🎨</button>
       <button class="tb-btn hidden" title="Azure icon library (whiteboard only)" data-action="icons" id="btn-icons">🖼️</button>
+      <button class="tb-btn" title="Tasks &amp; Schedule (Ctrl+Shift+K)" data-action="tasks" id="btn-tasks">✓</button>
       <button class="tb-btn" title="Encrypt / decrypt this file" data-action="encrypt-toggle" id="btn-encrypt">🔒</button>
       <button class="tb-btn" title="Spell check — click to cycle: Off → Check → Auto-fix" data-action="spell-toggle" id="btn-spell">✓<span id="spell-mode-badge" class="spell-mode-badge"></span></button>
       <button class="tb-btn" title="Source Control (Ctrl+Shift+G)" data-action="source-control" id="btn-sc">⎇</button>
@@ -249,6 +250,8 @@
           <div id="drawio-container" class="hidden">
             <iframe id="drawio-frame-host" src="" allowfullscreen></iframe>
           </div>
+          <!-- Tasks & Schedule full-tab view (rendered by tasks-panel.js) -->
+          <div id="tasks-tab-container" class="hidden"></div>
           <!-- File Diff Container (Monaco DiffEditor, hidden by default) -->
           <div id="diff-container" class="hidden">
             <div id="diff-toolbar">
@@ -547,6 +550,26 @@
          Azure icon metadata + SVGs from maskati.github.io on first
          open, caches to userData. Drag any tile onto the whiteboard
          to insert it as an image element. -->
+    <!-- Tasks & Schedule docked panel (right rail, shares the rail with
+         the icon library — opening one closes the other) -->
+    <div id="tasks-panel-resize" class="hidden"></div>
+    <div id="tasks-panel" class="hidden">
+      <div id="tasks-panel-header">
+        <span id="tasks-panel-title">Tasks</span>
+        <div id="tasks-panel-header-btns">
+          <button class="sc-icon-btn" id="tasks-new-btn"    title="New task">+</button>
+          <button class="sc-icon-btn" id="tasks-scan-btn"   title="Rescan workspace for TODO / FIXME">⟳</button>
+          <button class="sc-icon-btn" id="tasks-expand-btn" title="Expand to full tab">⇤</button>
+          <button class="sc-icon-btn" id="tasks-close-btn"  title="Close">×</button>
+        </div>
+      </div>
+      <div id="tasks-panel-search-row">
+        <input type="text" id="tasks-panel-search" placeholder="Filter tasks…">
+        <span id="tasks-panel-count" title="Matching / open">—</span>
+      </div>
+      <div id="tasks-panel-body"></div>
+    </div>
+
     <div id="icons-panel-resize" class="hidden"></div>
     <div id="icons-panel" class="hidden">
       <div id="icons-panel-header">
@@ -669,6 +692,7 @@
       <span id="status-git" class="status-item clickable hidden" title="Git status — click to open Source Control"></span>
       <span class="status-sep">|</span>
       <span id="status-lsp" class="status-item hidden" title="Language server status"></span>
+      <span id="status-tasks" class="status-item clickable hidden" title="Tasks due — click to open"></span>
       <span class="status-sep" id="status-macro-sep-rec" style="display:none">|</span>
       <span id="status-macro-rec" class="status-item hidden" title="Macro recording in progress — Ctrl+Shift+R to stop">⏺ REC</span>
     </div>
@@ -1403,6 +1427,10 @@
   <!-- Toast -->
   <div id="toast"></div>
 
+  <!-- Stack of in-app reminder banners (secondary to the native OS
+       notification, which fires even when this window is hidden) -->
+  <div id="task-reminder-host"></div>
+
   <!-- Monaco + App Loader -->
   <script>
     window.MonacoEnvironment = {
@@ -1445,6 +1473,9 @@
        showDrawioDownloadModal, ensureDrawioInstalled, checkDrawioForUpdates,
        createDrawioTab). Same shared-globals pattern. -->
   <script src="drawio-helpers.js"></script>
+  <!-- Tasks & Schedule UI — classic script sharing renderer.js's global
+       scope, same pattern as the whiteboard / drawio helpers above. -->
+  <script src="tasks-panel.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

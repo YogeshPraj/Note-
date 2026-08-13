@@ -40,6 +40,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearCache:    ()        => ipcRenderer.invoke('icons:clear-cache'),
   },
 
+  // Tasks & Schedule — manual tasks in .notepp/tasks.json plus tasks derived
+  // from TODO/FIXME comments and markdown checkboxes in the workspace.
+  tasks: {
+    setWorkspace: (root)        => ipcRenderer.invoke('tasks:set-workspace', root),
+    list:         ()            => ipcRenderer.invoke('tasks:list'),
+    scan:         ()            => ipcRenderer.invoke('tasks:scan'),
+    save:         (task)        => ipcRenderer.invoke('tasks:save', task),
+    remove:       (id)          => ipcRenderer.invoke('tasks:delete', id),
+    toggleDone:   (id, done)    => ipcRenderer.invoke('tasks:toggle-done', id, done),
+    setDue:       (id, dueIso)  => ipcRenderer.invoke('tasks:set-due', id, dueIso),
+    snooze:       (id, mins)    => ipcRenderer.invoke('tasks:snooze', id, mins),
+    badge:        ()            => ipcRenderer.invoke('tasks:badge'),
+    // Main → renderer events
+    onReminder:   (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on('task-reminder-fired', h); return () => ipcRenderer.removeListener('task-reminder-fired', h); },
+    onNotifClick: (cb) => { const h = (_e, id) => cb(id); ipcRenderer.on('task-notification-click', h); return () => ipcRenderer.removeListener('task-notification-click', h); },
+    onSourceChanged: (cb) => { const h = (_e, fp) => cb(fp); ipcRenderer.on('task-source-changed', h); return () => ipcRenderer.removeListener('task-source-changed', h); },
+    onChanged:    (cb) => { const h = () => cb(); ipcRenderer.on('tasks-changed', h); return () => ipcRenderer.removeListener('tasks-changed', h); },
+  },
+
+  // Sticky notes — a task rendered as a floating always-on-top window.
+  sticky: {
+    open:       (id)          => ipcRenderer.invoke('sticky:open', id),
+    close:      (id)          => ipcRenderer.invoke('sticky:close', id),
+    setColor:   (id, color)   => ipcRenderer.invoke('sticky:set-color', id, color),
+    restoreAll: ()            => ipcRenderer.invoke('sticky:restore-all'),
+  },
+
   // Markdown preview export (HTML / PDF / DOCX). HTML is just `writeFile`;
   // PDF and DOCX route through main-process converters that return base64.
 

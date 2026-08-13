@@ -1461,6 +1461,7 @@ require(['vs/editor/editor.main'], () => {
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => openGameTab());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => toggleSourceControlPanel());
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, () => toggleAiPanel());
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyK, () => tsToggleTasks());
   editor.addCommand(monaco.KeyCode.F12, () => editor.getAction('editor.action.revealDefinition')?.run());
   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F12, () => editor.getAction('editor.action.goToReferences')?.run());
   editor.addCommand(monaco.KeyCode.F2, () => editor.getAction('editor.action.rename')?.run());
@@ -1517,6 +1518,7 @@ require(['vs/editor/editor.main'], () => {
   setupContextMenu();
   setupDragDrop();
   setupIconsPanel();
+  initTasksFeature();
   setupFindReplace();
   setupModals();
   setupThemePicker();
@@ -2302,6 +2304,7 @@ function activateTab(id) {
   const diffContainer  = document.getElementById('diff-container');
   const fdiffContainer = document.getElementById('folder-diff-container');
   const qdiffContainer = document.getElementById('quick-diff-container');
+  const tasksContainer = document.getElementById('tasks-tab-container');
 
   // Always hide all special containers first, then show the right one
   gameContainer.classList.add('hidden');
@@ -2310,12 +2313,20 @@ function activateTab(id) {
   diffContainer?.classList.add('hidden');
   fdiffContainer?.classList.add('hidden');
   qdiffContainer?.classList.add('hidden');
+  tasksContainer?.classList.add('hidden');
 
   // JWT panel is bound to its owner tab (like the Preview pane): hide it on
   // every switch; the editor branch below re-shows it for tabs that had it open.
   if (_jwtPanelOpen) _jwtSetVisible(false);
 
-  if (tab.type === 'diff') {
+  if (tab.type === 'tasks') {
+    // Full-tab Tasks & Schedule view. Rendering lives in tasks-panel.js;
+    // this branch just owns visibility.
+    monacoEl.style.display = 'none';
+    tasksContainer?.classList.remove('hidden');
+    if (previewOpen) closePreview();
+    try { tsRenderTab(); } catch (e) { console.warn('[tasks] tab render failed', e); }
+  } else if (tab.type === 'diff') {
     monacoEl.style.display = 'none';
     diffContainer.classList.remove('hidden');
     if (previewOpen) closePreview();
@@ -2784,6 +2795,9 @@ function pushClosedTab(tab) {
   // File/folder compare tabs reference on-disk paths (re-openable from the
   // menu); games are trivial to reopen from the toolbar.
   if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'game') return;
+  // Tasks tab is a singleton view — reopen it from the toolbar, not the
+  // closed-tab stack (a second one would fight over taskState.tabId).
+  if (tab.type === 'tasks') return;
   // Quick-compare tabs (Compare / Compare with Clipboard) hold their content
   // in-memory, so stash a serialisable snapshot to allow Ctrl+Shift+T reopen.
   if (tab.type === 'quick-diff') {
@@ -2900,6 +2914,24 @@ async function _closeTabInner(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   if (tab.pinned) { showToast('Unpin the tab before closing it'); return; }
+  if (tab.type === 'tasks') {
+    // Tasks tab holds no document — just drop it and reset the view mode
+    // so the toolbar button and settings stay in sync.
+    const idx = tabs.findIndex(t => t.id === id);
+    taskState.tabId = null;
+    if (taskState.viewMode === 'tab') {
+      taskState.viewMode = 'hidden';
+      saveSetting('tasks.viewMode', 'hidden');
+      tsUpdateToolbarButton();
+    }
+    document.getElementById('tasks-tab-container')?.classList.add('hidden');
+    document.getElementById('monaco-editor').style.display = '';
+    tabs.splice(idx, 1);
+    if (tabs.length === 0) createTab();
+    else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+    renderTabs();
+    return;
+  }
   if (tab.type === 'diff' || tab.type === 'folder-diff' || tab.type === 'quick-diff') {
     // Compare tabs: no save prompt, just dispose models and remove
     if (tab.type === 'quick-diff') pushClosedTab(tab); // stash before models are disposed
@@ -6733,9 +6765,10 @@ function setupToolbar() {
         'spell-toggle': () => cycleSpellMode(),
         'whiteboard-new': () => createWhiteboardTab(null, ''),
         'icons': () => toggleIconsPanel(),
+        'tasks': () => tsToggleTasks(),
       };
       map[a]?.();
-      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons') editor.focus();
+      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons' && a !== 'tasks') editor.focus();
     });
   });
 
@@ -7277,7 +7310,11 @@ async function saveSession() {
     // `tab.model.getValue()` on a null model and THROW, which rejected
     // saveSession() and stopped app-before-close from ever calling
     // closeWindow() — so the window X did nothing while a compare tab existed.
-    tab.type !== 'diff' && tab.type !== 'folder-diff' && tab.type !== 'quick-diff'
+    tab.type !== 'diff' && tab.type !== 'folder-diff' && tab.type !== 'quick-diff' &&
+    // Tasks tab is a live view, not a document — it has model: null and would
+    // hit the same `tab.model.getValue()` crash. Its state lives in
+    // settings.json (tasks.viewMode) and is restored by initTasksFeature().
+    tab.type !== 'tasks'
   ).map(tab => {
     // Whiteboard tabs store content directly (JSON state synced via postMessage)
     if (tab.type === 'whiteboard') {
@@ -8858,6 +8895,10 @@ function toggleIconsPanel() {
   panel.classList.toggle('hidden');
   resize?.classList.toggle('hidden');
   if (willShow) {
+    // Right rail is single-occupancy — close the Tasks panel if it's docked.
+    if (typeof taskState !== 'undefined' && taskState.viewMode === 'docked') {
+      tsSetViewMode('hidden');
+    }
     // First open? Populate lazily.
     if (!iconLibState.icons) loadIconManifest(false);
     else renderIconsGrid();

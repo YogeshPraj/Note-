@@ -51,6 +51,7 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - [Language Server Protocol (LSP)](#-language-server-protocol-lsp)
 - [draw.io Diagrams](#-drawio-diagrams)
 - [Encrypted Pad](#-encrypted-pad)
+- [Tasks & Schedule](#-tasks--schedule)
 - [Whiteboard](#-whiteboard)
 - [Compare (File & Folder Diff)](#-compare-file--folder-diff)
 - [Find / Replace / Mark / Find in Files](#-find--replace--mark--find-in-files)
@@ -131,6 +132,15 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Bundle persists across upgrades** — lives in `userData`, electron-updater leaves it untouched
 - **Starter templates** in `Tools → Diagram (draw.io) → From Template`: Flowchart · Sequence Diagram · Class Diagram (UML) · Entity Relationship
 - **Manual update check** — `Tools → Diagram (draw.io) → Check for updates` compares the installed version to whatever Note++ has pinned
+
+### Tasks & Schedule
+- **Your code is your task list** — `TODO` / `FIXME` / `HACK` / `BUG` comments and markdown `- [ ]` checkboxes are scanned out of your workspace and become real tasks
+- **Inline grammar** you already half-write: `// TODO(due:2026-08-15, !!): ship the auth fix @backend`
+- **Two views, one feature** — docked right rail (compact "what's next" agenda) or a full tab (list + month calendar + detail pane). Dock/undock moves the same view
+- **Real reminders** — native OS notifications that fire **even when the window is closed** (Note++ already runs in the tray), plus tray tooltip and a Windows taskbar overlay badge for overdue count
+- **Round-trips to your source** — ticking a scanned task off rewrites the `[ ]` → `[x]`; dragging it to a new day on the calendar rewrites the `due:` token. The change lands in git
+- **Sticky notes** — pop any task out as a frameless always-on-top note (6 colours, reopened next launch)
+- Tasks survive line-number churn: ids are content-hashed, not line-based
 
 ### Productivity
 - **Integrated terminal** (xterm + true PTY via `node-pty`) — proper resize, ANSI colours, full PowerShell/bash
@@ -441,6 +451,56 @@ Per-file encryption with a single profile-wide password. Open a `.txt` (or anyth
 
 ---
 
+## ✅ Tasks & Schedule
+
+Most task tools ask you to adopt a new habit. This one reads the habit you
+already have — the `TODO` you leave yourself at 2am — and gives it a deadline
+and an alarm.
+
+```js
+// TODO(due:2026-08-15, !!): ship the auth fix        @backend
+// FIXME(due:2026-08-20 09:00): breaks on Safari
+```
+```markdown
+- [ ] Write the release notes (due:2026-08-20)
+```
+
+| | |
+|---|---|
+| Toolbar | `✓` button, or `Ctrl+Shift+K` |
+| Views | **Docked** (~300 px right rail, compact agenda) ⇄ **Tab** (list + month calendar + detail pane). `⇤ Expand` / `⇥ Dock` move the same view; the mode persists |
+| Sources | `TODO` `FIXME` `HACK` `BUG` `XXX` comments in 60+ file types, markdown `- [ ]` checkboxes, plus manual tasks |
+| Grammar | `due:YYYY-MM-DD [HH:MM]` · `!` `!!` `!!!` priority · `@tag` |
+| Manual store | `%AppData%\notepp\tasks.json` — **global**, so your tasks never vanish when you switch projects |
+| Derived tasks | Never stored — the file *is* the source of truth, so they travel with the repo for free |
+| Reminders | Native OS notification (fires with the window closed), in-app banner with Done / Snooze, tray tooltip, Windows taskbar overlay badge |
+| Stickies | Any task → frameless always-on-top note, 6 colours, restored next launch |
+
+### The bit that makes it click
+
+Completing or rescheduling a scanned task **edits your source file**:
+
+- Tick a markdown task → `- [ ]` becomes `- [x]` on that exact line
+- Drag a task to a new day on the calendar → the `due:` token is rewritten
+- Complete a code `TODO` → the keyword becomes `DONE` (never deleted — git blame stays readable)
+
+The file's existing EOL style is preserved, so you get a one-line diff rather
+than a whole-file churn. Click any task to jump straight to its file and line.
+
+### Design notes
+
+- **Checked markdown boxes need a due date to count.** Without that rule, every
+  README feature list floods the panel — this repo went from 100 phantom
+  "tasks" to 41 real ones.
+- **Task ids are content-hashed**, not line-based, so inserting code above a
+  `TODO` doesn't orphan its sticky note or snooze state.
+- **The scan yields to the event loop** every 40 files. It runs in the main
+  process, and a synchronous pass over 674 files froze the app for ~5 s.
+- **Reminder banners don't auto-dismiss.** A reminder that self-destructs is
+  one you miss the moment you step away from the desk.
+
+---
+
 ## 🎨 Whiteboard
 
 Powered by **Excalidraw 0.18** running in an iframe. Same engine as excalidraw.com — hand-drawn shapes, rough.js style, full keyboard parity.
@@ -594,6 +654,7 @@ Note++ ships with `electron-updater` wired to the GitHub releases provider — s
 | `Ctrl+Shift+P`       | Command Palette                       |
 | `Ctrl+Shift+G`       | Toggle Source Control                 |
 | `Ctrl+Shift+A`       | Toggle AI Assistant                   |
+| `Ctrl+Shift+K`       | Toggle Tasks & Schedule               |
 | `Ctrl+Alt+Shift+G`   | Open Dev Arcade games tab             |
 | `Ctrl+Shift+V`       | Toggle Live Preview                   |
 | `Ctrl+F`             | Find                                  |
@@ -641,6 +702,7 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] Snappy editor defaults (no ligatures / caret animations / smooth scroll)
 - [x] Find live decorations (gutter + minimap markers, current-match indicator)
 - [x] **Azure icon library** — searchable right-side panel with 1264 Azure icons (fetch-and-cache from maskati.github.io); drag-drop straight onto the whiteboard
+- [x] **Tasks & Schedule** — scans TODO/FIXME comments + markdown checkboxes into a real task list with due dates, OS-level reminders that fire in tray mode, a month calendar, and pop-out sticky notes
 
 ### Next
 - [ ] **LSP for more languages** — Go (gopls), Rust (rust-analyzer), TypeScript (deeper than Monaco's built-in), etc. The registry pattern in `lsp-service.js` makes each new language a one-entry addition.

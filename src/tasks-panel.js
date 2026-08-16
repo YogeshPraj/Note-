@@ -384,7 +384,7 @@ function tsRenderPanel() {
   const body = document.getElementById('tasks-panel-body');
   if (!body) return;
   const filtered = tsApplyFilter(taskState.tasks);
-  body.innerHTML = (taskState.quickAdd ? TS_QUICKADD_HTML : '') + tsGroupsHtml(filtered, false);
+  body.innerHTML = (taskState.quickAdd ? tsQuickAddHtml() : '') + tsGroupsHtml(filtered, false);
   const countEl = document.getElementById('tasks-panel-count');
   if (countEl) {
     const open = taskState.tasks.filter(t => t.status !== 'done').length;
@@ -422,7 +422,7 @@ function tsRenderTab() {
     </div>
     <div id="tasks-tab-body">
       <div id="tasks-tab-main">${isCal ? tsCalendarHtml(taskState.tasks)
-        : (taskState.quickAdd ? TS_QUICKADD_HTML : '') + tsGroupsHtml(filtered, true)}</div>
+        : (taskState.quickAdd ? tsQuickAddHtml() : '') + tsGroupsHtml(filtered, true)}</div>
       <div id="tasks-tab-detail">${tsDetailHtml()}</div>
     </div>
     <div id="tasks-tab-status">${tsStatusLine()}</div>`;
@@ -713,16 +713,23 @@ function tsWireCalendar(root) {
 //
 // NOTE: this deliberately does NOT use window.prompt() — Electron does not
 // implement it (the call silently no-ops), which is a genuinely easy trap.
-const TS_QUICKADD_HTML = `
+// Built per-render so it can show which day a new task will land on when the
+// user has a calendar day selected.
+function tsQuickAddHtml() {
+  const day = taskState.dayFilter;
+  const dayLabel = day ? tsFmtDue(new Date(day + 'T09:00').toISOString()) : null;
+  return `
   <div class="task-quickadd">
     <input type="text" class="task-quickadd-input"
-           placeholder="Task title…  due:2026-08-20 09:00  !!  @tag"
+           placeholder="${day ? 'Task title…  (lands on ' + tsEsc(dayLabel) + ')' : 'Task title…  due:2026-08-20 09:00  !!  @tag'}"
            spellcheck="false">
     <div class="task-quickadd-hint">
+      ${day ? `<b>Due ${tsEsc(dayLabel)}</b> — because that day is selected. Type <code>due:</code> to override. · ` : ''}
       <b>Enter</b> to add · <b>Esc</b> to cancel ·
       <code>due:</code> date · <code>!</code>–<code>!!!</code> priority · <code>@</code> tag
     </div>
   </div>`;
+}
 
 function tsWireQuickAdd(root) {
   const input = root?.querySelector('.task-quickadd-input');
@@ -767,6 +774,15 @@ async function tsCreateFromText(raw) {
       mm !== undefined ? parseInt(mm, 10) : 0);
     if (!isNaN(d.getTime())) due = d.toISOString();
   }
+  // No explicit due: in the text? If the user has a calendar day selected,
+  // that's the day they're looking at — "add a task" here means "add it to
+  // this day". An explicit due: in the text still wins.
+  if (!due && taskState.dayFilter) {
+    const [Y, Mo, D] = taskState.dayFilter.split('-').map(n => parseInt(n, 10));
+    const d = new Date(Y, Mo - 1, D, 9, 0);
+    if (!isNaN(d.getTime())) due = d.toISOString();
+  }
+
   const bangM = /(?:^|\s)(!{1,3})(?=\s|$)/.exec(raw);
   const priority = bangM ? bangM[1].length : 0;
   const tags = [];

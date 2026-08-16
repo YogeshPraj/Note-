@@ -366,6 +366,35 @@ function createWindow() {
   buildMenu();
 }
 
+// ── Last-resort crash guard ───────────────────────────────────────────────
+// Electron's default for an uncaught exception in main is a modal "A
+// JavaScript error occurred in the main process" dialog, after which the app
+// is generally unusable. For a text editor that means losing whatever the
+// user hadn't saved — a strictly worse outcome than limping on in a possibly
+// degraded state. So: log it loudly, tell the renderer, and stay alive.
+//
+// This is a backstop, not a licence to leave errors unhandled. Anything that
+// lands here is a bug worth fixing at its source (the fs.watch 'error'
+// handler below exists because this guard caught exactly that).
+function installCrashGuard() {
+  const report = (kind, err) => {
+    const msg = (err && err.stack) || String(err);
+    console.error(`[uncaught:${kind}]`, msg);
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('main-process-error', {
+          kind,
+          code: err && err.code ? err.code : null,
+          message: err && err.message ? err.message : String(err),
+        });
+      }
+    } catch {}
+  };
+  process.on('uncaughtException', (err) => report('exception', err));
+  process.on('unhandledRejection', (reason) => report('rejection', reason));
+}
+installCrashGuard();
+
 // ── External file-change watcher ─────────────────────────────────────────
 // Each open editor tab subscribes via `watch-file` so we can notify the
 // renderer when the file is modified outside Note++ (git checkout, another
@@ -395,6 +424,28 @@ ipcMain.handle('watch-file', (e, filePath) => {
         } catch {}
       }, 250);  // debounce burst events from "atomic write" editors
     });
+
+    // fs.watch returns an EventEmitter, and the try/catch around this block
+    // only covers the SYNCHRONOUS call. When the OS raises a problem later —
+    // the file is deleted, a network share drops, a removable drive is
+    // yanked, antivirus takes a lock, OneDrive dehydrates a placeholder — the
+    // watcher emits 'error'. An EventEmitter with no 'error' listener
+    // RETHROWS, and in the main process that is Electron's fatal "A
+    // JavaScript error occurred" dialog and a dead editor with the user's
+    // unsaved work in it. Watching a file must never be able to kill the app.
+    entry.watcher.on('error', (err) => {
+      const code = err && err.code ? err.code : 'unknown';
+      console.warn(`[watch] lost watcher for ${filePath} (${code}) — ${err && err.message}`);
+      try { entry.watcher.close(); } catch {}
+      clearTimeout(entry.debounceTimer);
+      fileWatchers.delete(filePath);
+      // Tell the renderer the file is no longer monitored, so it doesn't go
+      // on believing an untouched-looking tab is still being checked.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('file-watch-lost', { filePath, code });
+      }
+    });
+
     fileWatchers.set(filePath, entry);
     return { success: true };
   } catch (err) {

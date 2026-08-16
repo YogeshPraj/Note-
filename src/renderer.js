@@ -3737,6 +3737,35 @@ async function toggleTabEncryption(tab) {
 // User can disable auto-reload entirely via the new pref.
 function setupExternalChangeWatcher() {
   if (!window.electronAPI.onFileChangedExternally) return;
+
+  // A watcher can die without the file going away — an unplugged drive, a
+  // dropped network share, antivirus taking a lock. Say so once rather than
+  // leaving the tab looking monitored when it isn't. EPERM/EBUSY are the
+  // common transient cases, so we re-arm shortly after in case the volume
+  // comes back.
+  window.electronAPI.onFileWatchLost?.(({ filePath, code }) => {
+    const tab = tabs.find(t => t.filePath === filePath);
+    if (!tab) return;
+    console.warn('[watch] no longer monitoring', filePath, code);
+    if (code === 'EPERM' || code === 'EBUSY' || code === 'ENOENT') {
+      setTimeout(() => {
+        if (tabs.some(t => t.filePath === filePath)) {
+          try { window.electronAPI.watchFile(filePath); } catch {}
+        }
+      }, 4000);
+    } else {
+      showToast(`⚠ Stopped watching "${tab.name}" for outside changes`);
+    }
+  });
+
+  // Backstop for anything uncaught in main. Previously this was Electron's
+  // fatal dialog; a toast plus a live app is a much better trade when the
+  // user has unsaved buffers open.
+  window.electronAPI.onMainProcessError?.(({ code, message }) => {
+    console.error('[main]', code || '', message);
+    showToast(`⚠ Background error${code ? ' (' + code + ')' : ''} — Note++ is still running`);
+  });
+
   window.electronAPI.onFileChangedExternally(async ({ filePath, deleted }) => {
     const tab = tabs.find(t => t.filePath === filePath);
     if (!tab || tab.type !== 'editor' || !tab.model) return;

@@ -178,6 +178,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('file-changed-externally', (e, data) => cb(data)),
   removeFileChangedListener: () =>
     ipcRenderer.removeAllListeners('file-changed-externally'),
+  // Fired when a watcher dies (drive unplugged, share dropped, file removed).
+  // The tab is no longer monitored, and pretending otherwise would be worse
+  // than saying so.
+  onFileWatchLost: (cb) =>
+    ipcRenderer.on('file-watch-lost', (e, data) => cb(data)),
+  // Last-resort: an uncaught error in main. Surfaced as a toast instead of
+  // Electron's fatal dialog, so unsaved work survives.
+  onMainProcessError: (cb) =>
+    ipcRenderer.on('main-process-error', (e, data) => cb(data)),
 
   // Project context — AGENTS.md + .notepp/memory.md (auto-injected into AI prompts)
   projectContext: {

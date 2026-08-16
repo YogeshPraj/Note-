@@ -2099,49 +2099,127 @@ function restoreOpenStickies() {
 }
 ipcMain.handle('sticky:restore-all', () => { restoreOpenStickies(); return { success: true }; });
 
-// ── Dev Secrets vault ─────────────────────────────────────────────────────
-// The vault is decrypted ONLY here in main. Its UI lives in a dedicated
-// window (vault.html) that never loads user content — see vault-service.js
-// for why plaintext must not reach the regular renderer.
-const vaultService = require('./vault-service');
-const vaultCli = require('./vault-cli');
+// ── Password manager (Bitwarden CLI, downloaded on demand) ────────────────
+// Note++ implements no password manager of its own. It fetches the official
+// Bitwarden CLI (pinned version + pinned SHA-256) and drives it. Bitwarden
+// owns the vault and the cryptography; this process holds at most a session
+// token, in memory, and never writes it anywhere.
+//
+// The UI is a TAB, which means it shares the renderer with HTML previews and
+// the whiteboard/draw.io iframes. That's acceptable here only because there
+// is no vault in that process to steal — secrets are fetched one at a time
+// from `bw` on an explicit click. To stop a background injection quietly
+// draining the vault, every secret-bearing handler additionally requires the
+// password-manager tab to be the ACTIVE tab (see requireVaultTabActive).
+const bw = require('./bitwarden-service');
 
-let _vault = null;
-let vaultWindow = null;
-let _clipClearTimer = null;
-let _clipLastValue = null;
+// The renderer tells us which tab is in front; secret handlers refuse to run
+// unless it's the password-manager tab. A compromised HTML preview sitting in
+// a background tab therefore can't harvest anything.
+let _vaultTabActive = false;
+ipcMain.on('vault:tab-active', (_e, active) => { _vaultTabActive = !!active; });
 
-function getVault() {
-  if (!_vault) {
-    _vault = new vaultService.Vault(path.join(app.getPath('userData'), 'vault', 'vault.json'));
-    _vault.onAutoLock = () => {
-      if (vaultWindow && !vaultWindow.isDestroyed()) vaultWindow.webContents.send('vault-locked', 'auto');
-    };
-    // Restore the user's auto-lock preference.
-    try {
-      const s = readSettings();
-      if (s.vault && s.vault.autoLockMinutes != null) _vault.setAutoLockMinutes(s.vault.autoLockMinutes);
-    } catch {}
+function requireVaultTabActive() {
+  if (!_vaultTabActive) {
+    throw new Error('The Passwords tab must be in focus to read a secret');
   }
-  return _vault;
 }
 
-// Wrap every vault call so a thrown crypto error becomes a clean result
-// rather than an unhandled rejection crossing the IPC boundary.
-function vaultCall(fn) {
-  try { return { success: true, ...(fn() || {}) }; }
+function sendVault(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+
+bw.session.onLock = (reason) => sendVault('vault-locked', reason);
+
+async function bwCall(fn) {
+  try { return { success: true, ...(await fn() || {}) }; }
   catch (err) { return { success: false, error: err.message || String(err) }; }
 }
 
-// Copy a secret to the clipboard with a timed clear.
-//
-// HONEST LIMITATION: on Windows, clipboard history (Win+V) and third-party
-// clipboard managers can capture the value the instant it lands, and clearing
-// our copy later does not evict it from their store. Electron exposes no way
-// to set the `ExcludeClipboardContentFromMonitorProcessing` clipboard format
-// alongside text, so we cannot opt out. That is exactly why "Insert at cursor"
-// is the primary action in the UI and copy is secondary — the insert path
-// never touches the clipboard at all.
+// ── Install / status ──────────────────────────────────────────────────────
+ipcMain.handle('vault:status', async () => {
+  const st = bw.getStatus();
+  let auth = { state: 'unknown' };
+  if (st.installed || st.onPath) {
+    try { auth = await bw.authStatus(); } catch {}
+  }
+  return { success: true, ...st, auth };
+});
+
+ipcMain.handle('vault:install', async () => bwCall(async () =>
+  await bw.download(p => sendVault('vault-install-progress', p))));
+
+ipcMain.handle('vault:uninstall', () => bwCall(async () => bw.uninstall()));
+
+// ── Unlock paths, best first ──────────────────────────────────────────────
+// 1. a session the user already has (BW_SESSION) — no prompt at all
+ipcMain.handle('vault:adopt-session', () => bwCall(async () => {
+  const r = await bw.adoptExistingSession();
+  if (!r.ok) throw new Error('No usable BW_SESSION in the environment');
+  return { email: r.email };
+}));
+
+// 2. a token the user produced themselves (e.g. `bw unlock --raw` in the
+//    integrated terminal) — the master password never reaches our UI
+ipcMain.handle('vault:use-token', (_e, token) => bwCall(async () => await bw.useSessionToken(token)));
+
+// 3. master password typed into Note++ — piped to bw stdin, never stored
+ipcMain.handle('vault:unlock', (_e, pw) => bwCall(async () => await bw.unlock(pw)));
+ipcMain.handle('vault:login',  (_e, email, pw) => bwCall(async () => await bw.login(email, pw)));
+
+ipcMain.handle('vault:lock', () => { bw.lock(); return { success: true }; });
+ipcMain.handle('vault:sync', () => bwCall(async () => await bw.sync()));
+ipcMain.handle('vault:set-autolock', (_e, mins) => {
+  bw.setAutoLockMinutes(mins);
+  try {
+    const s = readSettings();
+    s.vault = { ...(s.vault || {}), autoLockMinutes: parseInt(mins, 10) || 0 };
+    writeSettings(s);
+  } catch {}
+  return { success: true };
+});
+
+// ── Vault reads ───────────────────────────────────────────────────────────
+// Listing is metadata only (titles / usernames / flags), so it doesn't need
+// the active-tab guard — it carries no secrets.
+ipcMain.handle('vault:list', (_e, query) => bwCall(async () => {
+  const r = await bw.list(query);
+  if (!r.ok) throw new Error(r.error === 'locked' ? 'Vault is locked' : r.error);
+  return { items: r.items };
+}));
+
+// Everything below returns or acts on an actual secret.
+ipcMain.handle('vault:reveal', (_e, id, field) => bwCall(async () => {
+  requireVaultTabActive();
+  const r = await bw.getField(id, field);
+  if (!r.ok) throw new Error(r.error === 'locked' ? 'Vault is locked' : r.error);
+  return { value: r.value };
+}));
+
+ipcMain.handle('vault:copy', (_e, id, field) => bwCall(async () => {
+  requireVaultTabActive();
+  const r = await bw.getField(id, field);
+  if (!r.ok) throw new Error(r.error === 'locked' ? 'Vault is locked' : r.error);
+  return copySecretToClipboard(r.value);
+}));
+
+ipcMain.handle('vault:insert', (_e, id, field) => bwCall(async () => {
+  requireVaultTabActive();
+  const r = await bw.getField(id, field);
+  if (!r.ok) throw new Error(r.error === 'locked' ? 'Vault is locked' : r.error);
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Editor window is not open');
+  sendVault('vault-insert-text', r.value);
+  return {};
+}));
+
+// ── Clipboard ─────────────────────────────────────────────────────────────
+// HONEST LIMITATION: Electron can't set the Windows
+// `ExcludeClipboardContentFromMonitorProcessing` format alongside text, so
+// clipboard history (Win+V) and third-party managers can capture a copied
+// secret the instant it lands, and our later clear won't evict it from their
+// store. Hence "Insert at cursor" — which never touches the clipboard — is
+// the primary action in the UI, and copy says so out loud.
+let _clipClearTimer = null, _clipLastValue = null;
 const CLIP_CLEAR_MS = 30000;
 function copySecretToClipboard(value) {
   const { clipboard } = require('electron');
@@ -2149,183 +2227,31 @@ function copySecretToClipboard(value) {
   _clipLastValue = value;
   if (_clipClearTimer) clearTimeout(_clipClearTimer);
   _clipClearTimer = setTimeout(() => {
-    // Only clear if the clipboard still holds OUR value — otherwise we'd be
-    // wiping something the user copied in the meantime.
+    // Only clear if it's still OUR value — don't wipe something the user
+    // copied in the meantime.
     try { if (clipboard.readText() === _clipLastValue) clipboard.clear(); } catch {}
-    _clipLastValue = null;
-    _clipClearTimer = null;
+    _clipLastValue = null; _clipClearTimer = null;
   }, CLIP_CLEAR_MS);
   return {
     clearMs: CLIP_CLEAR_MS,
     warning: process.platform === 'win32'
-      ? 'Copied — clears in 30s. Note: Windows clipboard history (Win+V) may still retain it; "Insert" avoids the clipboard entirely.'
+      ? 'Copied — clears in 30s. Windows clipboard history (Win+V) may still keep it; Insert avoids the clipboard entirely.'
       : null,
   };
 }
 
-function openVaultWindow() {
-  if (vaultWindow && !vaultWindow.isDestroyed()) { vaultWindow.focus(); return vaultWindow; }
-  vaultWindow = new BrowserWindow({
-    width: 940, height: 620, minWidth: 720, minHeight: 480,
-    frame: false,
-    title: 'Vault — Note++',
-    backgroundColor: '#f6f7f9',
-    parent: mainWindow || undefined,
-    show: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: false,
-      // No devtools in a window holding plaintext secrets in a packaged build.
-      devTools: !app.isPackaged,
-      preload: path.join(__dirname, 'vault-preload.js'),
-    },
-  });
-  vaultWindow.setMenuBarVisibility(false);
-  vaultWindow.loadFile(path.join(__dirname, 'vault.html'));
-  vaultWindow.once('ready-to-show', () => {
-    vaultWindow.show();
-    try { vaultWindow.webContents.send('vault-theme', nativeTheme.shouldUseDarkColors); } catch {}
-  });
-  // Locking on close means a reopened window always starts from the password
-  // prompt rather than silently resuming an unlocked session.
-  vaultWindow.on('closed', () => {
-    vaultWindow = null;
-    try { getVault().lock(); } catch {}
-  });
-  return vaultWindow;
-}
-
-ipcMain.handle('vault:open-window', () => { openVaultWindow(); return { success: true }; });
-ipcMain.handle('vault:close-window', () => {
-  if (vaultWindow && !vaultWindow.isDestroyed()) vaultWindow.close();
-  return { success: true };
-});
-
-ipcMain.handle('vault:status',  () => ({ success: true, ...getVault().stats() }));
-ipcMain.handle('vault:create',  (_e, pw) => vaultCall(() => getVault().create(pw)));
-ipcMain.handle('vault:unlock',  (_e, pw) => vaultCall(() => { getVault().unlock(pw); return {}; }));
-ipcMain.handle('vault:unlock-recovery', (_e, key) => vaultCall(() => { getVault().unlockWithRecovery(key); return {}; }));
-ipcMain.handle('vault:lock',    () => vaultCall(() => { getVault().lock(); return {}; }));
-ipcMain.handle('vault:list',    () => vaultCall(() => ({ entries: getVault().list() })));
-ipcMain.handle('vault:upsert',  (_e, entry) => vaultCall(() => ({ entry: getVault().upsert(entry) })));
-ipcMain.handle('vault:remove',  (_e, id) => vaultCall(() => { getVault().remove(id); return {}; }));
-ipcMain.handle('vault:totp',    (_e, id) => vaultCall(() => ({ totp: getVault().getTotp(id) })));
-ipcMain.handle('vault:generate',(_e, opts) => vaultCall(() => ({ password: vaultService.generatePassword(opts) })));
-
-ipcMain.handle('vault:change-password', (_e, oldPw, newPw) =>
-  vaultCall(() => { getVault().changePassword(oldPw, newPw); return {}; }));
-
-ipcMain.handle('vault:set-autolock', (_e, mins) => vaultCall(() => {
-  getVault().setAutoLockMinutes(mins);
-  const s = readSettings();
-  s.vault = { ...(s.vault || {}), autoLockMinutes: parseInt(mins, 10) || 0 };
-  writeSettings(s);
-  return {};
-}));
-
-// Plaintext leaves main only for the isolated vault window, one field at a time.
-ipcMain.handle('vault:reveal', (_e, id, field) =>
-  vaultCall(() => ({ value: getVault().getSecret(id, field) })));
-
-ipcMain.handle('vault:copy', (_e, id, field) => {
-  // The recovery screen passes the key itself rather than an entry id, since
-  // it isn't stored anywhere we could look it up from.
-  if (id === '__recovery__')      return { success: true, ...copySecretToClipboard(String(field)) };
-  if (id === '__recovery-save__') {
-    const res = dialog.showSaveDialogSync(vaultWindow || mainWindow, {
-      title: 'Save vault recovery key',
-      defaultPath: 'notepp-vault-recovery.txt',
-      filters: [{ name: 'Text', extensions: ['txt'] }],
-    });
-    if (!res) return { success: false, canceled: true };
-    fs.writeFileSync(res,
-      'Note++ vault recovery key\n' +
-      'Keep this somewhere that is NOT the machine holding the vault.\n\n' +
-      String(field) + '\n', { mode: 0o600 });
-    return { success: true, savedTo: res };
-  }
-  return vaultCall(() => copySecretToClipboard(getVault().getSecret(id, field)));
-});
-
-// The clipboard-free path: main pulls the secret and hands it to the editor
-// renderer as a one-shot insertion. This is the only time a vault secret
-// reaches the main renderer, and only because the user asked for it to be
-// written into the document they're editing.
-ipcMain.handle('vault:insert', (_e, id, field) => vaultCall(() => {
-  const value = getVault().getSecret(id, field);
-  if (!value) throw new Error('Nothing to insert');
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Editor window is not open');
-  mainWindow.webContents.send('vault-insert-text', value);
-  mainWindow.focus();
-  return {};
-}));
-
-// ── Connected managers (read-only) ────────────────────────────────────────
-let _cliCache = null, _cliCacheAt = 0;
-ipcMain.handle('vault:cli-detect', async () => {
-  // Detection spawns processes; cache briefly so tab-switching isn't costly.
-  if (_cliCache && Date.now() - _cliCacheAt < 30000) {
-    return { success: true, providers: _cliCache, cached: true };
-  }
-  try {
-    _cliCache = await vaultCli.detectAll();
-    _cliCacheAt = Date.now();
-    return { success: true, providers: _cliCache };
-  } catch (err) {
-    return { success: false, error: err.message, providers: [] };
-  }
-});
-
-ipcMain.handle('vault:cli-list', async (_e, providerId, query) => {
-  const p = vaultCli.getProvider(providerId);
-  if (!p) return { success: false, error: 'unknown provider', items: [] };
-  try {
-    const r = await p.list(query);
-    return { success: !!r.ok, error: r.error || null, items: r.items || [] };
-  } catch (err) {
-    return { success: false, error: err.message, items: [] };
-  }
-});
-
-ipcMain.handle('vault:cli-copy', async (_e, providerId, id, field) => {
-  const p = vaultCli.getProvider(providerId);
-  if (!p) return { success: false, error: 'unknown provider' };
-  try {
-    const r = await p.getField(id, field);
-    if (!r.ok) return { success: false, error: r.error };
-    return { success: true, ...copySecretToClipboard(r.value) };
-  } catch (err) { return { success: false, error: err.message }; }
-});
-
-ipcMain.handle('vault:cli-insert', async (_e, providerId, id, field) => {
-  const p = vaultCli.getProvider(providerId);
-  if (!p) return { success: false, error: 'unknown provider' };
-  try {
-    const r = await p.getField(id, field);
-    if (!r.ok) return { success: false, error: r.error };
-    if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: 'Editor window is not open' };
-    mainWindow.webContents.send('vault-insert-text', r.value);
-    mainWindow.focus();
-    return { success: true };
-  } catch (err) { return { success: false, error: err.message }; }
-});
-
-// Lock the vault when the OS session locks or the machine sleeps — the user
-// has clearly stepped away, and an idle timer alone would leave a window open.
+// Lock when the OS session locks or the machine sleeps — an idle timer alone
+// would leave the vault open while the user is plainly away.
 app.whenReady().then(() => {
   try {
     const { powerMonitor } = require('electron');
-    const lockNow = () => {
-      try {
-        if (_vault && !_vault.locked) {
-          _vault.lock();
-          if (vaultWindow && !vaultWindow.isDestroyed()) vaultWindow.webContents.send('vault-locked', 'system');
-        }
-      } catch {}
-    };
+    const lockNow = () => { try { bw.lock(); sendVault('vault-locked', 'system'); } catch {} };
     powerMonitor.on('lock-screen', lockNow);
     powerMonitor.on('suspend', lockNow);
+  } catch {}
+  try {
+    const s = readSettings();
+    if (s.vault && s.vault.autoLockMinutes != null) bw.setAutoLockMinutes(s.vault.autoLockMinutes);
   } catch {}
 });
 

@@ -253,6 +253,8 @@
           </div>
           <!-- Tasks & Schedule full-tab view (rendered by tasks-panel.js) -->
           <div id="tasks-tab-container" class="hidden"></div>
+          <!-- Passwords tab (rendered by vault-panel.js) -->
+          <div id="vault-tab-container" class="hidden"></div>
           <!-- File Diff Container (Monaco DiffEditor, hidden by default) -->
           <div id="diff-container" class="hidden">
             <div id="diff-toolbar">
@@ -1477,6 +1479,8 @@
   <!-- Tasks & Schedule UI — classic script sharing renderer.js's global
        scope, same pattern as the whiteboard / drawio helpers above. -->
   <script src="tasks-panel.js"></script>
+  <!-- Passwords tab — drives the Bitwarden CLI via main -->
+  <script src="vault-panel.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

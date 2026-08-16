@@ -59,16 +59,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onChanged:    (cb) => { const h = () => cb(); ipcRenderer.on('tasks-changed', h); return () => ipcRenderer.removeListener('tasks-changed', h); },
   },
 
-  // Dev Secrets vault. The main renderer can only OPEN the vault window and
-  // receive a one-shot insertion — it can never read the vault itself, which
-  // is the whole point of keeping plaintext out of this process.
+  // Password manager — drives the official Bitwarden CLI that main downloads
+  // on demand. Note++ owns no vault: listing returns metadata only, and a
+  // secret crosses this bridge only for a single explicit Reveal. Copy and
+  // Insert are serviced entirely in main so the value never lands here.
   vault: {
-    openWindow: () => ipcRenderer.invoke('vault:open-window'),
-    onInsertText: (cb) => {
-      const h = (_e, text) => cb(text);
-      ipcRenderer.on('vault-insert-text', h);
-      return () => ipcRenderer.removeListener('vault-insert-text', h);
-    },
+    status:        ()            => ipcRenderer.invoke('vault:status'),
+    install:       ()            => ipcRenderer.invoke('vault:install'),
+    uninstall:     ()            => ipcRenderer.invoke('vault:uninstall'),
+    // Unlock paths, best first: adopt an existing BW_SESSION, accept a token
+    // the user made in the terminal, or (last resort) take the password here.
+    adoptSession:  ()            => ipcRenderer.invoke('vault:adopt-session'),
+    useToken:      (tok)         => ipcRenderer.invoke('vault:use-token', tok),
+    unlock:        (pw)          => ipcRenderer.invoke('vault:unlock', pw),
+    login:         (email, pw)   => ipcRenderer.invoke('vault:login', email, pw),
+    lock:          ()            => ipcRenderer.invoke('vault:lock'),
+    sync:          ()            => ipcRenderer.invoke('vault:sync'),
+    setAutoLock:   (mins)        => ipcRenderer.invoke('vault:set-autolock', mins),
+    list:          (query)       => ipcRenderer.invoke('vault:list', query),
+    reveal:        (id, field)   => ipcRenderer.invoke('vault:reveal', id, field),
+    copy:          (id, field)   => ipcRenderer.invoke('vault:copy', id, field),
+    insert:        (id, field)   => ipcRenderer.invoke('vault:insert', id, field),
+    // Main refuses to serve a secret unless the Passwords tab is in front, so
+    // a background injection can't quietly drain the vault.
+    setTabActive:  (active)      => ipcRenderer.send('vault:tab-active', !!active),
+    onInstallProgress: (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on('vault-install-progress', h); return () => ipcRenderer.removeListener('vault-install-progress', h); },
+    onLocked:      (cb) => { const h = (_e, r) => cb(r); ipcRenderer.on('vault-locked', h); return () => ipcRenderer.removeListener('vault-locked', h); },
+    onInsertText:  (cb) => { const h = (_e, t) => cb(t); ipcRenderer.on('vault-insert-text', h); return () => ipcRenderer.removeListener('vault-insert-text', h); },
   },
 
   // Sticky notes — a task rendered as a floating always-on-top window.

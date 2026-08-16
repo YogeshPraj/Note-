@@ -1532,7 +1532,7 @@ require(['vs/editor/editor.main'], () => {
   setupPreview();
   setupGlobalEscape();
   setupGlobalShortcuts();
-  setupVaultInsert();
+  initVaultFeature();
   // Load onboarding state from settings.json (survives quota clears,
   // Chromium upgrades, etc. — unlike localStorage). Then, if the tour
   // has never been seen, fire it ~1.2 s after paint. Users can replay
@@ -2306,6 +2306,7 @@ function activateTab(id) {
   const fdiffContainer = document.getElementById('folder-diff-container');
   const qdiffContainer = document.getElementById('quick-diff-container');
   const tasksContainer = document.getElementById('tasks-tab-container');
+  const vaultContainer = document.getElementById('vault-tab-container');
 
   // Always hide all special containers first, then show the right one
   gameContainer.classList.add('hidden');
@@ -2315,6 +2316,10 @@ function activateTab(id) {
   fdiffContainer?.classList.add('hidden');
   qdiffContainer?.classList.add('hidden');
   tasksContainer?.classList.add('hidden');
+  vaultContainer?.classList.add('hidden');
+  // Tell main whether the Passwords tab is in front — secret-bearing IPC is
+  // refused unless it is, so a background injection can't drain the vault.
+  try { notifyVaultTabActive(tab.type === 'vault'); } catch {}
 
   // JWT panel is bound to its owner tab (like the Preview pane): hide it on
   // every switch; the editor branch below re-shows it for tabs that had it open.
@@ -2327,6 +2332,12 @@ function activateTab(id) {
     tasksContainer?.classList.remove('hidden');
     if (previewOpen) closePreview();
     try { tsRenderTab(); } catch (e) { console.warn('[tasks] tab render failed', e); }
+  } else if (tab.type === 'vault') {
+    // Passwords tab — rendering lives in vault-panel.js.
+    monacoEl.style.display = 'none';
+    vaultContainer?.classList.remove('hidden');
+    if (previewOpen) closePreview();
+    try { renderVaultTab(); } catch (e) { console.warn('[vault] tab render failed', e); }
   } else if (tab.type === 'diff') {
     monacoEl.style.display = 'none';
     diffContainer.classList.remove('hidden');
@@ -2799,6 +2810,10 @@ function pushClosedTab(tab) {
   // Tasks tab is a singleton view — reopen it from the toolbar, not the
   // closed-tab stack (a second one would fight over taskState.tabId).
   if (tab.type === 'tasks') return;
+  // Passwords tab is deliberately NOT reopenable via Ctrl+Alt+T: closing it
+  // locks the vault, and an accidental reopen shouldn't look like a session
+  // that survived.
+  if (tab.type === 'vault') return;
   // Quick-compare tabs (Compare / Compare with Clipboard) hold their content
   // in-memory, so stash a serialisable snapshot to allow Ctrl+Shift+T reopen.
   if (tab.type === 'quick-diff') {
@@ -2915,6 +2930,21 @@ async function _closeTabInner(id) {
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   if (tab.pinned) { showToast('Unpin the tab before closing it'); return; }
+  if (tab.type === 'vault') {
+    // Passwords tab holds no document. Closing it locks the vault — leaving
+    // an unlocked session behind an invisible tab would be a trap.
+    const idx = tabs.findIndex(t => t.id === id);
+    closeVaultTabState();
+    try { window.electronAPI.vault.lock(); } catch {}
+    try { notifyVaultTabActive(false); } catch {}
+    document.getElementById('vault-tab-container')?.classList.add('hidden');
+    document.getElementById('monaco-editor').style.display = '';
+    tabs.splice(idx, 1);
+    if (tabs.length === 0) createTab();
+    else activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
+    renderTabs();
+    return;
+  }
   if (tab.type === 'tasks') {
     // Tasks tab holds no document — just drop it and reset the view mode
     // so the toolbar button and settings stay in sync.
@@ -6767,7 +6797,7 @@ function setupToolbar() {
         'whiteboard-new': () => createWhiteboardTab(null, ''),
         'icons': () => toggleIconsPanel(),
         'tasks': () => tsToggleTasks(),
-        'vault': () => window.electronAPI.vault.openWindow(),
+        'vault': () => openVaultTab(),
       };
       map[a]?.();
       if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons' && a !== 'tasks' && a !== 'vault') editor.focus();
@@ -7316,7 +7346,10 @@ async function saveSession() {
     // Tasks tab is a live view, not a document — it has model: null and would
     // hit the same `tab.model.getValue()` crash. Its state lives in
     // settings.json (tasks.viewMode) and is restored by initTasksFeature().
-    tab.type !== 'tasks'
+    tab.type !== 'tasks' &&
+    // Passwords tab likewise holds no document, and must never be restored
+    // automatically — reopening it should always start from a locked vault.
+    tab.type !== 'vault'
   ).map(tab => {
     // Whiteboard tabs store content directly (JSON state synced via postMessage)
     if (tab.type === 'whiteboard') {
@@ -10347,36 +10380,6 @@ function maybeFireContextualTip(kind, ctx) {
 // ═════════════════════════════════════════════════════════════════════
 // End feature-callout system
 // ═════════════════════════════════════════════════════════════════════
-
-// ===== Vault → editor insertion =====
-// The vault window can ask us to drop one secret at the cursor. This is the
-// ONLY way a vault secret reaches this process: main pulls the value and
-// pushes it here as a one-shot, in response to an explicit user click. We
-// never hold the vault, a key, or more than the single value being inserted.
-function setupVaultInsert() {
-  try {
-    window.electronAPI.vault.onInsertText((text) => {
-      if (typeof text !== 'string' || !text) return;
-      const tab = getActiveTab();
-      if (!tab || tab.type !== 'editor' || !editor) {
-        showToast('Open a text file to insert a secret into');
-        return;
-      }
-      const sel = editor.getSelection();
-      editor.executeEdits('vault-insert', [{
-        range: sel,
-        text,
-        forceMoveMarkers: true,
-      }]);
-      editor.focus();
-      // Deliberately no toast echoing the value — the point is to keep the
-      // secret out of anything that logs or lingers.
-      showToast('Secret inserted at cursor');
-    });
-  } catch (err) {
-    console.warn('[vault] insert bridge unavailable', err);
-  }
-}
 
 // ===== Global ESC Handler =====
 function setupGlobalEscape() {

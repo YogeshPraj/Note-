@@ -2818,6 +2818,116 @@ body.theme-dark #find-status-bar { color: #ff8080; }
   border-radius: 3px; font-size: 10px;
 }
 
+/* ═════════════════════════════════════════════════════════════════════
+   Passwords tab — front-end for the Bitwarden CLI. Holds no vault; every
+   secret shown here was fetched one at a time from `bw` by the main process.
+   ═════════════════════════════════════════════════════════════════════ */
+#vault-tab-container {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  background: var(--editor-bg, #fff); color: var(--tab-text, #333);
+  font-size: 13px; overflow: hidden;
+}
+#vault-toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid var(--toolbar-border, #ddd);
+  background: var(--toolbar-bg, #f3f3f3); flex-shrink: 0;
+}
+#vault-toolbar .v-title { font-weight: 600; }
+#vault-toolbar .v-sub { font-size: 11px; color: #888; }
+#vault-toolbar-actions { display: flex; gap: 6px; }
+#vault-body { flex: 1; overflow: auto; min-height: 0; }
+
+.v-card {
+  max-width: 520px; margin: 6vh auto; padding: 24px;
+  background: var(--tab-bg, #fafafa); border: 1px solid var(--toolbar-border, #ddd);
+  border-radius: 10px;
+}
+.v-card h2 { margin: 0 0 10px; font-size: 17px; }
+.v-card p { margin: 0 0 14px; line-height: 1.6; color: var(--tab-text, #444); }
+.v-muted { color: #888 !important; font-size: 12px; }
+.v-facts { margin: 0 0 18px; padding-left: 18px; font-size: 12px; line-height: 1.85; color: #666; }
+.v-facts code, .v-note code, .v-card code {
+  background: rgba(128,128,128,0.18); padding: 1px 4px; border-radius: 3px; font-size: 11px;
+}
+.v-field { display: block; margin-bottom: 12px; }
+.v-field span { display: block; font-size: 11px; color: #888; margin-bottom: 4px; }
+.v-field input {
+  width: 100%; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none;
+  border: 1px solid var(--find-border, #ccc); border-radius: 6px;
+  background: var(--find-input-bg, #fff); color: var(--tab-text, #333);
+}
+.v-field input:focus { border-color: #4a9eff; }
+.v-btn {
+  padding: 7px 14px; font-size: 12px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--find-border, #ccc); border-radius: 6px;
+  background: var(--find-input-bg, #fff); color: var(--tab-text, #333);
+}
+.v-btn:hover { background: rgba(128,128,128,0.12); border-color: #4a9eff; }
+.v-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: 600; }
+.v-btn.primary:hover { filter: brightness(1.1); }
+.v-link { background: none; border: none; color: #2563eb; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 4px 0; }
+.v-alt { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+.v-err { color: #c0392b; font-size: 12px; margin-top: 12px; min-height: 16px; line-height: 1.5; white-space: pre-wrap; }
+.v-note {
+  background: #fff8e1; color: #8a6d00; border: 1px solid #f0d98a;
+  border-radius: 6px; padding: 9px 11px; font-size: 11.5px; line-height: 1.6; margin: 12px 0;
+}
+.v-hint { font-size: 11px; color: #888; margin-top: 18px; font-style: italic; }
+.v-bar { height: 8px; background: rgba(128,128,128,0.2); border-radius: 4px; overflow: hidden; margin: 14px 0 8px; }
+.v-bar-fill { height: 100%; background: #2563eb; transition: width .25s; }
+
+#vault-split { display: flex; height: 100%; min-height: 0; }
+#vault-list-pane {
+  width: 320px; flex-shrink: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--toolbar-border, #ddd); min-height: 0;
+}
+#vault-search-row { padding: 8px; border-bottom: 1px solid var(--toolbar-border, #ddd); }
+#v-search {
+  width: 100%; padding: 6px 9px; font-size: 12px; outline: none;
+  border: 1px solid var(--find-border, #ccc); border-radius: 5px;
+  background: var(--find-input-bg, #fff); color: var(--tab-text, #333);
+}
+#vault-list { flex: 1; overflow-y: auto; padding: 6px; }
+.v-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.v-item:hover { background: rgba(128,128,128,0.10); }
+.v-item.selected { background: rgba(37,99,235,0.13); border-color: #2563eb; }
+.v-item-title { font-weight: 600; }
+.v-item-sub { font-size: 11px; color: #888; margin-top: 2px; display: flex; gap: 6px; }
+.v-badge { background: rgba(128,128,128,0.2); border-radius: 3px; padding: 0 4px; font-size: 10px; }
+.v-empty { text-align: center; color: #888; padding: 34px 16px; font-size: 12px; line-height: 1.7; }
+
+#vault-detail { flex: 1; overflow-y: auto; padding: 22px 24px; min-width: 0; }
+.v-detail h2 { margin: 0 0 6px; font-size: 18px; word-break: break-word; }
+.v-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.v-lbl { width: 76px; flex-shrink: 0; font-size: 11px; color: #888; }
+.v-val {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: pre;
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
+  background: var(--find-input-bg, #fff); border: 1px solid var(--find-border, #ddd);
+  border-radius: 5px; padding: 7px 9px;
+}
+.v-val.masked { letter-spacing: 2px; font-family: inherit; }
+.v-mini {
+  padding: 6px 10px; font-size: 11px; font-family: inherit; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--find-border, #ccc); border-radius: 5px;
+  background: var(--find-input-bg, #fff); color: var(--tab-text, #333);
+}
+.v-mini:hover { background: rgba(128,128,128,0.14); border-color: #2563eb; }
+.v-mini.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.v-mini:disabled { opacity: .55; cursor: default; }
+
+body.theme-dark #vault-tab-container { background: #1e1e1e; color: #d4d4d4; }
+body.theme-dark #vault-toolbar { background: #252526; border-bottom-color: #2d2d2d; }
+body.theme-dark .v-card { background: #232323; border-color: #2d2d2d; }
+body.theme-dark .v-card p { color: #c8c8c8; }
+body.theme-dark #vault-list-pane, body.theme-dark #vault-search-row { border-color: #2d2d2d; }
+body.theme-dark .v-field input, body.theme-dark .v-btn,
+body.theme-dark .v-mini, body.theme-dark .v-val, body.theme-dark #v-search {
+  background: #2b2b2b; color: #d4d4d4; border-color: #3a3a3a;
+}
+body.theme-dark .v-btn.primary, body.theme-dark .v-mini.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+body.theme-dark .v-note { background: #33290d; color: #f5d17a; border-color: #5c4a15; }
+
 /* ── Inline quick-add row ──────────────────────────────────────────── */
 .task-quickadd { padding: 8px 10px 10px; border-bottom: 1px solid var(--toolbar-border, #e0e0e0); }
 .task-quickadd-input {

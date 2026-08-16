@@ -2212,6 +2212,23 @@ ipcMain.handle('vault:insert', (_e, id, field) => bwCall(async () => {
   return {};
 }));
 
+// Create is the ONLY write we expose — no edit, no delete. It lands in the
+// user's real Bitwarden vault, and "Note++ quietly mangled an entry" isn't a
+// failure mode worth risking for convenience. Guarded on the active tab too:
+// a background injection shouldn't be able to stuff the vault either.
+ipcMain.handle('vault:create', (_e, item) => bwCall(async () => {
+  requireVaultTabActive();
+  const r = await bw.createItem(item || {});
+  if (!r.ok) throw new Error(r.error === 'locked' ? 'Vault is locked' : r.error);
+  return { id: r.id };
+}));
+
+ipcMain.handle('vault:generate', (_e, opts) => bwCall(async () => {
+  const r = await bw.generatePassword(opts || {});
+  if (!r.ok) throw new Error(r.error);
+  return { value: r.value };
+}));
+
 // ── Clipboard ─────────────────────────────────────────────────────────────
 // HONEST LIMITATION: Electron can't set the Windows
 // `ExcludeClipboardContentFromMonitorProcessing` format alongside text, so

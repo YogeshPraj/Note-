@@ -77,6 +77,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     sync:          ()            => ipcRenderer.invoke('vault:sync'),
     setAutoLock:   (mins)        => ipcRenderer.invoke('vault:set-autolock', mins),
     list:          (query)       => ipcRenderer.invoke('vault:list', query),
+    // Create is the only write; generation is delegated to `bw generate`.
+    create:        (item)        => ipcRenderer.invoke('vault:create', item),
+    generate:      (opts)        => ipcRenderer.invoke('vault:generate', opts),
     reveal:        (id, field)   => ipcRenderer.invoke('vault:reveal', id, field),
     copy:          (id, field)   => ipcRenderer.invoke('vault:copy', id, field),
     insert:        (id, field)   => ipcRenderer.invoke('vault:insert', id, field),

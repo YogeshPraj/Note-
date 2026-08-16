@@ -388,8 +388,64 @@ async function getField(id, field) {
   return { ok: true, value };
 }
 
+// ── Writes ──────────────────────────────────────────────────────────────────
+// Creating goes into the user's REAL Bitwarden vault, so it's deliberately the
+// only write we support — no edit, no delete. Bitwarden keeps item history and
+// a trash, but "Note++ silently mangled an entry" is not a failure mode worth
+// risking for convenience.
+
+// `bw create item` takes base64-encoded JSON. It's passed on STDIN rather than
+// as an argv element on purpose: command-line arguments are readable by any
+// other process on the machine (ps / Task Manager / procmon), which would leak
+// the very password being stored.
+async function createItem(item) {
+  if (!session.token) return { ok: false, error: 'locked' };
+  touch();
+  const name = String(item.title || '').trim();
+  if (!name) return { ok: false, error: 'Title is required' };
+
+  const payload = {
+    organizationId: null,
+    collectionIds: null,
+    folderId: item.folderId || null,
+    type: 1,                       // 1 = login
+    name,
+    notes: item.notes ? String(item.notes) : null,
+    favorite: false,
+    fields: [],
+    login: {
+      uris: item.url ? [{ match: null, uri: String(item.url) }] : [],
+      username: item.username ? String(item.username) : null,
+      password: item.password ? String(item.password) : null,
+      totp: item.totp ? String(item.totp) : null,
+    },
+    reprompt: 0,
+  };
+
+  const b64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+  const r = await bwRun(['create', 'item'], { stdin: b64, timeout: 45000 });
+  if (!r.ok) return { ok: false, error: r.stderr.trim() || 'bw create item failed' };
+  const created = safeJson(r.stdout);
+  return { ok: true, id: created && created.id ? created.id : null };
+}
+
+// Use Bitwarden's own generator rather than shipping one — it's already here,
+// and it's one less piece of security-relevant code for us to own.
+async function generatePassword(opts) {
+  opts = opts || {};
+  const args = ['generate', '--length', String(Math.max(5, Math.min(128, parseInt(opts.length, 10) || 20)))];
+  if (opts.upper !== false)  args.push('--uppercase');
+  if (opts.lower !== false)  args.push('--lowercase');
+  if (opts.digits !== false) args.push('--number');
+  if (opts.symbols)          args.push('--special');
+  const r = await bwRun(args);
+  if (!r.ok) return { ok: false, error: r.stderr.trim() || 'bw generate failed' };
+  const value = r.stdout.replace(/\r?\n$/, '');
+  return value ? { ok: true, value } : { ok: false, error: 'bw generate returned nothing' };
+}
+
 module.exports = {
-  BW_VERSION, RELEASE_BASE,
+  BW_VERSION, RELEASE_BASE, createItem, generatePassword,
   getStatus, download, uninstall, resolveBin, assetForPlatform, platformKey,
   authStatus, adoptExistingSession, unlock, useSessionToken, login, lock,
   setAutoLockMinutes, touch, sync, list, getField,

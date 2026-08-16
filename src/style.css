@@ -2915,6 +2915,15 @@ body.theme-dark #find-status-bar { color: #ff8080; }
 .v-mini:hover { background: rgba(128,128,128,0.14); border-color: #2563eb; }
 .v-mini.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
 .v-mini:disabled { opacity: .55; cursor: default; }
+.v-genrow { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; flex-wrap: wrap; }
+.v-genrow label { font-size: 11px; color: #888; display: flex; align-items: center; gap: 4px; }
+.v-genrow input[type=number] {
+  width: 58px; padding: 4px 6px; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--find-border, #ccc); border-radius: 4px;
+  background: var(--find-input-bg, #fff); color: var(--tab-text, #333);
+}
+.v-genhint { font-size: 10px; color: #999; font-style: italic; }
+body.theme-dark .v-genrow input[type=number] { background: #2b2b2b; color: #d4d4d4; border-color: #3a3a3a; }
 
 body.theme-dark #vault-tab-container { background: #1e1e1e; color: #d4d4d4; }
 body.theme-dark #vault-toolbar { background: #252526; border-bottom-color: #2d2d2d; }

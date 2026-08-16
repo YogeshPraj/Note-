@@ -23,6 +23,7 @@ const vaultState = {
   installPhase: '',
   revealTimer: null,
   unlockMode: 'password',   // 'password' | 'token'
+  creating: false,          // the "New item" form is showing
   busy: false,
   error: '',
 };
@@ -235,8 +236,14 @@ function renderUnlocked(host, st) {
 
   const actions = document.getElementById('vault-toolbar-actions');
   actions.innerHTML = `
+    <button class="v-btn primary" id="v-new">+ New item</button>
     <button class="v-btn" id="v-sync">Sync</button>
     <button class="v-btn" id="v-lock">Lock</button>`;
+  document.getElementById('v-new').addEventListener('click', () => {
+    vaultState.creating = true;
+    vaultState.selectedId = null;
+    renderVaultTab();
+  });
   document.getElementById('v-sync').addEventListener('click', doSync);
   document.getElementById('v-lock').addEventListener('click', doLock);
 
@@ -257,9 +264,80 @@ function renderUnlocked(host, st) {
   wireDetail();
 }
 
+function vaultCreateHtml() {
+  return `
+    <div class="v-detail">
+      <h2>New item</h2>
+      <div class="v-note">Saved straight into your Bitwarden vault via the CLI.
+        Note++ keeps no copy. Editing and deleting stay in the Bitwarden app —
+        this only ever adds.</div>
+      <label class="v-field"><span>Name *</span><input type="text" id="n-title" spellcheck="false"></label>
+      <label class="v-field"><span>Username</span><input type="text" id="n-username" spellcheck="false" autocomplete="off"></label>
+      <label class="v-field"><span>Password</span><input type="text" id="n-password" spellcheck="false" autocomplete="off"></label>
+      <div class="v-genrow">
+        <button class="v-mini" id="n-gen">Generate</button>
+        <label>length <input type="number" id="n-len" value="20" min="5" max="128"></label>
+        <label><input type="checkbox" id="n-sym" checked> symbols</label>
+        <span class="v-genhint">uses <code>bw generate</code></span>
+      </div>
+      <label class="v-field"><span>URL</span><input type="text" id="n-url" spellcheck="false"></label>
+      <label class="v-field"><span>TOTP secret or otpauth:// URI</span><input type="text" id="n-totp" spellcheck="false" autocomplete="off"></label>
+      <label class="v-field"><span>Notes</span><input type="text" id="n-notes"></label>
+      <div class="v-row" style="margin-top:16px">
+        <button class="v-btn primary" id="n-save">Save to Bitwarden</button>
+        <button class="v-btn" id="n-cancel">Cancel</button>
+      </div>
+      <div class="v-err" id="n-err"></div>
+    </div>`;
+}
+
+function wireCreate() {
+  const gen = document.getElementById('n-gen');
+  if (!gen) return;
+  gen.addEventListener('click', async () => {
+    gen.disabled = true; const t = gen.textContent; gen.textContent = '…';
+    const r = await window.electronAPI.vault.generate({
+      length: parseInt(document.getElementById('n-len').value, 10) || 20,
+      symbols: document.getElementById('n-sym').checked,
+    });
+    gen.disabled = false; gen.textContent = t;
+    if (r.success) document.getElementById('n-password').value = r.value;
+    else showToast(r.error || 'Generate failed');
+  });
+  document.getElementById('n-cancel').addEventListener('click', () => {
+    vaultState.creating = false; renderVaultTab();
+  });
+  document.getElementById('n-save').addEventListener('click', doCreate);
+  document.getElementById('n-title').focus();
+}
+
+async function doCreate() {
+  const err = document.getElementById('n-err');
+  const btn = document.getElementById('n-save');
+  const item = {
+    title:    document.getElementById('n-title').value.trim(),
+    username: document.getElementById('n-username').value,
+    password: document.getElementById('n-password').value,
+    url:      document.getElementById('n-url').value.trim(),
+    totp:     document.getElementById('n-totp').value.trim(),
+    notes:    document.getElementById('n-notes').value,
+  };
+  if (!item.title) { err.textContent = 'Name is required.'; return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const r = await window.electronAPI.vault.create(item);
+  btn.disabled = false; btn.textContent = 'Save to Bitwarden';
+  if (!r.success) { err.textContent = r.error || 'Could not save'; return; }
+  vaultState.creating = false;
+  await vaultRefreshItems();
+  if (r.id) vaultState.selectedId = r.id;
+  renderVaultTab();
+  showToast('Saved to Bitwarden');
+}
+
 function vaultDetailHtml() {
+  if (vaultState.creating) return vaultCreateHtml();
   const i = vaultState.items.find(x => x.id === vaultState.selectedId);
-  if (!i) return '<div class="v-empty">Select an item</div>';
+  if (!i) return '<div class="v-empty">Select an item, or click <b>+ New item</b></div>';
   const row = (label, field, present) => present ? `
     <div class="v-row">
       <div class="v-lbl">${label}</div>
@@ -287,6 +365,7 @@ function vaultDetailHtml() {
 }
 
 function wireDetail() {
+  if (vaultState.creating) { wireCreate(); return; }
   document.querySelectorAll('#vault-detail [data-act]').forEach(b =>
     b.addEventListener('click', () => onVaultAction(b.dataset.act, b.dataset.field, b)));
 }

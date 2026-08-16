@@ -51,6 +51,7 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - [Language Server Protocol (LSP)](#-language-server-protocol-lsp)
 - [draw.io Diagrams](#-drawio-diagrams)
 - [Encrypted Pad](#-encrypted-pad)
+- [Passwords (Bitwarden)](#-passwords-bitwarden)
 - [Tasks & Schedule](#-tasks--schedule)
 - [Whiteboard](#-whiteboard)
 - [Compare (File & Folder Diff)](#-compare-file--folder-diff)
@@ -132,6 +133,14 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Bundle persists across upgrades** — lives in `userData`, electron-updater leaves it untouched
 - **Starter templates** in `Tools → Diagram (draw.io) → From Template`: Flowchart · Sequence Diagram · Class Diagram (UML) · Entity Relationship
 - **Manual update check** — `Tools → Diagram (draw.io) → Check for updates` compares the installed version to whatever Note++ has pinned
+
+### Passwords (Bitwarden)
+- **Note++ is not a password manager** — it drives the official **Bitwarden CLI**, downloaded on first use. Bitwarden owns the vault and the cryptography; Note++ holds a session token in memory and nothing else
+- **Integrity-checked install** — pinned release, SHA-256 pinned *in source*, verified before the binary is ever extracted or run
+- **Insert at cursor** — drop a secret straight into the `.env` you're editing, without it ever touching the clipboard
+- **Three unlock paths** — adopt an existing `BW_SESSION`, paste a token from `bw unlock --raw` in the integrated terminal (your master password never touches Note++), or type it in
+- **Add items** from the editor; edit and delete stay in the Bitwarden app on purpose
+- Auto-locks on idle, on OS lock-screen and on sleep
 
 ### Tasks & Schedule
 - **Your code is your task list** — `TODO` / `FIXME` / `HACK` / `BUG` comments and markdown `- [ ]` checkboxes are scanned out of your workspace and become real tasks
@@ -451,6 +460,50 @@ Per-file encryption with a single profile-wide password. Open a `.txt` (or anyth
 
 ---
 
+## 🔑 Passwords (Bitwarden)
+
+The secret you need is usually *inside the file you're editing* — an API key for
+a `.env`, a password for a connection string. Browser-centric password managers
+handle that case badly, so Note++ closes the gap. It does **not** implement a
+password manager to do it.
+
+> **Note++ stores no credentials and implements no credential cryptography.**
+> It downloads the official Bitwarden CLI and drives it. Your vault, your
+> Bitwarden account, Bitwarden's audited encryption.
+
+| | |
+|---|---|
+| Toolbar | `🔑` → opens the **Passwords** tab |
+| First run | Downloads Bitwarden CLI **v2026.7.0** (~40 MB) from the official GitHub release into `userData` |
+| Integrity | SHA-256 **pinned in Note++'s source** and verified before anything is extracted or executed — a swapped upstream artefact is refused |
+| Already have `bw`? | Put it on your `PATH` and Note++ uses it instead |
+| Unlock | ① existing `BW_SESSION` · ② a token from `bw unlock --raw` in the integrated terminal · ③ master password typed in (piped to `bw` stdin, never stored) |
+| Writes | **Add** only. Edit and delete stay in the Bitwarden app |
+| Auto-lock | idle timer, OS lock-screen, and system suspend |
+
+### Insert beats Copy
+
+`Insert` drops the value at your cursor and **never touches the clipboard**.
+Prefer it. `Copy` auto-clears after 30 seconds, but on Windows the clipboard
+history (`Win+V`) can retain a copied secret regardless — Electron can't set the
+clipboard-history exclusion format, so the UI says so rather than pretending
+otherwise.
+
+### Why not a built-in vault?
+
+An earlier cut of this shipped one, and it was the wrong call: for a password
+manager **trust is the product**, and a one-maintainer editor has no audit, no
+bug bounty and no track record to offer. Reading from a manager you already
+trust is strictly better than asking you to trust a new one.
+
+The UI is a tab, which means it shares a renderer with HTML previews and the
+whiteboard iframes. That's only acceptable because there's no vault in that
+process to steal: listing returns metadata, secrets are fetched one at a time,
+and the main process **refuses any secret unless the Passwords tab is in
+focus** — so a background injection can't quietly drain it.
+
+---
+
 ## ✅ Tasks & Schedule
 
 Most task tools ask you to adopt a new habit. This one reads the habit you
@@ -703,6 +756,7 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] Find live decorations (gutter + minimap markers, current-match indicator)
 - [x] **Azure icon library** — searchable right-side panel with 1264 Azure icons (fetch-and-cache from maskati.github.io); drag-drop straight onto the whiteboard
 - [x] **Tasks & Schedule** — scans TODO/FIXME comments + markdown checkboxes into a real task list with due dates, OS-level reminders that fire in tray mode, a month calendar, and pop-out sticky notes
+- [x] **Passwords** — drives the official Bitwarden CLI (downloaded on demand, SHA-256 pinned); insert a secret at the cursor without touching the clipboard. Note++ stores no credentials of its own
 
 ### Next
 - [ ] **LSP for more languages** — Go (gopls), Rust (rust-analyzer), TypeScript (deeper than Monaco's built-in), etc. The registry pattern in `lsp-service.js` makes each new language a one-entry addition.

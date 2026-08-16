@@ -59,6 +59,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onChanged:    (cb) => { const h = () => cb(); ipcRenderer.on('tasks-changed', h); return () => ipcRenderer.removeListener('tasks-changed', h); },
   },
 
+  // Dev Secrets vault. The main renderer can only OPEN the vault window and
+  // receive a one-shot insertion — it can never read the vault itself, which
+  // is the whole point of keeping plaintext out of this process.
+  vault: {
+    openWindow: () => ipcRenderer.invoke('vault:open-window'),
+    onInsertText: (cb) => {
+      const h = (_e, text) => cb(text);
+      ipcRenderer.on('vault-insert-text', h);
+      return () => ipcRenderer.removeListener('vault-insert-text', h);
+    },
+  },
+
   // Sticky notes — a task rendered as a floating always-on-top window.
   sticky: {
     open:       (id)          => ipcRenderer.invoke('sticky:open', id),

@@ -1532,6 +1532,7 @@ require(['vs/editor/editor.main'], () => {
   setupPreview();
   setupGlobalEscape();
   setupGlobalShortcuts();
+  setupVaultInsert();
   // Load onboarding state from settings.json (survives quota clears,
   // Chromium upgrades, etc. — unlike localStorage). Then, if the tour
   // has never been seen, fire it ~1.2 s after paint. Users can replay
@@ -6766,9 +6767,10 @@ function setupToolbar() {
         'whiteboard-new': () => createWhiteboardTab(null, ''),
         'icons': () => toggleIconsPanel(),
         'tasks': () => tsToggleTasks(),
+        'vault': () => window.electronAPI.vault.openWindow(),
       };
       map[a]?.();
-      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons' && a !== 'tasks') editor.focus();
+      if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons' && a !== 'tasks' && a !== 'vault') editor.focus();
     });
   });
 
@@ -10345,6 +10347,36 @@ function maybeFireContextualTip(kind, ctx) {
 // ═════════════════════════════════════════════════════════════════════
 // End feature-callout system
 // ═════════════════════════════════════════════════════════════════════
+
+// ===== Vault → editor insertion =====
+// The vault window can ask us to drop one secret at the cursor. This is the
+// ONLY way a vault secret reaches this process: main pulls the value and
+// pushes it here as a one-shot, in response to an explicit user click. We
+// never hold the vault, a key, or more than the single value being inserted.
+function setupVaultInsert() {
+  try {
+    window.electronAPI.vault.onInsertText((text) => {
+      if (typeof text !== 'string' || !text) return;
+      const tab = getActiveTab();
+      if (!tab || tab.type !== 'editor' || !editor) {
+        showToast('Open a text file to insert a secret into');
+        return;
+      }
+      const sel = editor.getSelection();
+      editor.executeEdits('vault-insert', [{
+        range: sel,
+        text,
+        forceMoveMarkers: true,
+      }]);
+      editor.focus();
+      // Deliberately no toast echoing the value — the point is to keep the
+      // secret out of anything that logs or lingers.
+      showToast('Secret inserted at cursor');
+    });
+  } catch (err) {
+    console.warn('[vault] insert bridge unavailable', err);
+  }
+}
 
 // ===== Global ESC Handler =====
 function setupGlobalEscape() {

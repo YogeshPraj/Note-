@@ -2325,6 +2325,9 @@ function activateTab(id) {
   // Tell main whether the Passwords tab is in front — secret-bearing IPC is
   // refused unless it is, so a background injection can't drain the vault.
   try { notifyVaultTabActive(tab.type === 'vault'); } catch {}
+  // The grid belongs to one tab; switching away must restore the editor
+  // rather than leaving a stale table on screen.
+  try { gridOnTabChanged(tab); } catch {}
 
   // JWT panel is bound to its owner tab (like the Preview pane): hide it on
   // every switch; the editor branch below re-shows it for tabs that had it open.
@@ -6862,6 +6865,7 @@ function setupToolbar() {
         'icons': () => toggleIconsPanel(),
         'tasks': () => tsToggleTasks(),
         'vault': () => openVaultTab(),
+        'grid':  () => toggleGridView(),
       };
       map[a]?.();
       if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons' && a !== 'tasks' && a !== 'vault') editor.focus();

@@ -121,6 +121,7 @@
       <button class="tb-btn" title="Toggle Preview (Ctrl+Shift+V)" data-action="preview" id="btn-preview">👁</button>
       <button class="tb-btn" title="New Whiteboard" data-action="whiteboard-new" id="btn-whiteboard">🎨</button>
       <button class="tb-btn hidden" title="Azure icon library (whiteboard only)" data-action="icons" id="btn-icons">🖼️</button>
+      <button class="tb-btn hidden" title="Table view (CSV / TSV / JSON)" data-action="grid" id="btn-grid">&#9638;</button>
       <button class="tb-btn" title="Tasks &amp; Schedule (Ctrl+Shift+K)" data-action="tasks" id="btn-tasks">🗓</button>
       <button class="tb-btn" title="Passwords — Bitwarden vault" data-action="vault" id="btn-vault">🔑</button>
       <button class="tb-btn" title="Encrypt / decrypt this file" data-action="encrypt-toggle" id="btn-encrypt">🔒</button>
@@ -259,6 +260,8 @@
           <div id="tasks-tab-container" class="hidden"></div>
           <!-- Passwords tab (rendered by vault-panel.js) -->
           <div id="vault-tab-container" class="hidden"></div>
+          <!-- Table view for CSV / TSV / JSON arrays (data-grid.js) -->
+          <div id="grid-container" class="hidden"></div>
           <!-- File Diff Container (Monaco DiffEditor, hidden by default) -->
           <div id="diff-container" class="hidden">
             <div id="diff-toolbar">
@@ -1513,6 +1516,8 @@
   <script src="dock-pane.js"></script>
   <!-- Clickable file:line in terminal output -->
   <script src="term-links.js"></script>
+  <!-- Table view for CSV / TSV / JSON -->
+  <script src="data-grid.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

@@ -309,13 +309,19 @@ function initDockPane() {
 
   window.addEventListener('resize', dockRelayoutEditors);
 
-  try {
-    Promise.resolve(window.electronAPI.readSettings()).then(s => {
-      const d = s && s.ui && s.ui.dock;
-      if (!d) return;
-      if (['left', 'right', 'top', 'bottom'].includes(d.position)) dockState.position = d.position;
-      const n = parseInt(d.sizePct, 10);
-      if (!isNaN(n)) dockState.sizePct = Math.max(DOCK_MIN_PCT, Math.min(DOCK_MAX_PCT, n));
-    }).catch(() => {});
-  } catch {}
+  // Deferred for the same reason as the tab-preview pref: an IPC round trip on
+  // the boot path for a value nothing reads until the user docks a tab.
+  const loadPref = () => {
+    try {
+      Promise.resolve(window.electronAPI.readSettings()).then(s => {
+        const d = s && s.ui && s.ui.dock;
+        if (!d) return;
+        if (['left', 'right', 'top', 'bottom'].includes(d.position)) dockState.position = d.position;
+        const n = parseInt(d.sizePct, 10);
+        if (!isNaN(n)) dockState.sizePct = Math.max(DOCK_MIN_PCT, Math.min(DOCK_MAX_PCT, n));
+      }).catch(() => {});
+    } catch {}
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(loadPref, { timeout: 3000 });
+  else setTimeout(loadPref, 400);
 }

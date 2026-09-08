@@ -268,13 +268,19 @@ function initTabPreview() {
   window.addEventListener('resize', tpHide);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') tpHide(); }, true);
 
-  // Restore the opt-out. Shares settings.json's ui.* namespace with the other
-  // persistent view toggles.
-  try {
-    Promise.resolve(window.electronAPI.readSettings()).then(s => {
-      if (s && s.ui && s.ui.tabPreview === false) window.__tabPreviewEnabled = false;
-    }).catch(() => {});
-  } catch {}
+  // Restore the opt-out. Deferred to idle: this costs an IPC round trip and a
+  // settings-file read, and the value isn't needed until someone hovers a tab
+  // — which cannot happen before the window is interactive. Keeping it on the
+  // boot path would be pure startup cost for nothing.
+  const loadPref = () => {
+    try {
+      Promise.resolve(window.electronAPI.readSettings()).then(s => {
+        if (s && s.ui && s.ui.tabPreview === false) window.__tabPreviewEnabled = false;
+      }).catch(() => {});
+    } catch {}
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(loadPref, { timeout: 3000 });
+  else setTimeout(loadPref, 400);
 }
 
 function toggleTabPreview() {

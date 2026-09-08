@@ -4793,6 +4793,12 @@ async function openTerminal(force = false) {
     term.loadAddon(fitAddon);
     term.open(document.getElementById('xterm-container'));
 
+    // Stack traces, compiler errors and test failures all name a file and a
+    // line — make those clickable so following one doesn't mean copy-pasting
+    // a path out of the terminal.
+    try { registerTerminalLinks(term); }
+    catch (e) { console.warn('[term-links] not registered', e); }
+
     // Apply font size from prefs if saved
     const savedFontSize = parseInt(document.getElementById('pref-term-fontsize')?.value) || 13;
     if (savedFontSize !== 13) term.options.fontSize = savedFontSize;

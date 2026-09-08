@@ -1511,6 +1511,8 @@
   <script src="tab-preview.js"></script>
   <!-- Docked reference pane (second Monaco instance) -->
   <script src="dock-pane.js"></script>
+  <!-- Clickable file:line in terminal output -->
+  <script src="term-links.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

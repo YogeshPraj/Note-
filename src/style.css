@@ -3901,3 +3901,58 @@ body.dock-resizing .monaco-editor { pointer-events: none; }
   background: var(--find-input-bg); color: var(--tab-text);
 }
 body.theme-dark .g-warn { background: #33290d; color: #f5d17a; border-bottom-color: #5c4a15; }
+
+/* ═════════════════════════════════════════════════════════════════════
+   .http response panel. A flex child of #editor-container (which is a
+   column), so it naturally splits editor above / response below.
+   ═════════════════════════════════════════════════════════════════════ */
+#http-panel {
+  display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden; flex-shrink: 0;
+  background: var(--editor-bg); color: var(--tab-text);
+  border-top: 1px solid var(--toolbar-border);
+  font-size: 12px;
+}
+#http-panel.hidden { display: none; }
+#http-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 9px; flex-shrink: 0;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+}
+#http-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.h-badge {
+  font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 3px; color: #fff;
+}
+.h-badge.ok    { background: #2e7d32; }
+.h-badge.redir { background: #ef6c00; }
+.h-badge.err   { background: #c62828; }
+.h-method { font-weight: 700; font-size: 11px; opacity: .8; }
+.h-url { font-size: 11px; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-meta { font-size: 11px; opacity: .55; }
+.h-btn {
+  padding: 3px 9px; font-size: 11px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--find-border); border-radius: 4px;
+  background: var(--find-input-bg); color: var(--tab-text);
+}
+.h-btn:hover { background: var(--btn-hover); }
+
+#http-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.h-tabs { display: flex; gap: 2px; padding: 5px 8px 0; flex-shrink: 0; }
+.h-tab {
+  padding: 4px 11px; font-size: 11px; font-family: inherit; cursor: pointer;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--tab-text); opacity: .6;
+}
+.h-tab.active { opacity: 1; border-bottom-color: #2563eb; font-weight: 600; }
+.h-pane { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; }
+.h-pane.hidden { display: none; }
+.h-code {
+  margin: 0; font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+.h-pending, .h-error { padding: 14px 10px; font-size: 12px; opacity: .75; }
+.h-error { color: #c62828; opacity: 1; white-space: pre-wrap; }
+.h-hrow { display: flex; gap: 10px; padding: 2px 0; font-size: 11.5px; }
+.h-hk { min-width: 190px; font-weight: 600; opacity: .75; }
+.h-hv { word-break: break-all; font-family: 'Cascadia Code', Consolas, monospace; }

@@ -2274,6 +2274,19 @@ ipcMain.handle('vault:create', (_e, item) => bwCall(async () => {
   return { id: r.id };
 }));
 
+// ── .http request runner ──────────────────────────────────────────────────
+// The renderer hands over a request TEMPLATE with {{vault:...}} placeholders
+// intact; they are resolved here and the request is sent from this process, so
+// a credential used in a request never reaches the renderer.
+ipcMain.handle('http:send', async (_e, template) => {
+  try {
+    const svc = require('./http-service');
+    return await svc.sendRequest(template || {});
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle('vault:generate', (_e, opts) => bwCall(async () => {
   const r = await bw.generatePassword(opts || {});
   if (!r.ok) throw new Error(r.error);

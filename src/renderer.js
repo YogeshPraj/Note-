@@ -1538,6 +1538,7 @@ require(['vs/editor/editor.main'], () => {
   initVaultFeature();
   initTabPreview();
   initDockPane();
+  initHttpClient();
   // Load onboarding state from settings.json (survives quota clears,
   // Chromium upgrades, etc. — unlike localStorage). Then, if the tour
   // has never been seen, fire it ~1.2 s after paint. Users can replay
@@ -2328,6 +2329,7 @@ function activateTab(id) {
   // The grid belongs to one tab; switching away must restore the editor
   // rather than leaving a stale table on screen.
   try { gridOnTabChanged(tab); } catch {}
+  try { httpOnTabChanged(tab); } catch {}
 
   // JWT panel is bound to its owner tab (like the Preview pane): hide it on
   // every switch; the editor branch below re-shows it for tabs that had it open.

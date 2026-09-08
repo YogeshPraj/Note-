@@ -262,6 +262,9 @@
           <div id="vault-tab-container" class="hidden"></div>
           <!-- Table view for CSV / TSV / JSON arrays (data-grid.js) -->
           <div id="grid-container" class="hidden"></div>
+          <!-- .http response panel (http-client.js). Flex child of
+               #editor-container, so it splits editor/response vertically. -->
+          <div id="http-panel" class="hidden"></div>
           <!-- File Diff Container (Monaco DiffEditor, hidden by default) -->
           <div id="diff-container" class="hidden">
             <div id="diff-toolbar">
@@ -1518,6 +1521,8 @@
   <script src="term-links.js"></script>
   <!-- Table view for CSV / TSV / JSON -->
   <script src="data-grid.js"></script>
+  <!-- .http / .rest request scratchpad -->
+  <script src="http-client.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

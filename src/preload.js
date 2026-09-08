@@ -59,6 +59,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onChanged:    (cb) => { const h = () => cb(); ipcRenderer.on('tasks-changed', h); return () => ipcRenderer.removeListener('tasks-changed', h); },
   },
 
+  // .http scratchpad. Only the request template crosses this bridge; any
+  // {{vault:...}} in it is resolved in main, so the secret never comes back
+  // through here.
+  http: { send: (template) => ipcRenderer.invoke('http:send', template) },
+
   // Password manager — drives the official Bitwarden CLI that main downloads
   // on demand. Note++ owns no vault: listing returns metadata only, and a
   // secret crosses this bridge only for a single explicit Reveal. Copy and

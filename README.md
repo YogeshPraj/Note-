@@ -52,6 +52,10 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - [draw.io Diagrams](#-drawio-diagrams)
 - [Encrypted Pad](#-encrypted-pad)
 - [Passwords (Bitwarden)](#-passwords-bitwarden)
+- [HTTP Scratchpad](#-http-scratchpad)
+- [Table View (CSV / JSON)](#-table-view-csv--json)
+- [Log Follow Mode](#-log-follow-mode)
+- [Docked Reference Pane](#-docked-reference-pane)
 - [Tasks & Schedule](#-tasks--schedule)
 - [Whiteboard](#-whiteboard)
 - [Compare (File & Folder Diff)](#-compare-file--folder-diff)
@@ -141,6 +145,25 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **Three unlock paths** — adopt an existing `BW_SESSION`, paste a token from `bw unlock --raw` in the integrated terminal (your master password never touches Note++), or type it in
 - **Add items** from the editor; edit and delete stay in the Bitwarden app on purpose
 - Auto-locks on idle, on OS lock-screen and on sleep
+
+### Workspace
+- **Dock a tab** beside the one you're editing — right-click a tab → Dock ▸ Left / Right / Top / Bottom. Read one file while working in another
+- **Tab hover preview** — hover an inactive tab to peek at its first screenful, syntax-highlighted, without clicking
+- **Context-aware toolbar** — only the buttons that can act on the current tab are shown; a whiteboard doesn't offer Find or Format
+- **Clickable `file:line`** in terminal output — stack traces, compiler errors and test failures jump straight to the line
+
+### HTTP Scratchpad
+- Write a request as plain text in a `.http` file, press **Ctrl+Enter**, read the response below the editor
+- `@vars`, `###` separators, all common methods, gzip/deflate/br decoding, redirect following, JSON pretty-printing
+- **`{{vault:Item}}`** pulls a secret from your Bitwarden vault — resolved in the main process, so it never enters the renderer
+
+### Table View
+- Open a `.csv`, `.tsv` or JSON array as a sortable, filterable, editable grid
+- Sorting is view-only — the row-number column keeps showing each record's real line, so saving never reorders your file
+
+### Log Follow Mode
+- `tail -f` for `.log` files: new lines stream in, severity is colourised, filter by substring or regex
+- Reads by offset (one `stat` per poll, not a re-read) and detects rotation
 
 ### Tasks & Schedule
 - **Your code is your task list** — `TODO` / `FIXME` / `HACK` / `BUG` comments and markdown `- [ ]` checkboxes are scanned out of your workspace and become real tasks
@@ -504,6 +527,93 @@ focus** — so a background injection can't quietly drain it.
 
 ---
 
+## 🌐 HTTP Scratchpad
+
+The secret you need is usually *inside the file you're editing*. So is the API
+call you're debugging. Write it as text and run it.
+
+```http
+@base = https://api.example.com
+
+### create a charge
+POST {{base}}/v1/charges
+Authorization: Bearer {{vault:Stripe API}}
+Content-Type: application/json
+
+{ "amount": 2000, "currency": "usd" }
+```
+
+| | |
+|---|---|
+| Run | **Ctrl+Enter** runs the request under the cursor |
+| Files | `.http` and `.rest` |
+| Syntax | `@vars`, `###` separators, all common methods, a bare URL as an implicit GET |
+| Response | status, timing, size, headers tab; JSON pretty-printed |
+| Handles | gzip / deflate / br, redirect following (303/302/301 correctly drop to GET) |
+
+### Why the vault integration is the point
+
+`{{vault:Item}}` resolves from the [Bitwarden vault](#-passwords-bitwarden) —
+and it resolves in the **main process**, not the renderer. Note++ parses the
+buffer and hands over a request *template* with the placeholder intact; main
+substitutes and sends. A credential used in a request never enters the process
+that also renders HTML previews, whiteboard iframes and AI output.
+
+> **Limitation, stated plainly:** an endpoint that echoes your request back
+> (`/debug`, `/anything`) puts the secret in the *response*, which is displayed.
+> Substitution protects the request path, not a remote service's choice to
+> reflect it.
+
+---
+
+## 📊 Table View (CSV / JSON)
+
+Reading a CSV as raw text is a bad way to read a CSV. The toolbar's table
+button flips the current tab into a grid — sortable, filterable, editable.
+
+- Works on `.csv`, `.tsv`, and JSON that is a **top-level array of objects**
+- Edits push back through the Monaco model, so **Ctrl+Z and Ctrl+S keep working**
+- **Sorting is a view, not a rewrite** — the row-number column keeps showing each
+  record's real line, so saving a sorted view never reorders your file
+- Quoted fields, embedded delimiters, embedded newlines and `""` escapes all round-trip losslessly
+- Nested objects and arrays-of-arrays are *refused* rather than flattened into a shape that misrepresents them
+
+---
+
+## 📜 Log Follow Mode
+
+Large-file safe mode stopped big logs freezing the editor. This makes them
+useful.
+
+| | |
+|---|---|
+| Toggle | ⇩ in the toolbar on `.log` / `.out` / `.err` files |
+| Streams | new lines as they're written, `tail -f` style |
+| Filter | substring or regex, plus ERROR / WARN / INFO / DEBUG toggles |
+| Reads | by **offset** — one `stat` per poll, never a re-read, so a multi-GB log is cheap |
+| Rotation | a file that suddenly got *smaller* was rotated; follow restarts from the top |
+
+Scrolling up turns following off, because scrolling up means you want to read.
+The buffer is capped and the header says how many lines were dropped rather
+than pretending it's complete.
+
+---
+
+## 🪟 Docked Reference Pane
+
+Right-click a tab → **Dock ▸ Left / Right / Top / Bottom**. That tab leaves the
+strip and opens in a second editor alongside the one you're working in.
+
+One reference pane whose side you choose — not an arbitrary split grid. "Look
+at A while editing B" is what it's for.
+
+- The docked pane is **fully editable**; edits mark the tab dirty and autosave normally
+- **Ctrl+S follows the caret**, so saving from the docked pane saves *that* file
+- Closing the docked tab releases the pane; docking the active tab moves the main pane elsewhere
+- Text tabs only — whiteboard / draw.io / games are live iframes and would reload if relocated
+
+---
+
 ## ✅ Tasks & Schedule
 
 Most task tools ask you to adopt a new habit. This one reads the habit you
@@ -756,6 +866,11 @@ A full list lives inside the Command Palette (`Ctrl+Shift+P`).
 - [x] Find live decorations (gutter + minimap markers, current-match indicator)
 - [x] **Azure icon library** — searchable right-side panel with 1264 Azure icons (fetch-and-cache from maskati.github.io); drag-drop straight onto the whiteboard
 - [x] **Tasks & Schedule** — scans TODO/FIXME comments + markdown checkboxes into a real task list with due dates, OS-level reminders that fire in tray mode, a month calendar, and pop-out sticky notes
+- [x] **HTTP scratchpad** — run `.http` requests from the editor; `{{vault:...}}` pulls secrets from Bitwarden, resolved in the main process so they never reach the renderer
+- [x] **Table view** — CSV / TSV / JSON arrays as a sortable, editable grid that never reorders your file on save
+- [x] **Log follow** — `tail -f` with severity colouring, regex filtering and rotation detection
+- [x] **Docked reference pane** — read one file while editing another
+- [x] **Context-aware toolbar** — only buttons that can act on the current tab are shown
 - [x] **Passwords** — drives the official Bitwarden CLI (downloaded on demand, SHA-256 pinned); insert a secret at the cursor without touching the clipboard. Note++ stores no credentials of its own
 
 ### Next

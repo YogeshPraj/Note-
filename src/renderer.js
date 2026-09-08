@@ -11437,6 +11437,16 @@ const MERMAID_TEMPLATES = {
     'quadrantChart\n    title Prioritization Matrix\n    x-axis Low Effort --> High Effort\n    y-axis Low Impact --> High Impact\n    quadrant-1 Quick Wins\n    quadrant-2 Major Projects\n    quadrant-3 Fill Ins\n    quadrant-4 Hard Slogs\n    Task A: [0.3, 0.8]\n    Task B: [0.7, 0.7]\n    Task C: [0.2, 0.3]',
 };
 
+// Remove the scratch element Mermaid appends to <body> for one render.
+// Scoped to a single id on purpose: a blanket sweep of every mmd-r*/dmmd-r*
+// node lets one render delete another's, which is a race, not a cleanup.
+function mmdSweepTempNode(id) {
+  try {
+    const el = document.getElementById(id);
+    if (el && el.parentElement === document.body) el.remove();
+  } catch {}
+}
+
 async function renderMermaidPreview(content) {
   // If the fullscreen live view is active, render there instead
   if (mmdLiveViewActive) { renderMmdLiveView(content); return; }
@@ -11493,10 +11503,13 @@ async function renderMermaidPreview(content) {
     errorText.textContent = raw.replace(/<[^>]*>/g, '').slice(0, 400);
     errorBox.classList.remove('hidden');
   } finally {
-    // Now that the render promise has settled, safe to sweep temp body elements.
-    document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"]').forEach(el => {
-      if (el.parentElement === document.body) el.remove();
-    });
+    // Sweep only THIS render's temp node. The previous code removed every
+    // [id^="mmd-r"] in the body, which meant two overlapping renders would
+    // tear out each other's scratch element and the loser failed with
+    // "Cannot read properties of null (reading 'firstChild')". Overlap is
+    // easy to cause — anything that resizes the editor mid-render schedules
+    // a second preview pass — so the sweep has to be scoped to its own id.
+    mmdSweepTempNode(id);
   }
 }
 
@@ -11951,9 +11964,7 @@ async function renderMmdLiveView(content) {
     if (errorDiv) { errorDiv.textContent = msg; errorDiv.classList.remove('hidden'); }
     diagramDiv.innerHTML = '';
   } finally {
-    document.querySelectorAll('[id^="mmd-r"],[id^="dmmd-r"]').forEach(el => {
-      if (el.parentElement === document.body) el.remove();
-    });
+    mmdSweepTempNode(id);   // scoped, for the same reason as above
   }
 }
 

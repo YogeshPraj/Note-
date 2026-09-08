@@ -59,6 +59,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onChanged:    (cb) => { const h = () => cb(); ipcRenderer.on('tasks-changed', h); return () => ipcRenderer.removeListener('tasks-changed', h); },
   },
 
+  // Log follow. Lines stream from main; the renderer keeps a bounded ring.
+  log: {
+    start: (id, filePath) => ipcRenderer.invoke('log:start', id, filePath),
+    stop:  (id)           => ipcRenderer.invoke('log:stop', id),
+    onData: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('log-data', h); return () => ipcRenderer.removeListener('log-data', h); },
+  },
+
   // .http scratchpad. Only the request template crosses this bridge; any
   // {{vault:...}} in it is resolved in main, so the secret never comes back
   // through here.

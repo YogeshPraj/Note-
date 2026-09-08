@@ -3956,3 +3956,65 @@ body.theme-dark .g-warn { background: #33290d; color: #f5d17a; border-bottom-col
 .h-hrow { display: flex; gap: 10px; padding: 2px 0; font-size: 11.5px; }
 .h-hk { min-width: 190px; font-weight: 600; opacity: .75; }
 .h-hv { word-break: break-all; font-family: 'Cascadia Code', Consolas, monospace; }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Follow-mode log viewer. Replaces the editor on the same tab, like the
+   table view.
+   ═════════════════════════════════════════════════════════════════════ */
+#log-container {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--editor-bg); color: var(--tab-text);
+  overflow: hidden; font-size: 12px;
+}
+#log-container.hidden { display: none; }
+
+#log-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 9px; flex-shrink: 0;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+}
+#lg-filter {
+  width: 210px; padding: 5px 8px; font-size: 12px; font-family: inherit; outline: none;
+  border: 1px solid var(--find-border); border-radius: 5px;
+  background: var(--find-input-bg); color: var(--tab-text);
+}
+#lg-filter:focus { border-color: #2563eb; }
+.lg-btn {
+  padding: 5px 10px; font-size: 11.5px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--find-border); border-radius: 5px;
+  background: var(--find-input-bg); color: var(--tab-text); white-space: nowrap;
+}
+.lg-btn:hover { background: var(--btn-hover); }
+.lg-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.lg-levels { display: flex; gap: 3px; }
+.lg-lvl {
+  padding: 3px 7px; font-size: 10px; font-family: inherit; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .3px; border-radius: 3px;
+  border: 1px solid var(--find-border); background: transparent;
+  color: var(--tab-text); opacity: .35;
+}
+.lg-lvl.on { opacity: 1; }
+.lg-lvl.lg-error.on { border-color: #e05252; color: #e05252; }
+.lg-lvl.lg-warn.on  { border-color: #d79a2b; color: #d79a2b; }
+.lg-lvl.lg-info.on  { border-color: #3b82f6; color: #3b82f6; }
+.lg-lvl.lg-debug.on { border-color: #888; color: #888; }
+.lg-count { font-size: 11px; opacity: .55; white-space: nowrap; }
+
+#log-lines {
+  flex: 1; min-height: 0; overflow: auto;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11.5px; line-height: 1.55;
+}
+.lg-line { display: flex; gap: 10px; padding: 0 10px; white-space: pre-wrap; word-break: break-word; }
+.lg-line:hover { background: var(--btn-hover); }
+.lg-n {
+  flex: 0 0 62px; text-align: right; opacity: .3;
+  user-select: none; font-variant-numeric: tabular-nums;
+}
+.lg-t { flex: 1; min-width: 0; }
+.lg-line.lg-error .lg-t { color: #e05252; }
+.lg-line.lg-warn  .lg-t { color: #d79a2b; }
+.lg-line.lg-info  .lg-t { color: #3b82f6; }
+.lg-line.lg-debug .lg-t { opacity: .6; }

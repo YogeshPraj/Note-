@@ -2274,6 +2274,18 @@ ipcMain.handle('vault:create', (_e, item) => bwCall(async () => {
   return { id: r.id };
 }));
 
+// ── Log follow (tail -f) ──────────────────────────────────────────────────
+const logSvc = require('./log-service');
+ipcMain.handle('log:start', (_e, id, filePath) => {
+  try {
+    return logSvc.start(id, filePath, (payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('log-data', payload);
+    });
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('log:stop', (_e, id) => logSvc.stop(id));
+app.on('before-quit', () => { try { logSvc.stopAll(); } catch {} });
+
 // ── .http request runner ──────────────────────────────────────────────────
 // The renderer hands over a request TEMPLATE with {{vault:...}} placeholders
 // intact; they are resolved here and the request is sent from this process, so

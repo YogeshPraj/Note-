@@ -2330,6 +2330,7 @@ function activateTab(id) {
   // rather than leaving a stale table on screen.
   try { gridOnTabChanged(tab); } catch {}
   try { httpOnTabChanged(tab); } catch {}
+  try { logOnTabChanged(tab); } catch {}
 
   // JWT panel is bound to its owner tab (like the Preview pane): hide it on
   // every switch; the editor branch below re-shows it for tabs that had it open.
@@ -6868,6 +6869,7 @@ function setupToolbar() {
         'tasks': () => tsToggleTasks(),
         'vault': () => openVaultTab(),
         'grid':  () => toggleGridView(),
+        'log':   () => toggleLogView(),
       };
       map[a]?.();
       if (a !== 'games' && a !== 'ai' && a !== 'encrypt-toggle' && a !== 'source-control' && a !== 'spell-toggle' && a !== 'whiteboard-new' && a !== 'icons' && a !== 'tasks' && a !== 'vault') editor.focus();

@@ -3132,14 +3132,17 @@ function showTabContextMenu(e, tabId) {
     [tab.pinned ? '📌 Unpin Tab' : '📌 Pin Tab', () => togglePinTab(tabId)],
     null,
     // Dock this tab beside the one you're editing, so you can read one file
-    // while working in another.
+    // while working in another. Grouped under one entry — four sibling rows
+    // for what is really one action with a direction crowded the menu.
     ...(isTabDocked(tabId)
       ? [['⇱ Undock Tab', () => undockTab()]]
       : (tab.type === 'editor'
-          ? [['⇱ Dock Left',   () => dockTab(tabId, 'left')],
-             ['⇲ Dock Right',  () => dockTab(tabId, 'right')],
-             ['⤒ Dock Top',    () => dockTab(tabId, 'top')],
-             ['⤓ Dock Bottom', () => dockTab(tabId, 'bottom')]]
+          ? [{ type: 'submenu', label: '⇱ Dock', items: [
+                ['◧  Left',   () => dockTab(tabId, 'left')],
+                ['◨  Right',  () => dockTab(tabId, 'right')],
+                ['⬒  Top',    () => dockTab(tabId, 'top')],
+                ['⬓  Bottom', () => dockTab(tabId, 'bottom')],
+              ] }]
           : [])),
     null,
     ['Close', () => closeTab(tabId)],
@@ -3188,6 +3191,13 @@ function showFloatingMenu(x, y, items) {
   const menu = document.createElement('div');
   menu.className = 'floating-ctx-menu';
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2000;background:var(--ctx-bg);border:1px solid var(--ctx-border);padding:2px 0;min-width:200px;box-shadow:2px 2px 8px rgba(0,0,0,0.25);font-size:12px;max-height:80vh;overflow-y:auto;`;
+
+  // Submenus live on <body> rather than inside the parent panel: the panel
+  // has overflow-y:auto for long menus, and a nested child would be clipped
+  // by it. Positioning is therefore manual.
+  let openSub = null;
+  const closeSub = () => { if (openSub && openSub.parentNode) openSub.remove(); openSub = null; };
+  const closeAll = () => { closeSub(); if (menu.parentNode) menu.remove(); };
   items.forEach(item => {
     if (!item) { const sep = document.createElement('div'); sep.className = 'ctx-sep'; menu.appendChild(sep); return; }
     // Special color-picker row — renders a compact swatch strip instead of a text item
@@ -3199,22 +3209,63 @@ function showFloatingMenu(x, y, items) {
         sw.className = 'ctx-color-swatch' + (item.current === c.value ? ' active' : '');
         sw.style.background = c.value;
         sw.title = c.name;
-        sw.addEventListener('click', () => { item.onChange(c.value); document.body.removeChild(menu); });
+        sw.addEventListener('click', () => { item.onChange(c.value); closeAll(); });
         row.appendChild(sw);
       });
       const clear = document.createElement('span');
       clear.className = 'ctx-color-swatch ctx-color-clear';
       clear.title = 'Clear color';
       clear.textContent = '✕';
-      clear.addEventListener('click', () => { item.onChange(null); document.body.removeChild(menu); });
+      clear.addEventListener('click', () => { item.onChange(null); closeAll(); });
       row.appendChild(clear);
       menu.appendChild(row);
       return;
     }
+    // Nested group: { type:'submenu', label, items:[[label, fn], ...] }
+    if (item.type === 'submenu') {
+      const el = document.createElement('div');
+      el.className = 'ctx-item ctx-item-parent';
+      el.innerHTML = `<span>${item.label.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</span><span class="ctx-chevron">▸</span>`;
+
+      const openThis = () => {
+        closeSub();
+        const sub = document.createElement('div');
+        sub.className = 'floating-ctx-menu floating-ctx-submenu';
+        sub.style.cssText = menu.style.cssText.replace(/left:[^;]+;/, '').replace(/top:[^;]+;/, '');
+        sub.style.position = 'fixed';
+        item.items.forEach(sit => {
+          if (!sit) { const sp = document.createElement('div'); sp.className = 'ctx-sep'; sub.appendChild(sp); return; }
+          const sel = document.createElement('div');
+          sel.className = 'ctx-item';
+          sel.textContent = sit[0];
+          sel.addEventListener('click', (ev) => { ev.stopPropagation(); sit[1](); closeAll(); });
+          sub.appendChild(sel);
+        });
+        document.body.appendChild(sub);
+
+        const r = el.getBoundingClientRect();
+        let sx = r.right - 2, sy = r.top - 2;
+        const sr = sub.getBoundingClientRect();
+        // Flip to the parent's left when there's no room on the right.
+        if (sx + sr.width > window.innerWidth) sx = Math.max(0, r.left - sr.width + 2);
+        if (sy + sr.height > window.innerHeight) sy = Math.max(0, window.innerHeight - sr.height - 4);
+        sub.style.left = sx + 'px';
+        sub.style.top = sy + 'px';
+        openSub = sub;
+      };
+
+      el.addEventListener('mouseenter', openThis);
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); openThis(); });
+      menu.appendChild(el);
+      return;
+    }
+
     const el = document.createElement('div');
     el.className = 'ctx-item';
     el.textContent = item[0];
-    el.addEventListener('click', () => { item[1](); document.body.removeChild(menu); });
+    // Moving onto any ordinary row means you've left the submenu behind.
+    el.addEventListener('mouseenter', closeSub);
+    el.addEventListener('click', () => { item[1](); closeAll(); });
     menu.appendChild(el);
   });
   document.body.appendChild(menu);
@@ -3226,7 +3277,12 @@ function showFloatingMenu(x, y, items) {
   if (menu.getBoundingClientRect().bottom > window.innerHeight) {
     menu.style.top = Math.max(0, y - menu.offsetHeight) + 'px';
   }
-  const hide = () => { if (menu.parentNode) document.body.removeChild(menu); document.removeEventListener('click', hide); };
+  const hide = (ev) => {
+    // A click inside the submenu is handled by its own row; don't race it.
+    if (ev && ev.target && ev.target.closest && ev.target.closest('.floating-ctx-submenu')) return;
+    closeAll();
+    document.removeEventListener('click', hide);
+  };
   setTimeout(() => document.addEventListener('click', hide), 0);
 }
 

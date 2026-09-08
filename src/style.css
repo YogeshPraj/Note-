@@ -4018,3 +4018,9 @@ body.theme-dark .g-warn { background: #33290d; color: #f5d17a; border-bottom-col
 .lg-line.lg-warn  .lg-t { color: #d79a2b; }
 .lg-line.lg-info  .lg-t { color: #3b82f6; }
 .lg-line.lg-debug .lg-t { opacity: .6; }
+
+/* Submenu rows in the floating context menu (see showFloatingMenu). */
+.ctx-item-parent { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.ctx-chevron { opacity: .55; font-size: 10px; }
+.ctx-item-parent:hover .ctx-chevron { opacity: 1; }
+.floating-ctx-submenu { min-width: 150px; }

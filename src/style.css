@@ -3662,3 +3662,80 @@ body.drag-over::after {
   0%   { background-position: 0 0; }
   100% { background-position: 23px 0; }
 }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Tab hover preview — translucent peek card shown on tab mouseenter.
+   Driven entirely by the theme custom properties (--modal-bg /
+   --modal-border / --tab-text) rather than a per-theme override block:
+   Note++ ships eight themes, and enumerating them here would mean this
+   card silently renders light-on-dark the next time one is added.
+   pointer-events:none throughout so it can never intercept a click on
+   the tab bar beneath it.
+   ═════════════════════════════════════════════════════════════════════ */
+.tab-preview {
+  position: fixed;
+  z-index: 9999;
+  width: 460px;
+  max-height: 380px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--modal-bg, #fcfcfc);                                  /* fallback */
+  background: color-mix(in srgb, var(--modal-bg, #fcfcfc) 93%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid var(--modal-border, rgba(0, 0, 0, 0.14));
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.16);
+  color: var(--tab-text, #24292f);
+  font-size: 12px;
+  animation: tp-in 110ms ease-out;
+}
+.tab-preview.hidden { display: none; }
+@keyframes tp-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+
+.tab-preview .tp-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tab-preview .tp-icon { flex-shrink: 0; font-size: 13px; }
+.tab-preview .tp-name {
+  font-weight: 600; font-size: 12.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tab-preview .tp-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--tab-dirty, #e5a50a);
+}
+/* Muted text via opacity rather than a literal grey, so it stays legible
+   on every theme's background without a per-theme value. */
+.tab-preview .tp-path,
+.tab-preview .tp-meta,
+.tab-preview .tp-more,
+.tab-preview .tp-empty,
+.tab-preview .tp-sum-detail { opacity: 0.62; }
+
+.tab-preview .tp-path {
+  font-size: 10.5px; margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;
+}
+.tab-preview .tp-meta { font-size: 10.5px; margin-top: 2px; }
+.tab-preview .tp-body {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--modal-border, rgba(0, 0, 0, 0.12));
+  overflow: hidden; flex: 1; min-height: 0;
+}
+.tab-preview .tp-code {
+  margin: 0;
+  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 11px; line-height: 1.5;
+  white-space: pre; overflow: hidden;
+  color: inherit;
+}
+.tab-preview .tp-more { font-size: 10px; margin-top: 6px; font-style: italic; }
+.tab-preview .tp-empty { font-style: italic; padding: 6px 0; }
+
+.tab-preview .tp-summary { text-align: center; padding: 14px 6px 10px; }
+.tab-preview .tp-sum-icon { font-size: 26px; line-height: 1; }
+.tab-preview .tp-sum-title { font-weight: 600; margin-top: 7px; }
+.tab-preview .tp-sum-detail { font-size: 11px; margin-top: 3px; }

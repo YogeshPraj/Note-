@@ -855,6 +855,7 @@ const MENU_STRUCTURE = [
     { label: 'Toggle Toolbar',     ch: 'menu-toolbar' },
     { label: 'Toggle Status Bar',  ch: 'menu-statusbar' },
     { label: 'Toggle Tab Bar',     ch: 'menu-tabbar' },
+    { label: 'Toggle Tab Hover Preview', ch: 'menu-tab-preview' },
   ]},
   { label: 'Language', items: [
     { label: 'Plain Text',   fn: () => _dispatchMenu('menu-lang','plaintext') },
@@ -1533,6 +1534,7 @@ require(['vs/editor/editor.main'], () => {
   setupGlobalEscape();
   setupGlobalShortcuts();
   initVaultFeature();
+  initTabPreview();
   // Load onboarding state from settings.json (survives quota clears,
   // Chromium upgrades, etc. — unlike localStorage). Then, if the tour
   // has never been seen, fire it ~1.2 s after paint. Users can replay
@@ -2658,6 +2660,7 @@ function renderTabs() {
       }
     });
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabContextMenu(e, tab.id); });
+    attachTabPreview(el, tab);
     tabBar.appendChild(el);
   });
   updateTabScrollButtons();
@@ -7014,6 +7017,8 @@ function setupMenuListeners() {
     document.getElementById('tab-bar-container').style.display = show ? '' : 'none';
     saveSetting('ui.showTabbar', show);
   });
+
+  m('menu-tab-preview', () => toggleTabPreview());
 
   m('menu-lang', lang => {
     const tab = getActiveTab(); if (!tab) return;

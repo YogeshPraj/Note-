@@ -1528,6 +1528,8 @@
   <script src="http-client.js"></script>
   <!-- Follow-mode log viewer -->
   <script src="log-view.js"></script>
+  <!-- Context-aware toolbar: hide what can't act on the current tab -->
+  <script src="toolbar-context.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

@@ -2331,6 +2331,8 @@ function activateTab(id) {
   try { gridOnTabChanged(tab); } catch {}
   try { httpOnTabChanged(tab); } catch {}
   try { logOnTabChanged(tab); } catch {}
+  // Show only the buttons that can act on this tab.
+  try { updateToolbarForTab(tab); } catch {}
 
   // JWT panel is bound to its owner tab (like the Preview pane): hide it on
   // every switch; the editor branch below re-shows it for tabs that had it open.
@@ -2676,6 +2678,10 @@ function renderTabs() {
     tabBar.appendChild(el);
   });
   updateTabScrollButtons();
+  // renderTabs runs after every tab state change (open, close, rename via
+  // Save As, dirty flip), so hooking it here means the toolbar can't go stale
+  // no matter which path changed things.
+  try { updateToolbarForTab(getActiveTab()); } catch {}
 }
 
 function updateTabScrollButtons() {
@@ -3965,6 +3971,8 @@ function _applyAutoDetectedLanguage(tab, content) {
   if (detected === 'mermaid' && !previewOpen) openPreview();
   else if (previewOpen) updatePreview();
   showToast(`Language auto-detected: ${detected}`);
+  // Preview / Run eligibility moves with the language.
+  try { updateToolbarForTab(getActiveTab()); } catch {}
 }
 
 // Debounced fallback: runs 400 ms after the last content change on a plaintext tab.
@@ -4613,6 +4621,28 @@ function joinLines() {
   editor.executeEdits('join', [{ range: sel, text: text.replace(/\s*\n\s*/g, ' ') }]);
 }
 
+// Per-extension runner. Each entry returns the command line to type into the
+// integrated PTY. Module-scope and function-valued so the toolbar can ask "is
+// this runnable?" from exactly the same source runCurrentFile() answers from —
+// a Run button that appears and then says "no runner configured" is worse than
+// no button at all.
+const FILE_RUNNERS = {
+  py: fp => `python "${fp}"`, python: fp => `python "${fp}"`,
+  js: fp => `node "${fp}"`,   mjs: fp => `node "${fp}"`,
+  ts: fp => `ts-node "${fp}"`,
+  rb: fp => `ruby "${fp}"`,
+  php: fp => `php "${fp}"`,
+  go: fp => `go run "${fp}"`,
+  rs: () => `cargo run`,
+  sh: fp => `bash "${fp}"`,
+  ps1: fp => `& "${fp}"`,          // PowerShell call operator handles spaces
+  bat: fp => `& "${fp}"`,
+  cmd: fp => `& "${fp}"`,
+  java: fp => `java "${fp}"`,
+  r: fp => `Rscript "${fp}"`,
+  lua: fp => `lua "${fp}"`,
+};
+
 async function runCurrentFile() {
   const tab = getActiveTab();
   if (!tab) return;
@@ -4624,27 +4654,7 @@ async function runCurrentFile() {
   const ext = fp.split('.').pop().toLowerCase();
   const cwd = fp.replace(/[\\/][^\\/]+$/, '');
 
-  // Per-extension runner. Each entry returns the command line to type into
-  // the integrated PTY (PowerShell on Windows). We deliberately reuse the
-  // existing terminal so the user sees live stdout/stderr in the same panel.
-  const runners = {
-    py: `python "${fp}"`, python: `python "${fp}"`,
-    js: `node "${fp}"`, mjs: `node "${fp}"`,
-    ts: `ts-node "${fp}"`,
-    rb: `ruby "${fp}"`,
-    php: `php "${fp}"`,
-    go: `go run "${fp}"`,
-    rs: `cargo run`,
-    sh: `bash "${fp}"`,
-    ps1: `& "${fp}"`,           // PowerShell call operator handles spaces in path
-    bat: `& "${fp}"`,
-    cmd: `& "${fp}"`,
-    java: `java "${fp}"`,
-    r: `Rscript "${fp}"`,
-    lua: `lua "${fp}"`,
-  };
-
-  const cmd = runners[ext];
+  const cmd = FILE_RUNNERS[ext] ? FILE_RUNNERS[ext](fp) : null;
   if (!cmd) { showToast(`No runner configured for .${ext}`); return; }
 
   // Open the terminal panel and wait for the PTY to actually be alive
@@ -7065,6 +7075,7 @@ function setupMenuListeners() {
     tab.language = lang;
     monaco.editor.setModelLanguage(tab.model, lang);
     updateLanguageStatus();
+    try { updateToolbarForTab(tab); } catch {}
     updateMermaidToolbar(lang === 'mermaid');
     if (lang === 'mermaid' && !previewOpen) openPreview();
     else if (previewOpen) updatePreview();

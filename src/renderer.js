@@ -1241,6 +1241,8 @@ require(['vs/editor/editor.main'], () => {
     if (typeof ui.fontSize === 'number' && ui.fontSize >= 8 && ui.fontSize <= 40) {
       currentFontSize = ui.fontSize;
       editor.updateOptions({ fontSize: currentFontSize });
+  try { if (typeof dockApplyFontSize === 'function') dockApplyFontSize(currentFontSize); } catch {}
+      try { if (typeof dockApplyFontSize === 'function') dockApplyFontSize(currentFontSize); } catch {}
     }
     if (typeof ui.minimap === 'boolean') {
       window.__uiPrefMinimap = ui.minimap;
@@ -1535,6 +1537,7 @@ require(['vs/editor/editor.main'], () => {
   setupGlobalShortcuts();
   initVaultFeature();
   initTabPreview();
+  initDockPane();
   // Load onboarding state from settings.json (survives quota clears,
   // Chromium upgrades, etc. — unlike localStorage). Then, if the tour
   // has never been seen, fire it ~1.2 s after paint. Users can replay
@@ -2577,7 +2580,10 @@ function setTabColor(id, color) {
 function renderTabs() {
   tabBar.innerHTML = '';
   // Pinned tabs always appear first in the bar, preserving relative order within each group.
-  const ordered = [...tabs.filter(t => t.pinned), ...tabs.filter(t => !t.pinned)];
+  // A docked tab is shown in the dock's own header, not the strip — leaving it
+  // in both places makes it look like two copies of the same buffer.
+  const strip = tabs.filter(t => !(typeof isTabDocked === 'function' && isTabDocked(t.id)));
+  const ordered = [...strip.filter(t => t.pinned), ...strip.filter(t => !t.pinned)];
   ordered.forEach(tab => {
     const el = document.createElement('div');
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab.dirty ? ' dirty' : '')
@@ -2897,6 +2903,9 @@ function reopenClosedTab() {
 const _closingTabs = new Set();
 let _closeTabDepth = 0;
 async function closeTab(id) {
+  // Release the dock first — otherwise the second editor keeps a model that
+  // is about to be disposed.
+  try { if (typeof dockNotifyTabClosed === 'function') dockNotifyTabClosed(id); } catch {}
   // Nested-close guard (fixes Ctrl+W closing MULTIPLE tabs when a compare
   // / quick-diff tab is active). Closing a tab calls activateTab() on the
   // neighbour, which synchronously calls editor.focus(). When the close was
@@ -3109,6 +3118,17 @@ function showTabContextMenu(e, tabId) {
 
   const items = [
     [tab.pinned ? '📌 Unpin Tab' : '📌 Pin Tab', () => togglePinTab(tabId)],
+    null,
+    // Dock this tab beside the one you're editing, so you can read one file
+    // while working in another.
+    ...(isTabDocked(tabId)
+      ? [['⇱ Undock Tab', () => undockTab()]]
+      : (tab.type === 'editor'
+          ? [['⇱ Dock Left',   () => dockTab(tabId, 'left')],
+             ['⇲ Dock Right',  () => dockTab(tabId, 'right')],
+             ['⤒ Dock Top',    () => dockTab(tabId, 'top')],
+             ['⤓ Dock Bottom', () => dockTab(tabId, 'bottom')]]
+          : [])),
     null,
     ['Close', () => closeTab(tabId)],
     ['Close All', () => closeAllTabs()],
@@ -3498,8 +3518,13 @@ async function openEncryptedFile(fp, envelope) {
   return true;
 }
 
-async function saveFile() { const tab = getActiveTab(); if (tab) await saveTabFile(tab); }
-async function saveFileAs() { const tab = getActiveTab(); if (tab) await saveTabFile(tab, true); }
+// Ctrl+S must save whichever pane the caret is in — typing in the docked pane
+// and saving the main tab instead would be a data-loss-shaped surprise.
+function getSaveTargetTab() {
+  return (typeof dockFocusedTab === 'function' ? dockFocusedTab() : null) || getActiveTab();
+}
+async function saveFile() { const tab = getSaveTargetTab(); if (tab) await saveTabFile(tab); }
+async function saveFileAs() { const tab = getSaveTargetTab(); if (tab) await saveTabFile(tab, true); }
 async function saveAll() { for (const tab of tabs) { if (tab.dirty) await saveTabFile(tab); } }
 
 async function saveTabFile(tab, forceAs = false) {
@@ -5235,6 +5260,7 @@ async function applyTheme(pref, save = true) {
     colors: theme.monacoColors,
   });
   monaco.editor.setTheme(monacoThemeId);
+  try { if (typeof dockApplyTheme === 'function') dockApplyTheme(monacoThemeId); } catch {}
   document.getElementById('btn-darkmode')?.classList.toggle('active', isDarkMode);
   syncMermaidThemeToAppMode();
   sendToWhiteboard({ type: 'wb-theme', dark: isDarkMode });

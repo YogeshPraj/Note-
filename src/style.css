@@ -3739,3 +3739,93 @@ body.drag-over::after {
 .tab-preview .tp-sum-icon { font-size: 26px; line-height: 1; }
 .tab-preview .tp-sum-title { font-weight: 600; margin-top: 7px; }
 .tab-preview .tp-sum-detail { font-size: 11px; margin-top: 3px; }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Docked reference pane — a second Monaco editor beside the main one.
+   The wrapper's flex-direction does the positioning: DOM order is always
+   [editor, handle, dock], and *-reverse puts the dock first for
+   left / top. One flex-basis value works on both axes.
+   ═════════════════════════════════════════════════════════════════════ */
+#editor-dock-wrap {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+#editor-dock-wrap.dock-right  { flex-direction: row; }
+#editor-dock-wrap.dock-left   { flex-direction: row-reverse; }
+#editor-dock-wrap.dock-bottom { flex-direction: column; }
+#editor-dock-wrap.dock-top    { flex-direction: column-reverse; }
+
+#dock-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  background: var(--editor-bg);
+  border: 0 solid var(--toolbar-border);
+}
+#dock-pane.hidden { display: none; }
+/* A hairline on whichever edge faces the main editor. */
+#editor-dock-wrap.dock-right  #dock-pane { border-left-width: 1px; }
+#editor-dock-wrap.dock-left   #dock-pane { border-right-width: 1px; }
+#editor-dock-wrap.dock-bottom #dock-pane { border-top-width: 1px; }
+#editor-dock-wrap.dock-top    #dock-pane { border-bottom-width: 1px; }
+
+#dock-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 9px;
+  background: var(--tabbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  font-size: 11.5px;
+  color: var(--tab-text);
+  flex-shrink: 0;
+  user-select: none;
+}
+#dock-icon { font-size: 12px; }
+#dock-title {
+  font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 60%;
+}
+#dock-dirty {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--tab-dirty, #e5a50a); flex-shrink: 0;
+}
+#dock-dirty.hidden { display: none; }
+
+.dock-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--tab-text);
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 5px;
+  cursor: pointer;
+  opacity: 0.65;
+}
+.dock-btn:hover { opacity: 1; background: var(--btn-hover); }
+.dock-btn.active { opacity: 1; border-color: var(--modal-header-bg); background: var(--btn-active); }
+
+#dock-monaco { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+
+#dock-resize-handle {
+  flex: 0 0 4px;
+  background: var(--toolbar-border);
+  cursor: col-resize;
+  opacity: 0.45;
+  transition: opacity 120ms, background 120ms;
+}
+#dock-resize-handle.vertical { cursor: row-resize; }
+#dock-resize-handle:hover,
+#dock-resize-handle:active { opacity: 1; background: var(--modal-header-bg); }
+#dock-resize-handle.hidden { display: none; }
+
+/* While dragging, stop the iframes and Monaco from eating mousemove. */
+body.dock-resizing iframe,
+body.dock-resizing .monaco-editor { pointer-events: none; }

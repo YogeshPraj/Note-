@@ -237,6 +237,10 @@
       <!-- Editor + Preview Row -->
       <div id="editor-preview-row">
         <!-- Editor Container -->
+        <!-- Editor + Dock wrapper. flex-direction flips per dock position
+             (row / row-reverse / column / column-reverse) so the DOM order
+             stays fixed while the dock renders left / right / top / bottom. -->
+        <div id="editor-dock-wrap" class="dock-right">
         <div id="editor-container">
           <div id="monaco-editor"></div>
           <!-- Game Container (lazy iframe, hidden by default) -->
@@ -337,6 +341,28 @@
               <textarea id="ai-prompt" placeholder="Describe what to write… (Enter to send · Shift+Enter for newline)" rows="2" spellcheck="false"></textarea>
               <button class="ai-btn ai-btn-primary" id="btn-ai-send" disabled>Send ↵</button>
             </div>
+          </div>
+        </div>
+
+          <!-- Dock resize handle -->
+          <div id="dock-resize-handle" class="hidden"></div>
+
+          <!-- Docked reference pane — a second Monaco instance showing another
+               tab side-by-side with the one being edited. -->
+          <div id="dock-pane" class="hidden">
+            <div id="dock-header">
+              <span id="dock-icon"></span>
+              <span id="dock-title">Docked</span>
+              <span id="dock-dirty" class="hidden" title="Unsaved changes"></span>
+              <div style="flex:1"></div>
+              <button class="dock-btn" data-dock-pos="left"   title="Dock left">&#9703;</button>
+              <button class="dock-btn" data-dock-pos="right"  title="Dock right">&#9704;</button>
+              <button class="dock-btn" data-dock-pos="top"    title="Dock top">&#11026;</button>
+              <button class="dock-btn" data-dock-pos="bottom" title="Dock bottom">&#11027;</button>
+              <button class="dock-btn" id="dock-swap" title="Swap with main editor">&#8644;</button>
+              <button class="dock-btn" id="dock-close" title="Undock (Ctrl+Alt+D)">&times;</button>
+            </div>
+            <div id="dock-monaco"></div>
           </div>
         </div>
 
@@ -1483,6 +1509,8 @@
   <script src="vault-panel.js"></script>
   <!-- Tab hover preview -->
   <script src="tab-preview.js"></script>
+  <!-- Docked reference pane (second Monaco instance) -->
+  <script src="dock-pane.js"></script>
   <!-- crypto.js (~370 lines) is no longer loaded eagerly. Use sites in
        renderer.js await ensureCrypto() before touching window.NotePPCrypto,
        saving the parse cost on every cold start that doesn't touch

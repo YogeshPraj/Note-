@@ -35,24 +35,48 @@ pub const SEG_EOL: isize = 2;
 pub const SEG_LANG: isize = 3;
 
 type Rgb = (u8, u8, u8);
-const MENU_BG: Rgb = (0x1F, 0x1F, 0x1F);
-const MENU_FG: Rgb = (0xE6, 0xE6, 0xE6);
-const MENU_HOT: Rgb = (0x3C, 0x3C, 0x3C);
-const BAR_BG: Rgb = (0xF0, 0xF0, 0xF0);
-const BAR_BORDER: Rgb = (0xC0, 0xC0, 0xC0);
-const BTN_HOT: Rgb = (0xDC, 0xDC, 0xDC);
-const BTN_DOWN: Rgb = (0xC8, 0xC8, 0xC8);
-const BTN_ON: Rgb = (0xCF, 0xE0, 0xF7);
-const BTN_ON_BORDER: Rgb = (0x7A, 0xA7, 0xE0);
-const TAB_ACTIVE: Rgb = (0xFF, 0xFF, 0xFF);
-const TAB_IDLE: Rgb = (0xDC, 0xDC, 0xDC);
-const TAB_HOT: Rgb = (0xEB, 0xEB, 0xEB);
-const TAB_BORDER: Rgb = (0xA0, 0xA0, 0xA0);
-const TAB_TEXT: Rgb = (0x33, 0x33, 0x33);
 const TAB_DIRTY: Rgb = (0xC0, 0x00, 0x00);
-const TAB_ACCENT: Rgb = (0x00, 0x7A, 0xCC);
+const ACCENT: Rgb = (0x00, 0x7A, 0xCC);
 const STATUS_BG: Rgb = (0x00, 0x7A, 0xCC);
 const WHITE: Rgb = (0xFF, 0xFF, 0xFF);
+const BLACK: Rgb = (0x00, 0x00, 0x00);
+
+/// How the menu bar, toolbar and tab strip look. They sit on the window's Mica
+/// backdrop (when the OS has it) and follow the editor theme.
+#[derive(Clone, Copy)]
+struct Look {
+    mica: bool,
+    dark: bool,
+    editor_bg: Rgb,
+    editor_fg: Rgb,
+}
+
+impl Look {
+    fn fg(self) -> Rgb {
+        if self.dark { (0xE6, 0xE6, 0xE6) } else { (0x1A, 0x1A, 0x1A) }
+    }
+    fn dim(self) -> Rgb {
+        if self.dark { (0xB0, 0xB0, 0xB0) } else { (0x50, 0x50, 0x50) }
+    }
+    /// Colour of translucent hover / press / divider washes.
+    fn ink(self) -> Rgb {
+        if self.dark { WHITE } else { BLACK }
+    }
+    /// Opaque stand-in for the backdrop when Mica is unavailable.
+    fn base(self) -> Rgb {
+        if self.dark { (0x20, 0x20, 0x20) } else { (0xF3, 0xF3, 0xF3) }
+    }
+}
+
+thread_local! {
+    static LOOK: Cell<Look> = const {
+        Cell::new(Look { mica: false, dark: false, editor_bg: WHITE, editor_fg: BLACK })
+    };
+}
+
+fn look() -> Look {
+    LOOK.with(Cell::get)
+}
 
 fn col(c: Rgb) -> COLORREF {
     COLORREF(c.0 as u32 | (c.1 as u32) << 8 | (c.2 as u32) << 16)
@@ -102,6 +126,29 @@ fn ui_font() -> HFONT {
 
 pub fn ui_font_handle() -> HFONT {
     ui_font()
+}
+
+thread_local! {
+    static MICA_FONT: Cell<Option<HFONT>> = const { Cell::new(None) };
+}
+
+/// `ui_font` with greyscale antialiasing. ClearType's per-channel coverage
+/// can't be expressed as one alpha value, so text over Mica uses this.
+fn mica_font() -> HFONT {
+    MICA_FONT.with(|c| {
+        if let Some(f) = c.get() {
+            return f;
+        }
+        let f = unsafe {
+            CreateFontW(
+                -13, 0, 0, 0, 400, 0, 0, 0,
+                FONT_CHARSET(1), FONT_OUTPUT_PRECISION(0), FONT_CLIP_PRECISION(0), ANTIALIASED_QUALITY, 0,
+                w!("Segoe UI"),
+            )
+        };
+        c.set(Some(f));
+        f
+    })
 }
 
 unsafe fn fill(dc: HDC, r: &RECT, c: Rgb) {
@@ -156,6 +203,98 @@ unsafe fn paint(hwnd: HWND, f: impl FnOnce(HDC, RECT)) {
         let _ = DeleteObject(bmp.into());
         let _ = DeleteDC(mem);
         let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+/// A translucent fill composited *under* whatever a Mica bar draws.
+struct Wash {
+    r: RECT,
+    c: Rgb,
+    a: u8,
+}
+
+fn wash(r: RECT, c: Rgb, a: u8) -> Wash {
+    Wash { r, c, a }
+}
+
+fn wash_outline(under: &mut Vec<Wash>, r: RECT, c: Rgb, a: u8) {
+    under.push(wash(rect(r.left, r.top, r.right, r.top + 1), c, a));
+    under.push(wash(rect(r.left, r.bottom - 1, r.right, r.bottom), c, a));
+    under.push(wash(rect(r.left, r.top + 1, r.left + 1, r.bottom - 1), c, a));
+    under.push(wash(rect(r.right - 1, r.top + 1, r.right, r.bottom - 1), c, a));
+}
+
+/// Paint a bar that sits on the Mica backdrop.
+///
+/// GDI can't write alpha, so `f` draws twice — over black, then over white —
+/// and each pixel's coverage falls out of the difference: opaque pixels match,
+/// untouched ones are 0 vs 255, antialiased edges land in between. The black
+/// pass is then already the premultiplied colour. Washes `f` pushes go under
+/// the result (first pushed is uppermost); without Mica, an opaque base colour
+/// goes under everything.
+unsafe fn paint_mica(hwnd: HWND, f: impl Fn(HDC, RECT, &mut Vec<Wash>)) {
+    unsafe {
+        let mut ps = PAINTSTRUCT::default();
+        let hdc = BeginPaint(hwnd, &mut ps);
+        let mut rc = RECT::default();
+        let _ = GetClientRect(hwnd, &mut rc);
+        let (w, h) = (rc.right, rc.bottom);
+        if let (Some((black, kb)), Some((white, wb))) = (dib(w, h), dib(w, h)) {
+            let mem = CreateCompatibleDC(Some(hdc));
+            let old = SelectObject(mem, white.into());
+            let old_font = SelectObject(mem, mica_font().into());
+            SetBkMode(mem, TRANSPARENT);
+            fill(mem, &rc, WHITE);
+            f(mem, rc, &mut Vec::new());
+            SelectObject(mem, black.into());
+            fill(mem, &rc, BLACK);
+            let mut under = Vec::new();
+            f(mem, rc, &mut under);
+            let _ = GdiFlush();
+
+            let n = (w * h * 4) as usize;
+            let px = std::slice::from_raw_parts_mut(kb, n);
+            let over_white = std::slice::from_raw_parts(wb, n);
+            for (p, q) in px.chunks_exact_mut(4).zip(over_white.chunks_exact(4)) {
+                let spread: i32 = (0..3).map(|i| q[i] as i32 - p[i] as i32).sum();
+                let a = (255 - spread / 3).clamp(0, 255) as u8;
+                for c in &mut p[..3] {
+                    *c = (*c).min(a);
+                }
+                p[3] = a;
+            }
+            let lk = look();
+            if !lk.mica {
+                under.push(wash(rc, lk.base(), 255));
+            }
+            for s in &under {
+                composite_under(px, w, h, s);
+            }
+
+            let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
+            SelectObject(mem, old_font);
+            SelectObject(mem, old);
+            let _ = DeleteDC(mem);
+            let _ = DeleteObject(black.into());
+            let _ = DeleteObject(white.into());
+        }
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+/// Blend a wash beneath the premultiplied BGRA pixels already in `px`.
+fn composite_under(px: &mut [u8], w: i32, h: i32, s: &Wash) {
+    let a = s.a as u32;
+    let c = [s.c.2, s.c.1, s.c.0].map(|v| v as u32 * a / 255);
+    for y in s.r.top.max(0)..s.r.bottom.min(h) {
+        for x in s.r.left.max(0)..s.r.right.min(w) {
+            let p = &mut px[((y * w + x) * 4) as usize..][..4];
+            let room = 255 - p[3] as u32;
+            for i in 0..3 {
+                p[i] = (p[i] as u32 + c[i] * room / 255) as u8;
+            }
+            p[3] = (p[3] as u32 + a * room / 255) as u8;
+        }
     }
 }
 
@@ -214,6 +353,28 @@ fn make(host: HWND, class: PCWSTR) -> HWND {
     }
 }
 
+/// A top-down 32-bit DIB section and a pointer to its BGRA pixels.
+fn dib(w: i32, h: i32) -> Option<(HBITMAP, *mut u8)> {
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+    let bmp = unsafe { CreateDIBSection(None, &bmi, DIB_RGB_COLORS, &mut bits, None, 0) }.ok()?;
+    Some((bmp, bits as *mut u8))
+}
+
 // ---- icons -------------------------------------------------------------
 
 /// Rasterise an SVG to a premultiplied-alpha 32-bit DIB.
@@ -224,22 +385,9 @@ fn load_icon(svg: &[u8], px: i32) -> Option<HBITMAP> {
     let t = resvg::tiny_skia::Transform::from_scale(px as f32 / size.width(), px as f32 / size.height());
     resvg::render(&tree, t, &mut pm.as_mut());
 
-    let bmi = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: px,
-            biHeight: -px,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+    let (bmp, bits) = dib(px, px)?;
     unsafe {
-        let bmp = CreateDIBSection(None, &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
-        let dst = std::slice::from_raw_parts_mut(bits as *mut u8, (px * px * 4) as usize);
+        let dst = std::slice::from_raw_parts_mut(bits, (px * px * 4) as usize);
         for (d, s) in dst.chunks_exact_mut(4).zip(pm.data().chunks_exact(4)) {
             d.copy_from_slice(&[s[2], s[1], s[0], s[3]]); // RGBA -> BGRA
         }
@@ -275,8 +423,8 @@ unsafe extern "system" fn menu_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         WM_ERASEBKGND => LRESULT(1),
         WM_PAINT => {
             unsafe {
-                paint(hwnd, |dc, rc| {
-                    fill(dc, &rc, MENU_BG);
+                paint_mica(hwnd, |dc, rc, under| {
+                    let lk = look();
                     MENU.with(|m| {
                         let mut m = m.borrow_mut();
                         let mut x = 6;
@@ -285,9 +433,9 @@ unsafe extern "system" fn menu_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                             let wd = text_width(dc, label) + 20;
                             let r = rect(x, 2, x + wd, rc.bottom - 2);
                             if m.hot == Some(i) {
-                                fill(dc, &r, MENU_HOT);
+                                under.push(wash(r, lk.ink(), 0x1C));
                             }
-                            text(dc, label, &r, MENU_FG, DT_CENTER);
+                            text(dc, label, &r, lk.fg(), DT_CENTER);
                             rects.push(r);
                             x += wd;
                         }
@@ -364,28 +512,22 @@ unsafe extern "system" fn tool_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         WM_ERASEBKGND => LRESULT(1),
         WM_PAINT => {
             unsafe {
-                paint(hwnd, |dc, rc| {
-                    fill(dc, &rc, BAR_BG);
-                    fill(dc, &rect(0, rc.bottom - 1, rc.right, rc.bottom), BAR_BORDER);
+                paint_mica(hwnd, |dc, _rc, under| {
+                    let lk = look();
                     TOOLS.with(|t| {
                         let t = t.borrow();
                         for (i, (item, r)) in t.items.iter().enumerate() {
                             match item {
-                                None => fill(dc, &rect(r.left + 3, r.top + 6, r.left + 4, r.bottom - 6), BAR_BORDER),
+                                None => under.push(wash(rect(r.left + 3, r.top + 6, r.left + 4, r.bottom - 6), lk.ink(), 0x40)),
                                 Some((cmd, bmp)) => {
-                                    let on = t.checked.contains(cmd);
-                                    let bg = if t.down == Some(i) {
-                                        Some((BTN_DOWN, BTN_DOWN))
-                                    } else if on {
-                                        Some((BTN_ON, BTN_ON_BORDER))
+                                    if t.down == Some(i) {
+                                        under.push(wash(*r, lk.ink(), 0x30));
                                     } else if t.hot == Some(i) {
-                                        Some((BTN_HOT, BTN_HOT))
-                                    } else {
-                                        None
-                                    };
-                                    if let Some((fillc, border)) = bg {
-                                        fill(dc, r, border);
-                                        fill(dc, &rect(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1), fillc);
+                                        under.push(wash(*r, lk.ink(), 0x18));
+                                    }
+                                    if t.checked.contains(cmd) {
+                                        wash_outline(under, *r, ACCENT, 0xB0);
+                                        under.push(wash(*r, ACCENT, 0x40));
                                     }
                                     draw_icon(dc, *bmp, r.left + (BTN - ICON) / 2, r.top + (BTN - ICON) / 2, ICON);
                                 }
@@ -558,23 +700,27 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         WM_ERASEBKGND => LRESULT(1),
         WM_PAINT => {
             unsafe {
-                paint(hwnd, |dc, rc| {
-                    fill(dc, &rc, BAR_BG);
+                paint_mica(hwnd, |dc, rc, under| {
+                    let lk = look();
                     TABS.with(|s| {
                         let mut s = s.borrow_mut();
                         layout_tabs(dc, rc.right, &mut s);
-                        fill(dc, &rect(0, rc.bottom - 1, rc.right, rc.bottom), TAB_BORDER);
+                        under.push(wash(rect(0, rc.bottom - 1, rc.right, rc.bottom), lk.ink(), 0x30));
                         for (i, info) in s.tabs.iter().enumerate() {
                             let (name, dirty) = (&info.title, &info.dirty);
                             let r = s.layout[i];
                             let active = i == s.active;
                             let hot = s.hot.map(|h| h.0) == Some(i);
-                            let bg = if active { TAB_ACTIVE } else if hot { TAB_HOT } else { TAB_IDLE };
-                            fill(dc, &r, TAB_BORDER);
-                            let inner = rect(r.left + 1, r.top + 1, r.right - 1, if active { r.bottom + 1 } else { r.bottom - 1 });
-                            fill(dc, &inner, bg);
+                            let fg = if active { lk.editor_fg } else { lk.dim() };
                             if active {
-                                fill(dc, &rect(r.left + 1, r.top, r.right - 1, r.top + 2), TAB_ACCENT);
+                                // Opaque, in the editor's own colour, so it runs into the editor below.
+                                fill(dc, &rect(r.left, r.top, r.right, rc.bottom), lk.editor_bg);
+                                fill(dc, &rect(r.left, r.top, r.right, r.top + 2), ACCENT);
+                            } else if hot {
+                                under.push(wash(rect(r.left, r.top, r.right, r.bottom - 1), lk.ink(), 0x18));
+                            }
+                            if !active && !hot && s.active != i + 1 && s.hot.map(|h| h.0) != Some(i + 1) {
+                                under.push(wash(rect(r.right, r.top + 8, r.right + 1, r.bottom - 8), lk.ink(), 0x30));
                             }
                             let mut tx = r.left + 10;
                             if *dirty {
@@ -603,13 +749,18 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                                 text(dc, badge, &pill, WHITE, DT_CENTER);
                                 tx += 30;
                             }
-                            text(dc, name, &rect(tx, r.top, r.right - 26, r.bottom), TAB_TEXT, DT_LEFT | DT_END_ELLIPSIS);
+                            text(dc, name, &rect(tx, r.top, r.right - 26, r.bottom), fg, DT_LEFT | DT_END_ELLIPSIS);
                             if active || hot {
                                 let c = close_rect(&r);
                                 if s.hot == Some((i, true)) {
-                                    fill(dc, &c, (0xE0, 0xC0, 0xC0));
+                                    if active {
+                                        // Washes go under opaque pixels, so draw this one solid.
+                                        fill(dc, &c, if lk.dark { (0x3A, 0x3A, 0x3A) } else { (0xE0, 0xE0, 0xE0) });
+                                    } else {
+                                        under.push(wash(c, lk.ink(), 0x28));
+                                    }
                                 }
-                                let pen = CreatePen(PS_SOLID, 1, col(TAB_TEXT));
+                                let pen = CreatePen(PS_SOLID, 1, col(fg));
                                 let op = SelectObject(dc, pen.into());
                                 let (cx, cy) = ((c.left + c.right) / 2, (c.top + c.bottom) / 2);
                                 let _ = MoveToEx(dc, cx - 3, cy - 3, None);
@@ -621,7 +772,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                             }
                         }
                         let p = s.plus;
-                        text(dc, "+", &p, TAB_TEXT, DT_CENTER);
+                        text(dc, "+", &p, lk.fg(), DT_CENTER);
                     });
                 });
             }
@@ -774,6 +925,15 @@ pub fn create(host: HWND, menus: Vec<(String, HMENU)>, tools: &[ToolItem]) -> Ch
     register(w!("NoteppTabs"), Some(tab_proc));
     register(w!("NoteppStatus"), Some(status_proc));
     MENU.with(|m| m.borrow_mut().items = menus);
+
+    // Mica behind the title bar, and — through the extended frame — behind the
+    // menu bar, toolbar and tab strip, which paint with alpha (`paint_mica`).
+    let mica = super::dwm::apply(host, look().dark);
+    if mica {
+        super::dwm::extend_top(host, MENU_H + TOOL_H + TAB_H);
+    }
+    LOOK.with(|l| l.set(Look { mica, ..l.get() }));
+
     let c = Chrome {
         menu: make(host, w!("NoteppMenuBar")),
         tools: make(host, w!("NoteppToolBar")),
@@ -791,6 +951,22 @@ pub fn set_tabs(c: &Chrome, tabs: Vec<TabInfo>, active: usize) {
         s.active = active;
     });
     redraw(c.tabs);
+}
+
+/// Follow the editor theme: the Mica tint (via the window's dark-mode flag),
+/// the bar text, and the active tab, which continues the editor's background.
+pub fn set_theme(c: &Chrome, dark: bool, editor_bg: (u8, u8, u8), editor_fg: (u8, u8, u8)) {
+    let lk = look();
+    if lk.dark == dark && lk.editor_bg == editor_bg && lk.editor_fg == editor_fg {
+        return;
+    }
+    LOOK.with(|l| l.set(Look { dark, editor_bg, editor_fg, ..lk }));
+    if lk.dark != dark {
+        super::dwm::set_dark(host_of(c.menu), dark);
+    }
+    for bar in [c.menu, c.tools, c.tabs] {
+        redraw(bar);
+    }
 }
 
 pub fn set_status(c: &Chrome, t: StatusText) {

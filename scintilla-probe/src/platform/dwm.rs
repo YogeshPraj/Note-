@@ -1,4 +1,4 @@
-//! Windows 11 window frame: dark caption, Mica backdrop, rounded corners.
+//! Windows 11 window frame: caption tint, Mica backdrop, rounded corners.
 //!
 //! Only documented DWM attributes. Every call fails harmlessly where the OS
 //! doesn't support it — Mica needs Windows 11 22H2 (build 22621+), immersive
@@ -9,7 +9,8 @@
 //! explicit caption colour switches Mica off in the title bar.
 
 use windows::Win32::Foundation::HWND;
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute};
+use windows::Win32::UI::Controls::MARGINS;
 
 const DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1: i32 = 19; // Windows 10 1809–1909
 const DWMWA_USE_IMMERSIVE_DARK_MODE: i32 = 20;
@@ -26,12 +27,27 @@ fn set(hwnd: HWND, attr: i32, value: u32) -> bool {
     }
 }
 
-/// Apply the frame styling to a top-level window.
-pub fn apply(hwnd: HWND, dark: bool) {
+/// Apply the frame styling to a top-level window. Returns whether the OS
+/// accepted the Mica backdrop.
+pub fn apply(hwnd: HWND, dark: bool) -> bool {
+    set_dark(hwnd, dark);
+    set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+    set(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW)
+}
+
+/// Dark or light caption — and, with Mica on, a dark or light Mica tint.
+pub fn set_dark(hwnd: HWND, dark: bool) {
     let d = dark as u32;
     if !set(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, d) {
         set(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, d);
     }
-    set(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW);
-    set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+}
+
+/// Let the backdrop show through the top `px` of the client area, wherever
+/// the window paints pixels with alpha below 255.
+pub fn extend_top(hwnd: HWND, px: i32) {
+    let m = MARGINS { cyTopHeight: px, ..Default::default() };
+    unsafe {
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &m);
+    }
 }

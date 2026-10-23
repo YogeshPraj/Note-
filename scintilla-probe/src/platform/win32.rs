@@ -807,6 +807,7 @@ impl App {
         }
         chrome::set_checked(&h.chrome, ID_WRAP, self.ws.wrap);
         chrome::set_checked(&h.chrome, ID_THEME, self.ws.theme.dark);
+        chrome::set_theme(&h.chrome, self.ws.theme.dark, self.ws.theme.bg, self.ws.theme.fg);
 
         // Mermaid files open their live preview automatically; the preview follows the theme.
         let doc = self.ws.tabs[self.ws.active].doc;
@@ -1498,10 +1499,7 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
             None,
         )?;
 
-        // Dark Mica title bar. Always dark, whatever the editor theme: the
-        // menu bar directly beneath it is always dark (chrome::MENU_BG).
-        super::dwm::apply(host, true);
-
+        // chrome::create also sets up the Mica backdrop (title bar, menu, toolbar, tabs).
         let (menu_bar, menus) = build_menus();
         let chrome = chrome::create(host, menu_bar, &toolbar_items());
 

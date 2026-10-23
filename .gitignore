@@ -20,3 +20,10 @@ src/excalidraw-fonts/
 .signing/
 *.pfx
 
+
+# Native-port spikes that lost the toolkit evaluation (egui, iced) — kept
+# locally for reference, not shipped. scintilla-probe/ is the chosen native
+# app and IS tracked; its own .gitignore keeps build output and vendored
+# libraries out.
+rust-port/
+rust-port-iced/

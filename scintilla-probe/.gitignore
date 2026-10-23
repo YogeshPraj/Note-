@@ -1,17 +1,14 @@
 # Build output
 /target/
 
-# Vendored C++ libraries — each is its own git checkout (committing them would
-# create broken gitlinks) and holds MinGW build output. Recreate them as the
-# README describes; pinned versions are recorded in the commit that added this.
+# Vendored C++ libraries. They are downloaded at pinned versions and built by
+# scripts/setup.ps1 (not committed: ~hundreds of source files + MinGW output).
 /scintilla/
 /lexilla/
 
-# Generated / third-party copies of files the Electron build already produces.
-# Restore from the repo root after `npm install` (which runs build:wb):
-#   cp src/whiteboard.bundle.js src/whiteboard.bundle.css  scintilla-probe/assets/whiteboard/
-#   cp -r src/excalidraw-fonts                              scintilla-probe/assets/whiteboard/
-#   cp node_modules/mermaid/dist/mermaid.min.js             scintilla-probe/assets/
+# Copies of files the Electron build already produces. scripts/setup.ps1
+# restores them from the repo root (running `npm install` / build-whiteboard.js
+# if needed), so they are not committed twice.
 /assets/mermaid.min.js
 /assets/whiteboard/whiteboard.bundle.js
 /assets/whiteboard/whiteboard.bundle.css

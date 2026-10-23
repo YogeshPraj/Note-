@@ -1,17 +1,30 @@
-# Note++ native (Scintilla + Lexilla spike)
+# Note++ native (Scintilla + Lexilla)
 
 ## Build (Windows, GNU toolchain — the MSVC install on this machine has no `lib\x64`)
 
-1. MinGW-w64 (winget `BrechtSanders.WinLibs.POSIX.UCRT`) on `PATH`.
-2. Build Lexilla and Scintilla with GCC 16 — it needs the extra flag:
+Prerequisites: MinGW-w64 (`winget install BrechtSanders.WinLibs.POSIX.UCRT`), Rust, and Node.js 18+
+(only to fetch Mermaid and Excalidraw). The Rust toolchain is pinned to `stable-x86_64-pc-windows-gnu`
+in `rust-toolchain.toml`; the WebView2 runtime ships with Windows 10/11.
 
-   ```
-   CXXFLAGS="-include cstdint"
-   ```
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1   # one time; safe to re-run (-Force rebuilds)
+cargo build
+cargo run
+```
 
-   (GCC 16 no longer pulls `<cstdint>` in transitively; Scintilla/Lexilla sources fail without it.)
-3. `Scintilla.dll` must sit next to `sci_probe.exe`; Lexilla is linked statically from `lexilla/bin/liblexilla.a`.
-4. `cargo build` (the toolchain is pinned to `stable-x86_64-pc-windows-gnu` in `rust-toolchain.toml`).
+`scripts/setup.ps1` does what the repository deliberately does not store:
+
+1. Downloads **Scintilla 5.5.2** and **Lexilla 5.5.4** from scintilla.org and builds them with MinGW,
+   passing `CXXFLAGS="-include cstdint"` (GCC 16 no longer pulls `<cstdint>` in transitively, so the
+   sources fail without it).
+2. Restores `assets/mermaid.min.js`, `assets/whiteboard/whiteboard.bundle.{js,css}` and the Excalidraw
+   fonts from the Electron app's own build (running `npm install --ignore-scripts` and
+   `build-whiteboard.js` if they have not been produced yet).
+
+`build.rs` links Lexilla statically, copies `Scintilla.dll` next to the executable, and stops with a
+pointer to the setup script if anything above is missing.
+
+Native crashes (access violations, not just panics) are written to `%APPDATA%\notepp-native\crash.log`.
 
 ## Layout
 

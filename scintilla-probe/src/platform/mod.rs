@@ -2,6 +2,8 @@
 #[cfg(target_os = "windows")]
 pub mod chrome;
 #[cfg(target_os = "windows")]
+pub mod dwm;
+#[cfg(target_os = "windows")]
 pub mod findpanel;
 #[cfg(target_os = "windows")]
 pub mod palette;

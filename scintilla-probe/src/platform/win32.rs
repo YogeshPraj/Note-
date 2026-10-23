@@ -8,8 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
 use windows::Win32::UI::Controls::Dialogs::*;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
@@ -1499,13 +1498,9 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
             None,
         )?;
 
-        // Dark title bar to match the menu bar (Windows 10 1809+ / 11).
-        let on: i32 = 1;
-        let _ = DwmSetWindowAttribute(host, DWMWINDOWATTRIBUTE(20), &on as *const _ as *const core::ffi::c_void, 4);
-        let caption = COLORREF(0x001F1F1F);
-        let _ = DwmSetWindowAttribute(host, DWMWINDOWATTRIBUTE(35), &caption as *const _ as *const core::ffi::c_void, 4);
-        let text = COLORREF(0x00FFFFFF);
-        let _ = DwmSetWindowAttribute(host, DWMWINDOWATTRIBUTE(36), &text as *const _ as *const core::ffi::c_void, 4);
+        // Dark Mica title bar. Always dark, whatever the editor theme: the
+        // menu bar directly beneath it is always dark (chrome::MENU_BG).
+        super::dwm::apply(host, true);
 
         let (menu_bar, menus) = build_menus();
         let chrome = chrome::create(host, menu_bar, &toolbar_items());

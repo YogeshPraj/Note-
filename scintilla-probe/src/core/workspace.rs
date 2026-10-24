@@ -14,6 +14,8 @@ use super::lang;
 use super::lexer;
 use super::preview;
 use super::search::{self, Opts};
+use super::settings::{self, Settings};
+use super::textools;
 use super::view;
 use super::sci::{self, Send, Theme};
 use super::session::{Session, SessionTab};
@@ -126,6 +128,8 @@ pub struct Workspace<S: Send> {
     pub workspace: Option<PathBuf>,
     /// Index into the platform's list of web search engines.
     pub search_engine: usize,
+    /// User preferences (Settings menu).
+    pub settings: Settings,
     /// Which invisible characters and guides the editor draws (View > Show Symbol).
     pub symbols: view::Symbols,
     /// Picture used by Insert > Date Time (customized).
@@ -172,6 +176,19 @@ pub enum CaseOp {
     SentenceBlend,
     Invert,
     Random,
+}
+
+/// Which text conversion Tools > Text Tools applies.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TextTool {
+    Base64Encode,
+    Base64Decode,
+    UrlEncode,
+    UrlDecode,
+    JsonPretty,
+    JsonMinify,
+    XmlPretty,
+    XmlMinify,
 }
 
 /// Which auto-completion source to use.
@@ -242,6 +259,7 @@ impl<S: Send> Workspace<S> {
             workspace: None,
             search_engine: 0,
             symbols: view::Symbols::default(),
+            settings: Settings::default(),
             date_format: "yyyy-MM-dd HH:mm:ss".into(),
             select_anchor: None,
             smart_key: (0, 0, 0),
@@ -253,11 +271,28 @@ impl<S: Send> Workspace<S> {
         ws
     }
 
+    /// Widths of the bookmark, line-number and fold margins under the current settings.
+    fn margin_widths(&self) -> [isize; 3] {
+        let s = &self.settings;
+        [if s.bookmark_margin { 16 } else { 0 }, if s.line_numbers { 54 } else { 0 }, if s.fold_margin { 16 } else { 0 }]
+    }
+
     /// Show or hide the bookmark, line-number and fold margins (Distraction Free Mode).
     pub fn set_margins_visible(&self, on: bool) {
-        for (margin, width) in [(0usize, 16isize), (1, 54), (2, 16)] {
+        for (margin, width) in self.margin_widths().into_iter().enumerate() {
             self.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
         }
+    }
+
+    /// Take new preferences: fonts, tabs, margins, colours, new-document defaults.
+    pub fn set_settings(&mut self, s: Settings) {
+        self.settings = s;
+        let base = if self.theme.dark { Theme::dark() } else { Theme::light() };
+        self.set_theme(base);
+        if !self.settings.smart_highlight {
+            search::clear_marks(&self.sci, search::INDIC_SMART);
+        }
+        self.smart_key = (usize::MAX, 0, 0);
     }
 
     pub fn set_symbols(&mut self, v: view::Symbols) {
@@ -281,7 +316,10 @@ impl<S: Send> Workspace<S> {
     /// document at a tiny zoom with no gutter, caret or scrollbars.
     fn style_view(&self, v: &S, mini: bool) {
         let theme = &self.theme;
-        sci::configure(v, "Cascadia Code", 11, theme);
+        sci::configure(v, &self.settings.font, self.settings.font_size as isize, theme);
+        v.send(sci::SCI_SETTABWIDTH, self.settings.tab_width as usize, 0);
+        v.send(sci::SCI_SETUSETABS, !self.settings.use_spaces as usize, 0);
+        v.send(sci::SCI_SETCARETLINEVISIBLE, self.settings.caret_line as usize, 0);
         if mini {
             for margin in 0..3 {
                 v.send(sci::SCI_SETMARGINWIDTHN, margin, 0);
@@ -296,6 +334,13 @@ impl<S: Send> Workspace<S> {
             sci::setup_line_numbers(v, theme, 54);
             sci::setup_folding(v, theme);
             bookmarks::setup(v, theme);
+            for (margin, width) in self.margin_widths().into_iter().enumerate() {
+                v.send(sci::SCI_SETMARGINWIDTHN, margin, width);
+            }
+            // Vertical guide line at the chosen column.
+            v.send(sci::SCI_SETEDGEMODE, (self.settings.edge_column > 0) as usize, 0);
+            v.send(sci::SCI_SETEDGECOLUMN, self.settings.edge_column.max(0) as usize, 0);
+            v.send(sci::SCI_SETEDGECOLOUR, sci::rgb(theme.line_no_fg.0, theme.line_no_fg.1, theme.line_no_fg.2) as usize, 0);
         }
         // Find marks: amber box. Smart highlight: green box (Notepad++ style).
         for (ind, rgb, alpha) in [(search::INDIC_FIND, (0xFF, 0xB0, 0x00), 110), (search::INDIC_SMART, (0x4C, 0xC9, 0x5A), 90)]
@@ -327,7 +372,8 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn set_theme(&mut self, theme: Theme) {
-        self.theme = theme;
+        let dark = theme.dark;
+        self.theme = settings::themed(theme, self.settings.colors(dark));
         self.style_view(&self.sci, false);
         if let Some(m) = &self.mini {
             self.style_view(m, true);
@@ -363,7 +409,9 @@ impl<S: Send> Workspace<S> {
         let key = (a, b, sci::length(&self.sci).max(0) as usize);
         if key != self.smart_key {
             self.smart_key = key;
-            search::smart_highlight(&self.sci);
+            if self.settings.smart_highlight {
+                search::smart_highlight(&self.sci);
+            }
         }
     }
 
@@ -615,6 +663,47 @@ impl<S: Send> Workspace<S> {
             }
         };
         (!changed).then(|| "Nothing to change".into())
+    }
+
+    /// Convert the selection (or the whole document) with a text tool.
+    /// Returns a message when it could not be done.
+    pub fn text_tool(&mut self, op: TextTool) -> Option<String> {
+        let selected = search::selected_text(&self.sci);
+        let whole = selected.is_empty();
+        let input = if whole { sci::get_text(&self.sci) } else { selected };
+        if input.trim().is_empty() {
+            return Some("Nothing to convert".into());
+        }
+        let eol = match self.tabs[self.active].eol {
+            Eol::Crlf => "\r\n",
+            Eol::Lf => "\n",
+            Eol::Cr => "\r",
+        };
+        let result: Result<String, String> = match op {
+            TextTool::Base64Encode => Ok(textools::base64_encode(input.as_bytes())),
+            TextTool::Base64Decode => textools::base64_decode(&input).map(|b| String::from_utf8_lossy(&b).into_owned()),
+            TextTool::UrlEncode => Ok(textools::url_encode(&input)),
+            TextTool::UrlDecode => Ok(textools::url_decode(&input)),
+            TextTool::JsonPretty => textools::json_pretty(&input).map(|s| s.replace('\n', eol)),
+            TextTool::JsonMinify => textools::json_minify(&input),
+            TextTool::XmlPretty => textools::xml_pretty(&input).map(|s| s.replace('\n', eol)),
+            TextTool::XmlMinify => textools::xml_minify(&input),
+        };
+        let out = match result {
+            Ok(o) => o,
+            Err(e) => return Some(format!("Cannot convert: {e}")),
+        };
+        let (start, end) = if whole {
+            (0, sci::length(&self.sci).max(0) as usize)
+        } else {
+            (self.send(sci::SCI_GETSELECTIONSTART, 0, 0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0) as usize)
+        };
+        self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+        self.send(sci::SCI_SETTARGETSTART, start, 0);
+        self.send(sci::SCI_SETTARGETEND, end, 0);
+        self.send(sci::SCI_REPLACETARGET, out.len(), out.as_ptr() as isize);
+        self.send(sci::SCI_ENDUNDOACTION, 0, 0);
+        None
     }
 
     /// Change the case of the selected text. Column selections are left alone.
@@ -887,7 +976,14 @@ impl<S: Send> Workspace<S> {
         let n = (1..)
             .find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.title == format!("new {n}")))
             .unwrap();
-        self.open_doc(format!("new {n}"), None, "", Enc::Utf8, Eol::platform_default(), "null")
+        let eol = match self.settings.new_doc_eol.as_str() {
+            "crlf" => Eol::Crlf,
+            "lf" => Eol::Lf,
+            "cr" => Eol::Cr,
+            _ => Eol::platform_default(),
+        };
+        let enc = Enc::from_key(&self.settings.new_doc_encoding);
+        self.open_doc(format!("new {n}"), None, "", enc, eol, "null")
     }
 
     pub fn open_path(&mut self, ui: &dyn Ui, path: &Path) {

@@ -4,6 +4,8 @@ pub mod chrome;
 #[cfg(target_os = "windows")]
 pub mod clip;
 #[cfg(target_os = "windows")]
+pub mod dialogs;
+#[cfg(target_os = "windows")]
 pub mod dwm;
 #[cfg(target_os = "windows")]
 pub mod findpanel;

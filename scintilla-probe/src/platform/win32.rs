@@ -30,6 +30,10 @@ use super::tree;
 use super::whiteboard as wb;
 use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
 use crate::core::bookmarks;
+use crate::core::hash::{ALGOS, Algo};
+use crate::core::settings::{self, Settings};
+use crate::core::shortcuts;
+use super::dialogs;
 use crate::core::functions;
 use crate::core::view;
 use crate::core::preview as pcore;
@@ -40,7 +44,7 @@ use crate::core::sci::{self, Send, Theme};
 use crate::core::search::{self, Hit};
 use crate::core::session::{Session, config_dir, session_path};
 use crate::core::whiteboard;
-use crate::core::workspace::{CaseOp, CloseOp, Completion, Confirm, LineOp, PathText, Ui, Workspace};
+use crate::core::workspace::{CaseOp, CloseOp, Completion, Confirm, LineOp, PathText, TextTool, Ui, Workspace};
 
 const WM_REFRESH: u32 = WM_APP + 1;
 const WM_MINIMAP: u32 = WM_APP + 2;
@@ -151,6 +155,23 @@ const ID_RTL: usize = 3210;
 const ID_LTR: usize = 3211;
 const ID_MONITOR: usize = 3212;
 const TIMER_MONITOR: usize = 2;
+// Settings and Tools menus
+const ID_PREFS: usize = 3301;
+const ID_STYLE_CFG: usize = 3302;
+const ID_SHORTCUTS: usize = 3303;
+const ID_IMPORT_PLUGIN: usize = 3304;
+const ID_IMPORT_THEME: usize = 3305;
+const ID_EXPORT_THEME: usize = 3306;
+const ID_EDIT_CONTEXT: usize = 3307;
+const ID_HASH_BASE: usize = 3400; // + algorithm index * 10 + (0 generate, 1 from files, 2 from selection)
+const ID_B64_ENC: usize = 3450;
+const ID_B64_DEC: usize = 3451;
+const ID_URL_ENC: usize = 3452;
+const ID_URL_DEC: usize = 3453;
+const ID_JSON_PRETTY: usize = 3454;
+const ID_JSON_MIN: usize = 3455;
+const ID_XML_PRETTY: usize = 3456;
+const ID_XML_MIN: usize = 3457;
 /// (name, executable) for View > View Current File in.
 const BROWSERS: [(&str, &str); 3] = [("Firefox", "firefox.exe"), ("Chrome", "chrome.exe"), ("Edge", "msedge.exe")];
 const ID_L_DUP: usize = 2101;
@@ -302,6 +323,31 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("View: Toggle Folder Workspace", ID_WORKSPACE_TOGGLE, ""),
     ("File: Quick Open...", ID_QUICKOPEN, "Ctrl+P"),
     ("Edit: Undo", ID_UNDO, "Ctrl+Z"),
+    ("Edit: Cut", ID_CUT, "Ctrl+X"),
+    ("Edit: Copy", ID_COPY, "Ctrl+C"),
+    ("Edit: Paste", ID_PASTE, "Ctrl+V"),
+    ("Settings: Preferences...", ID_PREFS, ""),
+    ("Settings: Style Configurator...", ID_STYLE_CFG, ""),
+    ("Settings: Shortcut Mapper...", ID_SHORTCUTS, ""),
+    ("Settings: Import Style Theme...", ID_IMPORT_THEME, ""),
+    ("Settings: Export Style Theme...", ID_EXPORT_THEME, ""),
+    ("Settings: Edit Popup ContextMenu", ID_EDIT_CONTEXT, ""),
+    ("Tools: Base64 Encode", ID_B64_ENC, ""),
+    ("Tools: Base64 Decode", ID_B64_DEC, ""),
+    ("Tools: URL Encode", ID_URL_ENC, ""),
+    ("Tools: URL Decode", ID_URL_DEC, ""),
+    ("Tools: JSON Pretty-print", ID_JSON_PRETTY, ""),
+    ("Tools: JSON Minify", ID_JSON_MIN, ""),
+    ("Tools: XML Pretty-print", ID_XML_PRETTY, ""),
+    ("Tools: XML Minify", ID_XML_MIN, ""),
+    ("Tools: MD5 Generate...", ID_HASH_BASE, ""),
+    ("Tools: MD5 from Selection into Clipboard", ID_HASH_BASE + 2, ""),
+    ("Tools: SHA-1 Generate...", ID_HASH_BASE + 10, ""),
+    ("Tools: SHA-1 from Selection into Clipboard", ID_HASH_BASE + 12, ""),
+    ("Tools: SHA-256 Generate...", ID_HASH_BASE + 20, ""),
+    ("Tools: SHA-256 from Selection into Clipboard", ID_HASH_BASE + 22, ""),
+    ("Tools: SHA-512 Generate...", ID_HASH_BASE + 30, ""),
+    ("Tools: SHA-512 from Selection into Clipboard", ID_HASH_BASE + 32, ""),
     ("Edit: Redo", ID_REDO, "Ctrl+Y"),
     ("Edit: Select All", ID_SELALL, "Ctrl+A"),
     ("Edit: Duplicate Line", ID_L_DUP, "Ctrl+D"),
@@ -552,7 +598,8 @@ fn wb_allows(id: usize) -> bool {
             | ID_ABOUT | ID_PALETTE | ID_QUICKOPEN | ID_RECENT_CLEAR | ID_OPEN_FOLDER_EXPLORER | ID_OPEN_FOLDER_CMD
             | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
             | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
-            | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE
+            | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE | ID_PREFS | ID_STYLE_CFG | ID_SHORTCUTS
+            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
 }
 
@@ -570,6 +617,10 @@ thread_local! {
     static INCR_START: Cell<usize> = const { Cell::new(0) };
     /// Chrome parts hidden by Post-It / Distraction Free Mode: 1 menu, 2 toolbar, 4 tabs, 8 status bar.
     static HIDE: Cell<u8> = const { Cell::new(0) };
+    /// Parts of the chrome turned off in Preferences (same bits as `HIDE`).
+    static USER_HIDE: Cell<u8> = const { Cell::new(0) };
+    /// The live accelerator table (a HACCEL handle).
+    static ACCEL_TABLE: Cell<isize> = const { Cell::new(0) };
     static DISTRACTION: Cell<bool> = const { Cell::new(false) };
     static POSTIT: Cell<bool> = const { Cell::new(false) };
     static FULLSCREEN: Cell<bool> = const { Cell::new(false) };
@@ -828,7 +879,7 @@ fn find_chars_dialog(host: HWND, sci: Win32Sci) {
     const DOWN: usize = 122;
     const WRAP: usize = 123;
     const STATUS: usize = 130;
-    fn react(f: &form::Form) {
+    fn react(f: &form::Form, _id: usize) {
         let mine = f.checked(MY_RANGE);
         f.enable(FROM, mine);
         f.enable(TO, mine);
@@ -885,11 +936,168 @@ fn find_chars_dialog(host: HWND, sci: Win32Sci) {
         f.set_checked(NON_ASCII, true);
         f.set_checked(DOWN, true);
         f.set_checked(WRAP, true);
-        react(f);
+        react(f, 0);
     });
     unsafe {
         let _ = SetFocus(Some(sci.0));
     }
+}
+
+// ---- settings, shortcuts and the editor's context menu --------------------------
+
+/// Chrome parts the user turned off in Preferences (same bits as `HIDE`).
+fn user_hide(s: &Settings) -> u8 {
+    (!s.show_toolbar as u8) << 1 | (!s.show_tabbar as u8) << 2 | (!s.show_statusbar as u8) << 3
+}
+
+/// Make `s` current: restyle the editor, save it, and update the chrome.
+fn apply_settings(ws: &mut Workspace<Win32Sci>, s: Settings) {
+    ws.set_settings(s);
+    let _ = ws.settings.save();
+    USER_HIDE.with(|c| c.set(user_hide(&ws.settings)));
+    ws.set_margins_visible(!DISTRACTION.with(|c| c.get()));
+    layout();
+}
+
+/// The command shortcuts the Shortcut Mapper offers: everything in the command
+/// list except the ones Scintilla handles itself.
+fn mapper_rows(s: &Settings) -> Vec<dialogs::MapRow> {
+    let native = [ID_UNDO, ID_REDO, ID_SELALL, ID_CUT, ID_COPY, ID_PASTE];
+    let mut seen = std::collections::HashSet::new();
+    PALETTE_COMMANDS
+        .iter()
+        .filter(|(_, id, _)| !native.contains(id) && seen.insert(*id))
+        .map(|(name, id, default)| {
+            let current = s.shortcuts.get(&id.to_string()).cloned().unwrap_or_else(|| default.to_string());
+            dialogs::MapRow { id: *id, name: name.to_string(), default: default.to_string(), current }
+        })
+        .collect()
+}
+
+/// Rewrite the shortcut shown after the tab in every menu item for `id`.
+fn retext_deep(menu: HMENU, id: usize, shortcut: &str) {
+    unsafe {
+        for i in 0..GetMenuItemCount(Some(menu)).max(0) {
+            let sub = GetSubMenu(menu, i);
+            if !sub.0.is_null() {
+                retext_deep(sub, id, shortcut);
+            }
+        }
+        let mut buf = [0u16; 256];
+        let n = GetMenuStringW(menu, id as u32, Some(&mut buf), MF_BYCOMMAND);
+        if n <= 0 {
+            return;
+        }
+        let text = String::from_utf16_lossy(&buf[..n as usize]);
+        let base = text.split('\t').next().unwrap_or("");
+        let new = if shortcut.is_empty() { base.to_string() } else { format!("{base}\t{shortcut}") };
+        if new != text {
+            let grayed = GetMenuState(menu, id as u32, MF_BYCOMMAND) & MF_GRAYED.0 != 0;
+            let t = wide(&new);
+            let _ = ModifyMenuW(menu, id as u32, MF_BYCOMMAND | MF_STRING | if grayed { MF_GRAYED } else { MF_ENABLED }, id, PCWSTR(t.as_ptr()));
+        }
+    }
+}
+
+/// Rebuild the accelerator table and menu texts from the saved shortcut overrides.
+fn install_shortcuts(menus: &Menus, s: &Settings, previous: Option<&Settings>) {
+    let table = accelerators(&s.shortcuts);
+    let old = ACCEL_TABLE.with(|c| c.replace(table.0 as isize));
+    if old != 0 {
+        unsafe {
+            let _ = DestroyAcceleratorTable(HACCEL(old as *mut core::ffi::c_void));
+        }
+    }
+    // Only items whose shortcut changed need new menu text.
+    let before = previous.map(|p| &p.shortcuts);
+    for (id_text, text) in &s.shortcuts {
+        if before.is_none_or(|b| b.get(id_text) != Some(text)) {
+            if let Ok(id) = id_text.parse::<usize>() {
+                for m in [menus.file, menus.edit, menus.search, menus.view] {
+                    retext_deep(m, id, text);
+                }
+            }
+        }
+    }
+    if let Some(p) = previous {
+        for id_text in p.shortcuts.keys().filter(|k| !s.shortcuts.contains_key(*k)) {
+            if let Ok(id) = id_text.parse::<usize>() {
+                let default = PALETTE_COMMANDS.iter().find(|(_, i, _)| *i == id).map(|(_, _, d)| *d).unwrap_or("");
+                for m in [menus.file, menus.edit, menus.search, menus.view] {
+                    retext_deep(m, id, default);
+                }
+            }
+        }
+    }
+}
+
+const DEFAULT_CONTEXT_MENU: &str = "# Right-click menu of the editor. One command per line, as named in the Command Palette;\n\
+# a line with just - makes a separator. Save the file and the next right-click uses it.\n\
+Edit: Cut\nEdit: Copy\nEdit: Paste\nEdit: Delete\nEdit: Select All\n-\n\
+Edit: Open Selected File\nEdit: Search Selection on Internet\n-\n\
+Edit: Toggle Line Comment\nEdit: Block Comment\nEdit: Block Uncomment\n-\n\
+Edit: UPPERCASE\nEdit: lowercase\nEdit: Proper Case\n-\n\
+Search: Style All Occurrences of Token (1st)\nSearch: Clear all Styles\n-\n\
+View: Fold All\nView: Unfold All\n";
+
+fn context_menu_path() -> PathBuf {
+    config_dir().join("contextmenu.txt")
+}
+
+fn ensure_context_menu_file() -> PathBuf {
+    let p = context_menu_path();
+    if !p.exists() {
+        let _ = std::fs::create_dir_all(config_dir());
+        let _ = std::fs::write(&p, DEFAULT_CONTEXT_MENU);
+    }
+    p
+}
+
+/// Entries of the context menu file: Some(command) or None for a separator.
+fn context_entries(text: &str) -> Vec<Option<(&'static str, usize, &'static str)>> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            if l == "-" {
+                Some(None)
+            } else {
+                PALETTE_COMMANDS.iter().find(|(name, _, _)| name.eq_ignore_ascii_case(l)).map(|(n, id, k)| Some((*n, *id, *k)))
+            }
+        })
+        .collect()
+}
+
+/// The theme colours as JSON ({"light": {...}, "dark": {...}}) for export.
+fn theme_json(s: &Settings) -> String {
+    let side = |base: crate::core::sci::Theme, over: &std::collections::BTreeMap<String, String>| {
+        let t = settings::themed(base, over);
+        let map: serde_json::Map<String, serde_json::Value> =
+            settings::ROLES.iter().filter_map(|(_, k)| Some((k.to_string(), serde_json::Value::String(settings::to_hex(settings::color_of(&t, k)?))))).collect();
+        serde_json::Value::Object(map)
+    };
+    let v = serde_json::json!({ "light": side(crate::core::sci::Theme::light(), &s.light_colors), "dark": side(crate::core::sci::Theme::dark(), &s.dark_colors) });
+    serde_json::to_string_pretty(&v).unwrap_or_default()
+}
+
+/// Read a theme file into colour overrides; returns how many colours were taken.
+fn import_theme(s: &mut Settings, json: &str) -> Result<usize, String> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let mut taken = 0;
+    for (name, dark) in [("light", false), ("dark", true)] {
+        let Some(obj) = v.get(name).and_then(|x| x.as_object()) else { continue };
+        let base = if dark { crate::core::sci::Theme::dark() } else { crate::core::sci::Theme::light() };
+        let entered: Vec<(&str, String)> =
+            settings::ROLES.iter().filter_map(|(_, k)| obj.get(*k).and_then(|x| x.as_str()).map(|h| (*k, h.to_string()))).collect();
+        let diff = settings::diff_from(&base, &entered);
+        taken += entered.iter().filter(|(_, h)| settings::parse_hex(h).is_some()).count();
+        if dark {
+            s.dark_colors = diff;
+        } else {
+            s.light_colors = diff;
+        }
+    }
+    if taken == 0 { Err("The file has no \"light\" or \"dark\" colours".into()) } else { Ok(taken) }
 }
 
 /// Enter or leave full screen on the monitor the window is on.
@@ -1036,7 +1244,7 @@ fn column_editor(host: HWND, ws: &mut Workspace<Win32Sci>) -> Option<String> {
     const HEX: usize = 112;
     const OCT: usize = 113;
     const BIN: usize = 114;
-    fn react(f: &form::Form) {
+    fn react(f: &form::Form, _id: usize) {
         let text = f.checked(TEXT_R);
         f.enable(TEXT, text);
         for id in [103, INIT, 105, STEP, 107, REPEAT, ZEROS, DEC, HEX, OCT, BIN] {
@@ -1070,7 +1278,7 @@ fn column_editor(host: HWND, ws: &mut Workspace<Win32Sci>) -> Option<String> {
     let v = form::run(host, spec, |f| {
         f.set_checked(TEXT_R, true);
         f.set_checked(DEC, true);
-        react(f);
+        react(f, 0);
     })?;
     if v.checked(TEXT_R) {
         return ws.column_edit(Some(v.text(TEXT)), None);
@@ -1750,6 +1958,112 @@ impl App {
                 self.flash = Some(format!("{} line(s) removed", bookmarks::delete_lines(&sci, id == ID_BM_DELETE)));
             }
             ID_BM_INVERT => bookmarks::invert(&sci),
+            ID_PREFS => {
+                if let Some(s) = dialogs::preferences(ui.host, &ws.settings) {
+                    apply_settings(ws, s);
+                }
+            }
+            ID_STYLE_CFG => {
+                if let Some(e) = dialogs::style_configurator(ui.host, &ws.theme) {
+                    let dark = ws.theme.dark;
+                    let base = if dark { Theme::dark() } else { Theme::light() };
+                    let diff = if e.reset { Default::default() } else { settings::diff_from(&base, &e.entered) };
+                    let bad = e.entered.iter().filter(|(_, h)| settings::parse_hex(h).is_none()).count();
+                    let mut s = ws.settings.clone();
+                    if dark {
+                        s.dark_colors = diff;
+                    } else {
+                        s.light_colors = diff;
+                    }
+                    apply_settings(ws, s);
+                    if bad > 0 {
+                        self.flash = Some(format!("{bad} colour(s) were not valid #RRGGBB and were ignored"));
+                    }
+                }
+            }
+            ID_SHORTCUTS => {
+                if let Some(done) = dialogs::shortcut_mapper(ui.host, mapper_rows(&ws.settings)) {
+                    let mut s = ws.settings.clone();
+                    s.shortcuts.clear();
+                    for r in done {
+                        if r.current != r.default {
+                            s.shortcuts.insert(r.id.to_string(), r.current);
+                        }
+                    }
+                    let previous = std::mem::replace(&mut ws.settings, s.clone());
+                    let _ = s.save();
+                    install_shortcuts(&self.menus, &s, Some(&previous));
+                    self.flash = Some("Shortcuts updated".into());
+                }
+            }
+            ID_IMPORT_THEME => {
+                if let Some(p) = ui.pick_open().into_iter().next() {
+                    let imported = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| {
+                        let mut s = ws.settings.clone();
+                        import_theme(&mut s, &t).map(|n| (s, n))
+                    });
+                    match imported {
+                        Ok((s, n)) => {
+                            apply_settings(ws, s);
+                            self.flash = Some(format!("Imported {n} colour(s)"));
+                        }
+                        Err(e) => ui.error(&format!("Cannot import the theme\n\n{e}")),
+                    }
+                }
+            }
+            ID_EXPORT_THEME => {
+                if let Some(p) = ui.pick_save("note-theme.json") {
+                    match std::fs::write(&p, theme_json(&ws.settings)) {
+                        Ok(()) => self.flash = Some(format!("Theme saved to {}", p.display())),
+                        Err(e) => ui.error(&format!("Cannot save the theme\n\n{e}")),
+                    }
+                }
+            }
+            ID_EDIT_CONTEXT => {
+                let p = ensure_context_menu_file();
+                ws.open_path(ui, &p);
+            }
+            _ if (ID_HASH_BASE..ID_HASH_BASE + ALGOS.len() * 10).contains(&id) => {
+                let algo: Algo = ALGOS[(id - ID_HASH_BASE) / 10];
+                match (id - ID_HASH_BASE) % 10 {
+                    0 => dialogs::hash_text(ui.host, algo),
+                    1 => {
+                        let files = ui.pick_open();
+                        if !files.is_empty() {
+                            let lines: Vec<String> = files
+                                .iter()
+                                .map(|p| match std::fs::File::open(p).and_then(|f| algo.hash_reader(f)) {
+                                    Ok(h) => format!("{h}  {}", p.display()),
+                                    Err(e) => format!("(error)  {}: {e}", p.display()),
+                                })
+                                .collect();
+                            dialogs::text_result(ui.host, &format!("{} of {} file(s)", algo.name(), files.len()), &lines.join("\r\n"));
+                        }
+                    }
+                    _ => {
+                        let sel = search::selected_text(&sci);
+                        if sel.is_empty() {
+                            self.flash = Some("Select some text first".into());
+                        } else {
+                            let digest = algo.hash_bytes(sel.as_bytes());
+                            self.flash = Some(if clip::set_text(ui.host, &digest) { format!("{} copied: {digest}", algo.name()) } else { "The clipboard is busy".into() });
+                        }
+                    }
+                }
+            }
+            ID_B64_ENC | ID_B64_DEC | ID_URL_ENC | ID_URL_DEC | ID_JSON_PRETTY | ID_JSON_MIN | ID_XML_PRETTY | ID_XML_MIN => {
+                let op = match id {
+                    ID_B64_ENC => TextTool::Base64Encode,
+                    ID_B64_DEC => TextTool::Base64Decode,
+                    ID_URL_ENC => TextTool::UrlEncode,
+                    ID_URL_DEC => TextTool::UrlDecode,
+                    ID_JSON_PRETTY => TextTool::JsonPretty,
+                    ID_JSON_MIN => TextTool::JsonMinify,
+                    ID_XML_PRETTY => TextTool::XmlPretty,
+                    _ => TextTool::XmlMinify,
+                };
+                self.flash = ws.text_tool(op);
+            }
             ID_FIND_CHARS => {
                 find_chars_dialog(ui.host, sci);
             }
@@ -2016,6 +2330,39 @@ impl App {
                 sci.send(sci::SCI_SETSEL, before.0 as usize, before.1);
                 incsearch::set_status("Phrase not found");
             }
+        }
+    }
+
+    /// Right-click in the editor: the menu listed in contextmenu.txt.
+    fn show_editor_context_menu(&mut self, x: i32, y: i32) {
+        let file_text = std::fs::read_to_string(ensure_context_menu_file()).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.to_string());
+        let entries = context_entries(&file_text);
+        if entries.is_empty() {
+            return;
+        }
+        unsafe {
+            let (mut px, mut py) = (x, y);
+            if x == -1 && y == -1 {
+                let mut pt = POINT::default();
+                let _ = GetCursorPos(&mut pt);
+                (px, py) = (pt.x, pt.y);
+            }
+            let Ok(menu) = CreatePopupMenu() else { return };
+            for e in entries {
+                match e {
+                    None => {
+                        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                    }
+                    Some((name, id, default)) => {
+                        let label = name.split_once(": ").map_or(name, |(_, l)| l);
+                        let key = self.ws.settings.shortcuts.get(&id.to_string()).map(String::as_str).unwrap_or(default);
+                        let text = wide(&if key.is_empty() { label.to_string() } else { format!("{label}\t{key}") });
+                        let _ = AppendMenuW(menu, MF_STRING, id, PCWSTR(text.as_ptr()));
+                    }
+                }
+            }
+            let _ = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN, px, py, Some(0), self.ui.host, None);
+            let _ = DestroyMenu(menu);
         }
     }
 
@@ -2377,7 +2724,7 @@ fn layout() {
             let _ = MoveWindow(win, x, y, ww.max(0), hh.max(0), true);
         };
         let c = h.chrome;
-        let hide = HIDE.with(|c| c.get());
+        let hide = HIDE.with(|c| c.get()) | USER_HIDE.with(|c| c.get());
         let part = |bit: u8, h: i32| if hide & bit != 0 { 0 } else { h };
         let (mh, th, tabh, sh) = (part(1, chrome::MENU_H), part(2, chrome::TOOL_H), part(4, chrome::TAB_H), part(8, chrome::STATUS_H));
         for (win, bit) in [(c.menu, 1u8), (c.tools, 2), (c.tabs, 4), (c.status, 8)] {
@@ -2656,6 +3003,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         wb::WM_WB => {
             with_app(|a| a.wb_events());
             LRESULT(0)
+        }
+        WM_CONTEXTMENU => {
+            let from = HWND(w.0 as *mut core::ffi::c_void);
+            if handles().is_some_and(|h| h.edit == from) {
+                let (x, y) = ((l.0 & 0xFFFF) as i16 as i32, ((l.0 >> 16) & 0xFFFF) as i16 as i32);
+                with_app(|a| a.show_editor_context_menu(x, y));
+                return LRESULT(0);
+            }
+            unsafe { DefWindowProcW(hwnd, msg, w, l) }
         }
         WM_INITMENUPOPUP => {
             with_app(|a| a.sync_edit_menu());
@@ -3164,6 +3520,43 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     let help = B::popup();
     B::add(help, ID_ABOUT, "&About Note++");
 
+    // Settings
+    let settings_menu = B::popup();
+    B::add(settings_menu, ID_PREFS, "Preferences...");
+    B::add(settings_menu, ID_STYLE_CFG, "Style Configurator...");
+    B::add(settings_menu, ID_SHORTCUTS, "Shortcut Mapper...");
+    B::sep(settings_menu);
+    let import = B::popup();
+    B::add_state(import, ID_IMPORT_PLUGIN, "Import plugin(s)...", false);
+    B::add(import, ID_IMPORT_THEME, "Import style theme(s)...");
+    B::add(import, ID_EXPORT_THEME, "Export style theme...");
+    B::submenu(settings_menu, "Import", import);
+    B::sep(settings_menu);
+    B::add(settings_menu, ID_EDIT_CONTEXT, "Edit Popup ContextMenu");
+
+    // Tools: one submenu per digest, then the text tools.
+    let tools = B::popup();
+    for (i, algo) in ALGOS.iter().enumerate() {
+        let sub = B::popup();
+        B::add(sub, ID_HASH_BASE + i * 10, "Generate...");
+        B::add(sub, ID_HASH_BASE + i * 10 + 1, "Generate from files...");
+        B::add(sub, ID_HASH_BASE + i * 10 + 2, "Generate from selection into clipboard");
+        B::submenu(tools, algo.name(), sub);
+    }
+    B::sep(tools);
+    let text_tools = B::popup();
+    B::add(text_tools, ID_B64_ENC, "Base64 Encode");
+    B::add(text_tools, ID_B64_DEC, "Base64 Decode");
+    B::sep(text_tools);
+    B::add(text_tools, ID_URL_ENC, "URL Encode");
+    B::add(text_tools, ID_URL_DEC, "URL Decode");
+    B::sep(text_tools);
+    B::add(text_tools, ID_JSON_PRETTY, "JSON: Pretty-print");
+    B::add(text_tools, ID_JSON_MIN, "JSON: Minify");
+    B::add(text_tools, ID_XML_PRETTY, "XML: Pretty-print");
+    B::add(text_tools, ID_XML_MIN, "XML: Minify");
+    B::submenu(tools, "Text Tools", text_tools);
+
     let bar = vec![
         ("File".to_string(), file),
         ("Edit".to_string(), edit),
@@ -3171,6 +3564,8 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("View".to_string(), view),
         ("Encoding".to_string(), enc),
         ("Language".to_string(), lang),
+        ("Settings".to_string(), settings_menu),
+        ("Tools".to_string(), tools),
         ("?".to_string(), help),
     ];
     let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
@@ -3225,7 +3620,7 @@ fn toolbar_items() -> Vec<ToolItem> {
     ]
 }
 
-fn accelerators() -> HACCEL {
+fn accelerators(overrides: &std::collections::BTreeMap<String, String>) -> HACCEL {
     // FVIRTKEY 0x01, FSHIFT 0x04, FCONTROL 0x08, FALT 0x10
     const NONE: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x01);
     const SHIFT: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x05);
@@ -3326,7 +3721,18 @@ fn accelerators() -> HACCEL {
         ACCEL { fVirt: CTRL, key: 0x09, cmd: ID_NEXT_TAB as u16 },
         ACCEL { fVirt: CTRL_SHIFT, key: 0x09, cmd: ID_PREV_TAB as u16 },
     ];
-    unsafe { CreateAcceleratorTableW(&table).unwrap() }
+    unsafe {
+        let mut accels = table.to_vec();
+        // A remapped command loses its default keys and gets the chosen one.
+        for (id_text, text) in overrides {
+            let Ok(id) = id_text.parse::<u16>() else { continue };
+            accels.retain(|a| a.cmd != id);
+            if let Some(chord) = shortcuts::parse(text) {
+                accels.push(ACCEL { fVirt: ACCEL_VIRT_FLAGS(shortcuts::accel_flags(&chord)), key: chord.vk, cmd: id });
+            }
+        }
+        CreateAcceleratorTableW(&accels).unwrap()
+    }
 }
 
 // ---- startup -----------------------------------------------------------------------
@@ -3428,6 +3834,14 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
     let ui = Win32Ui { host: hs.host };
     let mut ws = Workspace::new(Win32Sci(hs.edit));
     ws.attach_minimap(Win32Sci(hs.mini));
+    // The editor's own right-click menu is replaced by the one in contextmenu.txt.
+    unsafe {
+        SendMessageW(hs.edit, sci::SCI_USEPOPUP, Some(WPARAM(0)), None);
+    }
+    let prefs = Settings::load();
+    USER_HIDE.with(|c| c.set(user_hide(&prefs)));
+    install_shortcuts(&menus, &prefs, None);
+    ws.set_settings(prefs);
     if !crate::core::session::standalone() {
         if let Some(s) = Session::load(&session_path()) {
             ws.restore(&s);
@@ -3454,9 +3868,9 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         let _ = ShowWindow(hs.host, SW_SHOW);
         let _ = SetFocus(Some(hs.edit));
 
-        let accel = accelerators();
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
+            let accel = HACCEL(ACCEL_TABLE.with(|c| c.get()) as *mut core::ffi::c_void);
             if TranslateAcceleratorW(hs.host, accel, &msg) != 0 {
                 continue;
             }
@@ -3470,5 +3884,64 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
                 DispatchMessageW(&msg);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod accelerator_tests {
+    use super::*;
+
+    fn entries(table: HACCEL) -> Vec<ACCEL> {
+        unsafe {
+            let n = CopyAcceleratorTableW(table, None);
+            let mut v = vec![ACCEL::default(); n as usize];
+            CopyAcceleratorTableW(table, Some(&mut v));
+            v
+        }
+    }
+
+    #[test]
+    fn overrides_replace_the_default_keys() {
+        let plain = entries(accelerators(&Default::default()));
+        // Ctrl+D duplicates a line by default.
+        assert!(plain.iter().any(|a| a.cmd as usize == ID_L_DUP && a.key == b'D' as u16));
+
+        let mut o = std::collections::BTreeMap::new();
+        o.insert(ID_L_DUP.to_string(), "Ctrl+Alt+Shift+9".to_string());
+        let changed = entries(accelerators(&o));
+        let dup: Vec<&ACCEL> = changed.iter().filter(|a| a.cmd as usize == ID_L_DUP).collect();
+        assert_eq!(dup.len(), 1);
+        assert_eq!(dup[0].key, b'9' as u16);
+        assert_eq!(dup[0].fVirt.0, 1 | 4 | 8 | 0x10);
+        // Everything else is untouched.
+        assert_eq!(changed.len(), plain.len());
+
+        // An empty shortcut removes the key entirely.
+        o.insert(ID_L_DUP.to_string(), String::new());
+        assert!(!entries(accelerators(&o)).iter().any(|a| a.cmd as usize == ID_L_DUP));
+    }
+
+    #[test]
+    fn context_menu_lines_resolve_to_commands() {
+        let e = context_entries("# comment\nEdit: Cut\n-\nTools: Base64 Encode\nNo Such Command\n");
+        assert_eq!(e.len(), 3);
+        assert_eq!(e[0].map(|x| x.1), Some(ID_CUT));
+        assert!(e[1].is_none());
+        assert_eq!(e[2].map(|x| x.1), Some(ID_B64_ENC));
+        assert!(context_entries(DEFAULT_CONTEXT_MENU).len() >= 15);
+    }
+
+    #[test]
+    fn theme_export_round_trips() {
+        let mut s = Settings::default();
+        s.light_colors.insert("keyword".into(), "#112233".into());
+        let json = theme_json(&s);
+        let mut back = Settings::default();
+        let n = import_theme(&mut back, &json).unwrap();
+        assert!(n >= 28);
+        assert_eq!(back.light_colors.get("keyword").map(String::as_str), Some("#112233"));
+        assert_eq!(back.light_colors.len(), 1);
+        assert!(back.dark_colors.is_empty());
+        assert!(import_theme(&mut back, "{}").is_err());
     }
 }

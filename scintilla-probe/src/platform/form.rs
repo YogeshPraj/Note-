@@ -16,10 +16,15 @@ use windows::core::{PCWSTR, w};
 pub enum Kind {
     Label,
     Edit,
+    /// A multi-line edit box; `true` makes it read-only.
+    MultiEdit(bool),
     Check,
     /// `true` starts a new group of radio buttons.
     Radio(bool),
     Group,
+    Button,
+    /// A report-style list view (fill it with `Form::list_fill`).
+    List,
 }
 
 pub struct Ctl {
@@ -36,9 +41,53 @@ pub fn ctl(id: usize, kind: Kind, text: &str, x: i32, y: i32, w: i32, h: i32) ->
 /// Live access to the controls while the form is open.
 pub struct Form {
     controls: HashMap<usize, HWND>,
+    hwnd: HWND,
 }
 
 impl Form {
+    /// The form window, for dialogs opened on top of it.
+    pub fn hwnd(&self) -> HWND {
+        self.hwnd
+    }
+
+    /// Replace a list's columns and rows.
+    pub fn list_fill(&self, id: usize, columns: &[(&str, i32)], rows: &[Vec<String>]) {
+        use windows::Win32::UI::Controls::*;
+        let Some(h) = self.controls.get(&id) else { return };
+        unsafe {
+            SendMessageW(*h, LVM_DELETEALLITEMS, None, None);
+            while SendMessageW(*h, LVM_DELETECOLUMN, Some(WPARAM(0)), None).0 != 0 {}
+            for (i, (name, width)) in columns.iter().enumerate() {
+                let mut t = wide(name);
+                let col = LVCOLUMNW { mask: LVCF_TEXT | LVCF_WIDTH, cx: *width, pszText: windows::core::PWSTR(t.as_mut_ptr()), ..Default::default() };
+                SendMessageW(*h, LVM_INSERTCOLUMNW, Some(WPARAM(i)), Some(LPARAM(&col as *const _ as isize)));
+            }
+            for (r, row) in rows.iter().enumerate() {
+                for (c, cell) in row.iter().enumerate() {
+                    self.list_set_cell(id, r, c, cell);
+                }
+            }
+        }
+    }
+
+    pub fn list_set_cell(&self, id: usize, row: usize, col: usize, text: &str) {
+        use windows::Win32::UI::Controls::*;
+        let Some(h) = self.controls.get(&id) else { return };
+        let mut t = wide(text);
+        let mut item = LVITEMW { mask: LVIF_TEXT, iItem: row as i32, iSubItem: col as i32, pszText: windows::core::PWSTR(t.as_mut_ptr()), ..Default::default() };
+        unsafe {
+            let msg = if col == 0 { LVM_INSERTITEMW } else { LVM_SETITEMTEXTW };
+            SendMessageW(*h, msg, Some(WPARAM(row)), Some(LPARAM(&mut item as *mut _ as isize)));
+        }
+    }
+
+    pub fn list_selected(&self, id: usize) -> Option<usize> {
+        use windows::Win32::UI::Controls::*;
+        let h = self.controls.get(&id)?;
+        let n = unsafe { SendMessageW(*h, LVM_GETNEXTITEM, Some(WPARAM(usize::MAX)), Some(LPARAM(LVNI_SELECTED as isize))) }.0;
+        (n >= 0).then_some(n as usize)
+    }
+
     pub fn set_text(&self, id: usize, s: &str) {
         if let Some(h) = self.controls.get(&id) {
             let t = wide(s);
@@ -97,15 +146,16 @@ pub struct Spec<'a> {
     pub size: (i32, i32),
     pub ctls: Vec<Ctl>,
     pub ok: &'a str,
-    /// Called after any check box or radio button is clicked.
-    pub on_change: Option<fn(&Form)>,
+    /// Called after a button, check box or radio button is clicked, or a list
+    /// selection changes; gets the control's id.
+    pub on_change: Option<fn(&Form, usize)>,
     /// Called when OK is pressed; returning true keeps the form open (like a Find button).
     pub on_apply: Option<&'a dyn Fn(&Values, &Form) -> bool>,
 }
 
 thread_local! {
     static DONE: Cell<Option<bool>> = const { Cell::new(None) };
-    static LIVE: RefCell<Option<(Form, Option<fn(&Form)>)>> = const { RefCell::new(None) };
+    static LIVE: RefCell<Option<(Form, Option<fn(&Form, usize)>)>> = const { RefCell::new(None) };
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -134,12 +184,30 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                     if let Some(cb) = cb {
                         LIVE.with(|l| {
                             if let Some((f, _)) = l.borrow().as_ref() {
-                                cb(f)
+                                cb(f, id)
                             }
                         });
                     }
                 }
                 _ => {}
+            }
+            LRESULT(0)
+        }
+        WM_NOTIFY => {
+            // A different row was selected in a list.
+            let hdr = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::NMHDR) };
+            if hdr.code == windows::Win32::UI::Controls::LVN_ITEMCHANGED {
+                let nm = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::NMLISTVIEW) };
+                if nm.uNewState & 2 != 0 && nm.uOldState & 2 == 0 {
+                    let cb = LIVE.with(|l| l.borrow().as_ref().and_then(|(_, cb)| *cb));
+                    if let Some(cb) = cb {
+                        LIVE.with(|l| {
+                            if let Some((f, _)) = l.borrow().as_ref() {
+                                cb(f, hdr.idFrom)
+                            }
+                        });
+                    }
+                }
             }
             LRESULT(0)
         }
@@ -234,6 +302,15 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
                 Kind::Check => make(w!("BUTTON"), &c.text, TAB | 0x3, c.id, c.rect), // BS_AUTOCHECKBOX
                 Kind::Radio(group) => make(w!("BUTTON"), &c.text, 0x9 | if group { GROUP | TAB } else { 0 }, c.id, c.rect), // BS_AUTORADIOBUTTON
                 Kind::Group => make(w!("BUTTON"), &c.text, 0x7, c.id, c.rect), // BS_GROUPBOX
+                Kind::Button => make(w!("BUTTON"), &c.text, TAB, c.id, c.rect),
+                // ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_BORDER (| ES_READONLY)
+                Kind::MultiEdit(readonly) => make(w!("EDIT"), &c.text, TAB | 0x0020_0000 | 0x0080_0000 | 0x4 | 0x40 | 0x1000 | if readonly { 0x800 } else { 0 }, c.id, c.rect),
+                Kind::List => {
+                    // LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS
+                    let h = make(w!("SysListView32"), "", TAB | 0x0080_0000 | 0x1 | 0x4 | 0x8, c.id, c.rect);
+                    SendMessageW(h, 0x1036, Some(WPARAM(0x20)), Some(LPARAM(0x20))); // LVM_SETEXTENDEDLISTVIEWSTYLE: full-row select
+                    h
+                }
             };
             controls.insert(c.id, h);
         }
@@ -243,7 +320,7 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
         controls.insert(1, ok);
         controls.insert(2, cancel);
 
-        let form = Form { controls };
+        let form = Form { controls, hwnd };
         init(&form);
         if let Some(id) = first_edit {
             form.focus(id);
@@ -257,7 +334,7 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
             let mut values = Values { text: HashMap::new(), checked: HashMap::new() };
             for c in &spec.ctls {
                 match c.kind {
-                    Kind::Edit => drop(values.text.insert(c.id, form.text(c.id))),
+                    Kind::Edit | Kind::MultiEdit(_) => drop(values.text.insert(c.id, form.text(c.id))),
                     Kind::Check | Kind::Radio(_) => drop(values.checked.insert(c.id, form.checked(c.id))),
                     _ => {}
                 }

@@ -93,6 +93,8 @@ pub struct Tab {
     pub enc: Enc,
     pub eol: Eol,
     pub lang: &'static str,
+    /// The Language-menu entry in effect (several share one lexer, e.g. C and Java).
+    pub lang_label: &'static str,
     pub caret: usize,
     pub top: usize,
 }
@@ -208,6 +210,11 @@ fn same_path(a: &Path, b: &Path) -> bool {
 }
 
 fn lang_for(path: &Path) -> &'static str {
+    match path.file_name().and_then(|n| n.to_str()) {
+        Some("Makefile" | "makefile" | "GNUmakefile") => return "makefile",
+        Some("CMakeLists.txt") => return "cmake",
+        _ => {}
+    }
     path.extension()
         .and_then(|e| e.to_str())
         .map(lexer::lexer_for_extension)
@@ -424,6 +431,7 @@ impl<S: Send> Workspace<S> {
         self.send(sci::SCI_EMPTYUNDOBUFFER, 0, 0);
         lang::apply_lexer(&self.sci, lang, &self.theme);
         let id = self.take_id();
+        let lang_label = lang::label_for(lang, path.as_deref());
         self.tabs.push(Tab {
             id,
             kind: TabKind::Text,
@@ -436,6 +444,7 @@ impl<S: Send> Workspace<S> {
             enc,
             eol,
             lang,
+            lang_label,
             caret: 0,
             top: 0,
         });
@@ -460,6 +469,7 @@ impl<S: Send> Workspace<S> {
             enc: Enc::Utf8,
             eol: Eol::Lf,
             lang: "null",
+            lang_label: "Normal text",
             caret: 0,
             top: 0,
         });
@@ -472,10 +482,71 @@ impl<S: Send> Workspace<S> {
         self.open_whiteboard(title, None, super::whiteboard::empty_scene(), false)
     }
 
-    pub fn set_language(&mut self, lang: &'static str) {
-        self.tabs[self.active].lang = lang;
-        lang::apply_lexer(&self.sci, lang, &self.theme);
+    /// Choose a Language-menu entry for the active tab.
+    pub fn set_language(&mut self, label: &'static str) {
+        let lexer = lang::lexer_of_label(label);
+        let t = &mut self.tabs[self.active];
+        t.lang = lexer;
+        t.lang_label = label;
+        lang::apply_lexer(&self.sci, lexer, &self.theme);
         self.apply_palettes();
+    }
+
+    /// "Convert to": keep the text, change how it will be written. Returns a
+    /// message when the user backs out.
+    pub fn convert_to(&mut self, ui: &dyn Ui, enc: Enc) -> Option<String> {
+        if self.tabs[self.active].enc == enc {
+            return None;
+        }
+        if !self.is_whiteboard() && !doc::can_encode(&sci::get_text(&self.sci), enc) && !ui.ask_yes_no(&unmappable_warning(enc)) {
+            return Some("Conversion cancelled".into());
+        }
+        self.set_encoding(enc);
+        None
+    }
+
+    /// "Encode in": read the file's bytes again as `enc`. For a tab with no file
+    /// the current text is re-read the same way. Returns false if cancelled.
+    pub fn reload_as(&mut self, ui: &dyn Ui, enc: Enc) -> bool {
+        if self.is_whiteboard() {
+            return false;
+        }
+        let t = &self.tabs[self.active];
+        let bytes = match &t.path {
+            Some(p) => {
+                if self.is_dirty(self.active) && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload it as {} and lose them?", t.title, enc.label())) {
+                    return false;
+                }
+                match std::fs::read(p) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        ui.error(&format!("Cannot read {}\n\n{e}", p.display()));
+                        return false;
+                    }
+                }
+            }
+            None => doc::encode(&sci::get_text(&self.sci), t.enc),
+        };
+        let (text, eol) = doc::decode_with(&bytes, enc);
+        let had_path = t.path.is_some();
+        let (caret, top) = (t.caret, self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize);
+        let was_read_only = self.is_read_only();
+        self.set_read_only(false);
+        self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
+        sci::set_text(&self.sci, &text);
+        self.set_read_only(was_read_only);
+        if had_path {
+            self.send(sci::SCI_SETSAVEPOINT, 0, 0);
+            self.send(sci::SCI_EMPTYUNDOBUFFER, 0, 0);
+        }
+        let t = &mut self.tabs[self.active];
+        t.enc = enc;
+        t.eol = eol;
+        t.forced_dirty = !had_path;
+        let len = sci::length(&self.sci).max(0) as usize;
+        self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
+        self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
+        true
     }
 
     pub fn set_encoding(&mut self, enc: Enc) {
@@ -885,6 +956,12 @@ impl<S: Send> Workspace<S> {
 
     fn write_to(&mut self, ui: &dyn Ui, path: &Path) -> bool {
         let whiteboard = self.is_whiteboard();
+        if !whiteboard {
+            let enc = self.tabs[self.active].enc;
+            if !doc::can_encode(&sci::get_text(&self.sci), enc) && !ui.ask_yes_no(&unmappable_warning(enc)) {
+                return false;
+            }
+        }
         match std::fs::write(path, self.current_bytes()) {
             Ok(()) => {
                 if !whiteboard {
@@ -1002,12 +1079,14 @@ impl<S: Send> Workspace<S> {
         self.note_recent(&p);
         let whiteboard = self.is_whiteboard();
         let lang = lang_for(&p);
+        let label = lang::label_for(lang, Some(&p));
         let changed = !whiteboard && self.tabs[self.active].lang != lang;
         let t = &mut self.tabs[self.active];
         t.title = file_title(&p);
         t.path = Some(p);
         if !whiteboard {
             t.lang = lang;
+            t.lang_label = label;
         }
         if changed {
             lang::apply_lexer(&self.sci, lang, &self.theme);
@@ -1183,7 +1262,7 @@ impl<S: Send> Workspace<S> {
             length: format!("length: {}", sci::length(&self.sci)),
             eol: t.eol.label().into(),
             enc: t.enc.label().into(),
-            lang: lang::display_name(t.lang),
+            lang: t.lang_label.to_string(),
         }
     }
 
@@ -1320,7 +1399,13 @@ impl<S: Send> Workspace<S> {
             let idx = match &path {
                 Some(path) => match std::fs::read(path) {
                     Ok(bytes) => {
-                        let (text, enc, eol) = doc::decode(&bytes);
+                        // A character set chosen with "Encode in" must survive a restart.
+                        let (text, enc, eol) = if matches!(enc, Enc::Cs(_)) {
+                            let (t, e) = doc::decode_with(&bytes, enc);
+                            (t, enc, e)
+                        } else {
+                            doc::decode(&bytes)
+                        };
                         self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
                     }
                     // File vanished: keep the unsaved text if we have it, otherwise skip.
@@ -1338,6 +1423,13 @@ impl<S: Send> Workspace<S> {
             t.top = st.top;
         }
     }
+}
+
+fn unmappable_warning(enc: Enc) -> String {
+    format!(
+        "Some characters cannot be represented in {} and would be saved as numeric references (like &#1234;).\n\nContinue anyway?",
+        enc.label()
+    )
 }
 
 fn scene_element_count(content: &str) -> usize {

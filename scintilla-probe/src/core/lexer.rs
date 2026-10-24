@@ -8,12 +8,23 @@ use std::ffi::{c_char, c_void, CString};
 #[link(name = "lexilla", kind = "static")]
 unsafe extern "C" {
     fn CreateLexer(name: *const c_char) -> *mut c_void;
+    #[cfg(test)]
     fn GetLexerCount() -> i32;
+    #[cfg(test)]
+    fn GetLexerName(index: u32, name: *mut c_char, buflength: i32);
 }
 
-/// How many lexers this build has available.
-pub fn count() -> i32 {
-    unsafe { GetLexerCount() }
+/// Names of every lexer this build has.
+#[cfg(test)]
+pub fn names() -> Vec<String> {
+    (0..unsafe { GetLexerCount() }.max(0) as u32)
+        .map(|i| {
+            let mut buf = [0 as c_char; 64];
+            unsafe { GetLexerName(i, buf.as_mut_ptr(), buf.len() as i32) };
+            let bytes: Vec<u8> = buf.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
+            String::from_utf8_lossy(&bytes).into_owned()
+        })
+        .collect()
 }
 
 /// Map a file extension to a Lexilla lexer name.
@@ -54,6 +65,31 @@ pub fn lexer_for_extension(ext: &str) -> &'static str {
         "dart" => "dart",
         "zig" => "zig",
         "nim" => "nim",
+        "adb" | "ads" | "ada" => "ada",
+        "au3" => "au3",
+        "cmake" => "cmake",
+        "coffee" => "coffeescript",
+        "d" => "d",
+        "erl" | "hrl" => "erlang",
+        "fs" | "fsx" | "fsi" => "fsharp",
+        "hs" => "haskell",
+        "jl" => "julia",
+        "lisp" | "lsp" | "el" | "scm" | "ss" => "lisp",
+        "mak" | "mk" => "makefile",
+        "m" | "mm" => "cpp",
+        "nsi" | "nsh" => "nsis",
+        "tcl" => "tcl",
+        "v" => "verilog",
+        "vhd" | "vhdl" => "vhdl",
+        "vbs" => "vb",
+        "reg" => "registry",
+        "nix" => "nix",
+        "jsp" | "asp" | "aspx" => "hypertext",
+        "gd" => "gdscript",
+        "jsonc" | "json5" => "json",
+        "zsh" | "ksh" => "bash",
+        "properties" => "props",
+        "rc" | "as" => "cpp",
         _ => "null",
     }
 }

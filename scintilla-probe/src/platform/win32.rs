@@ -33,7 +33,7 @@ use crate::core::bookmarks;
 use crate::core::functions;
 use crate::core::view;
 use crate::core::preview as pcore;
-use crate::core::doc::{Enc, Eol};
+use crate::core::doc::{CHARSETS, Enc, Eol};
 use crate::core::files;
 use crate::core::lang::LANGUAGES;
 use crate::core::sci::{self, Send, Theme};
@@ -262,10 +262,13 @@ const ID_WORKSPACE_TOGGLE: usize = 3007;
 /// Position of "Open Containing Folder" in the File menu (for greying the submenu).
 const FILE_OPEN_FOLDER_POS: u32 = 3;
 const ID_ABOUT: usize = 9001;
-const ID_ENC_BASE: usize = 7000; // + index into ENCODINGS
+const ID_ENCODE_BASE: usize = 7000; // + index into ENCODE_IN: "Encode in ..."
+const ID_CHARSET_BASE: usize = 7100; // + index into CHARSETS (CHARSETS.len() = Windows-1252)
+const ID_CONVERT_BASE: usize = 7200; // + index into ENCODE_IN: "Convert to ..."
 const ID_LANG_BASE: usize = 8000; // + index into LANGUAGES
 
-const ENCODINGS: [Enc; 5] = [Enc::Utf8, Enc::Utf8Bom, Enc::Utf16Le, Enc::Utf16Be, Enc::Ansi];
+/// The encodings offered by "Encode in" and "Convert to", in Notepad++'s order.
+const ENCODE_IN: [Enc; 5] = [Enc::Ansi, Enc::Utf8, Enc::Utf8Bom, Enc::Utf16Be, Enc::Utf16Le];
 
 /// Everything the Command Palette offers: (label, command id, shortcut).
 const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
@@ -450,8 +453,12 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
 
 fn command_items() -> Vec<Item> {
     let mut v: Vec<Item> = PALETTE_COMMANDS.iter().map(|(l, id, k)| Item { label: l.to_string(), hint: k.to_string(), id: *id }).collect();
-    for (i, e) in ENCODINGS.iter().enumerate() {
-        v.push(Item { label: format!("Encoding: {}", e.label()), hint: String::new(), id: ID_ENC_BASE + i });
+    for (i, e) in ENCODE_IN.iter().enumerate() {
+        v.push(Item { label: format!("Encoding: Encode in {}", e.label()), hint: String::new(), id: ID_ENCODE_BASE + i });
+        v.push(Item { label: format!("Encoding: Convert to {}", e.label()), hint: String::new(), id: ID_CONVERT_BASE + i });
+    }
+    for (i, c) in CHARSETS.iter().enumerate() {
+        v.push(Item { label: format!("Encoding: Character set {} ({})", c.label, c.group), hint: String::new(), id: ID_CHARSET_BASE + i });
     }
     for (i, (label, _)) in LANGUAGES.iter().enumerate() {
         v.push(Item { label: format!("Language: {label}"), hint: String::new(), id: ID_LANG_BASE + i });
@@ -1759,8 +1766,18 @@ impl App {
                 let o = ws.search.clone();
                 search::find(&sci, &o, id == ID_FINDNEXT);
             }
-            _ if (ID_ENC_BASE..ID_ENC_BASE + ENCODINGS.len()).contains(&id) => ws.set_encoding(ENCODINGS[id - ID_ENC_BASE]),
-            _ if (ID_LANG_BASE..ID_LANG_BASE + LANGUAGES.len()).contains(&id) => ws.set_language(LANGUAGES[id - ID_LANG_BASE].1),
+            _ if (ID_ENCODE_BASE..ID_ENCODE_BASE + ENCODE_IN.len()).contains(&id) => {
+                ws.reload_as(ui, ENCODE_IN[id - ID_ENCODE_BASE]);
+            }
+            _ if (ID_CHARSET_BASE..=ID_CHARSET_BASE + CHARSETS.len()).contains(&id) => {
+                let i = id - ID_CHARSET_BASE;
+                // The last entry is Windows-1252, which is the app's ANSI.
+                ws.reload_as(ui, if i == CHARSETS.len() { Enc::Ansi } else { Enc::Cs(i as u8) });
+            }
+            _ if (ID_CONVERT_BASE..ID_CONVERT_BASE + ENCODE_IN.len()).contains(&id) => {
+                self.flash = ws.convert_to(ui, ENCODE_IN[id - ID_CONVERT_BASE]);
+            }
+            _ if (ID_LANG_BASE..ID_LANG_BASE + LANGUAGES.len()).contains(&id) => ws.set_language(LANGUAGES[id - ID_LANG_BASE].0),
             _ => {}
         }
         self.refresh();
@@ -2101,10 +2118,6 @@ impl App {
             CheckMenuItem(m.view, ID_PREVIEW as u32, (MF_BYCOMMAND | on(preview_on)).0);
 
             let t = &self.ws.tabs[self.ws.active];
-            let enc = ENCODINGS.iter().position(|e| *e == t.enc).unwrap_or(0);
-            let _ = CheckMenuRadioItem(m.enc, ID_ENC_BASE as u32, (ID_ENC_BASE + ENCODINGS.len() - 1) as u32, (ID_ENC_BASE + enc) as u32, MF_BYCOMMAND.0);
-            let lang = LANGUAGES.iter().position(|l| l.1 == t.lang).unwrap_or(0);
-            let _ = CheckMenuRadioItem(m.lang, ID_LANG_BASE as u32, (ID_LANG_BASE + LANGUAGES.len() - 1) as u32, (ID_LANG_BASE + lang) as u32, MF_BYCOMMAND.0);
             let eol = match t.eol {
                 Eol::Crlf => ID_EOL_CRLF,
                 Eol::Lf => ID_EOL_LF,
@@ -2281,6 +2294,22 @@ impl App {
             let _ = EnableMenuItem(m.edit, ID_UNDO as u32, state(s.send(sci::SCI_CANUNDO, 0, 0) != 0));
             let _ = EnableMenuItem(m.edit, ID_REDO as u32, state(s.send(sci::SCI_CANREDO, 0, 0) != 0));
             let _ = EnableMenuItem(m.edit, ID_PASTE as u32, state(s.send(sci::SCI_CANPASTE, 0, 0) != 0));
+            // Encoding and Language menus: tick the entry in effect for this tab.
+            let t = &self.ws.tabs[self.ws.active];
+            let (cur, also) = match t.enc {
+                Enc::Cs(i) => (ID_CHARSET_BASE + i as usize, usize::MAX),
+                e => (
+                    ID_ENCODE_BASE + ENCODE_IN.iter().position(|x| *x == e).unwrap_or(0),
+                    if e == Enc::Ansi { ID_CHARSET_BASE + CHARSETS.len() } else { usize::MAX },
+                ),
+            };
+            for id in (ID_ENCODE_BASE..ID_ENCODE_BASE + ENCODE_IN.len()).chain(ID_CHARSET_BASE..=ID_CHARSET_BASE + CHARSETS.len()) {
+                check_deep(m.enc, id, id == cur || id == also);
+            }
+            let cur_lang = LANGUAGES.iter().position(|l| l.0 == t.lang_label).unwrap_or(0);
+            for i in 0..LANGUAGES.len() {
+                check_deep(m.lang, ID_LANG_BASE + i, i == cur_lang);
+            }
             let v = self.ws.symbols;
             for (id, on) in [
                 (ID_SYM_WS, v.whitespace),
@@ -3089,13 +3118,47 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(view, ID_QUICKOPEN, "Quick Open...\tCtrl+P");
 
     let enc = B::popup();
-    for (i, e) in ENCODINGS.iter().enumerate() {
-        B::add(enc, ID_ENC_BASE + i, e.label());
+    for (i, e) in ENCODE_IN.iter().enumerate() {
+        B::add(enc, ID_ENCODE_BASE + i, &format!("Encode in {}", e.label()));
+    }
+    // Character sets, one submenu per region.
+    let charsets = B::popup();
+    let mut regions: Vec<(&str, HMENU)> = Vec::new();
+    for (i, c) in CHARSETS.iter().enumerate() {
+        let sub = match regions.iter().find(|(g, _)| *g == c.group) {
+            Some((_, m)) => *m,
+            None => {
+                let m = B::popup();
+                if c.group == "Western European" {
+                    B::add(m, ID_CHARSET_BASE + CHARSETS.len(), "Windows-1252");
+                }
+                regions.push((c.group, m));
+                B::submenu(charsets, c.group, m);
+                m
+            }
+        };
+        B::add(sub, ID_CHARSET_BASE + i, c.label);
+    }
+    B::submenu(enc, "Character sets", charsets);
+    B::sep(enc);
+    for (i, e) in ENCODE_IN.iter().enumerate() {
+        B::add(enc, ID_CONVERT_BASE + i, &format!("Convert to {}", e.label()));
     }
 
+    // Languages: "Normal Text", then one submenu per initial letter.
     let lang = B::popup();
-    for (i, (label, _)) in LANGUAGES.iter().enumerate() {
-        B::add(lang, ID_LANG_BASE + i, label);
+    B::add(lang, ID_LANG_BASE, "Normal Text");
+    let mut by_letter: std::collections::BTreeMap<char, Vec<usize>> = std::collections::BTreeMap::new();
+    for (i, (label, _)) in LANGUAGES.iter().enumerate().skip(1) {
+        by_letter.entry(label.chars().next().unwrap_or('#').to_ascii_uppercase()).or_default().push(i);
+    }
+    for (letter, mut items) in by_letter {
+        items.sort_by_key(|i| LANGUAGES[*i].0.to_lowercase());
+        let sub = B::popup();
+        for i in items {
+            B::add(sub, ID_LANG_BASE + i, &LANGUAGES[i].0.replace('&', "&&"));
+        }
+        B::submenu(lang, &letter.to_string(), sub);
     }
 
     let help = B::popup();
@@ -3113,6 +3176,19 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
+}
+
+/// Set or clear the check mark of command `id` wherever it sits in `menu`'s submenus.
+fn check_deep(menu: HMENU, id: usize, on: bool) {
+    unsafe {
+        for i in 0..GetMenuItemCount(Some(menu)).max(0) {
+            let sub = GetSubMenu(menu, i);
+            if !sub.0.is_null() {
+                check_deep(sub, id, on);
+            }
+        }
+        let _ = CheckMenuItem(menu, id as u32, (MF_BYCOMMAND | if on { MF_CHECKED } else { MF_UNCHECKED }).0);
+    }
 }
 
 fn toolbar_items() -> Vec<ToolItem> {

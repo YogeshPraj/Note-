@@ -10,6 +10,10 @@ pub mod palette;
 #[cfg(target_os = "windows")]
 pub mod preview;
 #[cfg(target_os = "windows")]
+pub mod print;
+#[cfg(target_os = "windows")]
+pub mod tree;
+#[cfg(target_os = "windows")]
 pub mod whiteboard;
 #[cfg(target_os = "windows")]
 pub mod win32;

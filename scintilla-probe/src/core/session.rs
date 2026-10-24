@@ -34,6 +34,9 @@ pub struct Session {
     pub minimap: bool,
     #[serde(default)]
     pub recent: Vec<String>,
+    /// Folder open in the workspace tree.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 fn yes() -> bool {
@@ -90,6 +93,7 @@ mod tests {
             dark: false,
             minimap: true,
             recent: vec!["C:\\a\\b.txt".into()],
+            workspace: Some("C:\\proj".into()),
         };
         let p = std::env::temp_dir().join("notepp_session_test.json");
         s.save(&p).unwrap();

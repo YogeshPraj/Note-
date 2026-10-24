@@ -27,8 +27,46 @@ pub enum Confirm {
 pub trait Ui {
     fn pick_open(&self) -> Vec<PathBuf>;
     fn pick_save(&self, suggested: &str) -> Option<PathBuf>;
+    /// Open (`save == false`) or save a session file.
+    fn pick_session(&self, save: bool) -> Option<PathBuf>;
     fn confirm_save(&self, name: &str) -> Confirm;
+    fn ask_yes_no(&self, msg: &str) -> bool;
+    /// Move a file to the Recycle Bin.
+    fn recycle(&self, path: &Path) -> Result<(), String>;
     fn error(&self, msg: &str);
+}
+
+/// Which tabs a "Close Multiple Documents" command targets.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CloseOp {
+    All,
+    AllButActive,
+    ToTheLeft,
+    ToTheRight,
+    Unchanged,
+}
+
+/// Indices (in tab order) selected by `op`, given the active tab and which tabs are modified.
+pub fn close_targets(op: CloseOp, active: usize, dirty: &[bool]) -> Vec<usize> {
+    (0..dirty.len())
+        .filter(|&i| match op {
+            CloseOp::All => true,
+            CloseOp::AllButActive => i != active,
+            CloseOp::ToTheLeft => i < active,
+            CloseOp::ToTheRight => i > active,
+            CloseOp::Unchanged => !dirty[i],
+        })
+        .collect()
+}
+
+/// How many recently closed files are remembered.
+pub const MAX_CLOSED: usize = 20;
+
+/// Push `path` to the front of a most-recent-first list without duplicates, capped at `max`.
+pub fn push_recent(list: &mut Vec<PathBuf>, path: &Path, max: usize) {
+    list.retain(|r| !same_path(r, path));
+    list.insert(0, path.to_path_buf());
+    list.truncate(max);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -78,11 +116,15 @@ pub struct Workspace<S: Send> {
     pub search: Opts,
     /// Most recently opened/saved files, newest first (max `MAX_RECENT`).
     pub recent: Vec<PathBuf>,
+    /// Recently closed files, most recent first, for "Restore Recent Closed File".
+    pub closed: Vec<PathBuf>,
+    /// Folder shown in the workspace tree (also the root for Quick Open and Find in Files).
+    pub workspace: Option<PathBuf>,
     smart_key: (usize, usize, usize),
     next_id: u64,
 }
 
-pub const MAX_RECENT: usize = 15;
+pub const MAX_RECENT: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LineOp {
@@ -134,6 +176,8 @@ impl<S: Send> Workspace<S> {
             minimap: true,
             search: Opts { wrap: true, ..Default::default() },
             recent: Vec::new(),
+            closed: Vec::new(),
+            workspace: None,
             smart_key: (0, 0, 0),
             next_id: 1,
         };
@@ -415,9 +459,7 @@ impl<S: Send> Workspace<S> {
     }
 
     fn note_recent(&mut self, p: &Path) {
-        self.recent.retain(|r| !same_path(r, p));
-        self.recent.insert(0, p.to_path_buf());
-        self.recent.truncate(MAX_RECENT);
+        push_recent(&mut self.recent, p, MAX_RECENT);
     }
 
     /// Drop recent entries whose files no longer exist.
@@ -487,15 +529,18 @@ impl<S: Send> Workspace<S> {
         }
     }
 
-    fn write_to(&mut self, ui: &dyn Ui, path: &Path) -> bool {
-        let whiteboard = self.is_whiteboard();
-        let bytes = if whiteboard {
+    /// The active tab as it would be written to disk.
+    fn current_bytes(&self) -> Vec<u8> {
+        if self.is_whiteboard() {
             self.tabs[self.active].content.clone().into_bytes()
         } else {
-            let text = sci::get_text(&self.sci);
-            doc::encode(&text, self.tabs[self.active].enc)
-        };
-        match std::fs::write(path, bytes) {
+            doc::encode(&sci::get_text(&self.sci), self.tabs[self.active].enc)
+        }
+    }
+
+    fn write_to(&mut self, ui: &dyn Ui, path: &Path) -> bool {
+        let whiteboard = self.is_whiteboard();
+        match std::fs::write(path, self.current_bytes()) {
             Ok(()) => {
                 if !whiteboard {
                     self.send(sci::SCI_SETSAVEPOINT, 0, 0);
@@ -523,31 +568,122 @@ impl<S: Send> Workspace<S> {
         let t = &self.tabs[self.active];
         let suggested = if t.kind == TabKind::Whiteboard && !t.title.contains('.') { format!("{}.excalidraw", t.title) } else { t.title.clone() };
         let Some(p) = ui.pick_save(&suggested) else { return false };
+        self.write_and_adopt(ui, p)
+    }
+
+    /// Write the active tab to another file, leaving the tab itself untouched.
+    pub fn save_copy_as(&mut self, ui: &dyn Ui) -> Option<PathBuf> {
+        let t = &self.tabs[self.active];
+        let p = ui.pick_save(&t.title)?;
+        match std::fs::write(&p, self.current_bytes()) {
+            Ok(()) => Some(p),
+            Err(e) => {
+                ui.error(&format!("Cannot save {}\n\n{e}", p.display()));
+                None
+            }
+        }
+    }
+
+    /// Re-read the active file from disk, discarding unsaved changes after asking.
+    /// Returns false if there is nothing to reload or the user declined.
+    pub fn reload_from_disk(&mut self, ui: &dyn Ui) -> bool {
+        let Some(path) = self.tabs[self.active].path.clone() else { return false };
+        if self.is_dirty(self.active) && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload from disk and lose them?", self.tabs[self.active].title)) {
+            return false;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                ui.error(&format!("Cannot read {}\n\n{e}", path.display()));
+                return false;
+            }
+        };
+        let (text, enc, eol) = doc::decode(&bytes);
+        if self.is_whiteboard() {
+            let t = &mut self.tabs[self.active];
+            t.content = text;
+            t.dirty = false;
+            return true;
+        }
+        let (caret, top) = (self.tabs[self.active].caret, self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize);
+        self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
+        sci::set_text(&self.sci, &text);
+        self.send(sci::SCI_SETSAVEPOINT, 0, 0);
+        self.send(sci::SCI_EMPTYUNDOBUFFER, 0, 0);
+        let t = &mut self.tabs[self.active];
+        t.enc = enc;
+        t.eol = eol;
+        t.forced_dirty = false;
+        t.dirty = false;
+        let len = sci::length(&self.sci).max(0) as usize;
+        self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
+        self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
+        true
+    }
+
+    /// Move/rename the active file on disk (or just give an unsaved tab a name).
+    pub fn rename(&mut self, ui: &dyn Ui) -> bool {
+        let suggested = self.tabs[self.active].title.clone();
+        let Some(new) = ui.pick_save(&suggested) else { return false };
+        let Some(old) = self.tabs[self.active].path.clone() else {
+            // Unsaved: renaming is just Save As.
+            return self.write_and_adopt(ui, new);
+        };
+        if same_path(&old, &new) {
+            return false;
+        }
+        if let Err(e) = std::fs::rename(&old, &new).or_else(|_| std::fs::copy(&old, &new).and_then(|_| std::fs::remove_file(&old))) {
+            ui.error(&format!("Cannot rename to {}\n\n{e}", new.display()));
+            return false;
+        }
+        self.recent.retain(|r| !same_path(r, &old));
+        self.adopt_path(new);
+        true
+    }
+
+    fn write_and_adopt(&mut self, ui: &dyn Ui, p: PathBuf) -> bool {
         if !self.write_to(ui, &p) {
             return false;
         }
+        self.adopt_path(p);
+        true
+    }
+
+    /// Point the active tab at `p` (title, language, recent list).
+    fn adopt_path(&mut self, p: PathBuf) {
         self.note_recent(&p);
-        if self.is_whiteboard() {
-            let t = &mut self.tabs[self.active];
-            t.title = file_title(&p);
-            t.path = Some(p);
-            return true;
-        }
+        let whiteboard = self.is_whiteboard();
         let lang = lang_for(&p);
-        let changed = self.tabs[self.active].lang != lang;
+        let changed = !whiteboard && self.tabs[self.active].lang != lang;
         let t = &mut self.tabs[self.active];
         t.title = file_title(&p);
         t.path = Some(p);
-        t.lang = lang;
+        if !whiteboard {
+            t.lang = lang;
+        }
         if changed {
             lang::apply_lexer(&self.sci, lang, &self.theme);
             self.apply_palettes();
         }
+    }
+
+    /// Delete the active file (to the Recycle Bin) and close its tab.
+    pub fn move_to_recycle_bin(&mut self, ui: &dyn Ui) -> bool {
+        let Some(path) = self.tabs[self.active].path.clone() else { return false };
+        if !ui.ask_yes_no(&format!("Move \"{}\" to the Recycle Bin?", path.display())) {
+            return false;
+        }
+        if let Err(e) = ui.recycle(&path) {
+            ui.error(&format!("Cannot move {} to the Recycle Bin\n\n{e}", path.display()));
+            return false;
+        }
+        self.recent.retain(|r| !same_path(r, &path));
+        self.remove_tab(self.active, false);
         true
     }
 
     pub fn save_all(&mut self, ui: &dyn Ui) {
-        let keep = self.active;
+        let keep = self.tabs[self.active].id;
         for i in 0..self.tabs.len() {
             if self.is_dirty(i) {
                 self.activate(i);
@@ -556,7 +692,9 @@ impl<S: Send> Workspace<S> {
                 }
             }
         }
-        self.activate(keep);
+        if let Some(i) = self.tabs.iter().position(|t| t.id == keep) {
+            self.activate(i);
+        }
     }
 
     /// Returns false if the user cancelled.
@@ -572,7 +710,33 @@ impl<S: Send> Workspace<S> {
                 _ => {}
             }
         }
+        self.remove_tab(i, true);
+        true
+    }
+
+    /// Close every tab selected by `op`, asking about unsaved ones. False if cancelled.
+    pub fn close_many(&mut self, ui: &dyn Ui, op: CloseOp) -> bool {
+        let dirty: Vec<bool> = (0..self.tabs.len()).map(|i| self.is_dirty(i)).collect();
+        // Tab ids stay stable while indices shift as tabs go away.
+        let ids: Vec<u64> = close_targets(op, self.active, &dirty).into_iter().map(|i| self.tabs[i].id).collect();
+        for id in ids {
+            let Some(i) = self.tabs.iter().position(|t| t.id == id) else { continue };
+            if !self.close(ui, i) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Drop tab `i`, showing a neighbour (or a fresh tab if it was the last one).
+    fn remove_tab(&mut self, i: usize, remember: bool) {
+        self.activate(i);
         let (doc, is_text) = (self.tabs[i].doc, self.tabs[i].kind == TabKind::Text);
+        if remember {
+            if let Some(p) = self.tabs[i].path.clone() {
+                push_recent(&mut self.closed, &p, MAX_CLOSED);
+            }
+        }
         if self.tabs.len() == 1 {
             self.new_tab();
             self.tabs.remove(0);
@@ -592,7 +756,27 @@ impl<S: Send> Workspace<S> {
         if is_text {
             self.send(sci::SCI_RELEASEDOCUMENT, 0, doc);
         }
-        true
+    }
+
+    /// Reopen the most recently closed file that still exists.
+    pub fn restore_closed(&mut self, ui: &dyn Ui) -> bool {
+        while !self.closed.is_empty() {
+            let p = self.closed.remove(0);
+            if p.exists() {
+                self.open_path(ui, &p);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Open every file in the recent list.
+    pub fn open_all_recent(&mut self, ui: &dyn Ui) {
+        for p in self.recent.clone().into_iter().rev() {
+            if p.exists() {
+                self.open_path(ui, &p);
+            }
+        }
     }
 
     pub fn set_wrap(&mut self, on: bool) {
@@ -706,55 +890,20 @@ impl<S: Send> Workspace<S> {
             dark: self.theme.dark,
             minimap: self.minimap,
             recent: self.recent.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+            workspace: self.workspace.as_ref().map(|p| p.to_string_lossy().into_owned()),
         }
     }
 
+    /// Restore the whole saved state (startup): settings, workspace and tabs.
     pub fn restore(&mut self, s: &Session) {
         self.minimap = s.minimap;
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
+        self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         if s.dark {
             self.set_theme(Theme::dark());
         }
         self.set_wrap(s.wrap);
-        for st in &s.tabs {
-            if st.kind == "whiteboard" {
-                let path = st.path.as_ref().map(PathBuf::from);
-                let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).map(|b| doc::decode(&b).0);
-                let (content, dirty) = match (&st.text, disk) {
-                    (Some(t), Some(d)) => (t.clone(), *t != d),
-                    (Some(t), None) => (t.clone(), true),
-                    (None, Some(d)) => (d, false),
-                    (None, None) => continue,
-                };
-                self.open_whiteboard(st.title.clone(), path, content, dirty);
-                continue;
-            }
-            let (enc, eol) = (Enc::from_key(&st.enc), Eol::from_key(&st.eol));
-            let idx = match &st.path {
-                Some(p) => {
-                    let path = PathBuf::from(p);
-                    match std::fs::read(&path) {
-                        Ok(bytes) => {
-                            let (text, enc, eol) = doc::decode(&bytes);
-                            self.open_doc(file_title(&path), Some(path.clone()), &text, enc, eol, lang_for(&path))
-                        }
-                        // File vanished: keep the unsaved text if we have it, otherwise skip.
-                        Err(_) if st.text.is_some() => {
-                            self.open_doc(file_title(&path), Some(path.clone()), "", enc, eol, lang_for(&path))
-                        }
-                        Err(_) => continue,
-                    }
-                }
-                None => self.open_doc(st.title.clone(), None, "", enc, eol, "null"),
-            };
-            if let Some(text) = &st.text {
-                // Replacing content after the save point leaves the tab dirty, as it was.
-                sci::set_text(&self.sci, text);
-            }
-            let t = &mut self.tabs[idx];
-            t.caret = st.caret;
-            t.top = st.top;
-        }
+        self.restore_tabs(s);
         if self.tabs.is_empty() {
             self.new_tab();
         } else {
@@ -766,6 +915,73 @@ impl<S: Send> Workspace<S> {
             }
         }
     }
+
+    /// "Load Session": add the session's tabs to the ones already open.
+    /// Returns how many tabs were opened.
+    pub fn open_session(&mut self, s: &Session) -> usize {
+        let start = self.tabs.len();
+        let had_pristine_tab = self.tabs.len() == 1
+            && self.tabs[0].kind == TabKind::Text
+            && self.tabs[0].path.is_none()
+            && !self.is_dirty(0)
+            && sci::length(&self.sci) == 0;
+        self.restore_tabs(s);
+        let opened = self.tabs.len() - start;
+        if opened > 0 {
+            if had_pristine_tab {
+                // The empty starter tab is just in the way now.
+                self.remove_tab(0, false);
+                let want = s.active.min(opened - 1);
+                self.activate(want);
+            } else {
+                self.activate(start + s.active.min(opened - 1));
+            }
+        }
+        opened
+    }
+
+    /// Open the tabs described by `s` (skipping files that are already open).
+    fn restore_tabs(&mut self, s: &Session) {
+        for st in &s.tabs {
+            let path = st.path.as_ref().map(PathBuf::from);
+            if let Some(p) = &path {
+                if self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, p))) {
+                    continue;
+                }
+            }
+            if st.kind == "whiteboard" {
+                let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).map(|b| doc::decode(&b).0);
+                let (content, dirty) = match (&st.text, disk) {
+                    (Some(t), Some(d)) => (t.clone(), *t != d),
+                    (Some(t), None) => (t.clone(), true),
+                    (None, Some(d)) => (d, false),
+                    (None, None) => continue,
+                };
+                self.open_whiteboard(st.title.clone(), path, content, dirty);
+                continue;
+            }
+            let (enc, eol) = (Enc::from_key(&st.enc), Eol::from_key(&st.eol));
+            let idx = match &path {
+                Some(path) => match std::fs::read(path) {
+                    Ok(bytes) => {
+                        let (text, enc, eol) = doc::decode(&bytes);
+                        self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
+                    }
+                    // File vanished: keep the unsaved text if we have it, otherwise skip.
+                    Err(_) if st.text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
+                    Err(_) => continue,
+                },
+                None => self.open_doc(st.title.clone(), None, "", enc, eol, "null"),
+            };
+            if let Some(text) = &st.text {
+                // Replacing content after the save point leaves the tab dirty, as it was.
+                sci::set_text(&self.sci, text);
+            }
+            let t = &mut self.tabs[idx];
+            t.caret = st.caret;
+            t.top = st.top;
+        }
+    }
 }
 
 fn scene_element_count(content: &str) -> usize {
@@ -773,4 +989,41 @@ fn scene_element_count(content: &str) -> usize {
         .ok()
         .and_then(|v| v.get("elements").and_then(|e| e.as_array()).map(|e| e.iter().filter(|x| x.get("isDeleted").and_then(|d| d.as_bool()) != Some(true)).count()))
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_targets_cover_every_menu_option() {
+        let dirty = [false, true, false, false, true];
+        assert_eq!(close_targets(CloseOp::All, 2, &dirty), vec![0, 1, 2, 3, 4]);
+        assert_eq!(close_targets(CloseOp::AllButActive, 2, &dirty), vec![0, 1, 3, 4]);
+        assert_eq!(close_targets(CloseOp::ToTheLeft, 2, &dirty), vec![0, 1]);
+        assert_eq!(close_targets(CloseOp::ToTheRight, 2, &dirty), vec![3, 4]);
+        assert_eq!(close_targets(CloseOp::Unchanged, 2, &dirty), vec![0, 2, 3]);
+    }
+
+    #[test]
+    fn close_targets_edges() {
+        assert!(close_targets(CloseOp::ToTheLeft, 0, &[false, false]).is_empty());
+        assert!(close_targets(CloseOp::ToTheRight, 1, &[false, false]).is_empty());
+        assert!(close_targets(CloseOp::AllButActive, 0, &[false]).is_empty());
+        assert!(close_targets(CloseOp::All, 0, &[]).is_empty());
+    }
+
+    #[test]
+    fn recent_list_is_deduped_newest_first_and_capped() {
+        let mut l = Vec::new();
+        for n in 0..12 {
+            push_recent(&mut l, Path::new(&format!("C:\\f{n}.txt")), 10);
+        }
+        assert_eq!(l.len(), 10);
+        assert_eq!(l[0], PathBuf::from("C:\\f11.txt"));
+        push_recent(&mut l, Path::new("C:\\f5.txt"), 10);
+        assert_eq!(l[0], PathBuf::from("C:\\f5.txt"));
+        assert_eq!(l.iter().filter(|p| **p == PathBuf::from("C:\\f5.txt")).count(), 1);
+        assert_eq!(l.len(), 10);
+    }
 }

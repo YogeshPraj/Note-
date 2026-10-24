@@ -20,6 +20,8 @@ use super::chrome::{self, Chrome, StatusText, ToolItem};
 use super::findpanel::{self, Mode};
 use super::palette::{self, Item, Kind};
 use super::preview as pview;
+use super::print;
+use super::tree;
 use super::whiteboard as wb;
 use crate::core::preview as pcore;
 use crate::core::doc::{Enc, Eol};
@@ -29,7 +31,7 @@ use crate::core::sci::{self, Send, Theme};
 use crate::core::search::{self, Hit};
 use crate::core::session::{Session, config_dir, session_path};
 use crate::core::whiteboard;
-use crate::core::workspace::{Confirm, LineOp, Ui, Workspace};
+use crate::core::workspace::{CloseOp, Confirm, LineOp, Ui, Workspace};
 
 const WM_REFRESH: u32 = WM_APP + 1;
 const WM_MINIMAP: u32 = WM_APP + 2;
@@ -91,6 +93,30 @@ const ID_C_LOWER: usize = 2111;
 const ID_COMMENT: usize = 2112;
 const ID_RECENT_BASE: usize = 10000; // + index into the recent list
 const ID_RECENT_CLEAR: usize = 10100;
+// File menu (Notepad++ layout)
+const ID_OPEN_FOLDER_EXPLORER: usize = 1101;
+const ID_OPEN_FOLDER_CMD: usize = 1102;
+const ID_OPEN_FOLDER_WS: usize = 1103;
+const ID_OPEN_VIEWER: usize = 1104;
+const ID_OPEN_WORKSPACE: usize = 1105;
+const ID_RELOAD: usize = 1106;
+const ID_SAVE_COPY: usize = 1107;
+const ID_RENAME: usize = 1108;
+const ID_CLOSE_ALL: usize = 1109;
+const ID_CLOSE_OTHERS: usize = 1110;
+const ID_CLOSE_LEFT: usize = 1111;
+const ID_CLOSE_RIGHT: usize = 1112;
+const ID_CLOSE_UNCHANGED: usize = 1113;
+const ID_RECYCLE: usize = 1114;
+const ID_LOAD_SESSION: usize = 1115;
+const ID_SAVE_SESSION: usize = 1116;
+const ID_PRINT: usize = 1117;
+const ID_PRINT_NOW: usize = 1118;
+const ID_RESTORE_CLOSED: usize = 1119;
+const ID_OPEN_ALL_RECENT: usize = 1120;
+const ID_WORKSPACE_TOGGLE: usize = 3007;
+/// Position of "Open Containing Folder" in the File menu (for greying the submenu).
+const FILE_OPEN_FOLDER_POS: u32 = 3;
 const ID_ABOUT: usize = 9001;
 const ID_ENC_BASE: usize = 7000; // + index into ENCODINGS
 const ID_LANG_BASE: usize = 8000; // + index into LANGUAGES
@@ -102,11 +128,31 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("File: New", ID_NEW, "Ctrl+N"),
     ("File: New Whiteboard", ID_NEW_WB, ""),
     ("File: Open...", ID_OPEN, "Ctrl+O"),
+    ("File: Open Containing Folder in Explorer", ID_OPEN_FOLDER_EXPLORER, ""),
+    ("File: Open Containing Folder in Command Prompt", ID_OPEN_FOLDER_CMD, ""),
+    ("File: Open in Default Viewer", ID_OPEN_VIEWER, ""),
+    ("File: Open Folder as Workspace...", ID_OPEN_WORKSPACE, ""),
+    ("File: Reload from Disk", ID_RELOAD, "Ctrl+R"),
     ("File: Save", ID_SAVE, "Ctrl+S"),
-    ("File: Save As...", ID_SAVEAS, "Ctrl+Shift+S"),
-    ("File: Save All", ID_SAVEALL, "Ctrl+Alt+S"),
-    ("File: Close Tab", ID_CLOSE, "Ctrl+W"),
-    ("File: Clear Recent Files List", ID_RECENT_CLEAR, ""),
+    ("File: Save As...", ID_SAVEAS, "Ctrl+Alt+S"),
+    ("File: Save a Copy As...", ID_SAVE_COPY, ""),
+    ("File: Save All", ID_SAVEALL, "Ctrl+Shift+S"),
+    ("File: Rename...", ID_RENAME, ""),
+    ("File: Close", ID_CLOSE, "Ctrl+W"),
+    ("File: Close All", ID_CLOSE_ALL, "Ctrl+Shift+W"),
+    ("File: Close All but Active Document", ID_CLOSE_OTHERS, ""),
+    ("File: Close All to the Left", ID_CLOSE_LEFT, ""),
+    ("File: Close All to the Right", ID_CLOSE_RIGHT, ""),
+    ("File: Close All Unchanged", ID_CLOSE_UNCHANGED, ""),
+    ("File: Move to Recycle Bin", ID_RECYCLE, ""),
+    ("File: Load Session...", ID_LOAD_SESSION, ""),
+    ("File: Save Session...", ID_SAVE_SESSION, ""),
+    ("File: Print...", ID_PRINT, ""),
+    ("File: Print Now", ID_PRINT_NOW, ""),
+    ("File: Restore Recent Closed File", ID_RESTORE_CLOSED, "Ctrl+Shift+T"),
+    ("File: Open All Recent Files", ID_OPEN_ALL_RECENT, ""),
+    ("File: Empty Recent Files List", ID_RECENT_CLEAR, ""),
+    ("View: Toggle Folder Workspace", ID_WORKSPACE_TOGGLE, ""),
     ("File: Quick Open...", ID_QUICKOPEN, "Ctrl+P"),
     ("Edit: Undo", ID_UNDO, "Ctrl+Z"),
     ("Edit: Redo", ID_REDO, "Ctrl+Y"),
@@ -177,17 +223,20 @@ pub struct Handles {
     edit: HWND,
     mini: HWND,
     split: HWND,
+    tree: HWND,
     chrome: Chrome,
     panel: HWND,
 }
 
 #[derive(Clone, Copy)]
 pub struct Menus {
+    file: HMENU,
+    open_folder: HMENU,
+    close_multi: HMENU,
     view: HMENU,
     enc: HMENU,
     eol: HMENU,
     lang: HMENU,
-    recent: HMENU,
 }
 
 struct App {
@@ -198,7 +247,8 @@ struct App {
     hits_root: PathBuf,
     /// One-shot message shown in place of the cursor position.
     flash: Option<String>,
-    recent_shown: Vec<PathBuf>,
+    /// What the File menu was last built from: (recent list, can restore a closed file).
+    file_menu_key: (Vec<PathBuf>, bool),
     /// Files offered by Quick Open (index = palette item id).
     quick_files: Vec<PathBuf>,
     /// Content identity last sent to the preview, to skip redundant renders.
@@ -219,6 +269,7 @@ struct App {
 enum WbPending {
     Save,
     SaveAs,
+    SaveCopy,
 }
 
 /// Commands that make sense on a whiteboard tab (everything else targets the text editor).
@@ -226,7 +277,10 @@ fn wb_allows(id: usize) -> bool {
     matches!(
         id,
         ID_NEW | ID_NEW_WB | ID_OPEN | ID_SAVE | ID_SAVEAS | ID_SAVEALL | ID_CLOSE | ID_EXIT | ID_THEME | ID_NEXT_TAB | ID_PREV_TAB
-            | ID_ABOUT | ID_PALETTE | ID_QUICKOPEN | ID_RECENT_CLEAR
+            | ID_ABOUT | ID_PALETTE | ID_QUICKOPEN | ID_RECENT_CLEAR | ID_OPEN_FOLDER_EXPLORER | ID_OPEN_FOLDER_CMD
+            | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
+            | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
+            | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
 }
 
@@ -238,6 +292,8 @@ thread_local! {
     static PREVIEW_MAX: Cell<bool> = const { Cell::new(false) };
     /// The active tab is a whiteboard, so the whiteboard view replaces the editor.
     static WB_ON: Cell<bool> = const { Cell::new(false) };
+    /// The workspace tree is shown (only when a folder is open).
+    static TREE_ON: Cell<bool> = const { Cell::new(false) };
     /// Fraction of the editor row given to the preview.
     static PREVIEW_RATIO: Cell<f32> = const { Cell::new(0.5) };
 }
@@ -330,6 +386,58 @@ impl Ui for Win32Ui {
         Some(PathBuf::from(String::from_utf16_lossy(&buf[..end])))
     }
 
+    fn pick_session(&self, save: bool) -> Option<PathBuf> {
+        let mut buf = vec![0u16; 32768];
+        if save {
+            for (i, c) in "session.json".encode_utf16().enumerate() {
+                buf[i] = c;
+            }
+        }
+        let filter = wide_multi(&["Note++ session (*.json)", "*.json", "All files (*.*)", "*.*"]);
+        let ext = wide("json");
+        let mut ofn = OPENFILENAMEW {
+            lStructSize: size_of::<OPENFILENAMEW>() as u32,
+            hwndOwner: self.host,
+            lpstrFilter: PCWSTR(filter.as_ptr()),
+            lpstrFile: PWSTR(buf.as_mut_ptr()),
+            nMaxFile: buf.len() as u32,
+            lpstrDefExt: PCWSTR(ext.as_ptr()),
+            Flags: if save { OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST } else { OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST },
+            ..Default::default()
+        };
+        let ok = unsafe { if save { GetSaveFileNameW(&mut ofn) } else { GetOpenFileNameW(&mut ofn) } };
+        if !ok.as_bool() {
+            return None;
+        }
+        let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+        Some(PathBuf::from(String::from_utf16_lossy(&buf[..end])))
+    }
+
+    fn ask_yes_no(&self, msg: &str) -> bool {
+        let text = wide(msg);
+        unsafe { MessageBoxW(Some(self.host), PCWSTR(text.as_ptr()), w!("Note++"), MB_YESNO | MB_ICONQUESTION) == IDYES }
+    }
+
+    fn recycle(&self, path: &std::path::Path) -> Result<(), String> {
+        use windows::Win32::UI::Shell::{FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW, SHFileOperationW};
+        // pFrom is a list of paths, each NUL-terminated, ended by an extra NUL.
+        let mut from: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().collect();
+        from.extend([0, 0]);
+        let mut op = SHFILEOPSTRUCTW {
+            hwnd: self.host,
+            wFunc: FO_DELETE,
+            pFrom: PCWSTR(from.as_ptr()),
+            fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT).0 as u16,
+            ..Default::default()
+        };
+        let rc = unsafe { SHFileOperationW(&mut op) };
+        if rc == 0 && !op.fAnyOperationsAborted.as_bool() {
+            Ok(())
+        } else {
+            Err(format!("error code {rc:#x}"))
+        }
+    }
+
     fn confirm_save(&self, name: &str) -> Confirm {
         let text = wide(&format!("Save changes to \"{name}\"?"));
         let r = unsafe { MessageBoxW(Some(self.host), PCWSTR(text.as_ptr()), w!("Note++"), MB_YESNOCANCEL | MB_ICONWARNING) };
@@ -350,6 +458,40 @@ impl Ui for Win32Ui {
 
 // ---- app behaviour -----------------------------------------------------------
 
+/// Open Explorer with `path` selected.
+fn explorer_select(path: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    // raw_arg: Explorer wants `/select,"path"` as one argument with its own quotes.
+    let _ = std::process::Command::new("explorer").raw_arg(format!("/select,\"{}\"", path.display())).spawn();
+}
+
+/// A new Command Prompt window in `dir`.
+fn open_command_prompt(dir: Option<&std::path::Path>) {
+    use std::os::windows::process::CommandExt;
+    let mut c = std::process::Command::new("cmd");
+    c.arg("/K");
+    if let Some(d) = dir {
+        c.current_dir(d);
+    }
+    let _ = c.creation_flags(0x10).spawn(); // CREATE_NEW_CONSOLE
+}
+
+/// Open a file with whatever program Windows associates with it.
+fn shell_open(host: HWND, path: &std::path::Path) {
+    let p = wide(&path.display().to_string());
+    unsafe {
+        windows::Win32::UI::Shell::ShellExecuteW(Some(host), w!("open"), PCWSTR(p.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
+}
+
+/// Show `dir` in the workspace tree and make it the root for Quick Open / Find in Files.
+fn open_workspace(ws: &mut Workspace<Win32Sci>, dir: PathBuf) {
+    tree::set_root(&dir);
+    ws.workspace = Some(dir);
+    TREE_ON.with(|c| c.set(true));
+    layout();
+}
+
 fn popup_at_cursor(menu: HMENU, host: HWND) {
     unsafe {
         let mut pt = POINT::default();
@@ -367,8 +509,12 @@ impl App {
                 return self.refresh();
             }
             // Saving needs the page's latest scene first (its change events are debounced).
-            if (id == ID_SAVE || id == ID_SAVEAS) && self.wb_ready {
-                self.wb_pending = Some(if id == ID_SAVE { WbPending::Save } else { WbPending::SaveAs });
+            if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.wb_ready {
+                self.wb_pending = Some(match id {
+                    ID_SAVE => WbPending::Save,
+                    ID_SAVEAS => WbPending::SaveAs,
+                    _ => WbPending::SaveCopy,
+                });
                 return wb::request_data();
             }
         }
@@ -393,6 +539,87 @@ impl App {
                 let a = ws.active;
                 ws.close(ui, a);
             }
+            ID_CLOSE_ALL => drop(ws.close_many(ui, CloseOp::All)),
+            ID_CLOSE_OTHERS => drop(ws.close_many(ui, CloseOp::AllButActive)),
+            ID_CLOSE_LEFT => drop(ws.close_many(ui, CloseOp::ToTheLeft)),
+            ID_CLOSE_RIGHT => drop(ws.close_many(ui, CloseOp::ToTheRight)),
+            ID_CLOSE_UNCHANGED => drop(ws.close_many(ui, CloseOp::Unchanged)),
+            ID_SAVE_COPY => {
+                if let Some(p) = ws.save_copy_as(ui) {
+                    self.flash = Some(format!("Saved a copy to {}", p.display()));
+                }
+            }
+            ID_RENAME => {
+                if ws.rename(ui) {
+                    self.flash = Some("Renamed".into());
+                }
+            }
+            ID_RELOAD => {
+                if ws.reload_from_disk(ui) {
+                    self.wb_shown = None; // a whiteboard must push the reloaded scene to its page
+                    self.flash = Some("Reloaded from disk".into());
+                }
+            }
+            ID_RECYCLE => drop(ws.move_to_recycle_bin(ui)),
+            ID_OPEN_FOLDER_EXPLORER | ID_OPEN_FOLDER_CMD | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER => match ws.tabs[ws.active].path.clone() {
+                None => self.flash = Some("Save the file first".into()),
+                Some(p) => match id {
+                    ID_OPEN_FOLDER_EXPLORER => explorer_select(&p),
+                    ID_OPEN_FOLDER_CMD => open_command_prompt(p.parent()),
+                    ID_OPEN_FOLDER_WS => {
+                        if let Some(d) = p.parent() {
+                            open_workspace(ws, d.to_path_buf());
+                        }
+                    }
+                    _ => shell_open(ui.host, &p),
+                },
+            },
+            ID_OPEN_WORKSPACE => {
+                if let Some(d) = findpanel::browse_folder(ui.host) {
+                    open_workspace(ws, d);
+                }
+            }
+            ID_WORKSPACE_TOGGLE => {
+                if ws.workspace.is_some() {
+                    TREE_ON.with(|c| c.set(!c.get()));
+                    layout();
+                } else {
+                    self.flash = Some("No folder open: use File > Open Folder as Workspace".into());
+                }
+            }
+            ID_LOAD_SESSION => {
+                if let Some(p) = ui.pick_session(false) {
+                    match Session::load(&p) {
+                        Some(s) => {
+                            let n = ws.open_session(&s);
+                            self.flash = Some(format!("Opened {n} tab(s) from the session"));
+                        }
+                        None => ui.error("That file is not a valid Note++ session."),
+                    }
+                }
+            }
+            ID_SAVE_SESSION => {
+                if let Some(p) = ui.pick_session(true) {
+                    match ws.snapshot().save(&p) {
+                        Ok(()) => self.flash = Some(format!("Session saved to {}", p.display())),
+                        Err(e) => ui.error(&format!("Cannot save the session\n\n{e}")),
+                    }
+                }
+            }
+            ID_PRINT | ID_PRINT_NOW => {
+                let title = ws.tabs[ws.active].title.clone();
+                match print::print(ui.host, &sci, &title, id == ID_PRINT) {
+                    Ok(print::Outcome::Printed { pages }) => self.flash = Some(format!("Printed {pages} page(s)")),
+                    Ok(print::Outcome::Cancelled) => {}
+                    Err(e) => ui.error(&e),
+                }
+            }
+            ID_RESTORE_CLOSED => {
+                if !ws.restore_closed(ui) {
+                    self.flash = Some("No recently closed files".into());
+                }
+            }
+            ID_OPEN_ALL_RECENT => ws.open_all_recent(ui),
             ID_EXIT => unsafe {
                 let _ = PostMessageW(Some(ui.host), WM_CLOSE, WPARAM(0), LPARAM(0));
             },
@@ -498,8 +725,9 @@ impl App {
                 for p in &ws.recent {
                     push(p, &mut files);
                 }
+                // The open workspace folder, if any, otherwise the active file's project.
                 let start = ws.tabs[ws.active].path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
-                let root = start.as_ref().map(|d| files::project_root(d));
+                let root = ws.workspace.clone().or_else(|| start.as_ref().map(|d| files::project_root(d)));
                 if let Some(root) = &root {
                     for p in files::scan_files(root, 8000) {
                         push(&p, &mut files);
@@ -530,11 +758,10 @@ impl App {
                     _ => Mode::Mark,
                 };
                 let dir = ws
-                    .tabs[ws.active]
-                    .path
+                    .workspace
                     .as_ref()
-                    .and_then(|p| p.parent())
                     .map(|p| p.display().to_string())
+                    .or_else(|| ws.tabs[ws.active].path.as_ref().and_then(|p| p.parent()).map(|p| p.display().to_string()))
                     .unwrap_or_default();
                 findpanel::open(mode, &search::selected_text(&sci), &ws.search.find, &dir);
                 self.refresh();
@@ -622,6 +849,7 @@ impl App {
         match p {
             WbPending::Save => ws.save(ui),
             WbPending::SaveAs => ws.save_as(ui),
+            WbPending::SaveCopy => ws.save_copy_as(ui).is_some(),
         };
         self.refresh();
     }
@@ -802,9 +1030,7 @@ impl App {
             &h.chrome,
             StatusText { position, lines: s.lines, length: s.length, enc: s.enc, eol: s.eol, lang: s.lang, ins: "INS".into() },
         );
-        if self.ws.recent != self.recent_shown {
-            self.rebuild_recent_menu();
-        }
+        self.sync_file_menu();
         chrome::set_checked(&h.chrome, ID_WRAP, self.ws.wrap);
         chrome::set_checked(&h.chrome, ID_THEME, self.ws.theme.dark);
         chrome::set_theme(&h.chrome, self.ws.theme.dark, self.ws.theme.bg, self.ws.theme.fg);
@@ -920,26 +1146,26 @@ impl App {
         }
     }
 
-    fn rebuild_recent_menu(&mut self) {
-        let m = self.menus.recent;
+    /// Rebuild the File menu when the recent list or "can restore a closed file" changed.
+    fn sync_file_menu(&mut self) {
+        let key = (self.ws.recent.clone(), !self.ws.closed.is_empty());
+        if key != self.file_menu_key {
+            fill_file_menu(&self.menus, &key.0, key.1);
+            self.file_menu_key = key;
+        }
+        // Items that act on the file behind the active tab are greyed for unsaved tabs.
+        let has_path = self.ws.tabs[self.ws.active].path.is_some();
+        let state = if has_path { MF_ENABLED } else { MF_GRAYED };
+        let m = self.menus;
         unsafe {
-            while GetMenuItemCount(Some(m)) > 0 {
-                let _ = DeleteMenu(m, 0, MF_BYPOSITION);
+            for id in [ID_OPEN_VIEWER, ID_RELOAD, ID_RECYCLE] {
+                let _ = EnableMenuItem(m.file, id as u32, MF_BYCOMMAND | state);
+            }
+            let _ = EnableMenuItem(m.file, FILE_OPEN_FOLDER_POS, MF_BYPOSITION | state);
+            for id in [ID_OPEN_FOLDER_EXPLORER, ID_OPEN_FOLDER_CMD, ID_OPEN_FOLDER_WS] {
+                let _ = EnableMenuItem(m.open_folder, id as u32, MF_BYCOMMAND | state);
             }
         }
-        if self.ws.recent.is_empty() {
-            let t = wide("(empty)");
-            unsafe {
-                let _ = AppendMenuW(m, MF_STRING | MF_GRAYED, 0, PCWSTR(t.as_ptr()));
-            }
-        } else {
-            for (i, p) in self.ws.recent.iter().enumerate() {
-                MenuBuilder::add(m, ID_RECENT_BASE + i, &format!("&{}  {}", i + 1, p.display().to_string().replace('&', "&&")));
-            }
-            MenuBuilder::sep(m);
-            MenuBuilder::add(m, ID_RECENT_CLEAR, "Clear Recent Files List");
-        }
-        self.recent_shown = self.ws.recent.clone();
     }
 
     fn save_session(&mut self) {
@@ -973,6 +1199,11 @@ fn layout() {
         findpanel::arrange(w);
 
         let area_h = panel_y - top;
+        // Folder workspace tree on the far left; everything below uses the space to its right.
+        let tree_w = if TREE_ON.with(|c| c.get()) { tree::WIDTH.min(w / 2) } else { 0 };
+        let _ = ShowWindow(h.tree, if tree_w > 0 { SW_SHOW } else { SW_HIDE });
+        mv(h.tree, 0, top, tree_w, area_h);
+        let (x0, w) = (tree_w, w - tree_w);
         let mini_on = MINI_ON.with(|c| c.get());
         let preview_on = PREVIEW_ON.with(|c| c.get());
         let maximised = preview_on && PREVIEW_MAX.with(|c| c.get());
@@ -988,14 +1219,14 @@ fn layout() {
             show(h.mini, false);
             show(h.split, false);
             pview::set_visible(false);
-            wb::set_bounds(0, top, w, area_h);
+            wb::set_bounds(x0, top, w, area_h);
         } else if maximised {
             pview::set_visible(true);
             // The preview takes the whole editor row.
             show(h.edit, false);
             show(h.mini, false);
             show(h.split, false);
-            pview::set_bounds(0, top, w, area_h);
+            pview::set_bounds(x0, top, w, area_h);
         } else {
             // Editor (with its minimap) on the left, optional splitter + preview on the right.
             let preview_w = if preview_on {
@@ -1011,13 +1242,13 @@ fn layout() {
 
             show(h.edit, true);
             pview::set_visible(preview_on);
-            mv(h.edit, 0, top, editor_w - mini_w, area_h);
-            mv(h.mini, editor_w - mini_w, top, mini_w, area_h);
+            mv(h.edit, x0, top, editor_w - mini_w, area_h);
+            mv(h.mini, x0 + editor_w - mini_w, top, mini_w, area_h);
             show(h.mini, mini_w > 0);
             show(h.split, preview_on);
             if preview_on {
-                mv(h.split, editor_w, top, split_w, area_h);
-                pview::set_bounds(editor_w + split_w, top, preview_w, area_h);
+                mv(h.split, x0 + editor_w, top, split_w, area_h);
+                pview::set_bounds(x0 + editor_w + split_w, top, preview_w, area_h);
             }
         }
     }
@@ -1202,7 +1433,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 let _ = GetClientRect(hwnd, &mut rc);
             }
             if rc.right > 0 {
-                let ratio = ((rc.right as f32 - l.0 as f32) / rc.right as f32).clamp(0.2, 0.8);
+                let tree_w = if TREE_ON.with(|c| c.get()) { tree::WIDTH.min(rc.right / 2) } else { 0 };
+                let content = (rc.right - tree_w).max(1) as f32;
+                let ratio = ((rc.right as f32 - l.0 as f32) / content).clamp(0.2, 0.8);
                 PREVIEW_RATIO.with(|c| c.set(ratio));
                 layout();
             }
@@ -1219,6 +1452,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_NOTIFY => {
             let hdr = unsafe { &*(l.0 as *const windows::Win32::UI::Controls::NMHDR) };
+            // The workspace tree: expanding folders is handled inside; a file asks to be opened.
+            if let Some(path) = tree::notify(l) {
+                with_app(|a| {
+                    let App { ws, ui, .. } = &mut *a;
+                    ws.open_path(ui, &path);
+                    a.refresh();
+                    a.focus_active();
+                });
+                return LRESULT(0);
+            }
             if let Some(h) = handles() {
                 if hdr.hwndFrom == h.edit && hdr.code == sci::SCN_MARGINCLICK {
                     let n = unsafe { &*(l.0 as *const SciNotify) };
@@ -1266,6 +1509,12 @@ impl MenuBuilder {
             let _ = AppendMenuW(m, MF_STRING, id, PCWSTR(t.as_ptr()));
         }
     }
+    fn add_state(m: HMENU, id: usize, text: &str, enabled: bool) {
+        let t = wide(text);
+        unsafe {
+            let _ = AppendMenuW(m, MF_STRING | if enabled { MF_ENABLED } else { MF_GRAYED }, id, PCWSTR(t.as_ptr()));
+        }
+    }
     fn sep(m: HMENU) {
         unsafe {
             let _ = AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null());
@@ -1290,21 +1539,66 @@ fn eol_menu() -> HMENU {
     m
 }
 
+/// Fill the File menu in Notepad++'s order. Run again whenever the recent list
+/// changes; `RemoveMenu` (not `DeleteMenu`) keeps the submenus alive for reuse.
+fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
+    use MenuBuilder as B;
+    unsafe {
+        while GetMenuItemCount(Some(m.file)) > 0 {
+            let _ = RemoveMenu(m.file, 0, MF_BYPOSITION);
+        }
+    }
+    let f = m.file;
+    B::add(f, ID_NEW, "&New\tCtrl+N");
+    B::add(f, ID_NEW_WB, "New &Whiteboard");
+    B::add(f, ID_OPEN, "&Open...\tCtrl+O");
+    B::submenu(f, "Open Containing &Folder", m.open_folder); // keep FILE_OPEN_FOLDER_POS in step
+    B::add(f, ID_OPEN_VIEWER, "Open in &Default Viewer");
+    B::add(f, ID_OPEN_WORKSPACE, "Open Folder as &Workspace...");
+    B::add(f, ID_RELOAD, "Reload from Dis&k\tCtrl+R");
+    B::add(f, ID_SAVE, "&Save\tCtrl+S");
+    B::add(f, ID_SAVEAS, "Save &As...\tCtrl+Alt+S");
+    B::add(f, ID_SAVE_COPY, "Save a Cop&y As...");
+    B::add(f, ID_SAVEALL, "Save A&ll\tCtrl+Shift+S");
+    B::add(f, ID_RENAME, "Rena&me...");
+    B::add(f, ID_CLOSE, "&Close\tCtrl+W");
+    B::add(f, ID_CLOSE_ALL, "Close All\tCtrl+Shift+W");
+    B::submenu(f, "Close M&ultiple Documents", m.close_multi);
+    B::add(f, ID_RECYCLE, "Move to Recycle &Bin");
+    B::sep(f);
+    B::add(f, ID_LOAD_SESSION, "Load Session...");
+    B::add(f, ID_SAVE_SESSION, "Save Session...");
+    B::sep(f);
+    // Ctrl+P is Quick Open in Note++, so Print has no shortcut.
+    B::add(f, ID_PRINT, "&Print...");
+    B::add(f, ID_PRINT_NOW, "Print No&w");
+    B::sep(f);
+    if !recent.is_empty() {
+        for (i, p) in recent.iter().enumerate() {
+            let mnemonic = if i < 9 { format!("&{}", i + 1) } else { "1&0".to_string() };
+            B::add(f, ID_RECENT_BASE + i, &format!("{mnemonic}: {}", p.display().to_string().replace('&', "&&")));
+        }
+        B::sep(f);
+    }
+    B::add_state(f, ID_RESTORE_CLOSED, "Restore Recent Closed File\tCtrl+Shift+T", can_restore);
+    B::add_state(f, ID_OPEN_ALL_RECENT, "Open All Recent Files", !recent.is_empty());
+    B::add_state(f, ID_RECENT_CLEAR, "Empty Recent Files List", !recent.is_empty());
+    B::sep(f);
+    B::add(f, ID_EXIT, "E&xit\tAlt+F4");
+}
+
 fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     use MenuBuilder as B;
     let file = B::popup();
-    B::add(file, ID_NEW, "&New\tCtrl+N");
-    B::add(file, ID_NEW_WB, "New &Whiteboard");
-    B::add(file, ID_OPEN, "&Open...\tCtrl+O");
-    let recent = B::popup();
-    B::submenu(file, "Recent &Files", recent);
-    B::sep(file);
-    B::add(file, ID_SAVE, "&Save\tCtrl+S");
-    B::add(file, ID_SAVEAS, "Save &As...\tCtrl+Shift+S");
-    B::add(file, ID_SAVEALL, "Save A&ll\tCtrl+Alt+S");
-    B::sep(file);
-    B::add(file, ID_CLOSE, "&Close\tCtrl+W");
-    B::add(file, ID_EXIT, "E&xit\tAlt+F4");
+    let open_folder = B::popup();
+    B::add(open_folder, ID_OPEN_FOLDER_EXPLORER, "&Explorer");
+    B::add(open_folder, ID_OPEN_FOLDER_CMD, "&cmd");
+    B::add(open_folder, ID_OPEN_FOLDER_WS, "Folder as &Workspace");
+    let close_multi = B::popup();
+    B::add(close_multi, ID_CLOSE_OTHERS, "Close All but Active Document");
+    B::add(close_multi, ID_CLOSE_LEFT, "Close All to the Left");
+    B::add(close_multi, ID_CLOSE_RIGHT, "Close All to the Right");
+    B::add(close_multi, ID_CLOSE_UNCHANGED, "Close All Unchanged");
 
     let edit = B::popup();
     B::add(edit, ID_UNDO, "&Undo\tCtrl+Z");
@@ -1389,7 +1683,9 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Language".to_string(), lang),
         ("?".to_string(), help),
     ];
-    (bar, Menus { view, enc, eol: eol_menu(), lang, recent })
+    let menus = Menus { file, open_folder, close_multi, view, enc, eol: eol_menu(), lang };
+    fill_file_menu(&menus, &[], false);
+    (bar, menus)
 }
 
 fn toolbar_items() -> Vec<ToolItem> {
@@ -1403,8 +1699,9 @@ fn toolbar_items() -> Vec<ToolItem> {
         btn!(ID_NEW_WB, "whiteboard.svg", "New Whiteboard"),
         btn!(ID_OPEN, "open.svg", "Open (Ctrl+O)"),
         btn!(ID_SAVE, "save.svg", "Save (Ctrl+S)"),
-        btn!(ID_SAVEALL, "saveall.svg", "Save All (Ctrl+Alt+S)"),
+        btn!(ID_SAVEALL, "saveall.svg", "Save All (Ctrl+Shift+S)"),
         btn!(ID_CLOSE, "close.svg", "Close (Ctrl+W)"),
+        btn!(ID_PRINT, "print.svg", "Print"),
         ToolItem::Sep,
         btn!(ID_CUT, "cut.svg", "Cut (Ctrl+X)"),
         btn!(ID_COPY, "copy.svg", "Copy (Ctrl+C)"),
@@ -1437,9 +1734,12 @@ fn accelerators() -> HACCEL {
         k(CTRL, 'N', ID_NEW),
         k(CTRL, 'O', ID_OPEN),
         k(CTRL, 'S', ID_SAVE),
-        k(CTRL_SHIFT, 'S', ID_SAVEAS),
-        k(CTRL_ALT, 'S', ID_SAVEALL),
+        k(CTRL_ALT, 'S', ID_SAVEAS),
+        k(CTRL_SHIFT, 'S', ID_SAVEALL),
         k(CTRL, 'W', ID_CLOSE),
+        k(CTRL_SHIFT, 'W', ID_CLOSE_ALL),
+        k(CTRL, 'R', ID_RELOAD),
+        k(CTRL_SHIFT, 'T', ID_RESTORE_CLOSED),
         k(CTRL, 'F', ID_FIND),
         k(CTRL, 'H', ID_REPLACE),
         k(CTRL, 'G', ID_GOTO),
@@ -1551,7 +1851,8 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
             None,
         )?;
 
-        let hs = Handles { host, edit, mini, split, chrome, panel };
+        let tree_view = tree::create(host);
+        let hs = Handles { host, edit, mini, split, tree: tree_view, chrome, panel };
         HANDLES.with(|c| c.set(Some(hs)));
         Ok((hs, menus))
     }
@@ -1572,8 +1873,12 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         ws.new_tab();
     }
     MINI_ON.with(|c| c.set(ws.minimap));
+    if let Some(root) = ws.workspace.clone() {
+        tree::set_root(&root);
+        TREE_ON.with(|c| c.set(true));
+    }
     APP.with(|c| {
-        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hits_root: PathBuf::new(), flash: None, recent_shown: vec![PathBuf::from("\u{0}")], quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
+        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
     });
 
     unsafe {

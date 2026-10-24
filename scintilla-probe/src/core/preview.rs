@@ -61,8 +61,7 @@ pub fn markdown_to_html(src: &str) -> String {
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_HEADING_ATTRIBUTES;
+        | Options::ENABLE_TASKLISTS;
     let mut events: Vec<Event> = Vec::new();
     let mut mermaid: Option<String> = None;
     for ev in Parser::new_ext(src, opts) {
@@ -78,7 +77,7 @@ pub fn markdown_to_html(src: &str) -> String {
             // Raw HTML is displayed, not executed.
             Event::Html(s) | Event::InlineHtml(s) => events.push(Event::Text(s)),
             Event::Start(Tag::Link { link_type, dest_url, title, id }) => {
-                let bad = dest_url.trim_start().to_ascii_lowercase().starts_with("javascript:");
+                let bad = !safe_link(&dest_url);
                 let dest = if bad { "#".into() } else { dest_url };
                 events.push(Event::Start(Tag::Link { link_type: if bad { LinkType::Inline } else { link_type }, dest_url: dest, title, id }));
             }
@@ -88,6 +87,18 @@ pub fn markdown_to_html(src: &str) -> String {
     let mut out = String::new();
     html::push_html(&mut out, events.into_iter());
     out
+}
+
+/// Links may only go to http(s), mailto, or stay on the page (no scheme at all).
+fn safe_link(url: &str) -> bool {
+    let u = url.trim_start();
+    match u.find([':', '/', '?', '#']) {
+        Some(i) if u.as_bytes()[i] == b':' => {
+            let scheme = u[..i].to_ascii_lowercase();
+            matches!(scheme.as_str(), "http" | "https" | "mailto")
+        }
+        _ => true,
+    }
 }
 
 #[cfg(test)]
@@ -135,5 +146,26 @@ mod tests {
         assert!(!h.contains("<script>") && !h.contains("<img"), "{h}");
         assert!(h.contains("&lt;script&gt;"));
         assert!(!h.to_lowercase().contains("javascript:"), "{h}");
+    }
+
+    #[test]
+    fn heading_attributes_cannot_carry_event_handlers() {
+        for src in ["# Hi {onmouseover=alert(1) #x .c}", "setext {onclick=alert(2)}\n===", "## T {#id onfocus=x}"] {
+            let h = markdown_to_html(src).to_lowercase();
+            // Plain `<h1>` / `<h2>` only: the braces stay visible as text, never become attributes.
+            assert!(!h.contains("<h1 ") && !h.contains("<h2 "), "{h}");
+        }
+    }
+
+    #[test]
+    fn only_safe_link_schemes_survive() {
+        for bad in ["javascript:alert(1)", "  JaVaScRiPt:x", "vbscript:x", "file://evil/share/x", "data:text/html,<b>", "ms-msdt:/id"] {
+            let h = markdown_to_html(&format!("[x]({bad})"));
+            assert!(h.contains("href=\"#\""), "{bad}: {h}");
+        }
+        for ok in ["https://a.b/c", "http://a.b", "mailto:a@b.c", "#frag", "docs/readme.md", "./x:y"] {
+            let h = markdown_to_html(&format!("[x]({ok})"));
+            assert!(!h.contains("href=\"#\"") || ok == "#frag", "{ok}: {h}");
+        }
     }
 }

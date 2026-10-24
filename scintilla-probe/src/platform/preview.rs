@@ -87,11 +87,12 @@ pub fn ensure(host: HWND, data_dir: &std::path::Path) -> Result<(), String> {
             }
         })
         .with_navigation_handler(|url| {
-            if url.starts_with("http") || url.starts_with("mailto:") {
+            // The page is loaded from a string (about:/data:); links go to the browser, nothing else navigates.
+            if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:") {
                 open_external(&url);
                 false
             } else {
-                true
+                url.starts_with("about:") || url.starts_with("data:")
             }
         })
         .build_as_child(&Parent(host_raw))

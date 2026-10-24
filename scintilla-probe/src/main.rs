@@ -27,6 +27,7 @@ unsafe extern "system" fn crash_logger(info: *mut windows::Win32::System::Diagno
 }
 
 fn main() -> windows::core::Result<()> {
+    platform::win32::harden_dll_search();
     unsafe {
         windows::Win32::System::Diagnostics::Debug::AddVectoredExceptionHandler(1, Some(crash_logger));
     }

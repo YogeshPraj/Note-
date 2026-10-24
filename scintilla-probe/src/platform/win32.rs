@@ -1159,11 +1159,24 @@ fn set_fullscreen(host: HWND, on: bool) {
 }
 
 /// Open `file` with a specific program (found through App Paths, e.g. `chrome.exe`).
+/// The working directory is System32, so a planted `chrome.exe` in the current
+/// directory is never picked up.
 fn shell_open_with(host: HWND, exe: &str, file: &std::path::Path) {
     let (e, f) = (wide(exe), wide(&format!("\"{}\"", file.display())));
+    let mut sys = [0u16; 260];
+    let n = unsafe { windows::Win32::System::SystemInformation::GetSystemDirectoryW(Some(&mut sys)) } as usize;
+    let dir = if n > 0 && n < sys.len() { PCWSTR(sys.as_ptr()) } else { PCWSTR::null() };
     unsafe {
-        windows::Win32::UI::Shell::ShellExecuteW(Some(host), w!("open"), PCWSTR(e.as_ptr()), PCWSTR(f.as_ptr()), PCWSTR::null(), SW_SHOWNORMAL);
+        windows::Win32::UI::Shell::ShellExecuteW(Some(host), w!("open"), PCWSTR(e.as_ptr()), PCWSTR(f.as_ptr()), dir, SW_SHOWNORMAL);
     }
+}
+
+/// Files that run code when "opened" (programs, scripts, shortcuts, installers).
+fn runs_code(path: &std::path::Path) -> bool {
+    const RUNNABLE: [&str; 28] = [
+        "exe", "com", "scr", "pif", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "lnk", "msi", "msp", "reg", "cpl", "jar", "msc", "appx", "msix", "application", "gadget", "url", "dll",
+    ];
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| RUNNABLE.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 /// Right-to-left or left-to-right reading order for the editor.
@@ -1414,6 +1427,7 @@ impl App {
                             open_workspace(ws, d.to_path_buf());
                         }
                     }
+                    _ if runs_code(&p) && !ui.ask_yes_no(&format!("{} is a program or script. Opening it will run it.\n\nRun it?", p.display())) => {}
                     _ => shell_open(ui.host, &p),
                 },
             },
@@ -3934,11 +3948,24 @@ fn accelerators(overrides: &std::collections::BTreeMap<String, String>) -> HACCE
 
 // ---- startup -----------------------------------------------------------------------
 
+/// Stop Windows looking for DLLs in the current directory or on PATH (DLL planting).
+/// Call first thing in `main`; libraries then come from System32 or the exe's folder only.
+pub fn harden_dll_search() {
+    use windows::Win32::System::LibraryLoader::{LOAD_LIBRARY_SEARCH_APPLICATION_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories, SetDllDirectoryW};
+    unsafe {
+        let _ = SetDllDirectoryW(w!(""));
+        let _ = SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+    }
+}
+
 /// Create the host window, chrome, Scintilla editor + minimap and the Find panel.
 pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Handles, Menus)> {
     unsafe {
-        // Loading the DLL is what registers Scintilla's window class.
-        LoadLibraryW(w!("Scintilla.dll"))?;
+        // Loading the DLL is what registers Scintilla's window class. Use the copy beside the
+        // exe by full path, never one found through the search order.
+        let scintilla_dll = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("Scintilla.dll")));
+        let path = wide(&scintilla_dll.unwrap_or_else(|| PathBuf::from("Scintilla.dll")).to_string_lossy());
+        LoadLibraryW(PCWSTR(path.as_ptr()))?;
         let hinstance = GetModuleHandleW(None)?;
         let class = w!("NoteppHost");
         RegisterClassW(&WNDCLASSW {
@@ -4087,6 +4114,16 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
 #[cfg(test)]
 mod accelerator_tests {
     use super::*;
+
+    #[test]
+    fn executable_files_are_recognised() {
+        for yes in ["a.exe", "B.BAT", "x.Ps1", "s.lnk", "t.hta", "i.msi", "w.url"] {
+            assert!(runs_code(std::path::Path::new(yes)), "{yes}");
+        }
+        for no in ["a.txt", "readme.md", "noext", "exe", "x.exe.txt", "p.py"] {
+            assert!(!runs_code(std::path::Path::new(no)), "{no}");
+        }
+    }
 
     fn entries(table: HACCEL) -> Vec<ACCEL> {
         unsafe {

@@ -351,6 +351,11 @@ pub fn clear_marks<S: Send>(s: &S, indicator: usize) {
 
 pub fn mark_all<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, String> {
     clear_marks(s, indicator);
+    fill_marks(s, o, indicator)
+}
+
+/// Mark every match without clearing what is already marked.
+fn fill_marks<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, String> {
     let (text, re) = match prepare(s, o) {
         Ok(v) => v,
         Err(e) if e.is_empty() => return Ok(0),
@@ -362,6 +367,193 @@ pub fn mark_all<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, Str
         s.send(sci::SCI_INDICATORFILLRANGE, *a, (*b - *a) as isize);
     }
     Ok(marks.len())
+}
+
+// ---- token styles (Search > Style ... Token) -------------------------------
+
+/// Five user colours, like Notepad++'s "1st" to "5th" styles.
+pub const STYLE_SLOTS: usize = 5;
+const INDIC_STYLE_BASE: usize = 10;
+pub const STYLE_COLOURS: [(u8, u8, u8); STYLE_SLOTS] =
+    [(0xFF, 0x80, 0x00), (0xFF, 0xFF, 0x00), (0x00, 0xE0, 0x40), (0x80, 0x40, 0xFF), (0xFF, 0x40, 0x40)];
+
+pub fn style_indicator(slot: usize) -> usize {
+    INDIC_STYLE_BASE + slot.min(STYLE_SLOTS - 1)
+}
+
+fn is_word_text(t: &str) -> bool {
+    !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Byte range of the word under the caret.
+fn word_range_at_caret<S: Send>(s: &S) -> Option<Span> {
+    let pos = s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+    let a = s.send(sci::SCI_WORDSTARTPOSITION, pos, 1).max(0) as usize;
+    let b = s.send(sci::SCI_WORDENDPOSITION, pos, 1).max(0) as usize;
+    (b > a && b - a <= 200).then_some((a, b))
+}
+
+/// Select the word under the caret when nothing is selected.
+pub fn select_word_at_caret<S: Send>(s: &S) {
+    let (a, b) = selection(s);
+    if a == b {
+        if let Some((x, y)) = word_range_at_caret(s) {
+            select(s, x, y);
+        }
+    }
+}
+
+/// The selection, or the word under the caret when nothing is selected.
+pub fn token_at_caret<S: Send>(s: &S) -> String {
+    let sel = selected_text(s);
+    if !sel.is_empty() {
+        return sel;
+    }
+    let Some((a, b)) = word_range_at_caret(s) else { return String::new() };
+    s.send(sci::SCI_SETTARGETRANGE, a, b as isize);
+    let n = s.send(sci::SCI_GETTARGETTEXT, 0, 0).max(0) as usize;
+    let mut buf = vec![0u8; n + 1];
+    s.send(sci::SCI_GETTARGETTEXT, 0, buf.as_mut_ptr() as isize);
+    buf.truncate(n);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// Colour every occurrence of `token` with a style slot. Returns how many.
+pub fn style_all<S: Send>(s: &S, slot: usize, token: &str) -> usize {
+    let o = Opts { find: token.to_string(), match_case: true, whole_word: is_word_text(token), ..Default::default() };
+    fill_marks(s, &o, style_indicator(slot)).unwrap_or(0)
+}
+
+/// Colour just the current selection with a style slot.
+pub fn style_selection<S: Send>(s: &S, slot: usize) -> bool {
+    let (a, b) = selection(s);
+    if b <= a {
+        return false;
+    }
+    s.send(sci::SCI_SETINDICATORCURRENT, style_indicator(slot), 0);
+    s.send(sci::SCI_INDICATORFILLRANGE, a, (b - a) as isize);
+    true
+}
+
+/// Remove one style slot, or all of them.
+pub fn clear_style<S: Send>(s: &S, slot: Option<usize>) {
+    match slot {
+        Some(i) => clear_marks(s, style_indicator(i)),
+        None => (0..STYLE_SLOTS).for_each(|i| clear_marks(s, style_indicator(i))),
+    }
+}
+
+/// The coloured ranges of one style slot, in order.
+pub fn style_ranges<S: Send>(s: &S, slot: usize) -> Vec<Span> {
+    let ind = style_indicator(slot);
+    let len = sci::length(s).max(0) as usize;
+    let (mut out, mut p) = (Vec::new(), 0usize);
+    while p < len {
+        let end = s.send(sci::SCI_INDICATOREND, ind, p as isize).max(0) as usize;
+        if end <= p {
+            break;
+        }
+        if s.send(sci::SCI_INDICATORVALUEAT, ind, p as isize) != 0 {
+            out.push((p, end));
+        }
+        p = end;
+    }
+    out
+}
+
+/// The range after (or, backwards, before) `from`, wrapping around.
+pub fn next_range(ranges: &[Span], from: usize, forward: bool) -> Option<Span> {
+    if forward {
+        ranges.iter().find(|r| r.0 >= from).or(ranges.first()).copied()
+    } else {
+        ranges.iter().rev().find(|r| r.0 < from).or(ranges.last()).copied()
+    }
+}
+
+/// Select the next coloured range of a slot. Returns false if there is none.
+pub fn jump<S: Send>(s: &S, slot: usize, forward: bool) -> bool {
+    let ranges = style_ranges(s, slot);
+    let (a, b) = selection(s);
+    match next_range(&ranges, if forward { b } else { a }, forward) {
+        Some((x, y)) => {
+            select(s, x, y);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The text under the given style slots, one piece per line, in document order.
+pub fn styled_text<S: Send>(s: &S, slots: &[usize]) -> String {
+    let mut ranges: Vec<Span> = slots.iter().flat_map(|i| style_ranges(s, *i)).collect();
+    ranges.sort();
+    ranges.dedup();
+    let text = sci::get_text(s);
+    ranges.iter().filter_map(|(a, b)| text.get(*a..*b)).collect::<Vec<_>>().join("\r\n")
+}
+
+// ---- braces ------------------------------------------------------------------
+
+/// The brace at (or just before) the caret and its partner.
+pub fn matching_brace<S: Send>(s: &S) -> Option<Span> {
+    let pos = s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+    [Some(pos), pos.checked_sub(1)].into_iter().flatten().find_map(|p| {
+        let m = s.send(sci::SCI_BRACEMATCH, p, 0);
+        (m >= 0).then_some((p, m as usize))
+    })
+}
+
+pub fn goto_matching_brace<S: Send>(s: &S) -> bool {
+    match matching_brace(s) {
+        Some((_, m)) => {
+            s.send(sci::SCI_GOTOPOS, m, 0);
+            s.send(sci::SCI_SCROLLCARET, 0, 0);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Select what lies between the brace and its partner (braces excluded).
+pub fn select_between_braces<S: Send>(s: &S) -> bool {
+    match matching_brace(s) {
+        Some((p, m)) => {
+            s.send(sci::SCI_SETSEL, p.min(m) + 1, p.max(m) as isize);
+            true
+        }
+        None => false,
+    }
+}
+
+// ---- find characters in a range ---------------------------------------------
+
+/// The next character whose code point is within `lo..=hi`, from byte offset
+/// `from` (exclusive of text before it when going forward, of text after it
+/// when going backward), optionally wrapping around.
+pub fn find_char_in_range(text: &str, lo: u32, hi: u32, from: usize, forward: bool, wrap: bool) -> Option<Span> {
+    let hit = |(i, c): &(usize, char)| (lo..=hi).contains(&(*c as u32)).then_some((*i, *i + c.len_utf8()));
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let split = chars.partition_point(|(i, _)| *i < from);
+    if forward {
+        let first = chars[split..].iter().find_map(hit);
+        first.or_else(|| if wrap { chars[..split].iter().find_map(hit) } else { None })
+    } else {
+        let first = chars[..split].iter().rev().find_map(hit);
+        first.or_else(|| if wrap { chars[split..].iter().rev().find_map(hit) } else { None })
+    }
+}
+
+/// Search the editor text for a character in range and select it.
+pub fn find_char<S: Send>(s: &S, lo: u32, hi: u32, forward: bool, wrap: bool) -> bool {
+    let (a, b) = selection(s);
+    let text = sci::get_text(s);
+    match find_char_in_range(&text, lo, hi, if forward { b } else { a }, forward, wrap) {
+        Some((x, y)) => {
+            select(s, x, y);
+            true
+        }
+        None => false,
+    }
 }
 
 /// The selected text, but only for a single ordinary selection. Column
@@ -420,6 +612,28 @@ mod tests {
 
     fn opts(find: &str) -> Opts {
         Opts { find: find.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn range_navigation_wraps() {
+        let r = [(2, 4), (10, 12), (20, 25)];
+        assert_eq!(next_range(&r, 4, true), Some((10, 12)));
+        assert_eq!(next_range(&r, 26, true), Some((2, 4)));
+        assert_eq!(next_range(&r, 10, false), Some((2, 4)));
+        assert_eq!(next_range(&r, 0, false), Some((20, 25)));
+        assert_eq!(next_range(&[], 0, true), None);
+    }
+
+    #[test]
+    fn finds_characters_in_a_code_point_range() {
+        let t = "ab\u{e9}cd\u{20ac}";
+        assert_eq!(find_char_in_range(t, 128, u32::MAX, 0, true, false), Some((2, 4)));
+        assert_eq!(find_char_in_range(t, 128, u32::MAX, 4, true, false), Some((6, 9)));
+        assert_eq!(find_char_in_range(t, 128, u32::MAX, 9, true, false), None);
+        assert_eq!(find_char_in_range(t, 128, u32::MAX, 9, true, true), Some((2, 4)));
+        assert_eq!(find_char_in_range(t, 0, 127, 6, false, false), Some((5, 6)));
+        assert_eq!(find_char_in_range(t, 0, 127, 0, false, true), Some((5, 6)));
+        assert_eq!(find_char_in_range("abc", 0x62, 0x62, 0, true, false), Some((1, 2)));
     }
     fn count_of(text: &str, o: &Opts) -> usize {
         all_matches(text, &compile(o).unwrap()).len()

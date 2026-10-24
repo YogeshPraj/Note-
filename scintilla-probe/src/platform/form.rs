@@ -39,6 +39,14 @@ pub struct Form {
 }
 
 impl Form {
+    pub fn set_text(&self, id: usize, s: &str) {
+        if let Some(h) = self.controls.get(&id) {
+            let t = wide(s);
+            unsafe {
+                let _ = SetWindowTextW(*h, PCWSTR(t.as_ptr()));
+            }
+        }
+    }
     pub fn text(&self, id: usize) -> String {
         self.controls.get(&id).map(|h| text_of(*h)).unwrap_or_default()
     }
@@ -91,6 +99,8 @@ pub struct Spec<'a> {
     pub ok: &'a str,
     /// Called after any check box or radio button is clicked.
     pub on_change: Option<fn(&Form)>,
+    /// Called when OK is pressed; returning true keeps the form open (like a Find button).
+    pub on_apply: Option<&'a dyn Fn(&Values, &Form) -> bool>,
 }
 
 thread_local! {
@@ -243,23 +253,8 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
 
         let _ = EnableWindow(owner, false);
         let _ = ShowWindow(hwnd, SW_SHOW);
-        let mut msg = MSG::default();
-        while DONE.with(|d| d.get()).is_none() {
-            if !GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                PostQuitMessage(msg.wParam.0 as i32);
-                DONE.with(|d| d.set(Some(false)));
-                break;
-            }
-            if !IsDialogMessageW(hwnd, &msg).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        }
-
-        let accepted = DONE.with(|d| d.get()) == Some(true);
-        let live = LIVE.with(|l| l.borrow_mut().take());
-        let mut values = Values { text: HashMap::new(), checked: HashMap::new() };
-        if let Some((form, _)) = &live {
+        let collect = |form: &Form| {
+            let mut values = Values { text: HashMap::new(), checked: HashMap::new() };
             for c in &spec.ctls {
                 match c.kind {
                     Kind::Edit => drop(values.text.insert(c.id, form.text(c.id))),
@@ -267,7 +262,36 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
                     _ => {}
                 }
             }
-        }
+            values
+        };
+        let mut msg = MSG::default();
+        let accepted = loop {
+            while DONE.with(|d| d.get()).is_none() {
+                if !GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    PostQuitMessage(msg.wParam.0 as i32);
+                    DONE.with(|d| d.set(Some(false)));
+                    break;
+                }
+                if !IsDialogMessageW(hwnd, &msg).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            let ok = DONE.with(|d| d.get()) == Some(true);
+            if ok {
+                if let Some(apply) = spec.on_apply {
+                    let keep_open = LIVE.with(|l| l.borrow().as_ref().map(|(f, _)| apply(&collect(f), f)).unwrap_or(false));
+                    if keep_open {
+                        DONE.with(|d| d.set(None));
+                        continue;
+                    }
+                }
+            }
+            break ok;
+        };
+
+        let live = LIVE.with(|l| l.borrow_mut().take());
+        let values = live.as_ref().map(|(f, _)| collect(f)).unwrap_or(Values { text: HashMap::new(), checked: HashMap::new() });
         let _ = EnableWindow(owner, true);
         let _ = DestroyWindow(hwnd);
         let _ = SetForegroundWindow(owner);

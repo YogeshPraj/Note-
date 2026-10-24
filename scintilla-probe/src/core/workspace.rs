@@ -262,7 +262,10 @@ impl<S: Send> Workspace<S> {
             bookmarks::setup(v, theme);
         }
         // Find marks: amber box. Smart highlight: green box (Notepad++ style).
-        for (ind, rgb, alpha) in [(search::INDIC_FIND, (0xFF, 0xB0, 0x00), 110), (search::INDIC_SMART, (0x4C, 0xC9, 0x5A), 90)] {
+        for (ind, rgb, alpha) in [(search::INDIC_FIND, (0xFF, 0xB0, 0x00), 110), (search::INDIC_SMART, (0x4C, 0xC9, 0x5A), 90)]
+            .into_iter()
+            .chain((0..search::STYLE_SLOTS).map(|i| (search::style_indicator(i), search::STYLE_COLOURS[i], 100)))
+        {
             v.send(sci::SCI_INDICSETSTYLE, ind, sci::INDIC_STRAIGHTBOX as isize);
             v.send(sci::SCI_INDICSETFORE, ind, sci::rgb(rgb.0, rgb.1, rgb.2));
             v.send(sci::SCI_INDICSETALPHA, ind, alpha);

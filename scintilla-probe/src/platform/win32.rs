@@ -20,6 +20,7 @@ use super::chrome::{self, Chrome, StatusText, ToolItem};
 use super::clip;
 use super::findpanel::{self, Mode};
 use super::form;
+use super::incsearch;
 use super::palette::{self, Item, Kind};
 use super::preview as pview;
 use super::print;
@@ -27,6 +28,7 @@ use super::sidepanel;
 use super::tree;
 use super::whiteboard as wb;
 use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
+use crate::core::bookmarks;
 use crate::core::preview as pcore;
 use crate::core::doc::{Enc, Eol};
 use crate::core::files;
@@ -83,6 +85,31 @@ const ID_BM_TOGGLE: usize = 5101;
 const ID_BM_NEXT: usize = 5102;
 const ID_BM_PREV: usize = 5103;
 const ID_BM_CLEAR: usize = 5104;
+const ID_BM_CUT: usize = 5105;
+const ID_BM_COPY: usize = 5106;
+const ID_BM_PASTE: usize = 5107;
+const ID_BM_DELETE: usize = 5108;
+const ID_BM_DELETE_UNMARKED: usize = 5109;
+const ID_BM_INVERT: usize = 5110;
+// Search menu (Notepad++ layout)
+const ID_SEL_FIND_NEXT: usize = 5011;
+const ID_SEL_FIND_PREV: usize = 5012;
+const ID_VOL_NEXT: usize = 5013;
+const ID_VOL_PREV: usize = 5014;
+const ID_INCR: usize = 5015;
+const ID_RESULTS: usize = 5016;
+const ID_NEXT_RESULT: usize = 5017;
+const ID_PREV_RESULT: usize = 5018;
+const ID_BRACE_GOTO: usize = 5019;
+const ID_BRACE_SEL: usize = 5020;
+const ID_FIND_CHARS: usize = 5021;
+const ID_STYLE_ALL_BASE: usize = 5030; // + style slot 0..4
+const ID_STYLE_ONE_BASE: usize = 5040;
+const ID_CLEAR_STYLE_BASE: usize = 5050; // + 0..4, + 5 = all styles
+const ID_JUMP_UP_BASE: usize = 5060;
+const ID_JUMP_DOWN_BASE: usize = 5070;
+const ID_COPY_STYLED_BASE: usize = 5080; // + 0..4, + 5 = all styles
+const SLOT_NAMES: [&str; 5] = ["1st", "2nd", "3rd", "4th", "5th"];
 const ID_L_DUP: usize = 2101;
 const ID_L_DEL: usize = 2102;
 const ID_L_UP: usize = 2103;
@@ -317,6 +344,25 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Search: Find in Files...", ID_FIF, "Ctrl+Shift+F"),
     ("Search: Mark...", ID_MARK, "Ctrl+M"),
     ("Search: Find Next", ID_FINDNEXT, "F3"),
+    ("Search: Select and Find Next", ID_SEL_FIND_NEXT, "Ctrl+F3"),
+    ("Search: Select and Find Previous", ID_SEL_FIND_PREV, "Ctrl+Shift+F3"),
+    ("Search: Find (Volatile) Next", ID_VOL_NEXT, "Ctrl+Alt+F3"),
+    ("Search: Find (Volatile) Previous", ID_VOL_PREV, "Ctrl+Alt+Shift+F3"),
+    ("Search: Incremental Search", ID_INCR, "Ctrl+Alt+I"),
+    ("Search: Search Results Window", ID_RESULTS, "F7"),
+    ("Search: Next Search Result", ID_NEXT_RESULT, "F4"),
+    ("Search: Previous Search Result", ID_PREV_RESULT, "Shift+F4"),
+    ("Search: Go to Matching Brace", ID_BRACE_GOTO, "Ctrl+B"),
+    ("Search: Select All Between Matching Braces", ID_BRACE_SEL, "Ctrl+Alt+B"),
+    ("Search: Style All Occurrences of Token (1st)", ID_STYLE_ALL_BASE, ""),
+    ("Search: Clear all Styles", ID_CLEAR_STYLE_BASE + 5, ""),
+    ("Search: Find characters in range...", ID_FIND_CHARS, ""),
+    ("Bookmark: Cut Bookmarked Lines", ID_BM_CUT, ""),
+    ("Bookmark: Copy Bookmarked Lines", ID_BM_COPY, ""),
+    ("Bookmark: Paste to (Replace) Bookmarked Lines", ID_BM_PASTE, ""),
+    ("Bookmark: Remove Bookmarked Lines", ID_BM_DELETE, ""),
+    ("Bookmark: Remove Non-Bookmarked Lines", ID_BM_DELETE_UNMARKED, ""),
+    ("Bookmark: Inverse", ID_BM_INVERT, ""),
     ("Search: Find Previous", ID_FINDPREV, "Shift+F3"),
     ("Search: Go to Line...", ID_GOTO, "Ctrl+G"),
     ("Bookmark: Toggle", ID_BM_TOGGLE, "Ctrl+F2"),
@@ -375,6 +421,7 @@ pub struct Menus {
     open_folder: HMENU,
     close_multi: HMENU,
     edit: HMENU,
+    search: HMENU,
     on_sel: HMENU,
     engine: HMENU,
     view: HMENU,
@@ -388,6 +435,8 @@ struct App {
     ui: Win32Ui,
     menus: Menus,
     hits: Vec<Hit>,
+    /// Which result F4 / Shift+F4 last opened.
+    hit_cursor: usize,
     hits_root: PathBuf,
     /// One-shot message shown in place of the cursor position.
     flash: Option<String>,
@@ -438,6 +487,8 @@ thread_local! {
     static WB_ON: Cell<bool> = const { Cell::new(false) };
     /// The workspace tree is shown (only when a folder is open).
     static TREE_ON: Cell<bool> = const { Cell::new(false) };
+    /// Where the editor's selection started when Incremental Search opened.
+    static INCR_START: Cell<usize> = const { Cell::new(0) };
     /// Fraction of the editor row given to the preview.
     static PREVIEW_RATIO: Cell<f32> = const { Cell::new(0.5) };
 }
@@ -679,6 +730,82 @@ fn system_date_time(long: bool) -> String {
     }
 }
 
+/// Search > Find characters in range: stays open so Find can be pressed repeatedly.
+fn find_chars_dialog(host: HWND, sci: Win32Sci) {
+    use form::{Kind, ctl};
+    const NON_ASCII: usize = 100;
+    const ASCII: usize = 101;
+    const MY_RANGE: usize = 102;
+    const FROM: usize = 103;
+    const TO: usize = 104;
+    const UP: usize = 121;
+    const DOWN: usize = 122;
+    const WRAP: usize = 123;
+    const STATUS: usize = 130;
+    fn react(f: &form::Form) {
+        let mine = f.checked(MY_RANGE);
+        f.enable(FROM, mine);
+        f.enable(TO, mine);
+    }
+    // Decimal, or hex with a 0x prefix.
+    fn number(s: &str) -> Option<u32> {
+        let s = s.trim();
+        match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            Some(h) => u32::from_str_radix(h, 16).ok(),
+            None => s.parse().ok(),
+        }
+    }
+    let apply = move |v: &form::Values, f: &form::Form| {
+        let (lo, hi) = if v.checked(NON_ASCII) {
+            (0x80, u32::MAX)
+        } else if v.checked(ASCII) {
+            (0x00, 0x7F)
+        } else {
+            match (number(v.text(FROM)), number(v.text(TO))) {
+                (Some(a), Some(b)) if a <= b => (a, b),
+                _ => {
+                    f.set_text(STATUS, "Enter a valid range, e.g. 0 to 255");
+                    return true;
+                }
+            }
+        };
+        let found = search::find_char(&sci, lo, hi, v.checked(DOWN), v.checked(WRAP));
+        f.set_text(STATUS, if found { "Found" } else { "No character in that range" });
+        true
+    };
+    let spec = form::Spec {
+        title: "Find characters in range",
+        size: (360, 270),
+        ctls: vec![
+            ctl(110, Kind::Group, "Search mode", 12, 8, 336, 118),
+            ctl(NON_ASCII, Kind::Radio(true), "&Non-ASCII characters (128 - 255 and above)", 26, 28, 310, 20),
+            ctl(ASCII, Kind::Radio(false), "&ASCII characters (0 - 127)", 26, 52, 310, 20),
+            ctl(MY_RANGE, Kind::Radio(false), "&My range:", 26, 80, 90, 20),
+            ctl(FROM, Kind::Edit, "0", 120, 78, 60, 22),
+            ctl(111, Kind::Label, "to", 188, 81, 16, 18),
+            ctl(TO, Kind::Edit, "255", 208, 78, 60, 22),
+            ctl(112, Kind::Label, "(decimal, or 0x for hex)", 26, 102, 250, 18),
+            ctl(120, Kind::Group, "Direction", 12, 132, 336, 48),
+            ctl(UP, Kind::Radio(true), "&Up", 26, 150, 80, 20),
+            ctl(DOWN, Kind::Radio(false), "&Down", 120, 150, 80, 20),
+            ctl(WRAP, Kind::Check, "&Wrap around", 26, 188, 200, 20),
+            ctl(STATUS, Kind::Label, "", 12, 214, 336, 18),
+        ],
+        ok: "Find",
+        on_change: Some(react),
+        on_apply: Some(&apply),
+    };
+    let _ = form::run(host, spec, |f| {
+        f.set_checked(NON_ASCII, true);
+        f.set_checked(DOWN, true);
+        f.set_checked(WRAP, true);
+        react(f);
+    });
+    unsafe {
+        let _ = SetFocus(Some(sci.0));
+    }
+}
+
 /// Ask for the picture used by Insert > Date Time (customized).
 fn ask_date_format(host: HWND, current: &str) -> Option<String> {
     use form::{Kind, ctl};
@@ -692,6 +819,7 @@ fn ask_date_format(host: HWND, current: &str) -> Option<String> {
         ],
         ok: "Insert",
         on_change: None,
+        on_apply: None,
     };
     let v = form::run(host, spec, |_| {})?;
     let f = v.text(FMT).trim().to_string();
@@ -741,6 +869,7 @@ fn column_editor(host: HWND, ws: &mut Workspace<Win32Sci>) -> Option<String> {
         ],
         ok: "OK",
         on_change: Some(react),
+        on_apply: None,
     };
     let v = form::run(host, spec, |f| {
         f.set_checked(TEXT_R, true);
@@ -792,6 +921,9 @@ impl App {
                 });
                 return wb::request_data();
             }
+        }
+        if matches!(id, ID_NEXT_RESULT | ID_PREV_RESULT) {
+            return self.step_result(id == ID_NEXT_RESULT);
         }
         let App { ws, ui, .. } = self;
         let sci = ws.sci;
@@ -1201,6 +1333,118 @@ impl App {
                 self.refresh();
                 return;
             }
+            ID_RESULTS => {
+                if findpanel::visible() {
+                    findpanel::close();
+                    layout();
+                } else if self.hits.is_empty() {
+                    self.flash = Some("No search results yet".into());
+                } else {
+                    let mode = if self.hits_root.as_os_str().is_empty() { Mode::Find } else { Mode::InFiles };
+                    findpanel::open(mode, "", &ws.search.find, &self.hits_root.display().to_string());
+                }
+                self.refresh();
+                return;
+            }
+            ID_INCR => {
+                INCR_START.with(|c| c.set(sci.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize));
+                incsearch::open(ui.host);
+                return;
+            }
+            ID_SEL_FIND_NEXT | ID_SEL_FIND_PREV | ID_VOL_NEXT | ID_VOL_PREV => {
+                let forward = matches!(id, ID_SEL_FIND_NEXT | ID_VOL_NEXT);
+                search::select_word_at_caret(&sci);
+                let token = search::selected_text(&sci);
+                if token.is_empty() || token.contains(['\r', '\n']) {
+                    self.flash = Some("Select a word to search for".into());
+                } else {
+                    let o = search::Opts { find: token, match_case: ws.search.match_case, wrap: true, ..Default::default() };
+                    // "Volatile" searches leave the Find box and F3 untouched.
+                    if matches!(id, ID_SEL_FIND_NEXT | ID_SEL_FIND_PREV) {
+                        ws.search = o.clone();
+                    }
+                    if search::find(&sci, &o, forward) == search::Found::NotFound {
+                        self.flash = Some("Not found".into());
+                    }
+                }
+            }
+            ID_BRACE_GOTO => {
+                if !search::goto_matching_brace(&sci) {
+                    self.flash = Some("No matching brace".into());
+                }
+            }
+            ID_BRACE_SEL => {
+                if !search::select_between_braces(&sci) {
+                    self.flash = Some("No matching brace".into());
+                }
+            }
+            _ if (ID_STYLE_ALL_BASE..ID_STYLE_ALL_BASE + 5).contains(&id) => {
+                let token = search::token_at_caret(&sci);
+                self.flash = Some(if token.is_empty() || token.contains(['\r', '\n']) {
+                    "Select a word to style".into()
+                } else {
+                    format!("{} occurrence(s) styled", search::style_all(&sci, id - ID_STYLE_ALL_BASE, &token))
+                });
+            }
+            _ if (ID_STYLE_ONE_BASE..ID_STYLE_ONE_BASE + 5).contains(&id) => {
+                search::select_word_at_caret(&sci);
+                if !search::style_selection(&sci, id - ID_STYLE_ONE_BASE) {
+                    self.flash = Some("Select some text to style".into());
+                }
+            }
+            _ if (ID_CLEAR_STYLE_BASE..ID_CLEAR_STYLE_BASE + 6).contains(&id) => {
+                let slot = id - ID_CLEAR_STYLE_BASE;
+                search::clear_style(&sci, (slot < 5).then_some(slot));
+            }
+            _ if (ID_JUMP_UP_BASE..ID_JUMP_UP_BASE + 5).contains(&id) || (ID_JUMP_DOWN_BASE..ID_JUMP_DOWN_BASE + 5).contains(&id) => {
+                let down = id >= ID_JUMP_DOWN_BASE;
+                let slot = id - if down { ID_JUMP_DOWN_BASE } else { ID_JUMP_UP_BASE };
+                if !search::jump(&sci, slot, down) {
+                    self.flash = Some(format!("Nothing is styled with the {} style", SLOT_NAMES[slot]));
+                }
+            }
+            _ if (ID_COPY_STYLED_BASE..ID_COPY_STYLED_BASE + 6).contains(&id) => {
+                let slot = id - ID_COPY_STYLED_BASE;
+                let slots: Vec<usize> = if slot < 5 { vec![slot] } else { (0..5).collect() };
+                let text = search::styled_text(&sci, &slots);
+                self.flash = Some(if text.is_empty() {
+                    "Nothing is styled".into()
+                } else if clip::set_text(ui.host, &text) {
+                    "Styled text copied".into()
+                } else {
+                    "The clipboard is busy".into()
+                });
+            }
+            ID_BM_CUT | ID_BM_COPY => {
+                let eol = match ws.tabs[ws.active].eol {
+                    Eol::Crlf => "\r\n",
+                    Eol::Lf => "\n",
+                    Eol::Cr => "\r",
+                };
+                let text = bookmarks::marked_text(&sci, eol);
+                if text.is_empty() && bookmarks::lines(&sci).is_empty() {
+                    self.flash = Some("No bookmarks".into());
+                } else if clip::set_text(ui.host, &text) {
+                    if id == ID_BM_CUT {
+                        bookmarks::delete_lines(&sci, true);
+                    }
+                    self.flash = Some("Bookmarked lines copied".into());
+                }
+            }
+            ID_BM_PASTE => match clip::get_text(ui.host) {
+                Some(t) => {
+                    let t = t.trim_end_matches(['\r', '\n']).to_string();
+                    self.flash = Some(format!("{} line(s) replaced", bookmarks::replace_lines(&sci, &t)));
+                }
+                None => self.flash = Some("Nothing to paste".into()),
+            },
+            ID_BM_DELETE | ID_BM_DELETE_UNMARKED => {
+                self.flash = Some(format!("{} line(s) removed", bookmarks::delete_lines(&sci, id == ID_BM_DELETE)));
+            }
+            ID_BM_INVERT => bookmarks::invert(&sci),
+            ID_FIND_CHARS => {
+                find_chars_dialog(ui.host, sci);
+            }
             ID_GOTO => {
                 findpanel::open_goto(ui.host, sci::line_count(&sci));
                 return;
@@ -1366,21 +1610,8 @@ impl App {
                 }
             }
             findpanel::P_LIST_OPEN => {
-                if let Some(h) = self.hits.get(arg as usize).cloned() {
-                    let App { ws, ui, .. } = self;
-                    if let Some(p) = &h.path {
-                        ws.open_path(ui, p);
-                    }
-                    let a = ws.active;
-                    if ws.is_dirty(a) && h.path.is_some() {
-                        search::goto_line(&sci, h.line);
-                    } else {
-                        search::select_range(&sci, h.start, h.end);
-                    }
-                    unsafe {
-                        let _ = SetFocus(Some(sci.0));
-                    }
-                }
+                self.hit_cursor = arg.max(0) as usize;
+                self.open_hit(self.hit_cursor);
             }
             findpanel::P_GOTO => {
                 search::goto_line(&sci, arg.max(1) as usize);
@@ -1402,6 +1633,72 @@ impl App {
             findpanel::set_status(&n);
         }
         self.refresh();
+    }
+
+    /// Open result `idx` of the last search in the editor.
+    fn open_hit(&mut self, idx: usize) {
+        let sci = self.ws.sci;
+        if let Some(h) = self.hits.get(idx).cloned() {
+            let App { ws, ui, .. } = self;
+            if let Some(p) = &h.path {
+                ws.open_path(ui, p);
+            }
+            let a = ws.active;
+            let sci = ws.sci;
+            if ws.is_dirty(a) && h.path.is_some() {
+                search::goto_line(&sci, h.line);
+            } else {
+                search::select_range(&sci, h.start, h.end);
+            }
+        }
+        unsafe {
+            let _ = SetFocus(Some(sci.0));
+        }
+    }
+
+    /// F4 / Shift+F4: step through the results of the last Find All / Find in Files.
+    fn step_result(&mut self, forward: bool) {
+        let n = self.hits.len();
+        if n == 0 {
+            self.flash = Some("No search results yet".into());
+        } else {
+            self.hit_cursor = if forward { (self.hit_cursor + 1) % n } else { (self.hit_cursor + n - 1) % n };
+            self.open_hit(self.hit_cursor);
+            self.flash = Some(format!("Result {} of {n}", self.hit_cursor + 1));
+        }
+        self.refresh();
+    }
+
+    /// Incremental Search window events.
+    fn incr_event(&mut self, kind: usize) {
+        let sci = self.ws.sci;
+        if kind == incsearch::K_CLOSE {
+            incsearch::close();
+            self.focus_active();
+            return;
+        }
+        let text = incsearch::text();
+        let start = INCR_START.with(|c| c.get());
+        if text.is_empty() {
+            sci.send(sci::SCI_SETSEL, start, start as isize);
+            incsearch::set_status("");
+            return;
+        }
+        let o = search::Opts { find: text, wrap: true, ..Default::default() };
+        let forward = kind != incsearch::K_PREV;
+        if kind == incsearch::K_CHANGED {
+            // Typing re-searches from where the search began.
+            sci.send(sci::SCI_SETSEL, start, start as isize);
+        }
+        let before = (sci.send(sci::SCI_GETSELECTIONSTART, 0, 0), sci.send(sci::SCI_GETSELECTIONEND, 0, 0));
+        match search::find(&sci, &o, forward) {
+            search::Found::At { wrapped: true } => incsearch::set_status("Reached the end, continued from the other end"),
+            search::Found::At { wrapped: false } => incsearch::set_status(""),
+            _ => {
+                sci.send(sci::SCI_SETSEL, before.0 as usize, before.1);
+                incsearch::set_status("Phrase not found");
+            }
+        }
     }
 
     fn status_click(&mut self, seg: isize) {
@@ -1618,6 +1915,11 @@ impl App {
             let _ = EnableMenuItem(m.edit, ID_UNDO as u32, state(s.send(sci::SCI_CANUNDO, 0, 0) != 0));
             let _ = EnableMenuItem(m.edit, ID_REDO as u32, state(s.send(sci::SCI_CANREDO, 0, 0) != 0));
             let _ = EnableMenuItem(m.edit, ID_PASTE as u32, state(s.send(sci::SCI_CANPASTE, 0, 0) != 0));
+            let _ = EnableMenuItem(m.search, ID_RESULTS as u32, state(!self.hits.is_empty()));
+            let brace = search::matching_brace(&s).is_some();
+            for id in [ID_BRACE_GOTO, ID_BRACE_SEL] {
+                let _ = EnableMenuItem(m.search, id as u32, state(brace));
+            }
             for id in [ID_SEL_OPEN, ID_SEL_FOLDER, ID_SEL_SEARCH] {
                 let _ = EnableMenuItem(m.on_sel, id as u32, state(has_selection));
             }
@@ -1919,6 +2221,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_INITMENUPOPUP => {
             with_app(|a| a.sync_edit_menu());
+            LRESULT(0)
+        }
+        incsearch::WM_INCR => {
+            let kind = w.0;
+            with_app(|a| a.incr_event(kind));
             LRESULT(0)
         }
         WM_CLIPBOARDUPDATE => {
@@ -2224,19 +2531,54 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
 
     let search = B::popup();
     B::add(search, ID_FIND, "&Find...\tCtrl+F");
+    B::add(search, ID_FIF, "Find in Files...\tCtrl+Shift+F");
     B::add(search, ID_FINDNEXT, "Find &Next\tF3");
     B::add(search, ID_FINDPREV, "Find &Previous\tShift+F3");
+    B::add(search, ID_SEL_FIND_NEXT, "Select and Find Next\tCtrl+F3");
+    B::add(search, ID_SEL_FIND_PREV, "Select and Find Previous\tCtrl+Shift+F3");
+    B::add(search, ID_VOL_NEXT, "Find (Volatile) Next\tCtrl+Alt+F3");
+    B::add(search, ID_VOL_PREV, "Find (Volatile) Previous\tCtrl+Alt+Shift+F3");
     B::add(search, ID_REPLACE, "&Replace...\tCtrl+H");
-    B::add(search, ID_FIF, "Find in &Files...\tCtrl+Shift+F");
+    B::add(search, ID_INCR, "Incremental Search\tCtrl+Alt+I");
+    B::add(search, ID_RESULTS, "Search Results Window\tF7");
+    B::add(search, ID_NEXT_RESULT, "Next Search Result\tF4");
+    B::add(search, ID_PREV_RESULT, "Previous Search Result\tShift+F4");
+    B::add(search, ID_GOTO, "&Go to...\tCtrl+G");
+    B::add(search, ID_BRACE_GOTO, "Go to Matching Brace\tCtrl+B");
+    B::add(search, ID_BRACE_SEL, "Select All Between Matching Braces\tCtrl+Alt+B");
     B::add(search, ID_MARK, "&Mark...\tCtrl+M");
     B::sep(search);
-    B::add(search, ID_GOTO, "&Go to...\tCtrl+G");
+    let slot_menu = |title: &str, base: usize, prefix: &str, suffix: &str, extra: Option<&str>| {
+        let m = B::popup();
+        for (i, n) in SLOT_NAMES.iter().enumerate() {
+            B::add(m, base + i, &format!("{prefix}{n}{suffix}"));
+        }
+        if let Some(e) = extra {
+            B::add(m, base + SLOT_NAMES.len(), e);
+        }
+        B::submenu(search, title, m);
+    };
+    slot_menu("Style All Occurrences of Token", ID_STYLE_ALL_BASE, "Using ", " Style", None);
+    slot_menu("Style One Token", ID_STYLE_ONE_BASE, "Using ", " Style", None);
+    slot_menu("Clear Style", ID_CLEAR_STYLE_BASE, "Clear ", " Style", Some("Clear all Styles"));
+    slot_menu("Jump Up", ID_JUMP_UP_BASE, "", " Style", None);
+    slot_menu("Jump Down", ID_JUMP_DOWN_BASE, "", " Style", None);
+    slot_menu("Copy Styled Text", ID_COPY_STYLED_BASE, "", " Style", Some("All Styles"));
+    B::sep(search);
     let bm = B::popup();
     B::add(bm, ID_BM_TOGGLE, "&Toggle Bookmark\tCtrl+F2");
     B::add(bm, ID_BM_NEXT, "&Next Bookmark\tF2");
     B::add(bm, ID_BM_PREV, "&Previous Bookmark\tShift+F2");
     B::add(bm, ID_BM_CLEAR, "&Clear All Bookmarks");
+    B::add(bm, ID_BM_CUT, "Cut Bookmarked Lines");
+    B::add(bm, ID_BM_COPY, "Copy Bookmarked Lines");
+    B::add(bm, ID_BM_PASTE, "Paste to (Replace) Bookmarked Lines");
+    B::add(bm, ID_BM_DELETE, "Remove Bookmarked Lines");
+    B::add(bm, ID_BM_DELETE_UNMARKED, "Remove Non-Bookmarked Lines");
+    B::add(bm, ID_BM_INVERT, "Inverse Bookmark");
     B::submenu(search, "&Bookmark", bm);
+    B::sep(search);
+    B::add(search, ID_FIND_CHARS, "Find characters in range...");
 
     let view = B::popup();
     B::add(view, ID_WRAP, "&Word wrap");
@@ -2276,7 +2618,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Language".to_string(), lang),
         ("?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, edit, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
+    let menus = Menus { file, open_folder, close_multi, edit, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
 }
@@ -2343,6 +2685,16 @@ fn accelerators() -> HACCEL {
         k(CTRL_SHIFT, 'F', ID_FIF),
         ACCEL { fVirt: NONE, key: 0x72, cmd: ID_FINDNEXT as u16 }, // F3
         ACCEL { fVirt: SHIFT, key: 0x72, cmd: ID_FINDPREV as u16 }, // Shift+F3
+        ACCEL { fVirt: CTRL, key: 0x72, cmd: ID_SEL_FIND_NEXT as u16 },
+        ACCEL { fVirt: CTRL_SHIFT, key: 0x72, cmd: ID_SEL_FIND_PREV as u16 },
+        ACCEL { fVirt: CTRL_ALT, key: 0x72, cmd: ID_VOL_NEXT as u16 },
+        ACCEL { fVirt: CTRL_ALT_SHIFT, key: 0x72, cmd: ID_VOL_PREV as u16 },
+        ACCEL { fVirt: NONE, key: 0x76, cmd: ID_RESULTS as u16 },     // F7
+        ACCEL { fVirt: NONE, key: 0x73, cmd: ID_NEXT_RESULT as u16 }, // F4
+        ACCEL { fVirt: SHIFT, key: 0x73, cmd: ID_PREV_RESULT as u16 },
+        k(CTRL_ALT, 'I', ID_INCR),
+        k(CTRL, 'B', ID_BRACE_GOTO),
+        k(CTRL_ALT, 'B', ID_BRACE_SEL),
         ACCEL { fVirt: NONE, key: 0x71, cmd: ID_BM_NEXT as u16 },   // F2
         ACCEL { fVirt: SHIFT, key: 0x71, cmd: ID_BM_PREV as u16 },  // Shift+F2
         ACCEL { fVirt: CTRL, key: 0x71, cmd: ID_BM_TOGGLE as u16 }, // Ctrl+F2
@@ -2493,7 +2845,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         TREE_ON.with(|c| c.set(true));
     }
     APP.with(|c| {
-        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
+        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
     });
 
     unsafe {
@@ -2509,7 +2861,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
                 continue;
             }
             // Tab / Enter / Esc navigation inside the Find panel and Go To dialog.
-            let in_dialog = [findpanel::hwnd(), findpanel::goto_hwnd()]
+            let in_dialog = [findpanel::hwnd(), findpanel::goto_hwnd(), incsearch::hwnd()]
                 .into_iter()
                 .flatten()
                 .any(|d| IsDialogMessageW(d, &msg).as_bool());

@@ -71,3 +71,67 @@ pub fn lines<S: Send>(s: &S) -> Vec<usize> {
         line = n as usize + 1;
     }
 }
+
+/// Flip every line: bookmarked ones lose it, the others gain it.
+pub fn invert<S: Send>(s: &S) {
+    for l in 0..sci::line_count(s).max(0) as usize {
+        toggle(s, l);
+    }
+}
+
+/// The text of the bookmarked lines, one per line, joined with `eol`.
+pub fn marked_text<S: Send>(s: &S, eol: &str) -> String {
+    let text = sci::get_text(s);
+    lines(s)
+        .into_iter()
+        .filter_map(|l| {
+            let a = s.send(sci::SCI_POSITIONFROMLINE, l, 0) as usize;
+            let b = s.send(sci::SCI_GETLINEENDPOSITION, l, 0) as usize;
+            text.get(a..b)
+        })
+        .collect::<Vec<_>>()
+        .join(eol)
+}
+
+fn delete_line<S: Send>(s: &S, l: usize, total: usize) {
+    let len = sci::length(s).max(0) as usize;
+    let start = s.send(sci::SCI_POSITIONFROMLINE, l, 0) as usize;
+    if l + 1 < total {
+        let next = s.send(sci::SCI_POSITIONFROMLINE, l + 1, 0) as usize;
+        s.send(sci::SCI_DELETERANGE, start, (next - start) as isize);
+    } else if l > 0 {
+        // The last line has no break of its own: take the previous one's.
+        let prev_end = s.send(sci::SCI_GETLINEENDPOSITION, l - 1, 0) as usize;
+        s.send(sci::SCI_DELETERANGE, prev_end, (len - prev_end) as isize);
+    } else {
+        s.send(sci::SCI_DELETERANGE, 0, len as isize);
+    }
+}
+
+/// Delete the bookmarked lines (or, with `marked` false, all the others).
+/// Returns how many lines went.
+pub fn delete_lines<S: Send>(s: &S, marked: bool) -> usize {
+    let total = sci::line_count(s).max(0) as usize;
+    let doomed: Vec<usize> = (0..total).filter(|l| is_set(s, *l) == marked).collect();
+    s.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+    for l in doomed.iter().rev() {
+        delete_line(s, *l, total);
+    }
+    s.send(sci::SCI_ENDUNDOACTION, 0, 0);
+    doomed.len()
+}
+
+/// Replace the content of every bookmarked line with `with`.
+pub fn replace_lines<S: Send>(s: &S, with: &str) -> usize {
+    let marked = lines(s);
+    s.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+    for l in marked.iter().rev() {
+        let a = s.send(sci::SCI_POSITIONFROMLINE, *l, 0) as usize;
+        let b = s.send(sci::SCI_GETLINEENDPOSITION, *l, 0) as usize;
+        s.send(sci::SCI_SETTARGETSTART, a, 0);
+        s.send(sci::SCI_SETTARGETEND, b, 0);
+        s.send(sci::SCI_REPLACETARGET, with.len(), with.as_ptr() as isize);
+    }
+    s.send(sci::SCI_ENDUNDOACTION, 0, 0);
+    marked.len()
+}

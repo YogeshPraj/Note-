@@ -10,6 +10,8 @@ pub mod findpanel;
 #[cfg(target_os = "windows")]
 pub mod form;
 #[cfg(target_os = "windows")]
+pub mod incsearch;
+#[cfg(target_os = "windows")]
 pub mod palette;
 #[cfg(target_os = "windows")]
 pub mod preview;

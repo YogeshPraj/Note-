@@ -7,6 +7,7 @@
 //! Notepad++ does it too), which keeps undo history and lexer state per tab.
 
 use super::bookmarks;
+use super::complete;
 use super::doc::{self, Enc, Eol};
 use super::edit;
 use super::lang;
@@ -120,6 +121,12 @@ pub struct Workspace<S: Send> {
     pub closed: Vec<PathBuf>,
     /// Folder shown in the workspace tree (also the root for Quick Open and Find in Files).
     pub workspace: Option<PathBuf>,
+    /// Index into the platform's list of web search engines.
+    pub search_engine: usize,
+    /// Picture used by Insert > Date Time (customized).
+    pub date_format: String,
+    /// Where "Begin/End Select" was started: (document, caret position).
+    select_anchor: Option<(isize, usize)>,
     smart_key: (usize, usize, usize),
     next_id: u64,
 }
@@ -128,12 +135,57 @@ pub const MAX_RECENT: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LineOp {
-    SortAsc,
-    SortDesc,
+    Sort(edit::SortKind, bool),
     RemoveDuplicates,
+    RemoveConsecutiveDuplicates,
     RemoveEmpty,
+    RemoveBlank,
+    Reverse,
+    Randomize,
+    Join,
+    Split,
     TrimTrailing,
+    TrimLeading,
+    TrimBoth,
+    EolToSpace,
+    RemoveUnnecessaryBlanks,
+    TabsToSpaces,
+    SpacesToTabsAll,
+    SpacesToTabsLeading,
     ToggleComment,
+    Comment,
+    Uncomment,
+    BlockComment,
+    BlockUncomment,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CaseOp {
+    Proper,
+    ProperBlend,
+    Sentence,
+    SentenceBlend,
+    Invert,
+    Random,
+}
+
+/// Which auto-completion source to use.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Completion {
+    Words,
+    Functions,
+    Path,
+    Hint,
+}
+
+/// Which path text "Copy to Clipboard" puts on the clipboard.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PathText {
+    FullPath,
+    FileName,
+    Directory,
+    AllNames,
+    AllPaths,
 }
 
 pub struct Status {
@@ -178,6 +230,9 @@ impl<S: Send> Workspace<S> {
             recent: Vec::new(),
             closed: Vec::new(),
             workspace: None,
+            search_engine: 0,
+            date_format: "yyyy-MM-dd HH:mm:ss".into(),
+            select_anchor: None,
             smart_key: (0, 0, 0),
             next_id: 1,
         };
@@ -399,29 +454,287 @@ impl<S: Send> Workspace<S> {
         }
     }
 
-    /// Apply a line operation to the selection (or whole document). Returns a
-    /// message to show the user when nothing could be done.
+    /// Apply a line operation to the selection (or whole document / current line,
+    /// depending on the operation). Returns a message to show the user when
+    /// nothing could be done.
     pub fn line_op(&mut self, op: LineOp) -> Option<String> {
+        use edit::Scope::{CurrentLine, WholeDocument};
         let t = &self.tabs[self.active];
         let eol = match t.eol {
             Eol::Crlf => "\r\n",
             Eol::Lf => "\n",
             Eol::Cr => "\r",
         };
+        let lang = t.lang;
+        let tab = self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1) as usize;
+        let s = &self.sci;
+        let has_selection = self.send(sci::SCI_GETSELECTIONSTART, 0, 0) != self.send(sci::SCI_GETSELECTIONEND, 0, 0);
+        let lines = |scope, f: &dyn Fn(&str) -> String| edit::apply_lines(s, scope, f);
         let changed = match op {
-            LineOp::SortAsc => edit::apply_lines(&self.sci, &|s| edit::sort_lines(s, eol, false)),
-            LineOp::SortDesc => edit::apply_lines(&self.sci, &|s| edit::sort_lines(s, eol, true)),
-            LineOp::RemoveDuplicates => edit::apply_lines(&self.sci, &|s| edit::remove_duplicate_lines(s, eol)),
-            LineOp::RemoveEmpty => edit::apply_lines(&self.sci, &|s| edit::remove_empty_lines(s, eol)),
-            LineOp::TrimTrailing => edit::apply_lines(&self.sci, &|s| edit::trim_trailing(s, eol)),
-            LineOp::ToggleComment => {
-                let Some(prefix) = edit::comment_prefix(t.lang) else {
+            LineOp::Sort(kind, desc) => lines(WholeDocument, &|x| edit::sort_lines_by(x, eol, kind, desc)),
+            LineOp::RemoveDuplicates => lines(WholeDocument, &|x| edit::remove_duplicate_lines(x, eol)),
+            LineOp::RemoveConsecutiveDuplicates => lines(WholeDocument, &|x| edit::remove_consecutive_duplicates(x, eol)),
+            LineOp::RemoveEmpty => lines(WholeDocument, &|x| edit::remove_empty_lines(x, eol)),
+            LineOp::RemoveBlank => lines(WholeDocument, &|x| edit::remove_blank_lines(x, eol)),
+            LineOp::Reverse => lines(WholeDocument, &|x| edit::reverse_lines(x, eol)),
+            LineOp::Randomize => {
+                let seed = edit::seed_now();
+                lines(WholeDocument, &|x| edit::randomize_lines(x, eol, seed))
+            }
+            LineOp::Join | LineOp::Split if !has_selection => return Some("Select the lines first".into()),
+            LineOp::Join => lines(CurrentLine, &|x| edit::join_lines(x)),
+            LineOp::Split => lines(CurrentLine, &|x| edit::split_lines(x, eol, 80)),
+            LineOp::TrimTrailing => lines(WholeDocument, &|x| edit::trim_trailing(x, eol)),
+            LineOp::TrimLeading => lines(WholeDocument, &|x| edit::trim_leading(x, eol)),
+            LineOp::TrimBoth => lines(WholeDocument, &|x| edit::trim_both(x, eol)),
+            LineOp::EolToSpace => lines(WholeDocument, &|x| edit::join_lines(x)),
+            LineOp::RemoveUnnecessaryBlanks => lines(WholeDocument, &|x| edit::remove_unnecessary_blanks(x, eol)),
+            LineOp::TabsToSpaces => lines(WholeDocument, &|x| edit::tabs_to_spaces(x, eol, tab)),
+            LineOp::SpacesToTabsAll => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, false)),
+            LineOp::SpacesToTabsLeading => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, true)),
+            LineOp::ToggleComment | LineOp::Comment | LineOp::Uncomment => {
+                let Some(prefix) = edit::comment_prefix(lang) else {
                     return Some("No line-comment syntax for this language".into());
                 };
-                edit::apply_lines(&self.sci, &|s| edit::toggle_comment(s, eol, prefix))
+                lines(CurrentLine, &|x| match op {
+                    LineOp::ToggleComment => edit::toggle_comment(x, eol, prefix),
+                    LineOp::Comment => edit::comment_lines(x, eol, prefix),
+                    _ => edit::uncomment_lines(x, eol, prefix),
+                })
+            }
+            LineOp::BlockComment | LineOp::BlockUncomment => {
+                let Some((open, close)) = edit::comment_block(lang) else {
+                    return Some("No block-comment syntax for this language".into());
+                };
+                edit::apply_range(s, true, &|x| {
+                    if op == LineOp::BlockComment { edit::block_comment(x, open, close) } else { edit::block_uncomment(x, open, close) }
+                })
             }
         };
         (!changed).then(|| "Nothing to change".into())
+    }
+
+    /// Change the case of the selected text. Column selections are left alone.
+    pub fn case_op(&mut self, op: CaseOp) -> Option<String> {
+        if self.send(sci::SCI_GETSELECTIONS, 0, 0) != 1 || self.send(sci::SCI_SELECTIONISRECTANGLE, 0, 0) != 0 {
+            return Some("Select a single block of text first".into());
+        }
+        let seed = edit::seed_now();
+        let changed = edit::apply_range(&self.sci, false, &|x| match op {
+            CaseOp::Proper => edit::proper_case(x, false),
+            CaseOp::ProperBlend => edit::proper_case(x, true),
+            CaseOp::Sentence => edit::sentence_case(x, false),
+            CaseOp::SentenceBlend => edit::sentence_case(x, true),
+            CaseOp::Invert => edit::invert_case(x),
+            CaseOp::Random => edit::random_case(x, seed),
+        });
+        (!changed).then(|| "Select some text first".into())
+    }
+
+    /// First call remembers the caret; the second selects from there to the new
+    /// caret as a stream or (for `column`) a rectangle.
+    pub fn begin_end_select(&mut self, column: bool) -> Option<String> {
+        let doc = self.tabs[self.active].doc;
+        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+        match self.select_anchor.take() {
+            Some((d, anchor)) if d == doc => {
+                if column {
+                    self.send(sci::SCI_SETRECTANGULARSELECTIONANCHOR, anchor, 0);
+                    self.send(sci::SCI_SETRECTANGULARSELECTIONCARET, caret, 0);
+                } else {
+                    self.send(sci::SCI_SETSEL, anchor, caret as isize);
+                }
+                None
+            }
+            _ => {
+                self.select_anchor = Some((doc, caret));
+                Some("Selection start marked: move the caret and repeat to select".into())
+            }
+        }
+    }
+
+    /// The lines the column editor works on, and the character column it inserts at.
+    fn column_target(&self) -> (usize, usize, usize) {
+        let text = sci::get_text(&self.sci);
+        let a = self.send(sci::SCI_GETANCHOR, 0, 0).max(0) as usize;
+        let c = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+        let col_of = |pos: usize| {
+            let line = self.send(sci::SCI_LINEFROMPOSITION, pos, 0) as usize;
+            let start = self.send(sci::SCI_POSITIONFROMLINE, line, 0) as usize;
+            text.get(start..pos).map_or(0, |s| s.chars().count())
+        };
+        let (la, lc) = (self.send(sci::SCI_LINEFROMPOSITION, a, 0) as usize, self.send(sci::SCI_LINEFROMPOSITION, c, 0) as usize);
+        (la.min(lc), la.max(lc), col_of(a).min(col_of(c)))
+    }
+
+    /// Insert text or a number sequence at the caret column of every selected line.
+    pub fn column_edit(&mut self, text: Option<&str>, numbers: Option<&edit::ColumnNumbers>) -> Option<String> {
+        let (first, last, col) = self.column_target();
+        let count = last - first + 1;
+        let insert: Vec<String> = match (numbers, text) {
+            (Some(n), _) => edit::number_sequence(n, count),
+            (None, Some(t)) => vec![t.to_string(); count],
+            (None, None) => return Some("Nothing to insert".into()),
+        };
+        let doc = sci::get_text(&self.sci);
+        let start = self.send(sci::SCI_POSITIONFROMLINE, first, 0) as usize;
+        let end = self.send(sci::SCI_GETLINEENDPOSITION, last, 0) as usize;
+        let old = &doc[start..end];
+        let eol = match self.tabs[self.active].eol {
+            Eol::Crlf => "\r\n",
+            Eol::Lf => "\n",
+            Eol::Cr => "\r",
+        };
+        let src: Vec<&str> = old.split(['\n']).map(|l| l.trim_end_matches('\r')).collect();
+        let new = edit::insert_at_column(&src, col, &insert).join(eol);
+        if new == old {
+            return Some("Nothing to change".into());
+        }
+        self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+        self.send(sci::SCI_SETTARGETSTART, start, 0);
+        self.send(sci::SCI_SETTARGETEND, end, 0);
+        self.send(sci::SCI_REPLACETARGET, new.len(), new.as_ptr() as isize);
+        self.send(sci::SCI_ENDUNDOACTION, 0, 0);
+        self.send(sci::SCI_SETSEL, start, (start + new.len()) as isize);
+        None
+    }
+
+    /// Replace the selection (or insert at the caret) with `text`.
+    pub fn insert_text(&mut self, text: &str) {
+        self.insert_bytes(text.as_bytes());
+    }
+
+    /// Like `insert_text` for raw bytes (binary paste may hold NULs).
+    pub fn insert_bytes(&mut self, bytes: &[u8]) {
+        self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+        self.send(sci::SCI_CLEAR, 0, 0);
+        self.send(sci::SCI_ADDTEXT, bytes.len(), bytes.as_ptr() as isize);
+        self.send(sci::SCI_ENDUNDOACTION, 0, 0);
+    }
+
+    /// Add an empty line above or below the caret's line.
+    pub fn insert_blank_line(&mut self, above: bool) {
+        let eol = match self.tabs[self.active].eol {
+            Eol::Crlf => "\r\n",
+            Eol::Lf => "\n",
+            Eol::Cr => "\r",
+        };
+        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+        let line = self.send(sci::SCI_LINEFROMPOSITION, caret, 0) as usize;
+        let at = if above {
+            self.send(sci::SCI_POSITIONFROMLINE, line, 0)
+        } else {
+            self.send(sci::SCI_GETLINEENDPOSITION, line, 0)
+        } as usize;
+        let text = std::ffi::CString::new(eol).unwrap_or_default();
+        self.send(sci::SCI_INSERTTEXT, at, text.as_ptr() as isize);
+        if !above {
+            let next = self.send(sci::SCI_POSITIONFROMLINE, line + 1, 0);
+            self.send(sci::SCI_GOTOPOS, next as usize, 0);
+        }
+    }
+
+    /// Indent or dedent by one level: the selected lines, or the caret's line.
+    pub fn indent(&mut self, increase: bool) {
+        let multi = {
+            let a = self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize;
+            let b = self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize;
+            self.send(sci::SCI_LINEFROMPOSITION, a, 0) != self.send(sci::SCI_LINEFROMPOSITION, b, 0)
+        };
+        if !increase {
+            self.send(sci::SCI_BACKTAB, 0, 0);
+        } else if multi {
+            self.send(sci::SCI_TAB, 0, 0);
+        } else {
+            let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+            let line = self.send(sci::SCI_LINEFROMPOSITION, caret, 0) as usize;
+            let width = self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1);
+            let current = self.send(sci::SCI_GETLINEINDENTATION, line, 0);
+            self.send(sci::SCI_SETLINEINDENTATION, line, current + width);
+        }
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.send(sci::SCI_GETREADONLY, 0, 0) != 0
+    }
+
+    pub fn set_read_only(&mut self, on: bool) {
+        self.send(sci::SCI_SETREADONLY, on as usize, 0);
+    }
+
+    /// Show an auto-completion list or call tip at the caret. Returns a message
+    /// when there is nothing to offer.
+    pub fn complete(&mut self, kind: Completion) -> Option<String> {
+        let text = sci::get_text(&self.sci);
+        let caret = (self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize).min(text.len());
+        let line = self.send(sci::SCI_LINEFROMPOSITION, caret, 0) as usize;
+        let line_start = self.send(sci::SCI_POSITIONFROMLINE, line, 0) as usize;
+        let before_on_line = text.get(line_start..caret).unwrap_or("");
+        let show = |sci: &S, entered: usize, items: &[String]| {
+            let list = std::ffi::CString::new(items.join(" ")).unwrap_or_default();
+            sci.send(sci::SCI_AUTOCSETIGNORECASE, 1, 0);
+            sci.send(sci::SCI_AUTOCSETCHOOSESINGLE, 1, 0);
+            sci.send(sci::SCI_AUTOCSHOW, entered, list.as_ptr() as isize);
+        };
+        match kind {
+            Completion::Words | Completion::Functions => {
+                let (at, prefix) = complete::word_before(&text, caret);
+                let items = if kind == Completion::Words {
+                    complete::words_with_prefix(&text, prefix, at)
+                } else {
+                    complete::function_names(&text, prefix, at)
+                };
+                if items.is_empty() {
+                    return Some("No suggestions".into());
+                }
+                show(&self.sci, prefix.len(), &items);
+            }
+            Completion::Path => {
+                let base = self.tabs[self.active].path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf);
+                let (typed, items) = complete::path_candidates(complete::path_fragment(before_on_line), base.as_deref());
+                if items.is_empty() {
+                    return Some("No matching paths".into());
+                }
+                show(&self.sci, typed, &items);
+            }
+            Completion::Hint => {
+                // The call the caret is inside: the name before the nearest unmatched "(".
+                let mut depth = 0;
+                let open = before_on_line.char_indices().rev().find(|(_, c)| {
+                    match c {
+                        ')' => depth += 1,
+                        '(' if depth == 0 => return true,
+                        '(' => depth -= 1,
+                        _ => {}
+                    }
+                    false
+                });
+                let name = open.map(|(i, _)| complete::word_before(before_on_line, i).1).unwrap_or("");
+                let Some(sig) = (!name.is_empty()).then(|| complete::signature_for(&text, name)).flatten() else {
+                    return Some("No signature found".into());
+                };
+                let tip = std::ffi::CString::new(sig).unwrap_or_default();
+                self.send(sci::SCI_CALLTIPSHOW, caret, tip.as_ptr() as isize);
+            }
+        }
+        None
+    }
+    pub fn path_text(&self, kind: PathText) -> Option<String> {
+        let one = |t: &Tab, f: &dyn Fn(&Path) -> String| Some(t.path.as_deref().map(f).unwrap_or_else(|| t.title.clone()));
+        let t = &self.tabs[self.active];
+        match kind {
+            PathText::FullPath => t.path.as_ref().map(|p| p.display().to_string()),
+            PathText::FileName => one(t, &|p| file_title(p)),
+            PathText::Directory => t.path.as_ref().and_then(|p| p.parent()).map(|d| d.display().to_string()),
+            PathText::AllNames => Some(self.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("\r\n")),
+            PathText::AllPaths => Some(
+                self.tabs
+                    .iter()
+                    .map(|t| t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| t.title.clone()))
+                    .collect::<Vec<_>>()
+                    .join("\r\n"),
+            ),
+        }
     }
 
     /// What the active tab can be previewed as, if anything.
@@ -607,7 +920,10 @@ impl<S: Send> Workspace<S> {
         }
         let (caret, top) = (self.tabs[self.active].caret, self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize);
         self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
+        let was_read_only = self.is_read_only();
+        self.set_read_only(false);
         sci::set_text(&self.sci, &text);
+        self.set_read_only(was_read_only);
         self.send(sci::SCI_SETSAVEPOINT, 0, 0);
         self.send(sci::SCI_EMPTYUNDOBUFFER, 0, 0);
         let t = &mut self.tabs[self.active];
@@ -891,12 +1207,18 @@ impl<S: Send> Workspace<S> {
             minimap: self.minimap,
             recent: self.recent.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
             workspace: self.workspace.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            search_engine: self.search_engine,
+            date_format: self.date_format.clone(),
         }
     }
 
     /// Restore the whole saved state (startup): settings, workspace and tabs.
     pub fn restore(&mut self, s: &Session) {
         self.minimap = s.minimap;
+        self.search_engine = s.search_engine;
+        if !s.date_format.is_empty() {
+            self.date_format = s.date_format.clone();
+        }
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         if s.dark {

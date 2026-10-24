@@ -17,12 +17,16 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, PWSTR, w};
 
 use super::chrome::{self, Chrome, StatusText, ToolItem};
+use super::clip;
 use super::findpanel::{self, Mode};
+use super::form;
 use super::palette::{self, Item, Kind};
 use super::preview as pview;
 use super::print;
+use super::sidepanel;
 use super::tree;
 use super::whiteboard as wb;
+use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
 use crate::core::preview as pcore;
 use crate::core::doc::{Enc, Eol};
 use crate::core::files;
@@ -31,7 +35,7 @@ use crate::core::sci::{self, Send, Theme};
 use crate::core::search::{self, Hit};
 use crate::core::session::{Session, config_dir, session_path};
 use crate::core::whiteboard;
-use crate::core::workspace::{CloseOp, Confirm, LineOp, Ui, Workspace};
+use crate::core::workspace::{CaseOp, CloseOp, Completion, Confirm, LineOp, PathText, Ui, Workspace};
 
 const WM_REFRESH: u32 = WM_APP + 1;
 const WM_MINIMAP: u32 = WM_APP + 2;
@@ -91,6 +95,76 @@ const ID_L_TRIM: usize = 2109;
 const ID_C_UPPER: usize = 2110;
 const ID_C_LOWER: usize = 2111;
 const ID_COMMENT: usize = 2112;
+// Edit menu (Notepad++ layout)
+const ID_DELETE: usize = 2201;
+const ID_BEGIN_END_SEL: usize = 2202;
+const ID_BEGIN_END_COL: usize = 2203;
+const ID_INS_DATE_SHORT: usize = 2210;
+const ID_INS_DATE_LONG: usize = 2211;
+const ID_INS_DATE_CUSTOM: usize = 2212;
+const ID_CP_FULLPATH: usize = 2220;
+const ID_CP_NAME: usize = 2221;
+const ID_CP_DIR: usize = 2222;
+const ID_CP_ALLNAMES: usize = 2223;
+const ID_CP_ALLPATHS: usize = 2224;
+const ID_INDENT_INC: usize = 2230;
+const ID_INDENT_DEC: usize = 2231;
+const ID_CASE_PROPER: usize = 2240;
+const ID_CASE_PROPER_BLEND: usize = 2241;
+const ID_CASE_SENTENCE: usize = 2242;
+const ID_CASE_SENTENCE_BLEND: usize = 2243;
+const ID_CASE_INVERT: usize = 2244;
+const ID_CASE_RANDOM: usize = 2245;
+const ID_L_RM_CONSEC: usize = 2250;
+const ID_L_SPLIT: usize = 2251;
+const ID_L_JOIN: usize = 2252;
+const ID_L_RM_BLANK: usize = 2253;
+const ID_L_INS_ABOVE: usize = 2254;
+const ID_L_INS_BELOW: usize = 2255;
+const ID_L_REVERSE: usize = 2256;
+const ID_L_RANDOM: usize = 2257;
+const ID_L_SORT_NOCASE_ASC: usize = 2258;
+const ID_L_SORT_NOCASE_DESC: usize = 2259;
+const ID_L_SORT_INT_ASC: usize = 2260;
+const ID_L_SORT_INT_DESC: usize = 2261;
+const ID_L_SORT_DOT_ASC: usize = 2262;
+const ID_L_SORT_DOT_DESC: usize = 2263;
+const ID_L_SORT_COMMA_ASC: usize = 2264;
+const ID_L_SORT_COMMA_DESC: usize = 2265;
+const ID_L_CUT: usize = 2266;
+const ID_L_COPY: usize = 2267;
+const ID_L_TRANSPOSE: usize = 2268;
+const ID_CMT_LINE: usize = 2271;
+const ID_UNCMT_LINE: usize = 2272;
+const ID_CMT_BLOCK: usize = 2273;
+const ID_UNCMT_BLOCK: usize = 2274;
+const ID_AC_FUNC: usize = 2280;
+const ID_AC_WORD: usize = 2281;
+const ID_AC_HINT: usize = 2282;
+const ID_AC_PATH: usize = 2283;
+const ID_B_TRIM_LEAD: usize = 2291;
+const ID_B_TRIM_BOTH: usize = 2292;
+const ID_B_EOL_SPACE: usize = 2293;
+const ID_B_UNNECESSARY: usize = 2294;
+const ID_B_TAB_SPACE: usize = 2295;
+const ID_B_SPACE_TAB_ALL: usize = 2296;
+const ID_B_SPACE_TAB_LEAD: usize = 2297;
+const ID_PS_HTML: usize = 2300;
+const ID_PS_RTF: usize = 2301;
+const ID_PS_COPY_BIN: usize = 2302;
+const ID_PS_CUT_BIN: usize = 2303;
+const ID_PS_PASTE_BIN: usize = 2304;
+const ID_SEL_OPEN: usize = 2310;
+const ID_SEL_FOLDER: usize = 2311;
+const ID_SEL_SEARCH: usize = 2312;
+const ID_ENGINE_BASE: usize = 2320; // + index into SEARCH_ENGINES
+const ID_COLUMN_MODE: usize = 2330;
+const ID_COLUMN_EDITOR: usize = 2331;
+const ID_CHAR_PANEL: usize = 2332;
+const ID_CLIP_HISTORY: usize = 2333;
+const ID_READONLY: usize = 2334;
+const ID_CLEAR_RO: usize = 2335;
+const BINARY_FORMAT: &str = "Note++ Binary Text";
 const ID_RECENT_BASE: usize = 10000; // + index into the recent list
 const ID_RECENT_CLEAR: usize = 10100;
 // File menu (Notepad++ layout)
@@ -168,7 +242,73 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Edit: Trim Trailing Space", ID_L_TRIM, ""),
     ("Edit: UPPERCASE", ID_C_UPPER, "Ctrl+Shift+U"),
     ("Edit: lowercase", ID_C_LOWER, "Ctrl+U"),
-    ("Edit: Toggle Line Comment", ID_COMMENT, "Ctrl+/"),
+    ("Edit: Toggle Line Comment", ID_COMMENT, "Ctrl+Q"),
+    ("Edit: Single Line Comment", ID_CMT_LINE, "Ctrl+K"),
+    ("Edit: Single Line Uncomment", ID_UNCMT_LINE, "Ctrl+Shift+K"),
+    ("Edit: Block Comment", ID_CMT_BLOCK, "Ctrl+Shift+Q"),
+    ("Edit: Block Uncomment", ID_UNCMT_BLOCK, "Ctrl+Shift+R"),
+    ("Edit: Delete", ID_DELETE, "Del"),
+    ("Edit: Begin/End Select", ID_BEGIN_END_SEL, "Ctrl+Shift+B"),
+    ("Edit: Begin/End Select in Column Mode", ID_BEGIN_END_COL, "Alt+Shift+B"),
+    ("Edit: Insert Date Time (short)", ID_INS_DATE_SHORT, ""),
+    ("Edit: Insert Date Time (long)", ID_INS_DATE_LONG, ""),
+    ("Edit: Insert Date Time (customized)", ID_INS_DATE_CUSTOM, ""),
+    ("Edit: Copy Current Full File Path", ID_CP_FULLPATH, ""),
+    ("Edit: Copy Current Filename", ID_CP_NAME, ""),
+    ("Edit: Copy Current Dir. Path", ID_CP_DIR, ""),
+    ("Edit: Copy All Filenames", ID_CP_ALLNAMES, ""),
+    ("Edit: Copy All File Paths", ID_CP_ALLPATHS, ""),
+    ("Edit: Increase Line Indent", ID_INDENT_INC, "Tab"),
+    ("Edit: Decrease Line Indent", ID_INDENT_DEC, "Shift+Tab"),
+    ("Edit: Proper Case", ID_CASE_PROPER, ""),
+    ("Edit: Proper Case (blend)", ID_CASE_PROPER_BLEND, ""),
+    ("Edit: Sentence case", ID_CASE_SENTENCE, ""),
+    ("Edit: Sentence case (blend)", ID_CASE_SENTENCE_BLEND, ""),
+    ("Edit: iNVERT cASE", ID_CASE_INVERT, ""),
+    ("Edit: ranDOm CasE", ID_CASE_RANDOM, ""),
+    ("Edit: Remove Consecutive Duplicate Lines", ID_L_RM_CONSEC, ""),
+    ("Edit: Remove Empty Lines (Containing Blank characters)", ID_L_RM_BLANK, ""),
+    ("Edit: Split Lines", ID_L_SPLIT, ""),
+    ("Edit: Join Lines", ID_L_JOIN, ""),
+    ("Edit: Transpose Current Line", ID_L_TRANSPOSE, "Ctrl+T"),
+    ("Edit: Insert Blank Line Above Current", ID_L_INS_ABOVE, "Ctrl+Alt+Shift+Enter"),
+    ("Edit: Insert Blank Line Below Current", ID_L_INS_BELOW, "Ctrl+Alt+Enter"),
+    ("Edit: Reverse Line Order", ID_L_REVERSE, ""),
+    ("Edit: Randomize Line Order", ID_L_RANDOM, ""),
+    ("Edit: Cut Current Line", ID_L_CUT, ""),
+    ("Edit: Copy Current Line", ID_L_COPY, ""),
+    ("Edit: Sort Lines Ignoring Case Ascending", ID_L_SORT_NOCASE_ASC, ""),
+    ("Edit: Sort Lines Ignoring Case Descending", ID_L_SORT_NOCASE_DESC, ""),
+    ("Edit: Sort Lines As Integers Ascending", ID_L_SORT_INT_ASC, ""),
+    ("Edit: Sort Lines As Integers Descending", ID_L_SORT_INT_DESC, ""),
+    ("Edit: Sort Lines As Decimals (Dot) Ascending", ID_L_SORT_DOT_ASC, ""),
+    ("Edit: Sort Lines As Decimals (Dot) Descending", ID_L_SORT_DOT_DESC, ""),
+    ("Edit: Sort Lines As Decimals (Comma) Ascending", ID_L_SORT_COMMA_ASC, ""),
+    ("Edit: Sort Lines As Decimals (Comma) Descending", ID_L_SORT_COMMA_DESC, ""),
+    ("Edit: Function Completion", ID_AC_FUNC, "Ctrl+Space"),
+    ("Edit: Word Completion", ID_AC_WORD, "Ctrl+Enter"),
+    ("Edit: Function Parameters Hint", ID_AC_HINT, "Ctrl+Shift+Space"),
+    ("Edit: Path Completion", ID_AC_PATH, "Ctrl+Alt+Space"),
+    ("Edit: Trim Leading Space", ID_B_TRIM_LEAD, ""),
+    ("Edit: Trim Leading and Trailing Space", ID_B_TRIM_BOTH, ""),
+    ("Edit: EOL to Space", ID_B_EOL_SPACE, ""),
+    ("Edit: Remove Unnecessary Blank and EOL", ID_B_UNNECESSARY, ""),
+    ("Edit: TAB to Space", ID_B_TAB_SPACE, ""),
+    ("Edit: Space to TAB (All)", ID_B_SPACE_TAB_ALL, ""),
+    ("Edit: Space to TAB (Leading)", ID_B_SPACE_TAB_LEAD, ""),
+    ("Edit: Paste HTML Content", ID_PS_HTML, ""),
+    ("Edit: Paste RTF Content", ID_PS_RTF, ""),
+    ("Edit: Copy Binary Content", ID_PS_COPY_BIN, ""),
+    ("Edit: Cut Binary Content", ID_PS_CUT_BIN, ""),
+    ("Edit: Paste Binary Content", ID_PS_PASTE_BIN, ""),
+    ("Edit: Open Selected File", ID_SEL_OPEN, ""),
+    ("Edit: Open Selected Path in Explorer", ID_SEL_FOLDER, ""),
+    ("Edit: Search Selection on Internet", ID_SEL_SEARCH, ""),
+    ("Edit: Column Editor...", ID_COLUMN_EDITOR, "Alt+C"),
+    ("Edit: Character Panel", ID_CHAR_PANEL, ""),
+    ("Edit: Clipboard History", ID_CLIP_HISTORY, ""),
+    ("Edit: Set Read-Only", ID_READONLY, ""),
+    ("Edit: Clear Read-Only Flag", ID_CLEAR_RO, ""),
     ("Edit: EOL to Windows (CR LF)", ID_EOL_CRLF, ""),
     ("Edit: EOL to Unix (LF)", ID_EOL_LF, ""),
     ("Edit: EOL to Macintosh (CR)", ID_EOL_CR, ""),
@@ -224,6 +364,7 @@ pub struct Handles {
     mini: HWND,
     split: HWND,
     tree: HWND,
+    side: HWND,
     chrome: Chrome,
     panel: HWND,
 }
@@ -233,6 +374,9 @@ pub struct Menus {
     file: HMENU,
     open_folder: HMENU,
     close_multi: HMENU,
+    edit: HMENU,
+    on_sel: HMENU,
+    engine: HMENU,
     view: HMENU,
     enc: HMENU,
     eol: HMENU,
@@ -492,6 +636,137 @@ fn open_workspace(ws: &mut Workspace<Win32Sci>, dir: PathBuf) {
     layout();
 }
 
+/// The file or folder named by selected text (quotes and extra lines ignored),
+/// looked up as given and then relative to each of `bases`.
+fn selected_path(selection: &str, bases: &[Option<&std::path::Path>]) -> Option<PathBuf> {
+    let first = selection.lines().next()?.trim().trim_matches(['"', '\'']).trim();
+    if first.is_empty() {
+        return None;
+    }
+    let direct = PathBuf::from(first);
+    if direct.exists() {
+        return Some(direct);
+    }
+    bases.iter().flatten().map(|b| b.join(first)).find(|p| p.exists())
+}
+
+fn local_time() -> edit::DateTime {
+    use windows::Win32::System::SystemInformation::GetLocalTime;
+    let t = unsafe { GetLocalTime() };
+    edit::DateTime {
+        year: t.wYear as i32,
+        month: t.wMonth as u32,
+        day: t.wDay as u32,
+        weekday: t.wDayOfWeek as u32,
+        hour: t.wHour as u32,
+        minute: t.wMinute as u32,
+        second: t.wSecond as u32,
+    }
+}
+
+/// Time then date, in the user's regional format.
+fn system_date_time(long: bool) -> String {
+    use windows::Win32::Globalization::{DATE_LONGDATE, DATE_SHORTDATE, GetDateFormatEx, GetTimeFormatEx, TIME_FORMAT_FLAGS};
+    use windows::Win32::System::SystemInformation::GetLocalTime;
+    unsafe {
+        let now = GetLocalTime();
+        let mut date = [0u16; 128];
+        let mut time = [0u16; 64];
+        let d = GetDateFormatEx(PCWSTR::null(), if long { DATE_LONGDATE } else { DATE_SHORTDATE }, Some(&now), PCWSTR::null(), Some(&mut date), PCWSTR::null());
+        let t = GetTimeFormatEx(PCWSTR::null(), TIME_FORMAT_FLAGS(0), Some(&now), PCWSTR::null(), Some(&mut time));
+        let part = |buf: &[u16], n: i32| String::from_utf16_lossy(&buf[..(n.max(1) as usize - 1).min(buf.len())]);
+        format!("{} {}", part(&time, t), part(&date, d))
+    }
+}
+
+/// Ask for the picture used by Insert > Date Time (customized).
+fn ask_date_format(host: HWND, current: &str) -> Option<String> {
+    use form::{Kind, ctl};
+    const FMT: usize = 101;
+    let spec = form::Spec {
+        title: "Date Time (customized)",
+        size: (420, 140),
+        ctls: vec![
+            ctl(100, Kind::Label, "Format: yyyy MM dd HH mm ss tt dddd MMMM  ('quoted text' is kept as is)", 14, 12, 392, 34),
+            ctl(FMT, Kind::Edit, current, 14, 52, 392, 24),
+        ],
+        ok: "Insert",
+        on_change: None,
+    };
+    let v = form::run(host, spec, |_| {})?;
+    let f = v.text(FMT).trim().to_string();
+    (!f.is_empty()).then_some(f)
+}
+
+/// The Column Editor: insert the same text, or a counting sequence, on every selected line.
+fn column_editor(host: HWND, ws: &mut Workspace<Win32Sci>) -> Option<String> {
+    use form::{Kind, ctl};
+    const TEXT_R: usize = 100;
+    const TEXT: usize = 101;
+    const NUM_R: usize = 102;
+    const INIT: usize = 104;
+    const STEP: usize = 106;
+    const REPEAT: usize = 108;
+    const ZEROS: usize = 109;
+    const DEC: usize = 111;
+    const HEX: usize = 112;
+    const OCT: usize = 113;
+    const BIN: usize = 114;
+    fn react(f: &form::Form) {
+        let text = f.checked(TEXT_R);
+        f.enable(TEXT, text);
+        for id in [103, INIT, 105, STEP, 107, REPEAT, ZEROS, DEC, HEX, OCT, BIN] {
+            f.enable(id, !text);
+        }
+    }
+    let spec = form::Spec {
+        title: "Column / Multi-Selection Editor",
+        size: (380, 262),
+        ctls: vec![
+            ctl(TEXT_R, Kind::Radio(true), "&Text to Insert", 14, 12, 200, 20),
+            ctl(TEXT, Kind::Edit, "", 30, 36, 330, 24),
+            ctl(NUM_R, Kind::Radio(false), "&Number to Insert", 14, 72, 200, 20),
+            ctl(103, Kind::Label, "Initial number:", 30, 98, 110, 20),
+            ctl(INIT, Kind::Edit, "1", 150, 95, 100, 24),
+            ctl(105, Kind::Label, "Increase by:", 30, 128, 110, 20),
+            ctl(STEP, Kind::Edit, "1", 150, 125, 100, 24),
+            ctl(107, Kind::Label, "Repeat:", 30, 158, 110, 20),
+            ctl(REPEAT, Kind::Edit, "1", 150, 155, 100, 24),
+            ctl(ZEROS, Kind::Check, "Leading &zeros", 30, 188, 200, 20),
+            ctl(110, Kind::Group, "Format", 268, 86, 92, 122),
+            ctl(DEC, Kind::Radio(true), "&Dec", 280, 106, 70, 20),
+            ctl(HEX, Kind::Radio(false), "&Hex", 280, 130, 70, 20),
+            ctl(OCT, Kind::Radio(false), "&Oct", 280, 154, 70, 20),
+            ctl(BIN, Kind::Radio(false), "&Bin", 280, 178, 70, 20),
+        ],
+        ok: "OK",
+        on_change: Some(react),
+    };
+    let v = form::run(host, spec, |f| {
+        f.set_checked(TEXT_R, true);
+        f.set_checked(DEC, true);
+        react(f);
+    })?;
+    if v.checked(TEXT_R) {
+        return ws.column_edit(Some(v.text(TEXT)), None);
+    }
+    let int = |id| v.text(id).trim().parse::<i64>().ok();
+    let (Some(initial), Some(step), Some(repeat)) = (int(INIT), int(STEP), int(REPEAT)) else {
+        return Some("The initial number, step and repeat must be whole numbers".into());
+    };
+    let format = if v.checked(HEX) {
+        NumFormat::Hex
+    } else if v.checked(OCT) {
+        NumFormat::Oct
+    } else if v.checked(BIN) {
+        NumFormat::Bin
+    } else {
+        NumFormat::Dec
+    };
+    let numbers = ColumnNumbers { initial, step, repeat: repeat.max(1) as usize, format, leading_zeros: v.checked(ZEROS) };
+    ws.column_edit(None, Some(&numbers))
+}
+
 fn popup_at_cursor(menu: HMENU, host: HWND) {
     unsafe {
         let mut pt = POINT::default();
@@ -658,12 +933,171 @@ impl App {
             ID_L_DOWN => drop(sci.send(sci::SCI_MOVESELECTEDLINESDOWN, 0, 0)),
             ID_C_UPPER => drop(sci.send(sci::SCI_UPPERCASE, 0, 0)),
             ID_C_LOWER => drop(sci.send(sci::SCI_LOWERCASE, 0, 0)),
-            ID_L_SORT_ASC => self.flash = ws.line_op(LineOp::SortAsc),
-            ID_L_SORT_DESC => self.flash = ws.line_op(LineOp::SortDesc),
+            ID_L_SORT_ASC => self.flash = ws.line_op(LineOp::Sort(SortKind::Lexicographic, false)),
+            ID_L_SORT_DESC => self.flash = ws.line_op(LineOp::Sort(SortKind::Lexicographic, true)),
+            ID_L_SORT_NOCASE_ASC => self.flash = ws.line_op(LineOp::Sort(SortKind::IgnoreCase, false)),
+            ID_L_SORT_NOCASE_DESC => self.flash = ws.line_op(LineOp::Sort(SortKind::IgnoreCase, true)),
+            ID_L_SORT_INT_ASC => self.flash = ws.line_op(LineOp::Sort(SortKind::Integer, false)),
+            ID_L_SORT_INT_DESC => self.flash = ws.line_op(LineOp::Sort(SortKind::Integer, true)),
+            ID_L_SORT_DOT_ASC => self.flash = ws.line_op(LineOp::Sort(SortKind::DecimalDot, false)),
+            ID_L_SORT_DOT_DESC => self.flash = ws.line_op(LineOp::Sort(SortKind::DecimalDot, true)),
+            ID_L_SORT_COMMA_ASC => self.flash = ws.line_op(LineOp::Sort(SortKind::DecimalComma, false)),
+            ID_L_SORT_COMMA_DESC => self.flash = ws.line_op(LineOp::Sort(SortKind::DecimalComma, true)),
             ID_L_DEDUP => self.flash = ws.line_op(LineOp::RemoveDuplicates),
+            ID_L_RM_CONSEC => self.flash = ws.line_op(LineOp::RemoveConsecutiveDuplicates),
             ID_L_NOEMPTY => self.flash = ws.line_op(LineOp::RemoveEmpty),
+            ID_L_RM_BLANK => self.flash = ws.line_op(LineOp::RemoveBlank),
+            ID_L_REVERSE => self.flash = ws.line_op(LineOp::Reverse),
+            ID_L_RANDOM => self.flash = ws.line_op(LineOp::Randomize),
+            ID_L_JOIN => self.flash = ws.line_op(LineOp::Join),
+            ID_L_SPLIT => self.flash = ws.line_op(LineOp::Split),
             ID_L_TRIM => self.flash = ws.line_op(LineOp::TrimTrailing),
+            ID_B_TRIM_LEAD => self.flash = ws.line_op(LineOp::TrimLeading),
+            ID_B_TRIM_BOTH => self.flash = ws.line_op(LineOp::TrimBoth),
+            ID_B_EOL_SPACE => self.flash = ws.line_op(LineOp::EolToSpace),
+            ID_B_UNNECESSARY => self.flash = ws.line_op(LineOp::RemoveUnnecessaryBlanks),
+            ID_B_TAB_SPACE => self.flash = ws.line_op(LineOp::TabsToSpaces),
+            ID_B_SPACE_TAB_ALL => self.flash = ws.line_op(LineOp::SpacesToTabsAll),
+            ID_B_SPACE_TAB_LEAD => self.flash = ws.line_op(LineOp::SpacesToTabsLeading),
             ID_COMMENT => self.flash = ws.line_op(LineOp::ToggleComment),
+            ID_CMT_LINE => self.flash = ws.line_op(LineOp::Comment),
+            ID_UNCMT_LINE => self.flash = ws.line_op(LineOp::Uncomment),
+            ID_CMT_BLOCK => self.flash = ws.line_op(LineOp::BlockComment),
+            ID_UNCMT_BLOCK => self.flash = ws.line_op(LineOp::BlockUncomment),
+            ID_L_INS_ABOVE | ID_L_INS_BELOW => ws.insert_blank_line(id == ID_L_INS_ABOVE),
+            ID_L_CUT => drop(sci.send(sci::SCI_LINECUT, 0, 0)),
+            ID_L_COPY => drop(sci.send(sci::SCI_LINECOPY, 0, 0)),
+            ID_L_TRANSPOSE => drop(sci.send(sci::SCI_LINETRANSPOSE, 0, 0)),
+            ID_CASE_PROPER => self.flash = ws.case_op(CaseOp::Proper),
+            ID_CASE_PROPER_BLEND => self.flash = ws.case_op(CaseOp::ProperBlend),
+            ID_CASE_SENTENCE => self.flash = ws.case_op(CaseOp::Sentence),
+            ID_CASE_SENTENCE_BLEND => self.flash = ws.case_op(CaseOp::SentenceBlend),
+            ID_CASE_INVERT => self.flash = ws.case_op(CaseOp::Invert),
+            ID_CASE_RANDOM => self.flash = ws.case_op(CaseOp::Random),
+            ID_DELETE => drop(sci.send(sci::SCI_CLEAR, 0, 0)),
+            ID_BEGIN_END_SEL => self.flash = ws.begin_end_select(false),
+            ID_BEGIN_END_COL => self.flash = ws.begin_end_select(true),
+            ID_INDENT_INC | ID_INDENT_DEC => ws.indent(id == ID_INDENT_INC),
+            ID_AC_FUNC => self.flash = ws.complete(Completion::Functions),
+            ID_AC_WORD => self.flash = ws.complete(Completion::Words),
+            ID_AC_HINT => self.flash = ws.complete(Completion::Hint),
+            ID_AC_PATH => self.flash = ws.complete(Completion::Path),
+            ID_INS_DATE_SHORT | ID_INS_DATE_LONG | ID_INS_DATE_CUSTOM => {
+                let text = if id == ID_INS_DATE_CUSTOM {
+                    ask_date_format(ui.host, &ws.date_format).map(|f| {
+                        ws.date_format = f.clone();
+                        edit::format_date_time(&f, &local_time())
+                    })
+                } else {
+                    Some(system_date_time(id == ID_INS_DATE_LONG))
+                };
+                if let Some(t) = text {
+                    ws.insert_text(&t);
+                }
+            }
+            ID_CP_FULLPATH | ID_CP_NAME | ID_CP_DIR | ID_CP_ALLNAMES | ID_CP_ALLPATHS => {
+                let kind = match id {
+                    ID_CP_FULLPATH => PathText::FullPath,
+                    ID_CP_NAME => PathText::FileName,
+                    ID_CP_DIR => PathText::Directory,
+                    ID_CP_ALLNAMES => PathText::AllNames,
+                    _ => PathText::AllPaths,
+                };
+                self.flash = Some(match ws.path_text(kind) {
+                    Some(t) if clip::set_text(ui.host, &t) => "Copied to the clipboard".into(),
+                    Some(_) => "The clipboard is busy".into(),
+                    None => "Save the file first".into(),
+                });
+            }
+            ID_PS_HTML | ID_PS_RTF => {
+                let (format, what) = if id == ID_PS_HTML { ("HTML Format", "HTML") } else { ("Rich Text Format", "RTF") };
+                match clip::get_bytes(ui.host, format) {
+                    Some(b) if id == ID_PS_HTML => ws.insert_text(&clip::html_fragment(&b)),
+                    Some(b) => ws.insert_text(String::from_utf8_lossy(&b).trim_end_matches('\0')),
+                    None => self.flash = Some(format!("No {what} content on the clipboard")),
+                }
+            }
+            ID_PS_COPY_BIN | ID_PS_CUT_BIN => {
+                let text = search::selected_text(&sci);
+                if text.is_empty() {
+                    self.flash = Some("Select some text first".into());
+                } else if clip::set_binary(ui.host, BINARY_FORMAT, text.as_bytes()) {
+                    if id == ID_PS_CUT_BIN {
+                        sci.send(sci::SCI_CLEAR, 0, 0);
+                    }
+                    self.flash = Some(format!("{} byte(s) on the clipboard", text.len()));
+                }
+            }
+            ID_PS_PASTE_BIN => match clip::get_bytes(ui.host, BINARY_FORMAT) {
+                Some(b) => ws.insert_bytes(&b),
+                None => self.flash = Some("No binary content on the clipboard".into()),
+            },
+            ID_SEL_OPEN | ID_SEL_FOLDER => {
+                let sel = search::selected_text(&sci);
+                let tab = &ws.tabs[ws.active];
+                let found = selected_path(&sel, &[tab.path.as_deref().and_then(|p| p.parent()), ws.workspace.as_deref()]);
+                match found {
+                    None => self.flash = Some("No file or folder with that name".into()),
+                    Some(p) if id == ID_SEL_FOLDER => explorer_select(&p),
+                    Some(p) if p.is_file() => ws.open_path(ui, &p),
+                    Some(p) => open_workspace(ws, p),
+                }
+            }
+            ID_SEL_SEARCH => {
+                let sel = search::selected_text(&sci);
+                if sel.trim().is_empty() {
+                    self.flash = Some("Select some text first".into());
+                } else {
+                    shell_open(ui.host, std::path::Path::new(&edit::search_url(ws.search_engine, &sel)));
+                }
+            }
+            _ if (ID_ENGINE_BASE..ID_ENGINE_BASE + edit::SEARCH_ENGINES.len()).contains(&id) => {
+                ws.search_engine = id - ID_ENGINE_BASE;
+                self.flash = Some(format!("Search engine: {}", edit::SEARCH_ENGINES[ws.search_engine].0));
+            }
+            ID_COLUMN_MODE => unsafe {
+                let t = wide(
+                    "Column Mode selects a rectangle of text.\n\n\
+                     \u{2022} Hold Alt and drag with the mouse, or\n\
+                     \u{2022} press Alt+Shift with the arrow keys, or\n\
+                     \u{2022} press Alt+Shift+B at one corner, move, and press it again.\n\n\
+                     Then type to edit every line at once, or use Column Editor (Alt+C) to insert text or numbers.",
+                );
+                MessageBoxW(Some(ui.host), PCWSTR(t.as_ptr()), w!("Column Mode"), MB_OK | MB_ICONINFORMATION);
+            },
+            ID_COLUMN_EDITOR => self.flash = column_editor(ui.host, ws),
+            ID_CHAR_PANEL | ID_CLIP_HISTORY => {
+                let want = if id == ID_CHAR_PANEL { sidepanel::Mode::Characters } else { sidepanel::Mode::Clipboard };
+                if sidepanel::mode() == Some(want) {
+                    sidepanel::show_mode(None);
+                } else {
+                    if want == sidepanel::Mode::Clipboard {
+                        if let Some(t) = clip::get_text(ui.host) {
+                            sidepanel::record_clipboard(&t);
+                        }
+                    }
+                    sidepanel::show_mode(Some(want));
+                }
+                layout();
+            }
+            ID_READONLY => {
+                let on = !ws.is_read_only();
+                ws.set_read_only(on);
+                self.flash = Some(if on { "Read-only" } else { "Editable" }.into());
+            }
+            ID_CLEAR_RO => {
+                if let Some(p) = ws.tabs[ws.active].path.clone() {
+                    let cleared = std::fs::metadata(&p).map(|m| {
+                        let mut perm = m.permissions();
+                        perm.set_readonly(false);
+                        std::fs::set_permissions(&p, perm)
+                    });
+                    self.flash = Some(match cleared {
+                        Ok(Ok(())) => "Read-only flag cleared".into(),
+                        _ => "Could not clear the read-only flag".into(),
+                    });
+                }
+            }
             ID_BM_TOGGLE => ws.toggle_bookmark(),
             ID_BM_NEXT | ID_BM_PREV => {
                 if !ws.goto_bookmark(id == ID_BM_NEXT) {
@@ -1168,6 +1602,34 @@ impl App {
         }
     }
 
+    /// Grey out and tick Edit menu items to match the editor. Runs as the menu opens.
+    fn sync_edit_menu(&mut self) {
+        let m = self.menus;
+        let s = self.ws.sci;
+        let has_selection = s.send(sci::SCI_GETSELECTIONSTART, 0, 0) != s.send(sci::SCI_GETSELECTIONEND, 0, 0);
+        let state = |on: bool| MF_BYCOMMAND | if on { MF_ENABLED } else { MF_GRAYED };
+        let checked = |on: bool| MF_BYCOMMAND | if on { MF_CHECKED } else { MF_UNCHECKED };
+        let read_only_file = self.ws.tabs[self.ws.active]
+            .path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .is_some_and(|md| md.permissions().readonly());
+        unsafe {
+            let _ = EnableMenuItem(m.edit, ID_UNDO as u32, state(s.send(sci::SCI_CANUNDO, 0, 0) != 0));
+            let _ = EnableMenuItem(m.edit, ID_REDO as u32, state(s.send(sci::SCI_CANREDO, 0, 0) != 0));
+            let _ = EnableMenuItem(m.edit, ID_PASTE as u32, state(s.send(sci::SCI_CANPASTE, 0, 0) != 0));
+            for id in [ID_SEL_OPEN, ID_SEL_FOLDER, ID_SEL_SEARCH] {
+                let _ = EnableMenuItem(m.on_sel, id as u32, state(has_selection));
+            }
+            let _ = CheckMenuItem(m.edit, ID_READONLY as u32, checked(self.ws.is_read_only()).0);
+            let _ = EnableMenuItem(m.edit, ID_CLEAR_RO as u32, state(read_only_file));
+            let _ = CheckMenuItem(m.edit, ID_CHAR_PANEL as u32, checked(sidepanel::mode() == Some(sidepanel::Mode::Characters)).0);
+            let _ = CheckMenuItem(m.edit, ID_CLIP_HISTORY as u32, checked(sidepanel::mode() == Some(sidepanel::Mode::Clipboard)).0);
+            let engine = ID_ENGINE_BASE + self.ws.search_engine.min(edit::SEARCH_ENGINES.len() - 1);
+            let _ = CheckMenuRadioItem(m.engine, ID_ENGINE_BASE as u32, (ID_ENGINE_BASE + edit::SEARCH_ENGINES.len() - 1) as u32, engine as u32, MF_BYCOMMAND.0);
+        }
+    }
+
     fn save_session(&mut self) {
         let s = self.ws.snapshot();
         let _ = s.save(&session_path());
@@ -1204,6 +1666,10 @@ fn layout() {
         let _ = ShowWindow(h.tree, if tree_w > 0 { SW_SHOW } else { SW_HIDE });
         mv(h.tree, 0, top, tree_w, area_h);
         let (x0, w) = (tree_w, w - tree_w);
+        let side_w = if sidepanel::mode().is_some() { sidepanel::WIDTH.min(w / 3) } else { 0 };
+        let _ = ShowWindow(h.side, if side_w > 0 { SW_SHOW } else { SW_HIDE });
+        mv(h.side, x0 + w - side_w, top, side_w, area_h);
+        let w = w - side_w;
         let mini_on = MINI_ON.with(|c| c.get());
         let preview_on = PREVIEW_ON.with(|c| c.get());
         let maximised = preview_on && PREVIEW_MAX.with(|c| c.get());
@@ -1434,8 +1900,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
             if rc.right > 0 {
                 let tree_w = if TREE_ON.with(|c| c.get()) { tree::WIDTH.min(rc.right / 2) } else { 0 };
-                let content = (rc.right - tree_w).max(1) as f32;
-                let ratio = ((rc.right as f32 - l.0 as f32) / content).clamp(0.2, 0.8);
+                let side_w = if sidepanel::mode().is_some() { sidepanel::WIDTH.min((rc.right - tree_w) / 3) } else { 0 };
+                let content = (rc.right - tree_w - side_w).max(1) as f32;
+                let ratio = (((rc.right - side_w) as f32 - l.0 as f32) / content).clamp(0.2, 0.8);
                 PREVIEW_RATIO.with(|c| c.set(ratio));
                 layout();
             }
@@ -1450,8 +1917,27 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             with_app(|a| a.wb_events());
             LRESULT(0)
         }
+        WM_INITMENUPOPUP => {
+            with_app(|a| a.sync_edit_menu());
+            LRESULT(0)
+        }
+        WM_CLIPBOARDUPDATE => {
+            if let Some(text) = clip::get_text(hwnd) {
+                sidepanel::record_clipboard(&text);
+            }
+            LRESULT(0)
+        }
         WM_NOTIFY => {
             let hdr = unsafe { &*(l.0 as *const windows::Win32::UI::Controls::NMHDR) };
+            // Character Panel / Clipboard History: a double-click inserts the entry.
+            if let Some(text) = sidepanel::notify(l) {
+                with_app(|a| {
+                    a.ws.insert_text(&text);
+                    a.refresh();
+                    a.focus_active();
+                });
+                return LRESULT(0);
+            }
             // The workspace tree: expanding folders is handled inside; a file asks to be opened.
             if let Some(path) = tree::notify(l) {
                 with_app(|a| {
@@ -1601,33 +2087,140 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(close_multi, ID_CLOSE_UNCHANGED, "Close All Unchanged");
 
     let edit = B::popup();
-    B::add(edit, ID_UNDO, "&Undo\tCtrl+Z");
-    B::add(edit, ID_REDO, "&Redo\tCtrl+Y");
+    B::add(edit, ID_UNDO, "&Undo\tCtrl+Z or Alt+Backspace");
+    B::add(edit, ID_REDO, "&Redo\tCtrl+Y or Ctrl+Shift+Z");
     B::sep(edit);
-    B::add(edit, ID_CUT, "Cu&t\tCtrl+X");
-    B::add(edit, ID_COPY, "&Copy\tCtrl+C");
-    B::add(edit, ID_PASTE, "&Paste\tCtrl+V");
+    B::add(edit, ID_CUT, "Cu&t\tCtrl+X or Shift+DEL");
+    B::add(edit, ID_COPY, "&Copy\tCtrl+C or Ctrl+INS");
+    B::add(edit, ID_PASTE, "&Paste\tCtrl+V or Shift+INS");
+    B::add(edit, ID_DELETE, "&Delete\tDEL");
     B::add(edit, ID_SELALL, "Select &All\tCtrl+A");
+    B::add(edit, ID_BEGIN_END_SEL, "Begin/End &Select\tCtrl+Shift+B");
+    B::add(edit, ID_BEGIN_END_COL, "Begin/End Select in Column Mode\tAlt+Shift+B");
     B::sep(edit);
-    let lines = B::popup();
-    B::add(lines, ID_L_DUP, "&Duplicate Line\tCtrl+D");
-    B::add(lines, ID_L_DEL, "D&elete Line\tCtrl+L");
-    B::add(lines, ID_L_UP, "Move Line &Up\tCtrl+Shift+Up");
-    B::add(lines, ID_L_DOWN, "Move Line D&own\tCtrl+Shift+Down");
-    B::sep(lines);
-    B::add(lines, ID_L_SORT_ASC, "Sort Lines &Ascending");
-    B::add(lines, ID_L_SORT_DESC, "Sort Lines D&escending");
-    B::add(lines, ID_L_DEDUP, "Remove Duplicate &Lines");
-    B::add(lines, ID_L_NOEMPTY, "Remove &Empty Lines");
-    B::add(lines, ID_L_TRIM, "&Trim Trailing Space");
-    B::submenu(edit, "&Line Operations", lines);
+
+    let insert = B::popup();
+    B::add(insert, ID_INS_DATE_SHORT, "Date Time (short version)");
+    B::add(insert, ID_INS_DATE_LONG, "Date Time (long version)");
+    B::add(insert, ID_INS_DATE_CUSTOM, "Date Time (customized)");
+    B::submenu(edit, "In&sert", insert);
+
+    let to_clip = B::popup();
+    B::add(to_clip, ID_CP_FULLPATH, "Current Full File path to Clipboard");
+    B::add(to_clip, ID_CP_NAME, "Current Filename to Clipboard");
+    B::add(to_clip, ID_CP_DIR, "Current Dir. Path to Clipboard");
+    B::sep(to_clip);
+    B::add(to_clip, ID_CP_ALLNAMES, "Copy All Filenames");
+    B::add(to_clip, ID_CP_ALLPATHS, "Copy All File Paths");
+    B::submenu(edit, "Copy to Clip&board", to_clip);
+
+    let indent = B::popup();
+    B::add(indent, ID_INDENT_INC, "&Increase Line Indent\tTab");
+    B::add(indent, ID_INDENT_DEC, "&Decrease Line Indent\tShift+Tab");
+    B::submenu(edit, "&Indent", indent);
+
     let case = B::popup();
     B::add(case, ID_C_UPPER, "&UPPERCASE\tCtrl+Shift+U");
     B::add(case, ID_C_LOWER, "&lowercase\tCtrl+U");
-    B::submenu(edit, "Convert &Case To", case);
-    B::add(edit, ID_COMMENT, "Toggle Line C&omment\tCtrl+/");
+    B::sep(case);
+    B::add(case, ID_CASE_PROPER, "&Proper Case");
+    B::add(case, ID_CASE_PROPER_BLEND, "Proper Case (blend)");
+    B::add(case, ID_CASE_SENTENCE, "&Sentence case");
+    B::add(case, ID_CASE_SENTENCE_BLEND, "Sentence case (blend)");
+    B::add(case, ID_CASE_INVERT, "i&NVERT cASE");
+    B::add(case, ID_CASE_RANDOM, "&ranDOm CasE");
+    B::submenu(edit, "Convert Case &to", case);
+
+    let lines = B::popup();
+    B::add(lines, ID_L_DUP, "&Duplicate Current Line\tCtrl+D");
+    B::add(lines, ID_L_DEDUP, "Remove Duplicate Lines");
+    B::add(lines, ID_L_RM_CONSEC, "Remove Consecutive Duplicate Lines");
+    B::add(lines, ID_L_SPLIT, "S&plit Lines");
+    B::add(lines, ID_L_JOIN, "&Join Lines");
+    B::add(lines, ID_L_UP, "Move Up Current Line\tCtrl+Shift+Up");
+    B::add(lines, ID_L_DOWN, "Move Down Current Line\tCtrl+Shift+Down");
+    B::add(lines, ID_L_TRANSPOSE, "&Transpose Current Line\tCtrl+T");
+    B::add(lines, ID_L_NOEMPTY, "Remove Empty Lines");
+    B::add(lines, ID_L_RM_BLANK, "Remove Empty Lines (Containing Blank characters)");
+    B::add(lines, ID_L_INS_ABOVE, "Insert Blank Line Above Current\tCtrl+Alt+Shift+Enter");
+    B::add(lines, ID_L_INS_BELOW, "Insert Blank Line Below Current\tCtrl+Alt+Enter");
+    B::add(lines, ID_L_REVERSE, "Reverse Line Order");
+    B::add(lines, ID_L_RANDOM, "Randomize Line Order");
+    B::sep(lines);
+    B::add(lines, ID_L_CUT, "Cut Current Line");
+    B::add(lines, ID_L_COPY, "Copy Current Line");
+    B::add(lines, ID_L_DEL, "Delete Current Line\tCtrl+L");
+    B::sep(lines);
+    B::add(lines, ID_L_SORT_ASC, "Sort Lines Lexicographically Ascending");
+    B::add(lines, ID_L_SORT_DESC, "Sort Lines Lexicographically Descending");
+    B::add(lines, ID_L_SORT_NOCASE_ASC, "Sort Lines Lexicographically Ascending Ignoring Case");
+    B::add(lines, ID_L_SORT_NOCASE_DESC, "Sort Lines Lexicographically Descending Ignoring Case");
+    B::add(lines, ID_L_SORT_INT_ASC, "Sort Lines As Integers Ascending");
+    B::add(lines, ID_L_SORT_INT_DESC, "Sort Lines As Integers Descending");
+    B::add(lines, ID_L_SORT_COMMA_ASC, "Sort Lines As Decimals (Comma) Ascending");
+    B::add(lines, ID_L_SORT_COMMA_DESC, "Sort Lines As Decimals (Comma) Descending");
+    B::add(lines, ID_L_SORT_DOT_ASC, "Sort Lines As Decimals (Dot) Ascending");
+    B::add(lines, ID_L_SORT_DOT_DESC, "Sort Lines As Decimals (Dot) Descending");
+    B::submenu(edit, "&Line Operations", lines);
+
+    let comment = B::popup();
+    B::add(comment, ID_COMMENT, "&Toggle Single Line Comment\tCtrl+Q");
+    B::add(comment, ID_CMT_LINE, "Single Line &Comment\tCtrl+K");
+    B::add(comment, ID_UNCMT_LINE, "Single Line &Uncomment\tCtrl+Shift+K");
+    B::add(comment, ID_CMT_BLOCK, "&Block Comment\tCtrl+Shift+Q");
+    B::add(comment, ID_UNCMT_BLOCK, "Block Uncomment\tCtrl+Shift+R");
+    B::submenu(edit, "Comment/Uncomment", comment);
+
+    let complete = B::popup();
+    B::add(complete, ID_AC_FUNC, "Function Completion\tCtrl+Space");
+    B::add(complete, ID_AC_WORD, "Word Completion\tCtrl+Enter");
+    B::add(complete, ID_AC_HINT, "Function Parameters Hint\tCtrl+Shift+Space");
+    B::add(complete, ID_AC_PATH, "Path Completion\tCtrl+Alt+Space");
+    B::submenu(edit, "Auto-Completion", complete);
+
+    let eol_sub = eol_menu();
+    B::submenu(edit, "EOL Conversion", eol_sub);
+
+    let blank = B::popup();
+    B::add(blank, ID_L_TRIM, "Trim Trailing Space");
+    B::add(blank, ID_B_TRIM_LEAD, "Trim Leading Space");
+    B::add(blank, ID_B_TRIM_BOTH, "Trim Leading and Trailing Space");
+    B::add(blank, ID_B_EOL_SPACE, "EOL to Space");
+    B::add(blank, ID_B_UNNECESSARY, "Remove Unnecessary Blank and EOL");
+    B::sep(blank);
+    B::add(blank, ID_B_TAB_SPACE, "TAB to Space");
+    B::add(blank, ID_B_SPACE_TAB_ALL, "Space to TAB (All)");
+    B::add(blank, ID_B_SPACE_TAB_LEAD, "Space to TAB (Leading)");
+    B::submenu(edit, "Blank Operations", blank);
+
+    let paste_special = B::popup();
+    B::add(paste_special, ID_PS_HTML, "Paste HTML Content");
+    B::add(paste_special, ID_PS_RTF, "Paste RTF Content");
+    B::sep(paste_special);
+    B::add(paste_special, ID_PS_COPY_BIN, "Copy Binary Content");
+    B::add(paste_special, ID_PS_CUT_BIN, "Cut Binary Content");
+    B::add(paste_special, ID_PS_PASTE_BIN, "Paste Binary Content");
+    B::submenu(edit, "Paste Special", paste_special);
+
+    let on_selection = B::popup();
+    B::add(on_selection, ID_SEL_OPEN, "Open File");
+    B::add(on_selection, ID_SEL_FOLDER, "Open Containing Folder");
+    B::add(on_selection, ID_SEL_SEARCH, "Search on Internet");
+    let engine = B::popup();
+    for (i, (name, _)) in edit::SEARCH_ENGINES.iter().enumerate() {
+        B::add(engine, ID_ENGINE_BASE + i, name);
+    }
+    B::submenu(on_selection, "Change Search Engine", engine);
+    B::submenu(edit, "On Selection", on_selection);
     B::sep(edit);
-    B::submenu(edit, "EOL Conversion", eol_menu());
+
+    B::add(edit, ID_COLUMN_MODE, "Column Mode...");
+    B::add(edit, ID_COLUMN_EDITOR, "Column &Editor...\tAlt+C");
+    B::add(edit, ID_CHAR_PANEL, "Character Panel");
+    B::add(edit, ID_CLIP_HISTORY, "Clipboard History");
+    B::sep(edit);
+    B::add(edit, ID_READONLY, "Set Read-Only");
+    B::add(edit, ID_CLEAR_RO, "Clear Read-Only Flag");
 
     let search = B::popup();
     B::add(search, ID_FIND, "&Find...\tCtrl+F");
@@ -1683,7 +2276,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Language".to_string(), lang),
         ("?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, view, enc, eol: eol_menu(), lang };
+    let menus = Menus { file, open_folder, close_multi, edit, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
 }
@@ -1729,6 +2322,9 @@ fn accelerators() -> HACCEL {
     const CTRL: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x09);
     const CTRL_SHIFT: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x0D);
     const CTRL_ALT: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x19);
+    const ALT: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x11);
+    const ALT_SHIFT: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x15);
+    const CTRL_ALT_SHIFT: ACCEL_VIRT_FLAGS = ACCEL_VIRT_FLAGS(0x1D);
     let k = |f, key: char, cmd: usize| ACCEL { fVirt: f, key: key as u16, cmd: cmd as u16 };
     let table = [
         k(CTRL, 'N', ID_NEW),
@@ -1760,6 +2356,23 @@ fn accelerators() -> HACCEL {
         ACCEL { fVirt: CTRL_SHIFT, key: 0x26, cmd: ID_L_UP as u16 },   // Ctrl+Shift+Up
         ACCEL { fVirt: CTRL_SHIFT, key: 0x28, cmd: ID_L_DOWN as u16 }, // Ctrl+Shift+Down
         ACCEL { fVirt: CTRL, key: 0xBF, cmd: ID_COMMENT as u16 },      // Ctrl+/
+        k(CTRL, 'Q', ID_COMMENT),
+        k(CTRL, 'K', ID_CMT_LINE),
+        k(CTRL_SHIFT, 'K', ID_UNCMT_LINE),
+        k(CTRL_SHIFT, 'Q', ID_CMT_BLOCK),
+        k(CTRL_SHIFT, 'R', ID_UNCMT_BLOCK),
+        k(CTRL, 'T', ID_L_TRANSPOSE),
+        k(CTRL_SHIFT, 'B', ID_BEGIN_END_SEL),
+        k(ALT_SHIFT, 'B', ID_BEGIN_END_COL),
+        k(ALT, 'C', ID_COLUMN_EDITOR),
+        k(CTRL_SHIFT, 'Z', ID_REDO),
+        ACCEL { fVirt: ALT, key: 0x08, cmd: ID_UNDO as u16 },            // Alt+Backspace
+        ACCEL { fVirt: CTRL, key: 0x20, cmd: ID_AC_FUNC as u16 },        // Ctrl+Space
+        ACCEL { fVirt: CTRL, key: 0x0D, cmd: ID_AC_WORD as u16 },        // Ctrl+Enter
+        ACCEL { fVirt: CTRL_SHIFT, key: 0x20, cmd: ID_AC_HINT as u16 },  // Ctrl+Shift+Space
+        ACCEL { fVirt: CTRL_ALT, key: 0x20, cmd: ID_AC_PATH as u16 },    // Ctrl+Alt+Space
+        ACCEL { fVirt: CTRL_ALT, key: 0x0D, cmd: ID_L_INS_BELOW as u16 }, // Ctrl+Alt+Enter
+        ACCEL { fVirt: CTRL_ALT_SHIFT, key: 0x0D, cmd: ID_L_INS_ABOVE as u16 },
         ACCEL { fVirt: CTRL, key: 0x09, cmd: ID_NEXT_TAB as u16 },
         ACCEL { fVirt: CTRL_SHIFT, key: 0x09, cmd: ID_PREV_TAB as u16 },
     ];
@@ -1852,7 +2465,9 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
         )?;
 
         let tree_view = tree::create(host);
-        let hs = Handles { host, edit, mini, split, tree: tree_view, chrome, panel };
+        let side = sidepanel::create(host);
+        clip::listen(host, true);
+        let hs = Handles { host, edit, mini, split, tree: tree_view, side, chrome, panel };
         HANDLES.with(|c| c.set(Some(hs)));
         Ok((hs, menus))
     }

@@ -37,6 +37,12 @@ pub struct Session {
     /// Folder open in the workspace tree.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// Which web search engine "Search on Internet" uses.
+    #[serde(default)]
+    pub search_engine: usize,
+    /// Picture for Insert > Date Time (customized); empty means the default.
+    #[serde(default)]
+    pub date_format: String,
 }
 
 fn yes() -> bool {
@@ -94,6 +100,8 @@ mod tests {
             minimap: true,
             recent: vec!["C:\\a\\b.txt".into()],
             workspace: Some("C:\\proj".into()),
+            search_engine: 2,
+            date_format: "yyyy".into(),
         };
         let p = std::env::temp_dir().join("notepp_session_test.json");
         s.save(&p).unwrap();

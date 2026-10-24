@@ -1,4 +1,5 @@
 pub mod bookmarks;
+pub mod complete;
 pub mod doc;
 pub mod edit;
 pub mod files;

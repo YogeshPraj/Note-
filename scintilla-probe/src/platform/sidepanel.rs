@@ -20,12 +20,25 @@ const VK_DELETE: u16 = 0x2E;
 pub enum Mode {
     Characters,
     Clipboard,
+    Documents,
+    Functions,
+}
+
+/// What the host should do after a double-click in the panel.
+pub enum Action {
+    Insert(String),
+    /// Switch to the tab with this index.
+    Activate(usize),
+    /// Go to this 0-based line.
+    Goto(usize),
 }
 
 thread_local! {
     static LIST: Cell<Option<HWND>> = const { Cell::new(None) };
     static MODE: Cell<Option<Mode>> = const { Cell::new(None) };
     static HISTORY: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Rows of the Documents / Functions views: cell texts and the target they open.
+    static ROWS: RefCell<Vec<(Vec<String>, usize)>> = const { RefCell::new(Vec::new()) };
 }
 
 const CONTROL_NAMES: [&str; 32] = [
@@ -132,6 +145,28 @@ fn fill() {
             });
         }
         None => {}
+        Some(m) => {
+            let cols: &[(&str, i32)] = if m == Mode::Documents { &[("Name", 100), ("Path", WIDTH - 124)] } else { &[("Function", WIDTH - 74), ("Line", 50)] };
+            set_columns(list, cols);
+            ROWS.with(|r| {
+                for (i, (cells, _)) in r.borrow().iter().enumerate() {
+                    for (c, text) in cells.iter().enumerate() {
+                        set_cell(list, i as i32, c as i32, text);
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// Replace the rows of the Documents / Functions views. Does nothing if unchanged.
+pub fn set_rows(rows: Vec<(Vec<String>, usize)>) {
+    let changed = ROWS.with(|r| *r.borrow() != rows);
+    if changed {
+        ROWS.with(|r| *r.borrow_mut() = rows);
+        if matches!(mode(), Some(Mode::Documents | Mode::Functions)) {
+            fill();
+        }
     }
 }
 
@@ -172,15 +207,19 @@ fn selected() -> Option<usize> {
     (n >= 0).then_some(n as usize)
 }
 
-/// Handle a `WM_NOTIFY` from the list. Returns text to insert into the editor.
-pub fn notify(lparam: LPARAM) -> Option<String> {
+/// Handle a `WM_NOTIFY` from the list. Returns what the host should do.
+pub fn notify(lparam: LPARAM) -> Option<Action> {
     let hdr = unsafe { &*(lparam.0 as *const NMHDR) };
     if Some(hdr.hwndFrom) != hwnd() {
         return None;
     }
     match (hdr.code, mode()) {
-        (NM_DBLCLK, Some(Mode::Characters)) => selected().map(|n| char_for(n as u8).to_string()),
-        (NM_DBLCLK, Some(Mode::Clipboard)) => selected().and_then(|n| HISTORY.with(|h| h.borrow().get(n).cloned())),
+        (NM_DBLCLK, Some(Mode::Characters)) => selected().map(|n| Action::Insert(char_for(n as u8).to_string())),
+        (NM_DBLCLK, Some(Mode::Clipboard)) => selected().and_then(|n| HISTORY.with(|h| h.borrow().get(n).cloned())).map(Action::Insert),
+        (NM_DBLCLK | NM_RETURN, Some(m @ (Mode::Documents | Mode::Functions))) => {
+            let target = selected().and_then(|n| ROWS.with(|r| r.borrow().get(n).map(|x| x.1)))?;
+            Some(if m == Mode::Documents { Action::Activate(target) } else { Action::Goto(target) })
+        }
         (LVN_KEYDOWN, Some(Mode::Clipboard)) => {
             let key = unsafe { &*(lparam.0 as *const NMLVKEYDOWN) };
             if key.wVKey == VK_DELETE {

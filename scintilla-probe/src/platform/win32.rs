@@ -5,6 +5,7 @@
 //! in `findpanel.rs`. All editor behaviour is in `core` (`Workspace`, `search`).
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
@@ -29,6 +30,8 @@ use super::tree;
 use super::whiteboard as wb;
 use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
 use crate::core::bookmarks;
+use crate::core::functions;
+use crate::core::view;
 use crate::core::preview as pcore;
 use crate::core::doc::{Enc, Eol};
 use crate::core::files;
@@ -110,6 +113,46 @@ const ID_JUMP_UP_BASE: usize = 5060;
 const ID_JUMP_DOWN_BASE: usize = 5070;
 const ID_COPY_STYLED_BASE: usize = 5080; // + 0..4, + 5 = all styles
 const SLOT_NAMES: [&str; 5] = ["1st", "2nd", "3rd", "4th", "5th"];
+// View menu (Notepad++ layout)
+const ID_ON_TOP: usize = 3101;
+const ID_FULLSCREEN: usize = 3102;
+const ID_POSTIT: usize = 3103;
+const ID_DISTRACTION: usize = 3104;
+const ID_BROWSER_BASE: usize = 3110; // + index into BROWSERS
+const ID_SYM_WS: usize = 3120;
+const ID_SYM_EOL: usize = 3121;
+const ID_SYM_NONPRINT: usize = 3122;
+const ID_SYM_CTRL: usize = 3123;
+const ID_SYM_ALL: usize = 3124;
+const ID_SYM_INDENT: usize = 3125;
+const ID_SYM_WRAP: usize = 3126;
+const ID_MOVE_NEW_INSTANCE: usize = 3130;
+const ID_OPEN_NEW_INSTANCE: usize = 3131;
+const ID_MOVE_OTHER_VIEW: usize = 3132;
+const ID_CLONE_OTHER_VIEW: usize = 3133;
+const ID_TAB_BASE: usize = 3140; // + 0..8 = Tab 1..9
+const ID_MOVE_TAB_FWD: usize = 3150;
+const ID_MOVE_TAB_BACK: usize = 3151;
+const ID_FOCUS_OTHER: usize = 3160;
+const ID_HIDE_LINES: usize = 3161;
+const ID_FOLD_ALL: usize = 3170;
+const ID_UNFOLD_ALL: usize = 3171;
+const ID_FOLD_CUR: usize = 3172;
+const ID_UNFOLD_CUR: usize = 3173;
+const ID_FOLD_LEVEL_BASE: usize = 3180; // + 0..7
+const ID_UNFOLD_LEVEL_BASE: usize = 3190; // + 0..7
+const ID_SUMMARY: usize = 3200;
+const ID_PROJECT_BASE: usize = 3201; // + 0..2 (not available)
+const ID_DOC_LIST: usize = 3206;
+const ID_FUNC_LIST: usize = 3207;
+const ID_SYNC_V: usize = 3208;
+const ID_SYNC_H: usize = 3209;
+const ID_RTL: usize = 3210;
+const ID_LTR: usize = 3211;
+const ID_MONITOR: usize = 3212;
+const TIMER_MONITOR: usize = 2;
+/// (name, executable) for View > View Current File in.
+const BROWSERS: [(&str, &str); 3] = [("Firefox", "firefox.exe"), ("Chrome", "chrome.exe"), ("Edge", "msedge.exe")];
 const ID_L_DUP: usize = 2101;
 const ID_L_DEL: usize = 2102;
 const ID_L_UP: usize = 2103;
@@ -370,6 +413,30 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Bookmark: Previous", ID_BM_PREV, "Shift+F2"),
     ("Bookmark: Clear All", ID_BM_CLEAR, ""),
     ("View: Toggle Word Wrap", ID_WRAP, ""),
+    ("View: Always on Top", ID_ON_TOP, ""),
+    ("View: Toggle Full Screen Mode", ID_FULLSCREEN, "F11"),
+    ("View: Post-It", ID_POSTIT, "F12"),
+    ("View: Distraction Free Mode", ID_DISTRACTION, ""),
+    ("View: Show Space and Tab", ID_SYM_WS, ""),
+    ("View: Show End of Line", ID_SYM_EOL, ""),
+    ("View: Show All Characters", ID_SYM_ALL, ""),
+    ("View: Show Indent Guide", ID_SYM_INDENT, ""),
+    ("View: Show Wrap Symbol", ID_SYM_WRAP, ""),
+    ("View: Hide Lines", ID_HIDE_LINES, "Alt+H"),
+    ("View: Fold All", ID_FOLD_ALL, "Alt+0"),
+    ("View: Unfold All", ID_UNFOLD_ALL, "Alt+Shift+0"),
+    ("View: Fold Current Level", ID_FOLD_CUR, "Ctrl+Alt+F"),
+    ("View: Unfold Current Level", ID_UNFOLD_CUR, "Ctrl+Alt+Shift+F"),
+    ("View: Summary...", ID_SUMMARY, ""),
+    ("View: Document List", ID_DOC_LIST, ""),
+    ("View: Function List", ID_FUNC_LIST, ""),
+    ("View: Text Direction RTL", ID_RTL, "Ctrl+Alt+R"),
+    ("View: Text Direction LTR", ID_LTR, "Ctrl+Alt+L"),
+    ("View: Monitoring (tail -f)", ID_MONITOR, ""),
+    ("View: Move Tab Forward", ID_MOVE_TAB_FWD, "Ctrl+Shift+PgDn"),
+    ("View: Move Tab Backward", ID_MOVE_TAB_BACK, "Ctrl+Shift+PgUp"),
+    ("View: Open in New Instance", ID_OPEN_NEW_INSTANCE, ""),
+    ("View: Move to New Instance", ID_MOVE_NEW_INSTANCE, ""),
     ("View: Toggle Live Preview", ID_PREVIEW, "Ctrl+Shift+V"),
     ("View: Toggle Dark Mode", ID_THEME, ""),
     ("View: Toggle Minimap", ID_MINIMAP, ""),
@@ -421,6 +488,7 @@ pub struct Menus {
     open_folder: HMENU,
     close_multi: HMENU,
     edit: HMENU,
+    sym: HMENU,
     search: HMENU,
     on_sel: HMENU,
     engine: HMENU,
@@ -437,6 +505,10 @@ struct App {
     hits: Vec<Hit>,
     /// Which result F4 / Shift+F4 last opened.
     hit_cursor: usize,
+    /// Tabs followed like `tail -f` (tab id -> file length last seen).
+    monitoring: HashMap<u64, u64>,
+    /// What the Function List was last built from (document, length).
+    side_key: Option<(isize, isize)>,
     hits_root: PathBuf,
     /// One-shot message shown in place of the cursor position.
     flash: Option<String>,
@@ -489,6 +561,13 @@ thread_local! {
     static TREE_ON: Cell<bool> = const { Cell::new(false) };
     /// Where the editor's selection started when Incremental Search opened.
     static INCR_START: Cell<usize> = const { Cell::new(0) };
+    /// Chrome parts hidden by Post-It / Distraction Free Mode: 1 menu, 2 toolbar, 4 tabs, 8 status bar.
+    static HIDE: Cell<u8> = const { Cell::new(0) };
+    static DISTRACTION: Cell<bool> = const { Cell::new(false) };
+    static POSTIT: Cell<bool> = const { Cell::new(false) };
+    static FULLSCREEN: Cell<bool> = const { Cell::new(false) };
+    /// Window placement and style to return to when leaving full screen.
+    static WINDOWED: Cell<Option<(WINDOWPLACEMENT, isize)>> = const { Cell::new(None) };
     /// Fraction of the editor row given to the preview.
     static PREVIEW_RATIO: Cell<f32> = const { Cell::new(0.5) };
 }
@@ -806,6 +885,116 @@ fn find_chars_dialog(host: HWND, sci: Win32Sci) {
     }
 }
 
+/// Enter or leave full screen on the monitor the window is on.
+fn set_fullscreen(host: HWND, on: bool) {
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
+    if on == FULLSCREEN.with(|c| c.get()) {
+        return;
+    }
+    unsafe {
+        if on {
+            let mut wp = WINDOWPLACEMENT { length: size_of::<WINDOWPLACEMENT>() as u32, ..Default::default() };
+            let _ = GetWindowPlacement(host, &mut wp);
+            let style = GetWindowLongPtrW(host, GWL_STYLE);
+            WINDOWED.with(|c| c.set(Some((wp, style))));
+            SetWindowLongPtrW(host, GWL_STYLE, style & !((WS_CAPTION.0 | WS_THICKFRAME.0) as isize));
+            let mut mi = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+            let _ = GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &mut mi);
+            let r = mi.rcMonitor;
+            let _ = SetWindowPos(host, Some(HWND_TOP), r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+        } else if let Some((wp, style)) = WINDOWED.with(|c| c.take()) {
+            SetWindowLongPtrW(host, GWL_STYLE, style);
+            let _ = SetWindowPlacement(host, &wp);
+            let _ = SetWindowPos(host, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        }
+    }
+    FULLSCREEN.with(|c| c.set(on));
+}
+
+/// Open `file` with a specific program (found through App Paths, e.g. `chrome.exe`).
+fn shell_open_with(host: HWND, exe: &str, file: &std::path::Path) {
+    let (e, f) = (wide(exe), wide(&format!("\"{}\"", file.display())));
+    unsafe {
+        windows::Win32::UI::Shell::ShellExecuteW(Some(host), w!("open"), PCWSTR(e.as_ptr()), PCWSTR(f.as_ptr()), PCWSTR::null(), SW_SHOWNORMAL);
+    }
+}
+
+/// Right-to-left or left-to-right reading order for the editor.
+fn set_text_direction(edit: HWND, rtl: bool) {
+    unsafe {
+        let ex = GetWindowLongPtrW(edit, GWL_EXSTYLE);
+        let bits = (WS_EX_RIGHT.0 | WS_EX_RTLREADING.0 | WS_EX_LEFTSCROLLBAR.0) as isize;
+        SetWindowLongPtrW(edit, GWL_EXSTYLE, if rtl { ex | bits } else { ex & !bits });
+        let _ = SetWindowPos(edit, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        // Scintilla's own bidirectional mode: 1 = right-to-left, 0 = off.
+        SendMessageW(edit, 2709, Some(WPARAM(rtl as usize)), None);
+    }
+}
+
+fn file_time_text(t: std::time::SystemTime) -> String {
+    use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+    use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
+    let Ok(d) = t.duration_since(std::time::UNIX_EPOCH) else { return String::new() };
+    let ticks = (d.as_secs() + 11_644_473_600) * 10_000_000 + u64::from(d.subsec_nanos()) / 100;
+    let ft = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
+    let (mut utc, mut local) = (SYSTEMTIME::default(), SYSTEMTIME::default());
+    unsafe {
+        if FileTimeToSystemTime(&ft, &mut utc).is_err() || SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_err() {
+            return String::new();
+        }
+    }
+    let dt = edit::DateTime {
+        year: local.wYear as i32,
+        month: local.wMonth as u32,
+        day: local.wDay as u32,
+        weekday: local.wDayOfWeek as u32,
+        hour: local.wHour as u32,
+        minute: local.wMinute as u32,
+        second: local.wSecond as u32,
+    };
+    edit::format_date_time("yyyy-MM-dd HH:mm:ss", &dt)
+}
+
+/// View > Summary: file facts and text statistics in a message box.
+fn show_summary(host: HWND, ws: &Workspace<Win32Sci>) {
+    let sci = ws.sci;
+    let c = view::count_text(&sci::get_text(&sci));
+    let t = &ws.tabs[ws.active];
+    let mut s = String::new();
+    match &t.path {
+        Some(p) => {
+            s += &format!("Full file path: {}\n", p.display());
+            if let Ok(md) = std::fs::metadata(p) {
+                if let Ok(created) = md.created() {
+                    s += &format!("Created: {}\n", file_time_text(created));
+                }
+                if let Ok(modified) = md.modified() {
+                    s += &format!("Modified: {}\n", file_time_text(modified));
+                }
+                s += &format!("File size on disk: {} bytes\n", md.len());
+            }
+        }
+        None => s += &format!("{} (not saved yet)\n", t.title),
+    }
+    s += &format!(
+        "\nCharacters (without line endings): {}\nWords: {}\nLines: {}\nDocument length: {} bytes\nEncoding: {}\n",
+        c.chars,
+        c.words,
+        c.lines,
+        c.bytes,
+        t.enc.label()
+    );
+    let sel = search::selected_text(&sci);
+    if !sel.is_empty() {
+        let v = view::count_text(&sel);
+        s += &format!("\nSelection: {} characters, {} words, {} lines", v.chars, v.words, v.lines);
+    }
+    let text = wide(&s);
+    unsafe {
+        MessageBoxW(Some(host), PCWSTR(text.as_ptr()), w!("Summary"), MB_OK | MB_ICONINFORMATION);
+    }
+}
+
 /// Ask for the picture used by Insert > Date Time (customized).
 fn ask_date_format(host: HWND, current: &str) -> Option<String> {
     use form::{Kind, ctl};
@@ -991,7 +1180,10 @@ impl App {
                     TREE_ON.with(|c| c.set(!c.get()));
                     layout();
                 } else {
-                    self.flash = Some("No folder open: use File > Open Folder as Workspace".into());
+                    // No folder yet: pick one, which opens it in the tree.
+                    if let Some(d) = findpanel::browse_folder(ui.host) {
+                        open_workspace(ws, d);
+                    }
                 }
             }
             ID_LOAD_SESSION => {
@@ -1198,8 +1390,13 @@ impl App {
                 MessageBoxW(Some(ui.host), PCWSTR(t.as_ptr()), w!("Column Mode"), MB_OK | MB_ICONINFORMATION);
             },
             ID_COLUMN_EDITOR => self.flash = column_editor(ui.host, ws),
-            ID_CHAR_PANEL | ID_CLIP_HISTORY => {
-                let want = if id == ID_CHAR_PANEL { sidepanel::Mode::Characters } else { sidepanel::Mode::Clipboard };
+            ID_CHAR_PANEL | ID_CLIP_HISTORY | ID_DOC_LIST | ID_FUNC_LIST => {
+                let want = match id {
+                    ID_CHAR_PANEL => sidepanel::Mode::Characters,
+                    ID_CLIP_HISTORY => sidepanel::Mode::Clipboard,
+                    ID_DOC_LIST => sidepanel::Mode::Documents,
+                    _ => sidepanel::Mode::Functions,
+                };
                 if sidepanel::mode() == Some(want) {
                     sidepanel::show_mode(None);
                 } else {
@@ -1208,9 +1405,113 @@ impl App {
                             sidepanel::record_clipboard(&t);
                         }
                     }
+                    self.side_key = None;
                     sidepanel::show_mode(Some(want));
                 }
                 layout();
+            }
+            ID_ON_TOP => unsafe {
+                let on = GetWindowLongPtrW(ui.host, GWL_EXSTYLE) & WS_EX_TOPMOST.0 as isize == 0;
+                let _ = SetWindowPos(ui.host, Some(if on { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            },
+            ID_FULLSCREEN => set_fullscreen(ui.host, !FULLSCREEN.with(|c| c.get())),
+            ID_POSTIT | ID_DISTRACTION => {
+                if id == ID_POSTIT {
+                    POSTIT.with(|c| c.set(!c.get()));
+                    DISTRACTION.with(|c| c.set(false));
+                } else {
+                    DISTRACTION.with(|c| c.set(!c.get()));
+                    POSTIT.with(|c| c.set(false));
+                }
+                let (postit, distraction) = (POSTIT.with(|c| c.get()), DISTRACTION.with(|c| c.get()));
+                HIDE.with(|c| c.set(if postit { 0b1111 } else if distraction { 0b1110 } else { 0 }));
+                ws.set_margins_visible(!distraction);
+                // Distraction free mode also goes full screen, as in Notepad++.
+                set_fullscreen(ui.host, distraction);
+                layout();
+            }
+            _ if (ID_BROWSER_BASE..ID_BROWSER_BASE + BROWSERS.len()).contains(&id) => match ws.tabs[ws.active].path.clone() {
+                Some(p) => shell_open_with(ui.host, BROWSERS[id - ID_BROWSER_BASE].1, &p),
+                None => self.flash = Some("Save the file first".into()),
+            },
+            ID_SYM_WS | ID_SYM_EOL | ID_SYM_NONPRINT | ID_SYM_CTRL | ID_SYM_ALL | ID_SYM_INDENT | ID_SYM_WRAP => {
+                let mut v = ws.symbols;
+                match id {
+                    ID_SYM_WS => v.whitespace = !v.whitespace,
+                    ID_SYM_EOL => v.eol = !v.eol,
+                    ID_SYM_NONPRINT => {
+                        let on = !v.non_printing();
+                        v.whitespace = on;
+                        v.eol = on;
+                    }
+                    ID_SYM_CTRL => v.control = !v.control,
+                    ID_SYM_ALL => {
+                        let on = !v.all();
+                        v.whitespace = on;
+                        v.eol = on;
+                        v.control = on;
+                    }
+                    ID_SYM_INDENT => v.indent_guides = !v.indent_guides,
+                    _ => v.wrap_symbol = !v.wrap_symbol,
+                }
+                ws.set_symbols(v);
+            }
+            ID_OPEN_NEW_INSTANCE | ID_MOVE_NEW_INSTANCE => match ws.tabs[ws.active].path.clone() {
+                None => self.flash = Some("Save the file first".into()),
+                Some(_) if id == ID_MOVE_NEW_INSTANCE && ws.is_dirty(ws.active) => self.flash = Some("Save the file before moving it".into()),
+                Some(p) => {
+                    let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("--new-instance").arg(&p).spawn());
+                    match started {
+                        Ok(_) if id == ID_MOVE_NEW_INSTANCE => {
+                            let a = ws.active;
+                            ws.close(ui, a);
+                        }
+                        Ok(_) => {}
+                        Err(e) => ui.error(&format!("Cannot start a new instance\n\n{e}")),
+                    }
+                }
+            },
+            _ if (ID_TAB_BASE..ID_TAB_BASE + 9).contains(&id) => {
+                let i = id - ID_TAB_BASE;
+                if i < ws.tabs.len() {
+                    ws.activate(i);
+                }
+            }
+            ID_MOVE_TAB_FWD | ID_MOVE_TAB_BACK => {
+                ws.move_tab(if id == ID_MOVE_TAB_FWD { 1 } else { -1 });
+            }
+            ID_HIDE_LINES => match view::hide_selected_lines(&sci) {
+                Ok(n) => self.flash = Some(format!("{n} line(s) hidden: click the + in the margin to show them")),
+                Err(e) => self.flash = Some(e),
+            },
+            ID_FOLD_ALL | ID_UNFOLD_ALL => view::fold_all(&sci, id == ID_UNFOLD_ALL),
+            ID_FOLD_CUR | ID_UNFOLD_CUR => {
+                if !view::fold_current_level(&sci, id == ID_UNFOLD_CUR) {
+                    self.flash = Some("No fold block at the caret".into());
+                }
+            }
+            _ if (ID_FOLD_LEVEL_BASE..ID_FOLD_LEVEL_BASE + 8).contains(&id) => drop(view::fold_level(&sci, id - ID_FOLD_LEVEL_BASE + 1, false)),
+            _ if (ID_UNFOLD_LEVEL_BASE..ID_UNFOLD_LEVEL_BASE + 8).contains(&id) => drop(view::fold_level(&sci, id - ID_UNFOLD_LEVEL_BASE + 1, true)),
+            ID_SUMMARY => show_summary(ui.host, ws),
+            ID_RTL | ID_LTR => set_text_direction(sci.0, id == ID_RTL),
+            ID_MONITOR => {
+                let (tab_id, path) = (ws.tabs[ws.active].id, ws.tabs[ws.active].path.clone());
+                match (path, self.monitoring.contains_key(&tab_id)) {
+                    (None, _) => self.flash = Some("Save the file first".into()),
+                    (Some(_), true) => {
+                        self.monitoring.remove(&tab_id);
+                        ws.set_read_only(false);
+                    }
+                    (Some(p), false) => {
+                        let len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                        self.monitoring.insert(tab_id, len);
+                        ws.set_read_only(true);
+                        unsafe {
+                            SetTimer(Some(ui.host), TIMER_MONITOR, 700, None);
+                        }
+                        self.flash = Some("Monitoring: new lines are shown as the file grows".into());
+                    }
+                }
             }
             ID_READONLY => {
                 let on = !ws.is_read_only();
@@ -1762,6 +2063,7 @@ impl App {
             StatusText { position, lines: s.lines, length: s.length, enc: s.enc, eol: s.eol, lang: s.lang, ins: "INS".into() },
         );
         self.sync_file_menu();
+        self.refresh_side();
         chrome::set_checked(&h.chrome, ID_WRAP, self.ws.wrap);
         chrome::set_checked(&h.chrome, ID_THEME, self.ws.theme.dark);
         chrome::set_theme(&h.chrome, self.ws.theme.dark, self.ws.theme.bg, self.ws.theme.fg);
@@ -1899,6 +2201,70 @@ impl App {
         }
     }
 
+    fn refresh_side(&mut self) {
+        match sidepanel::mode() {
+            Some(sidepanel::Mode::Documents) => {
+                let rows = self
+                    .ws
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| {
+                        let name = format!("{}{}", t.title, if self.ws.is_dirty(i) { " *" } else { "" });
+                        (vec![name, t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default()], i)
+                    })
+                    .collect();
+                sidepanel::set_rows(rows);
+            }
+            Some(sidepanel::Mode::Functions) => {
+                if self.ws.is_whiteboard() {
+                    sidepanel::set_rows(Vec::new());
+                    self.side_key = None;
+                    return;
+                }
+                let key = (self.ws.tabs[self.ws.active].doc, sci::length(&self.ws.sci));
+                if self.side_key == Some(key) {
+                    return;
+                }
+                self.side_key = Some(key);
+                let text = sci::get_text(&self.ws.sci);
+                let rows = functions::extract(&text, self.ws.tabs[self.ws.active].lang)
+                    .into_iter()
+                    .map(|e| (vec![e.name, (e.line + 1).to_string()], e.line))
+                    .collect();
+                sidepanel::set_rows(rows);
+            }
+            _ => {}
+        }
+    }
+
+    /// Monitoring (tail -f): reload the active file when it has changed on disk.
+    fn monitor_tick(&mut self) {
+        let alive: Vec<u64> = self.ws.tabs.iter().map(|t| t.id).collect();
+        self.monitoring.retain(|id, _| alive.contains(id));
+        if self.monitoring.is_empty() {
+            unsafe {
+                let _ = KillTimer(Some(self.ui.host), TIMER_MONITOR);
+            }
+            return;
+        }
+        let t = &self.ws.tabs[self.ws.active];
+        let (id, path) = (t.id, t.path.clone());
+        let (Some(last), Some(path)) = (self.monitoring.get(&id).copied(), path) else { return };
+        let Ok(md) = std::fs::metadata(&path) else { return };
+        if md.len() == last || self.ws.is_dirty(self.ws.active) {
+            return;
+        }
+        let App { ws, ui, .. } = self;
+        if ws.reload_from_disk(ui) {
+            let end = sci::length(&ws.sci).max(0) as usize;
+            ws.sci.send(sci::SCI_GOTOPOS, end, 0);
+            ws.sci.send(sci::SCI_SCROLLCARET, 0, 0);
+        }
+        self.monitoring.insert(id, md.len());
+        self.refresh();
+    }
+
     /// Grey out and tick Edit menu items to match the editor. Runs as the menu opens.
     fn sync_edit_menu(&mut self) {
         let m = self.menus;
@@ -1915,6 +2281,35 @@ impl App {
             let _ = EnableMenuItem(m.edit, ID_UNDO as u32, state(s.send(sci::SCI_CANUNDO, 0, 0) != 0));
             let _ = EnableMenuItem(m.edit, ID_REDO as u32, state(s.send(sci::SCI_CANREDO, 0, 0) != 0));
             let _ = EnableMenuItem(m.edit, ID_PASTE as u32, state(s.send(sci::SCI_CANPASTE, 0, 0) != 0));
+            let v = self.ws.symbols;
+            for (id, on) in [
+                (ID_SYM_WS, v.whitespace),
+                (ID_SYM_EOL, v.eol),
+                (ID_SYM_NONPRINT, v.non_printing()),
+                (ID_SYM_CTRL, v.control),
+                (ID_SYM_ALL, v.all()),
+                (ID_SYM_INDENT, v.indent_guides),
+                (ID_SYM_WRAP, v.wrap_symbol),
+            ] {
+                let _ = CheckMenuItem(m.sym, id as u32, checked(on).0);
+            }
+            let top_most = GetWindowLongPtrW(self.ui.host, GWL_EXSTYLE) & WS_EX_TOPMOST.0 as isize != 0;
+            let mode = sidepanel::mode();
+            let tab = &self.ws.tabs[self.ws.active];
+            let monitored = self.monitoring.contains_key(&tab.id);
+            for (id, on) in [
+                (ID_ON_TOP, top_most),
+                (ID_FULLSCREEN, FULLSCREEN.with(|c| c.get())),
+                (ID_POSTIT, POSTIT.with(|c| c.get())),
+                (ID_DISTRACTION, DISTRACTION.with(|c| c.get())),
+                (ID_WORKSPACE_TOGGLE, TREE_ON.with(|c| c.get())),
+                (ID_DOC_LIST, mode == Some(sidepanel::Mode::Documents)),
+                (ID_FUNC_LIST, mode == Some(sidepanel::Mode::Functions)),
+                (ID_MONITOR, monitored),
+            ] {
+                let _ = CheckMenuItem(m.view, id as u32, checked(on).0);
+            }
+            let _ = EnableMenuItem(m.view, ID_MONITOR as u32, state(tab.path.is_some()));
             let _ = EnableMenuItem(m.search, ID_RESULTS as u32, state(!self.hits.is_empty()));
             let brace = search::matching_brace(&s).is_some();
             for id in [ID_BRACE_GOTO, ID_BRACE_SEL] {
@@ -1933,6 +2328,9 @@ impl App {
     }
 
     fn save_session(&mut self) {
+        if crate::core::session::standalone() {
+            return;
+        }
         let s = self.ws.snapshot();
         let _ = s.save(&session_path());
     }
@@ -1950,29 +2348,36 @@ fn layout() {
             let _ = MoveWindow(win, x, y, ww.max(0), hh.max(0), true);
         };
         let c = h.chrome;
-        mv(c.menu, 0, 0, w, chrome::MENU_H);
-        mv(c.tools, 0, chrome::MENU_H, w, chrome::TOOL_H);
-        let tabs_y = chrome::MENU_H + chrome::TOOL_H;
-        mv(c.tabs, 0, tabs_y, w, chrome::TAB_H);
-        mv(c.status, 0, total_h - chrome::STATUS_H, w, chrome::STATUS_H);
+        let hide = HIDE.with(|c| c.get());
+        let part = |bit: u8, h: i32| if hide & bit != 0 { 0 } else { h };
+        let (mh, th, tabh, sh) = (part(1, chrome::MENU_H), part(2, chrome::TOOL_H), part(4, chrome::TAB_H), part(8, chrome::STATUS_H));
+        for (win, bit) in [(c.menu, 1u8), (c.tools, 2), (c.tabs, 4), (c.status, 8)] {
+            let _ = ShowWindow(win, if hide & bit != 0 { SW_HIDE } else { SW_SHOW });
+        }
+        mv(c.menu, 0, 0, w, mh);
+        mv(c.tools, 0, mh, w, th);
+        let tabs_y = mh + th;
+        mv(c.tabs, 0, tabs_y, w, tabh);
+        mv(c.status, 0, total_h - sh, w, sh);
 
-        let top = tabs_y + chrome::TAB_H;
+        let top = tabs_y + tabh;
         let panel_h = findpanel::height();
-        let panel_y = total_h - chrome::STATUS_H - panel_h;
+        let panel_y = total_h - sh - panel_h;
         mv(h.panel, 0, panel_y, w, panel_h);
         findpanel::arrange(w);
 
         let area_h = panel_y - top;
         // Folder workspace tree on the far left; everything below uses the space to its right.
-        let tree_w = if TREE_ON.with(|c| c.get()) { tree::WIDTH.min(w / 2) } else { 0 };
+        let distraction = DISTRACTION.with(|c| c.get());
+        let tree_w = if TREE_ON.with(|c| c.get()) && !distraction { tree::WIDTH.min(w / 2) } else { 0 };
         let _ = ShowWindow(h.tree, if tree_w > 0 { SW_SHOW } else { SW_HIDE });
         mv(h.tree, 0, top, tree_w, area_h);
         let (x0, w) = (tree_w, w - tree_w);
-        let side_w = if sidepanel::mode().is_some() { sidepanel::WIDTH.min(w / 3) } else { 0 };
+        let side_w = if sidepanel::mode().is_some() && !distraction { sidepanel::WIDTH.min(w / 3) } else { 0 };
         let _ = ShowWindow(h.side, if side_w > 0 { SW_SHOW } else { SW_HIDE });
         mv(h.side, x0 + w - side_w, top, side_w, area_h);
         let w = w - side_w;
-        let mini_on = MINI_ON.with(|c| c.get());
+        let mini_on = MINI_ON.with(|c| c.get()) && !distraction;
         let preview_on = PREVIEW_ON.with(|c| c.get());
         let maximised = preview_on && PREVIEW_MAX.with(|c| c.get());
         let show = |win: HWND, on: bool| {
@@ -2188,6 +2593,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             });
             LRESULT(0)
         }
+        WM_TIMER if w.0 == TIMER_MONITOR => {
+            with_app(|a| a.monitor_tick());
+            LRESULT(0)
+        }
         WM_TIMER if w.0 == TIMER_PREVIEW => {
             unsafe {
                 let _ = KillTimer(Some(hwnd), TIMER_PREVIEW);
@@ -2201,8 +2610,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 let _ = GetClientRect(hwnd, &mut rc);
             }
             if rc.right > 0 {
-                let tree_w = if TREE_ON.with(|c| c.get()) { tree::WIDTH.min(rc.right / 2) } else { 0 };
-                let side_w = if sidepanel::mode().is_some() { sidepanel::WIDTH.min((rc.right - tree_w) / 3) } else { 0 };
+                let tree_w = if TREE_ON.with(|c| c.get()) && !DISTRACTION.with(|c| c.get()) { tree::WIDTH.min(rc.right / 2) } else { 0 };
+                let side_w = if sidepanel::mode().is_some() && !DISTRACTION.with(|c| c.get()) { sidepanel::WIDTH.min((rc.right - tree_w) / 3) } else { 0 };
                 let content = (rc.right - tree_w - side_w).max(1) as f32;
                 let ratio = (((rc.right - side_w) as f32 - l.0 as f32) / content).clamp(0.2, 0.8);
                 PREVIEW_RATIO.with(|c| c.set(ratio));
@@ -2237,9 +2646,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         WM_NOTIFY => {
             let hdr = unsafe { &*(l.0 as *const windows::Win32::UI::Controls::NMHDR) };
             // Character Panel / Clipboard History: a double-click inserts the entry.
-            if let Some(text) = sidepanel::notify(l) {
+            if let Some(action) = sidepanel::notify(l) {
                 with_app(|a| {
-                    a.ws.insert_text(&text);
+                    match action {
+                        sidepanel::Action::Insert(text) => a.ws.insert_text(&text),
+                        sidepanel::Action::Activate(i) => a.ws.activate(i),
+                        sidepanel::Action::Goto(line) => drop(search::goto_line(&a.ws.sci, line + 1)),
+                    }
                     a.refresh();
                     a.focus_active();
                 });
@@ -2260,7 +2673,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                     let n = unsafe { &*(l.0 as *const SciNotify) };
                     if n.margin == 0 {
                         let pos = n.position.max(0) as usize;
-                        with_app(|a| a.ws.toggle_bookmark_at(pos));
+                        with_app(|a| {
+                            let sci = a.ws.sci;
+                            let line = sci.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0) as usize;
+                            // A "+" marker stands for lines hidden below it; otherwise this toggles a bookmark.
+                            if view::has_hidden_marker(&sci, line) {
+                                view::show_hidden_after(&sci, line);
+                            } else {
+                                a.ws.toggle_bookmark_at(pos);
+                            }
+                        });
                     }
                 }
                 if hdr.hwndFrom == h.edit && matches!(hdr.code, sci::SCN_SAVEPOINTLEFT | sci::SCN_SAVEPOINTREACHED | sci::SCN_UPDATEUI) {
@@ -2581,20 +3003,90 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(search, ID_FIND_CHARS, "Find characters in range...");
 
     let view = B::popup();
-    B::add(view, ID_WRAP, "&Word wrap");
-    B::add(view, ID_PREVIEW, "&Live Preview\tCtrl+Shift+V");
-    B::add(view, ID_MINIMAP, "&Minimap");
-    B::add(view, ID_THEME, "&Dark mode");
+    B::add(view, ID_ON_TOP, "Always on Top");
+    B::add(view, ID_FULLSCREEN, "Toggle Full Screen Mode\tF11");
+    B::add(view, ID_POSTIT, "Post-It\tF12");
+    B::add(view, ID_DISTRACTION, "Distraction Free Mode");
     B::sep(view);
-    B::add(view, ID_PALETTE, "&Command Palette...\tCtrl+Shift+P");
-    B::add(view, ID_QUICKOPEN, "&Quick Open...\tCtrl+P");
+    let browsers = B::popup();
+    for (i, (name, _)) in BROWSERS.iter().enumerate() {
+        B::add(browsers, ID_BROWSER_BASE + i, name);
+    }
+    B::submenu(view, "View Current File in", browsers);
     B::sep(view);
-    B::add(view, ID_ZOOMIN, "Zoom &in\tCtrl+Num +");
-    B::add(view, ID_ZOOMOUT, "Zoom &out\tCtrl+Num -");
-    B::add(view, ID_ZOOMRESET, "&Restore default zoom");
+    let sym = B::popup();
+    B::add(sym, ID_SYM_WS, "Show Space and Tab");
+    B::add(sym, ID_SYM_EOL, "Show End of Line");
+    B::add(sym, ID_SYM_NONPRINT, "Show Non-Printing Characters");
+    B::add(sym, ID_SYM_CTRL, "Show Control Characters && Unicode EOL");
+    B::add(sym, ID_SYM_ALL, "Show All Characters");
+    B::sep(sym);
+    B::add(sym, ID_SYM_INDENT, "Show Indent Guide");
+    B::add(sym, ID_SYM_WRAP, "Show Wrap Symbol");
+    B::submenu(view, "Show Symbol", sym);
+    let zoom = B::popup();
+    B::add(zoom, ID_ZOOMIN, "Zoom In\tCtrl+Num +");
+    B::add(zoom, ID_ZOOMOUT, "Zoom Out\tCtrl+Num -");
+    B::add(zoom, ID_ZOOMRESET, "Restore Default Zoom\tCtrl+Num /");
+    B::submenu(view, "Zoom", zoom);
+    let moveclone = B::popup();
+    B::add_state(moveclone, ID_MOVE_OTHER_VIEW, "Move to Other View", false);
+    B::add_state(moveclone, ID_CLONE_OTHER_VIEW, "Clone to Other View", false);
+    B::add(moveclone, ID_MOVE_NEW_INSTANCE, "Move to New Instance");
+    B::add(moveclone, ID_OPEN_NEW_INSTANCE, "Open in New Instance");
+    B::submenu(view, "Move/Clone Current Document", moveclone);
+    let tab = B::popup();
+    for i in 0..9 {
+        B::add(tab, ID_TAB_BASE + i, &format!("Tab {}", i + 1));
+    }
+    B::sep(tab);
+    B::add(tab, ID_NEXT_TAB, "Next Tab\tCtrl+PgDn");
+    B::add(tab, ID_PREV_TAB, "Previous Tab\tCtrl+PgUp");
+    B::add(tab, ID_MOVE_TAB_FWD, "Move Tab Forward\tCtrl+Shift+PgDn");
+    B::add(tab, ID_MOVE_TAB_BACK, "Move Tab Backward\tCtrl+Shift+PgUp");
+    B::submenu(view, "Tab", tab);
+    B::add(view, ID_WRAP, "Word wrap");
+    B::add_state(view, ID_FOCUS_OTHER, "Focus on Another View\tF8", false);
+    B::add(view, ID_HIDE_LINES, "Hide Lines\tAlt+H");
     B::sep(view);
-    B::add(view, ID_NEXT_TAB, "&Next tab\tCtrl+Tab");
-    B::add(view, ID_PREV_TAB, "&Previous tab\tCtrl+Shift+Tab");
+    B::add(view, ID_FOLD_ALL, "Fold All\tAlt+0");
+    B::add(view, ID_UNFOLD_ALL, "Unfold All\tAlt+Shift+0");
+    B::add(view, ID_FOLD_CUR, "Fold Current Level\tCtrl+Alt+F");
+    B::add(view, ID_UNFOLD_CUR, "Unfold Current Level\tCtrl+Alt+Shift+F");
+    let fold_level = B::popup();
+    let unfold_level = B::popup();
+    for i in 0..8 {
+        B::add(fold_level, ID_FOLD_LEVEL_BASE + i, &format!("Level {}\tAlt+{}", i + 1, i + 1));
+        B::add(unfold_level, ID_UNFOLD_LEVEL_BASE + i, &format!("Level {}\tAlt+Shift+{}", i + 1, i + 1));
+    }
+    B::submenu(view, "Fold Level", fold_level);
+    B::submenu(view, "Unfold Level", unfold_level);
+    B::sep(view);
+    B::add(view, ID_SUMMARY, "Summary...");
+    B::sep(view);
+    let projects = B::popup();
+    for i in 0..3 {
+        B::add_state(projects, ID_PROJECT_BASE + i, &format!("Project Panel {}", i + 1), false);
+    }
+    B::submenu(view, "Project Panels", projects);
+    B::add(view, ID_WORKSPACE_TOGGLE, "Folder as Workspace");
+    B::add(view, ID_MINIMAP, "Document Map");
+    B::add(view, ID_DOC_LIST, "Document List");
+    B::add(view, ID_FUNC_LIST, "Function List");
+    B::sep(view);
+    B::add_state(view, ID_SYNC_V, "Synchronize Vertical Scrolling", false);
+    B::add_state(view, ID_SYNC_H, "Synchronize Horizontal Scrolling", false);
+    B::sep(view);
+    B::add(view, ID_RTL, "Text Direction RTL\tCtrl+Alt+R");
+    B::add(view, ID_LTR, "Text Direction LTR\tCtrl+Alt+L");
+    B::sep(view);
+    B::add(view, ID_MONITOR, "Monitoring (tail -f)");
+    B::sep(view);
+    // Note++ extras that Notepad++ keeps elsewhere.
+    B::add(view, ID_PREVIEW, "Live Preview\tCtrl+Shift+V");
+    B::add(view, ID_THEME, "Dark mode");
+    B::add(view, ID_PALETTE, "Command Palette...\tCtrl+Shift+P");
+    B::add(view, ID_QUICKOPEN, "Quick Open...\tCtrl+P");
 
     let enc = B::popup();
     for (i, e) in ENCODINGS.iter().enumerate() {
@@ -2618,7 +3110,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Language".to_string(), lang),
         ("?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, edit, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
+    let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
 }
@@ -2725,6 +3217,36 @@ fn accelerators() -> HACCEL {
         ACCEL { fVirt: CTRL_ALT, key: 0x20, cmd: ID_AC_PATH as u16 },    // Ctrl+Alt+Space
         ACCEL { fVirt: CTRL_ALT, key: 0x0D, cmd: ID_L_INS_BELOW as u16 }, // Ctrl+Alt+Enter
         ACCEL { fVirt: CTRL_ALT_SHIFT, key: 0x0D, cmd: ID_L_INS_ABOVE as u16 },
+        ACCEL { fVirt: NONE, key: 0x7A, cmd: ID_FULLSCREEN as u16 }, // F11
+        ACCEL { fVirt: NONE, key: 0x7B, cmd: ID_POSTIT as u16 },     // F12
+        k(ALT, 'H', ID_HIDE_LINES),
+        k(ALT, '0', ID_FOLD_ALL),
+        k(ALT_SHIFT, '0', ID_UNFOLD_ALL),
+        k(CTRL_ALT, 'F', ID_FOLD_CUR),
+        k(CTRL_ALT_SHIFT, 'F', ID_UNFOLD_CUR),
+        k(CTRL_ALT, 'R', ID_RTL),
+        k(CTRL_ALT, 'L', ID_LTR),
+        ACCEL { fVirt: CTRL, key: 0x22, cmd: ID_NEXT_TAB as u16 },        // Ctrl+PgDn
+        ACCEL { fVirt: CTRL, key: 0x21, cmd: ID_PREV_TAB as u16 },        // Ctrl+PgUp
+        ACCEL { fVirt: CTRL_SHIFT, key: 0x22, cmd: ID_MOVE_TAB_FWD as u16 },
+        ACCEL { fVirt: CTRL_SHIFT, key: 0x21, cmd: ID_MOVE_TAB_BACK as u16 },
+        ACCEL { fVirt: CTRL, key: 0x6F, cmd: ID_ZOOMRESET as u16 },       // Ctrl+Num /
+        k(ALT, '1', ID_FOLD_LEVEL_BASE),
+        k(ALT, '2', ID_FOLD_LEVEL_BASE + 1),
+        k(ALT, '3', ID_FOLD_LEVEL_BASE + 2),
+        k(ALT, '4', ID_FOLD_LEVEL_BASE + 3),
+        k(ALT, '5', ID_FOLD_LEVEL_BASE + 4),
+        k(ALT, '6', ID_FOLD_LEVEL_BASE + 5),
+        k(ALT, '7', ID_FOLD_LEVEL_BASE + 6),
+        k(ALT, '8', ID_FOLD_LEVEL_BASE + 7),
+        k(ALT_SHIFT, '1', ID_UNFOLD_LEVEL_BASE),
+        k(ALT_SHIFT, '2', ID_UNFOLD_LEVEL_BASE + 1),
+        k(ALT_SHIFT, '3', ID_UNFOLD_LEVEL_BASE + 2),
+        k(ALT_SHIFT, '4', ID_UNFOLD_LEVEL_BASE + 3),
+        k(ALT_SHIFT, '5', ID_UNFOLD_LEVEL_BASE + 4),
+        k(ALT_SHIFT, '6', ID_UNFOLD_LEVEL_BASE + 5),
+        k(ALT_SHIFT, '7', ID_UNFOLD_LEVEL_BASE + 6),
+        k(ALT_SHIFT, '8', ID_UNFOLD_LEVEL_BASE + 7),
         ACCEL { fVirt: CTRL, key: 0x09, cmd: ID_NEXT_TAB as u16 },
         ACCEL { fVirt: CTRL_SHIFT, key: 0x09, cmd: ID_PREV_TAB as u16 },
     ];
@@ -2830,8 +3352,10 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
     let ui = Win32Ui { host: hs.host };
     let mut ws = Workspace::new(Win32Sci(hs.edit));
     ws.attach_minimap(Win32Sci(hs.mini));
-    if let Some(s) = Session::load(&session_path()) {
-        ws.restore(&s);
+    if !crate::core::session::standalone() {
+        if let Some(s) = Session::load(&session_path()) {
+            ws.restore(&s);
+        }
     }
     for f in &files {
         ws.open_path(&ui, f);
@@ -2845,7 +3369,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         TREE_ON.with(|c| c.set(true));
     }
     APP.with(|c| {
-        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
+        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
     });
 
     unsafe {

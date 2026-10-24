@@ -37,7 +37,12 @@ fn main() -> windows::core::Result<()> {
         let log = format!("{info}\n{}\n", std::backtrace::Backtrace::force_capture());
         let _ = std::fs::write(dir.join("crash.log"), log);
     }));
-    let files = std::env::args_os().skip(1).map(std::path::PathBuf::from).collect();
+    let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if args.iter().any(|a| a == "--new-instance") {
+        core::session::set_standalone();
+        args.retain(|a| a != "--new-instance");
+    }
+    let files = args.into_iter().map(std::path::PathBuf::from).collect();
     let (handles, menus) = platform::win32::create_window("Note++", 1200, 800)?;
     platform::win32::run(handles, menus, files);
     Ok(())

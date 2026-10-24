@@ -14,6 +14,7 @@ use super::lang;
 use super::lexer;
 use super::preview;
 use super::search::{self, Opts};
+use super::view;
 use super::sci::{self, Send, Theme};
 use super::session::{Session, SessionTab};
 use std::path::{Path, PathBuf};
@@ -123,6 +124,8 @@ pub struct Workspace<S: Send> {
     pub workspace: Option<PathBuf>,
     /// Index into the platform's list of web search engines.
     pub search_engine: usize,
+    /// Which invisible characters and guides the editor draws (View > Show Symbol).
+    pub symbols: view::Symbols,
     /// Picture used by Insert > Date Time (customized).
     pub date_format: String,
     /// Where "Begin/End Select" was started: (document, caret position).
@@ -231,6 +234,7 @@ impl<S: Send> Workspace<S> {
             closed: Vec::new(),
             workspace: None,
             search_engine: 0,
+            symbols: view::Symbols::default(),
             date_format: "yyyy-MM-dd HH:mm:ss".into(),
             select_anchor: None,
             smart_key: (0, 0, 0),
@@ -238,7 +242,32 @@ impl<S: Send> Workspace<S> {
         };
         ws.style_view(&ws.sci, false);
         sci::set_wrap(&ws.sci, true);
+        view::apply_symbols(&ws.sci, &ws.symbols);
         ws
+    }
+
+    /// Show or hide the bookmark, line-number and fold margins (Distraction Free Mode).
+    pub fn set_margins_visible(&self, on: bool) {
+        for (margin, width) in [(0usize, 16isize), (1, 54), (2, 16)] {
+            self.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
+        }
+    }
+
+    pub fn set_symbols(&mut self, v: view::Symbols) {
+        self.symbols = v;
+        view::apply_symbols(&self.sci, &self.symbols);
+    }
+
+    /// Move the active tab one place (negative = left), keeping it active.
+    pub fn move_tab(&mut self, delta: isize) -> bool {
+        let to = self.active as isize + delta;
+        if to < 0 || to as usize >= self.tabs.len() {
+            return false;
+        }
+        let tab = self.tabs.remove(self.active);
+        self.tabs.insert(to as usize, tab);
+        self.active = to as usize;
+        true
     }
 
     /// Colours, margins and indicators for one view. The minimap is the same
@@ -1211,6 +1240,7 @@ impl<S: Send> Workspace<S> {
             recent: self.recent.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
             workspace: self.workspace.as_ref().map(|p| p.to_string_lossy().into_owned()),
             search_engine: self.search_engine,
+            symbols: self.symbols,
             date_format: self.date_format.clone(),
         }
     }
@@ -1219,6 +1249,7 @@ impl<S: Send> Workspace<S> {
     pub fn restore(&mut self, s: &Session) {
         self.minimap = s.minimap;
         self.search_engine = s.search_engine;
+        self.set_symbols(s.symbols);
         if !s.date_format.is_empty() {
             self.date_format = s.date_format.clone();
         }

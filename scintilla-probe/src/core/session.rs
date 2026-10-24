@@ -40,6 +40,9 @@ pub struct Session {
     /// Which web search engine "Search on Internet" uses.
     #[serde(default)]
     pub search_engine: usize,
+    /// Show Symbol options of the View menu.
+    #[serde(default)]
+    pub symbols: super::view::Symbols,
     /// Picture for Insert > Date Time (customized); empty means the default.
     #[serde(default)]
     pub date_format: String,
@@ -47,6 +50,18 @@ pub struct Session {
 
 fn yes() -> bool {
     true
+}
+
+static STANDALONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A "new instance" (View > Move/Open in New Instance) neither restores nor
+/// overwrites the saved session, so it cannot clobber the main window's.
+pub fn set_standalone() {
+    STANDALONE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn standalone() -> bool {
+    STANDALONE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 pub fn config_dir() -> PathBuf {
@@ -101,6 +116,7 @@ mod tests {
             recent: vec!["C:\\a\\b.txt".into()],
             workspace: Some("C:\\proj".into()),
             search_engine: 2,
+            symbols: Default::default(),
             date_format: "yyyy".into(),
         };
         let p = std::env::temp_dir().join("notepp_session_test.json");

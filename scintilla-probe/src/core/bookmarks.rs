@@ -8,10 +8,14 @@ const MASK: usize = 1 << MARKER;
 /// Left-most margin (0) holds the bookmark glyph; clicking it toggles a bookmark.
 pub fn setup<S: Send>(s: &S, theme: &Theme) {
     s.send(sci::SCI_SETMARGINTYPEN, 0, sci::SC_MARGIN_SYMBOL);
-    s.send(sci::SCI_SETMARGINMASKN, 0, MASK as isize);
+    s.send(sci::SCI_SETMARGINMASKN, 0, (MASK | 1 << super::view::MARKER_HIDDEN) as isize);
     s.send(sci::SCI_SETMARGINWIDTHN, 0, 16);
     s.send(sci::SCI_SETMARGINSENSITIVEN, 0, 1);
     s.send(sci::SCI_MARKERDEFINE, MARKER, sci::SC_MARK_BOOKMARK);
+    // Hidden lines: a small boxed "+" on the line above them.
+    s.send(sci::SCI_MARKERDEFINE, super::view::MARKER_HIDDEN, sci::SC_MARK_BOXPLUS);
+    s.send(sci::SCI_MARKERSETFORE, super::view::MARKER_HIDDEN, rgb(0xFF, 0xFF, 0xFF));
+    s.send(sci::SCI_MARKERSETBACK, super::view::MARKER_HIDDEN, rgb(0x80, 0x80, 0x80));
     let (f, b) = if theme.dark { ((0x1E, 0x1E, 0x1E), (0x56, 0x9C, 0xD6)) } else { ((0xFF, 0xFF, 0xFF), (0x1F, 0x6F, 0xE0)) };
     s.send(sci::SCI_MARKERSETFORE, MARKER, rgb(f.0, f.1, f.2));
     s.send(sci::SCI_MARKERSETBACK, MARKER, rgb(b.0, b.1, b.2));

@@ -71,6 +71,71 @@ pub fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Every byte as two upper-case hex digits, separated by spaces.
+pub fn ascii_to_hex(s: &str) -> String {
+    s.bytes().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+}
+
+/// Hex digits (whitespace ignored) back to text.
+pub fn hex_to_ascii(s: &str) -> Result<String, String> {
+    let digits: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    if let Some(bad) = digits.iter().find(|b| !b.is_ascii_hexdigit()) {
+        return Err(format!("'{}' is not a hex digit", *bad as char));
+    }
+    if digits.len() % 2 != 0 {
+        return Err("an odd number of hex digits".into());
+    }
+    let bytes: Vec<u8> = digits.chunks(2).map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap_or("0"), 16).unwrap_or(0)).collect();
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// RFC 2045 quoted-printable, soft-wrapped at 76 columns. Line breaks stay as they are.
+pub fn qp_encode(s: &str) -> String {
+    let mut out = String::new();
+    let mut col = 0;
+    for b in s.bytes() {
+        if b == b'\n' || b == b'\r' {
+            out.push(b as char);
+            col = 0;
+            continue;
+        }
+        let piece = if (b == b'=') || !(b == b'\t' || (32..127).contains(&b)) { format!("={b:02X}") } else { (b as char).to_string() };
+        if col + piece.len() > 75 {
+            out.push_str("=\r\n");
+            col = 0;
+        }
+        col += piece.len();
+        out.push_str(&piece);
+    }
+    out
+}
+
+pub fn qp_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'=' {
+            if b[i + 1..].starts_with(b"\r\n") {
+                i += 3;
+                continue;
+            }
+            if b[i + 1..].starts_with(b"\n") {
+                i += 2;
+                continue;
+            }
+            if b.get(i + 1..i + 3).is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit)) {
+                out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(b'?'));
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn json_pretty(text: &str) -> Result<String, String> {
     use serde::Serialize;
     let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
@@ -188,6 +253,20 @@ mod tests {
         assert_eq!(url_encode("a b&c/é"), "a%20b%26c%2F%C3%A9");
         assert_eq!(url_decode("a%20b%26c%2F%C3%A9+x"), "a b&c/é x");
         assert_eq!(url_decode("100%"), "100%");
+    }
+
+    #[test]
+    fn hex_and_quoted_printable() {
+        assert_eq!(ascii_to_hex("Hi\n"), "48 69 0A");
+        assert_eq!(hex_to_ascii("48 69\n0A").unwrap(), "Hi\n");
+        assert!(hex_to_ascii("4").is_err());
+        assert!(hex_to_ascii("zz").is_err());
+        assert_eq!(qp_encode("a=b é"), "a=3Db =C3=A9");
+        assert_eq!(qp_decode("a=3Db =C3=A9"), "a=b é");
+        let long = "x".repeat(200);
+        let enc = qp_encode(&long);
+        assert!(enc.split("\r\n").all(|l| l.len() <= 76));
+        assert_eq!(qp_decode(&enc), long);
     }
 
     #[test]

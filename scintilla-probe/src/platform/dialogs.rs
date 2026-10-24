@@ -1,6 +1,6 @@
 //! Dialogs for the Settings and Tools menus, built on the modal `form`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use windows::Win32::Foundation::{COLORREF, HWND};
 use windows::Win32::UI::Controls::Dialogs::{CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW, ChooseColorW};
@@ -11,6 +11,126 @@ use crate::core::hash::Algo;
 use crate::core::sci::Theme;
 use crate::core::settings::{self, ROLES, Settings};
 use crate::core::shortcuts;
+use crate::core::workspace::SortField;
+
+// ── Window > Windows... ──────────────────────────────────────────────────────
+
+/// What the user chose in the Windows dialog.
+#[derive(Clone, Debug, PartialEq)]
+pub enum WinAction {
+    Activate(usize),
+    Save(Vec<usize>),
+    Close(Vec<usize>),
+    Sort(SortField, bool),
+}
+
+/// Window > Sort By, in Notepad++'s order (also the dialog's "Sort tabs" popup).
+pub const SORTS: [(&str, SortField, bool); 10] = [
+    ("Name A to Z", SortField::Name, false),
+    ("Name Z to A", SortField::Name, true),
+    ("Path A to Z", SortField::Path, false),
+    ("Path Z to A", SortField::Path, true),
+    ("Type A to Z", SortField::Type, false),
+    ("Type Z to A", SortField::Type, true),
+    ("Content Length Ascending", SortField::Length, false),
+    ("Content Length Descending", SortField::Length, true),
+    ("Modified Time Ascending", SortField::Modified, false),
+    ("Modified Time Descending", SortField::Modified, true),
+];
+
+thread_local! {
+    static WIN_SEL: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static WIN_PICK: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+const WIN_LIST: usize = 100;
+const WIN_SAVE: usize = 101;
+const WIN_CLOSE: usize = 102;
+const WIN_SORT: usize = 103;
+
+fn windows_click(f: &Form, id: usize) {
+    if id == WIN_SAVE || id == WIN_CLOSE {
+        WIN_SEL.with(|s| *s.borrow_mut() = f.list_selected_all(WIN_LIST));
+        WIN_PICK.with(|p| p.set(Some(id)));
+        f.close(true);
+    } else if id == WIN_SORT {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        let picked = unsafe {
+            let Ok(menu) = CreatePopupMenu() else { return };
+            for (i, (label, _, _)) in SORTS.iter().enumerate() {
+                let w: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
+                let _ = AppendMenuW(menu, MF_STRING, i + 1, windows::core::PCWSTR(w.as_ptr()));
+            }
+            let mut at = POINT::default();
+            let _ = GetCursorPos(&mut at);
+            let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, at.x, at.y, Some(0), f.hwnd(), None);
+            let _ = DestroyMenu(menu);
+            cmd.0 as usize
+        };
+        if picked > 0 {
+            WIN_PICK.with(|p| p.set(Some(WIN_SORT + picked)));
+            f.close(true);
+        }
+    }
+}
+
+/// Window > Windows...: every open tab with Activate / Save / Close window(s) / Sort tabs.
+pub fn windows_dialog(host: HWND, rows: &[Vec<String>], selected: usize) -> Option<WinAction> {
+    WIN_SEL.with(|s| s.borrow_mut().clear());
+    WIN_PICK.with(|p| p.set(None));
+    // OK means Activate; keep the dialog's selection as it closes.
+    let apply = |_: &Values, f: &Form| {
+        WIN_SEL.with(|s| *s.borrow_mut() = f.list_selected_all(WIN_LIST));
+        false
+    };
+    let spec = Spec {
+        title: "Windows",
+        size: (700, 420),
+        ctls: vec![
+            ctl(WIN_LIST, Kind::MultiList, "", 12, 12, 560, 350),
+            ctl(WIN_SAVE, Kind::Button, "&Save", 582, 36, 108, 26),
+            ctl(WIN_CLOSE, Kind::Button, "&Close window(s)", 582, 68, 108, 26),
+            ctl(WIN_SORT, Kind::Button, "Sort &tabs", 582, 100, 108, 26),
+        ],
+        ok: "&Activate",
+        on_change: Some(windows_click),
+        on_apply: Some(&apply),
+    };
+    let accepted = form::run(host, spec, |f| {
+        f.list_fill(WIN_LIST, &[("Name", 130), ("Path", 260), ("Type", 90), ("Size", 60)], rows);
+        if selected < rows.len() {
+            f.list_select(WIN_LIST, selected);
+        }
+    });
+    // OK means Activate (`apply` kept the selection and let the form close).
+    let sel = WIN_SEL.with(|s| s.borrow().clone());
+    match (accepted, WIN_PICK.with(|p| p.take())) {
+        (_, Some(WIN_SAVE)) => Some(WinAction::Save(sel)),
+        (_, Some(WIN_CLOSE)) => Some(WinAction::Close(sel)),
+        (_, Some(id)) => SORTS.get(id - WIN_SORT - 1).map(|(_, f, d)| WinAction::Sort(*f, *d)),
+        (Some(_), None) => sel.first().map(|i| WinAction::Activate(*i)),
+        (None, None) => None,
+    }
+}
+
+// ── Plugins > Plugins Admin ──────────────────────────────────────────────────
+
+/// Plugins > Plugins Admin...: what is built in (rows: name, version, description).
+pub fn plugins_admin(host: HWND, rows: &[Vec<String>]) {
+    let spec = Spec {
+        title: "Plugins Admin",
+        size: (640, 380),
+        ctls: vec![
+            ctl(100, Kind::List, "", 12, 12, 616, 280),
+            ctl(101, Kind::Label, "These plugins are built into Note++. Loading external plugin DLLs is not supported.", 12, 300, 616, 36),
+        ],
+        ok: "Close",
+        on_change: None,
+        on_apply: None,
+    };
+    let _ = form::run(host, spec, |f| f.list_fill(100, &[("Plugin", 140), ("Version", 70), ("Description", 380)], rows));
+}
 
 fn number(s: &str, fallback: i32) -> i32 {
     s.trim().parse().unwrap_or(fallback)

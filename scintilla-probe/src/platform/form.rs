@@ -25,6 +25,8 @@ pub enum Kind {
     Button,
     /// A report-style list view (fill it with `Form::list_fill`).
     List,
+    /// Like `List`, but several rows can be selected.
+    MultiList,
 }
 
 pub struct Ctl {
@@ -81,11 +83,44 @@ impl Form {
         }
     }
 
+    /// Every selected row, top to bottom.
+    pub fn list_selected_all(&self, id: usize) -> Vec<usize> {
+        use windows::Win32::UI::Controls::*;
+        let Some(h) = self.controls.get(&id) else { return Vec::new() };
+        let mut rows = Vec::new();
+        let mut from = usize::MAX;
+        loop {
+            let n = unsafe { SendMessageW(*h, LVM_GETNEXTITEM, Some(WPARAM(from)), Some(LPARAM(LVNI_SELECTED as isize))) }.0;
+            if n < 0 {
+                return rows;
+            }
+            rows.push(n as usize);
+            from = n as usize;
+        }
+    }
+
     pub fn list_selected(&self, id: usize) -> Option<usize> {
         use windows::Win32::UI::Controls::*;
         let h = self.controls.get(&id)?;
         let n = unsafe { SendMessageW(*h, LVM_GETNEXTITEM, Some(WPARAM(usize::MAX)), Some(LPARAM(LVNI_SELECTED as isize))) }.0;
         (n >= 0).then_some(n as usize)
+    }
+
+    /// Select and show row `row` of a list.
+    pub fn list_select(&self, id: usize, row: usize) {
+        use windows::Win32::UI::Controls::*;
+        let Some(h) = self.controls.get(&id) else { return };
+        let both = LIST_VIEW_ITEM_STATE_FLAGS(LVIS_SELECTED.0 | LVIS_FOCUSED.0);
+        let item = LVITEMW { stateMask: both, state: both, ..Default::default() };
+        unsafe {
+            SendMessageW(*h, LVM_SETITEMSTATE, Some(WPARAM(row)), Some(LPARAM(&item as *const _ as isize)));
+            SendMessageW(*h, LVM_ENSUREVISIBLE, Some(WPARAM(row)), Some(LPARAM(0)));
+        }
+    }
+
+    /// Close the form as if OK (`true`) or Cancel was pressed.
+    pub fn close(&self, ok: bool) {
+        DONE.with(|d| d.set(Some(ok)));
     }
 
     pub fn set_text(&self, id: usize, s: &str) {
@@ -305,9 +340,10 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
                 Kind::Button => make(w!("BUTTON"), &c.text, TAB, c.id, c.rect),
                 // ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_BORDER (| ES_READONLY)
                 Kind::MultiEdit(readonly) => make(w!("EDIT"), &c.text, TAB | 0x0020_0000 | 0x0080_0000 | 0x4 | 0x40 | 0x1000 | if readonly { 0x800 } else { 0 }, c.id, c.rect),
-                Kind::List => {
-                    // LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS
-                    let h = make(w!("SysListView32"), "", TAB | 0x0080_0000 | 0x1 | 0x4 | 0x8, c.id, c.rect);
+                Kind::List | Kind::MultiList => {
+                    // LVS_REPORT | LVS_SHOWSELALWAYS (| LVS_SINGLESEL)
+                    let single = if c.kind == Kind::List { 0x4 } else { 0 };
+                    let h = make(w!("SysListView32"), "", TAB | 0x0080_0000 | 0x1 | 0x8 | single, c.id, c.rect);
                     SendMessageW(h, 0x1036, Some(WPARAM(0x20)), Some(LPARAM(0x20))); // LVM_SETEXTENDEDLISTVIEWSTYLE: full-row select
                     h
                 }

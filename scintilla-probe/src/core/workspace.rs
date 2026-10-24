@@ -10,6 +10,7 @@ use super::bookmarks;
 use super::complete;
 use super::doc::{self, Enc, Eol};
 use super::edit;
+use super::export;
 use super::lang;
 use super::lexer;
 use super::preview;
@@ -65,6 +66,47 @@ pub fn close_targets(op: CloseOp, active: usize, dirty: &[bool]) -> Vec<usize> {
 
 /// How many recently closed files are remembered.
 pub const MAX_CLOSED: usize = 20;
+
+/// What each tab is sorted on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SortKeys {
+    pub name: String,
+    /// Full path ("" for unsaved tabs); also the tie-breaker, like Notepad++.
+    pub path: String,
+    pub kind: String,
+    pub len: usize,
+    /// Seconds since the epoch of the file's last change (0 when there is no file).
+    pub modified: u64,
+}
+
+/// What Window > Sort By can sort the tabs by.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SortField {
+    Name,
+    Path,
+    Type,
+    Length,
+    Modified,
+}
+
+/// New tab order (old indices) when sorting by `field`; ties fall back to the full path.
+pub fn sort_order(keys: &[SortKeys], field: SortField, descending: bool) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..keys.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (ka, kb) = (&keys[a], &keys[b]);
+        let lower = |s: &str| s.to_lowercase();
+        let ord = match field {
+            SortField::Name => lower(&ka.name).cmp(&lower(&kb.name)),
+            SortField::Path => lower(&ka.path).cmp(&lower(&kb.path)),
+            SortField::Type => lower(&ka.kind).cmp(&lower(&kb.kind)),
+            SortField::Length => ka.len.cmp(&kb.len),
+            SortField::Modified => ka.modified.cmp(&kb.modified),
+        }
+        .then_with(|| lower(&ka.path).cmp(&lower(&kb.path)));
+        if descending { ord.reverse() } else { ord }
+    });
+    order
+}
 
 /// Push `path` to the front of a most-recent-first list without duplicates, capped at `max`.
 pub fn push_recent(list: &mut Vec<PathBuf>, path: &Path, max: usize) {
@@ -189,6 +231,10 @@ pub enum TextTool {
     JsonMinify,
     XmlPretty,
     XmlMinify,
+    AsciiToHex,
+    HexToAscii,
+    QpEncode,
+    QpDecode,
 }
 
 /// Which auto-completion source to use.
@@ -688,6 +734,10 @@ impl<S: Send> Workspace<S> {
             TextTool::JsonMinify => textools::json_minify(&input),
             TextTool::XmlPretty => textools::xml_pretty(&input).map(|s| s.replace('\n', eol)),
             TextTool::XmlMinify => textools::xml_minify(&input),
+            TextTool::AsciiToHex => Ok(textools::ascii_to_hex(&input)),
+            TextTool::HexToAscii => textools::hex_to_ascii(&input),
+            TextTool::QpEncode => Ok(textools::qp_encode(&input)),
+            TextTool::QpDecode => Ok(textools::qp_decode(&input)),
         };
         let out = match result {
             Ok(o) => o,
@@ -1324,6 +1374,79 @@ impl<S: Send> Workspace<S> {
             .collect()
     }
 
+    /// What each tab is sorted and listed by.
+    fn tab_keys(&self) -> Vec<SortKeys> {
+        (0..self.tabs.len())
+            .map(|i| {
+                let t = &self.tabs[i];
+                let modified = t
+                    .path
+                    .as_ref()
+                    .and_then(|p| std::fs::metadata(p).ok())
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs());
+                SortKeys {
+                    name: t.title.clone(),
+                    path: t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                    kind: if t.kind == TabKind::Whiteboard { "Whiteboard".into() } else { t.lang_label.to_string() },
+                    len: self.doc_length(i),
+                    modified,
+                }
+            })
+            .collect()
+    }
+
+    /// Size in bytes of tab `i`'s document.
+    fn doc_length(&self, i: usize) -> usize {
+        let t = &self.tabs[i];
+        if t.kind == TabKind::Whiteboard {
+            return t.content.len();
+        }
+        if i == self.active {
+            return sci::length(&self.sci).max(0) as usize;
+        }
+        self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
+        let n = sci::length(&self.sci).max(0) as usize;
+        self.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[self.active].doc);
+        n
+    }
+
+    /// Rows for Window > Windows...: name, folder, type, size.
+    pub fn window_rows(&self) -> Vec<Vec<String>> {
+        self.tab_keys()
+            .into_iter()
+            .enumerate()
+            .map(|(i, k)| {
+                let shown = if self.is_dirty(i) { format!("*{}", k.name) } else { k.name };
+                vec![shown, k.path, k.kind, k.len.to_string()]
+            })
+            .collect()
+    }
+
+    /// Reorder the tabs by `field`; the active tab stays active.
+    pub fn sort_tabs(&mut self, field: SortField, descending: bool) {
+        let order = sort_order(&self.tab_keys(), field, descending);
+        let active_id = self.tabs[self.active].id;
+        let mut slots: Vec<Option<Tab>> = std::mem::take(&mut self.tabs).into_iter().map(Some).collect();
+        self.tabs = order.iter().filter_map(|&i| slots[i].take()).collect();
+        self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+    }
+
+    /// The active document as HTML or RTF text, styled the way it is on screen.
+    pub fn export_styled(&self, rtf: bool) -> String {
+        let styled = export::read_styled(&self.sci);
+        let runs = export::runs(&styled.text, &styled.styles);
+        let look = |s: u8| export::look_of(&self.sci, s);
+        let size = self.settings.font_size;
+        let bg = self.theme.bg;
+        if rtf {
+            export::rtf(&self.settings.font, size, &runs, &look)
+        } else {
+            export::html(&self.tabs[self.active].title, &self.settings.font, size, bg, &runs, &look)
+        }
+    }
+
     pub fn window_title(&self) -> String {
         let t = &self.tabs[self.active];
         let name = t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| t.title.clone());
@@ -1538,6 +1661,24 @@ fn scene_element_count(content: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sort_order_by_each_field() {
+        let key = |name: &str, path: &str, kind: &str, len, modified| SortKeys { name: name.into(), path: path.into(), kind: kind.into(), len, modified };
+        let keys = vec![
+            key("b.txt", "C:\\z\\b.txt", "Rust", 30, 5),
+            key("A.txt", "C:\\y\\A.txt", "Normal Text", 10, 9),
+            key("c.txt", "", "Normal Text", 20, 0),
+            key("d.txt", "C:\\a\\d.txt", "Normal Text", 20, 7),
+        ];
+        assert_eq!(sort_order(&keys, SortField::Name, false), vec![1, 0, 2, 3]);
+        assert_eq!(sort_order(&keys, SortField::Name, true), vec![3, 2, 0, 1]);
+        assert_eq!(sort_order(&keys, SortField::Path, false), vec![2, 3, 1, 0]);
+        assert_eq!(sort_order(&keys, SortField::Type, false), vec![2, 3, 1, 0]);
+        // Equal lengths fall back to the path.
+        assert_eq!(sort_order(&keys, SortField::Length, false), vec![1, 2, 3, 0]);
+        assert_eq!(sort_order(&keys, SortField::Modified, true), vec![1, 3, 0, 2]);
+    }
 
     #[test]
     fn close_targets_cover_every_menu_option() {

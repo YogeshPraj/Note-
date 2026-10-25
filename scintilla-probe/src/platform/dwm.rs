@@ -43,6 +43,11 @@ pub fn set_dark(hwnd: HWND, dark: bool) {
     }
 }
 
+/// Rounded corners only (for popups that have no title bar).
+pub fn round(hwnd: HWND) {
+    set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+}
+
 /// Let the backdrop show through the top `px` of the client area, wherever
 /// the window paints pixels with alpha below 255.
 pub fn extend_top(hwnd: HWND, px: i32) {

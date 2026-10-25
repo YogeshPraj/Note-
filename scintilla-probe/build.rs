@@ -11,6 +11,23 @@ fn require(path: &Path, what: &str) {
     }
 }
 
+/// Compile `app.rc` (the application manifest: visual styles, no elevation, long paths)
+/// with the MinGW resource compiler and link it into the exe.
+fn embed_manifest(manifest_dir: &Path) {
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("app_res.o");
+    let status = std::process::Command::new("windres")
+        .current_dir(manifest_dir)
+        .args(["app.rc", "-O", "coff", "-o"])
+        .arg(&out)
+        .status();
+    match status {
+        Ok(s) if s.success() => println!("cargo:rustc-link-arg-bins={}", out.display()),
+        _ => panic!("\n\nwindres failed (it ships with the WinLibs MinGW package). The app manifest is required.\n"),
+    }
+    println!("cargo:rerun-if-changed=app.rc");
+    println!("cargo:rerun-if-changed=assets/app.manifest");
+}
+
 fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let lexilla = manifest.join("lexilla/bin");
@@ -48,6 +65,8 @@ fn main() {
             }
         }
     }
+
+    embed_manifest(&manifest);
 
     println!("cargo:rerun-if-changed=lexilla/bin/liblexilla.a");
     println!("cargo:rerun-if-changed=scintilla/bin/Scintilla.dll");

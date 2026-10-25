@@ -40,7 +40,7 @@ foreach ($k in $parts.Keys) { Copy-Item $parts[$k] (Join-Path $dist $k) }
 Copy-Item $wbSrc (Join-Path $dist 'whiteboard') -Recurse
 
 # Every non-system DLL the exe or Scintilla imports must be in the folder.
-$system = 'kernel32|user32|gdi32|advapi32|shell32|shlwapi|ole32|oleaut32|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcryptprimitives|combase|propsys|rpcrt4|api-ms-win-.*'
+$system = 'kernel32|user32|gdi32|gdiplus|advapi32|shell32|shlwapi|ole32|oleaut32|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcryptprimitives|combase|propsys|rpcrt4|uxtheme|api-ms-win-.*'
 $objdump = Get-Command objdump -ErrorAction SilentlyContinue
 if ($objdump) {
     foreach ($bin in 'sci_probe.exe', 'Scintilla.dll') {
@@ -54,4 +54,7 @@ if ($objdump) {
 } else {
     Write-Warning 'objdump not found: skipped the DLL import check'
 }
+# The visual-styles manifest must have made it into the exe (modern controls and menus).
+$exeText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $dist 'sci_probe.exe')))
+if ($exeText -notmatch 'Microsoft\.Windows\.Common-Controls') { throw 'The exe has no comctl32 v6 manifest' }
 Write-Host "Package ready: $dist" -ForegroundColor Green

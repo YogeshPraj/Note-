@@ -4,7 +4,6 @@
 use std::cell::Cell;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -69,6 +68,22 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         }
     };
     match msg {
+        WM_ERASEBKGND => {
+            let dc = windows::Win32::Graphics::Gdi::HDC(wp.0 as *mut core::ffi::c_void);
+            let mut r = RECT::default();
+            unsafe {
+                let _ = GetClientRect(hwnd, &mut r);
+            }
+            super::modern::fill(dc, &r, super::modern::pal().bg);
+            LRESULT(1)
+        }
+        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => super::modern::ctl_color(msg, wp, lp),
+        WM_DRAWITEM => {
+            let dis = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::DRAWITEMSTRUCT) };
+            super::modern::paint_button(dis, dis.CtlID as usize == B_NEXT);
+            LRESULT(1)
+        }
+        0x0400 => LRESULT(((0x534B_u32 << 16) | B_NEXT as u32) as isize), // DM_GETDEFID: Enter = Next
         WM_COMMAND => {
             let (id, code) = (wp.0 & 0xFFFF, (wp.0 >> 16) & 0xFFFF);
             match (id, code) {
@@ -85,6 +100,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    }
+}
+
+/// Give an edit box the themed (rounded on Windows 11) client-edge border.
+fn sunken(h: HWND) {
+    unsafe {
+        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+        SetWindowLongPtrW(h, GWL_EXSTYLE, ex | WS_EX_CLIENTEDGE.0 as isize);
+        let _ = SetWindowPos(h, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
 }
 
@@ -122,8 +146,7 @@ pub fn open(host: HWND) {
                 hInstance: hinst.into(),
                 lpszClassName: w!("NoteppIncr"),
                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-                hbrBackground: HBRUSH(16 as *mut core::ffi::c_void),
-                ..Default::default()
+                ..Default::default() // no class brush: WM_ERASEBKGND paints the themed background
             });
         }
         let (win, edit, _) = match WND.with(|c| c.get()) {
@@ -131,7 +154,7 @@ pub fn open(host: HWND) {
             None => {
                 let style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
                 let ex = WS_EX_CONTROLPARENT | WS_EX_TOOLWINDOW;
-                let mut rc = RECT { left: 0, top: 0, right: 360, bottom: 122 };
+                let mut rc = RECT { left: 0, top: 0, right: 360, bottom: 136 };
                 let _ = AdjustWindowRectEx(&mut rc, style, false, ex);
                 let mut hr = RECT::default();
                 let _ = GetWindowRect(host, &mut hr);
@@ -151,16 +174,20 @@ pub fn open(host: HWND) {
                     None,
                 )
                 .unwrap();
-                make(win, w!("STATIC"), "Search for:", 0, 99, (12, 10, 336, 18));
-                let edit = make(win, w!("EDIT"), "", 0x0001_0000 | 0x0080_0000 | 0x80, C_EDIT, (12, 30, 336, 24));
-                let status = make(win, w!("STATIC"), "", 0, C_STATUS, (12, 62, 336, 18));
-                make(win, w!("BUTTON"), "&Prev", 0x0001_0000, B_PREV, (12, 86, 80, 24));
-                make(win, w!("BUTTON"), "&Next", 0x0001_0000 | 0x1, B_NEXT, (98, 86, 80, 24));
-                make(win, w!("BUTTON"), "Close", 0x0001_0000, B_CLOSE, (268, 86, 80, 24));
+                make(win, w!("STATIC"), "Search for:", 0, 99, (14, 12, 332, 18));
+                let edit = make(win, w!("EDIT"), "", 0x0001_0000 | 0x80, C_EDIT, (14, 34, 332, 26));
+                sunken(edit);
+                let status = make(win, w!("STATIC"), "", 0, C_STATUS, (14, 68, 332, 18));
+                for (text, id, x, w) in [("&Prev", B_PREV, 14, 84), ("&Next", B_NEXT, 106, 84), ("Close", B_CLOSE, 262, 84)] {
+                    let b = make(win, w!("BUTTON"), text, 0x0001_0000 | 0xB, id, (x, 94, w, 30));
+                    super::modern::track_hover(b);
+                }
                 WND.with(|c| c.set(Some((win, edit, status))));
                 (win, edit, status)
             }
         };
+        super::modern::frame(win);
+        super::modern::style_control(edit, super::modern::Ctl::Edit);
         let empty = wide("");
         let _ = SetWindowTextW(edit, PCWSTR(empty.as_ptr()));
         set_status("");

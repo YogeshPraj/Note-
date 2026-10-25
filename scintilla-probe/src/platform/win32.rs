@@ -778,8 +778,7 @@ impl Ui for Win32Ui {
     }
 
     fn ask_yes_no(&self, msg: &str) -> bool {
-        let text = wide(msg);
-        unsafe { MessageBoxW(Some(self.host), PCWSTR(text.as_ptr()), w!("Note++"), MB_YESNO | MB_ICONQUESTION) == IDYES }
+        dialogs::message(self.host, "Note++", msg, dialogs::Tone::Question, &[("&Yes", dialogs::BTN_YES), ("&No", dialogs::BTN_NO)], dialogs::BTN_YES, dialogs::BTN_NO) == dialogs::BTN_YES
     }
 
     fn recycle(&self, path: &std::path::Path) -> Result<(), String> {
@@ -803,20 +802,16 @@ impl Ui for Win32Ui {
     }
 
     fn confirm_save(&self, name: &str) -> Confirm {
-        let text = wide(&format!("Save changes to \"{name}\"?"));
-        let r = unsafe { MessageBoxW(Some(self.host), PCWSTR(text.as_ptr()), w!("Note++"), MB_YESNOCANCEL | MB_ICONWARNING) };
-        match r {
-            IDYES => Confirm::Save,
-            IDNO => Confirm::Discard,
+        let buttons = [("&Save", dialogs::BTN_SAVE), ("Do&n't Save", dialogs::BTN_DONT_SAVE), ("Cancel", dialogs::BTN_CANCEL)];
+        match dialogs::message(self.host, "Note++", &format!("Save changes to \"{name}\"?"), dialogs::Tone::Warning, &buttons, dialogs::BTN_SAVE, dialogs::BTN_CANCEL) {
+            dialogs::BTN_SAVE => Confirm::Save,
+            dialogs::BTN_DONT_SAVE => Confirm::Discard,
             _ => Confirm::Cancel,
         }
     }
 
     fn error(&self, msg: &str) {
-        let text = wide(msg);
-        unsafe {
-            MessageBoxW(Some(self.host), PCWSTR(text.as_ptr()), w!("Note++"), MB_OK | MB_ICONERROR);
-        }
+        dialogs::message(self.host, "Note++", msg, dialogs::Tone::Error, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
     }
 }
 
@@ -1249,10 +1244,7 @@ fn show_summary(host: HWND, ws: &Workspace<Win32Sci>) {
         let v = view::count_text(&sel);
         s += &format!("\nSelection: {} characters, {} words, {} lines", v.chars, v.words, v.lines);
     }
-    let text = wide(&s);
-    unsafe {
-        MessageBoxW(Some(host), PCWSTR(text.as_ptr()), w!("Summary"), MB_OK | MB_ICONINFORMATION);
-    }
+    dialogs::message(host, "Summary", &s, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
 }
 
 /// Ask for the picture used by Insert > Date Time (customized).
@@ -1640,16 +1632,14 @@ impl App {
                 ws.search_engine = id - ID_ENGINE_BASE;
                 self.flash = Some(format!("Search engine: {}", edit::SEARCH_ENGINES[ws.search_engine].0));
             }
-            ID_COLUMN_MODE => unsafe {
-                let t = wide(
-                    "Column Mode selects a rectangle of text.\n\n\
+            ID_COLUMN_MODE => {
+                let t = "Column Mode selects a rectangle of text.\n\n\
                      \u{2022} Hold Alt and drag with the mouse, or\n\
                      \u{2022} press Alt+Shift with the arrow keys, or\n\
                      \u{2022} press Alt+Shift+B at one corner, move, and press it again.\n\n\
-                     Then type to edit every line at once, or use Column Editor (Alt+C) to insert text or numbers.",
-                );
-                MessageBoxW(Some(ui.host), PCWSTR(t.as_ptr()), w!("Column Mode"), MB_OK | MB_ICONINFORMATION);
-            },
+                     Then type to edit every line at once, or use Column Editor (Alt+C) to insert text or numbers.";
+                dialogs::message(ui.host, "Column Mode", t, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
+            }
             ID_COLUMN_EDITOR => self.flash = column_editor(ui.host, ws),
             ID_CHAR_PANEL | ID_CLIP_HISTORY | ID_DOC_LIST | ID_FUNC_LIST => {
                 let want = match id {
@@ -1814,7 +1804,7 @@ impl App {
             ID_PREV_TAB => ws.next_tab(-1),
             ID_ABOUT => {
                 let build = if cfg!(debug_assertions) { "debug" } else { "release" };
-                let t = wide(&format!(
+                let t = format!(
                     "Note++ (native)\n\
                      Version {} ({build} build)\n\n\
                      A developer-focused text editor in Rust, built on the Scintilla editing component \
@@ -1827,10 +1817,8 @@ impl App {
                      \u{2022} resvg \u{2014} toolbar icon rendering\n\
                      \u{2022} windows-rs \u{2014} Win32 bindings",
                     env!("CARGO_PKG_VERSION")
-                ));
-                unsafe {
-                    MessageBoxW(Some(ui.host), PCWSTR(t.as_ptr()), w!("About Note++"), MB_OK | MB_ICONINFORMATION);
-                }
+                );
+                dialogs::message(ui.host, "About Note++", &t, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
             }
             // The panel and dialogs take focus themselves, so skip the refocus below.
             ID_PALETTE => {
@@ -2551,6 +2539,14 @@ impl App {
         chrome::set_checked(&h.chrome, ID_WRAP, self.ws.wrap);
         chrome::set_checked(&h.chrome, ID_THEME, self.ws.theme.dark);
         chrome::set_theme(&h.chrome, self.ws.theme.dark, self.ws.theme.bg, self.ws.theme.fg);
+        findpanel::retheme();
+        thread_local! {
+            static NATIVE_DARK: Cell<Option<bool>> = const { Cell::new(None) };
+        }
+        if NATIVE_DARK.with(|c| c.replace(Some(self.ws.theme.dark))) != Some(self.ws.theme.dark) {
+            sidepanel::restyle();
+            tree::restyle();
+        }
 
         // Mermaid files open their live preview automatically; the preview follows the theme.
         let doc = self.ws.tabs[self.ws.active].doc;
@@ -3161,6 +3157,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_NOTIFY => {
             let hdr = unsafe { &*(l.0 as *const windows::Win32::UI::Controls::NMHDR) };
+            // Column headers of the side-panel list are drawn in the app's colours.
+            if let Some(r) = super::modern::header_custom_draw(l) {
+                return r;
+            }
             // Character Panel / Clipboard History: a double-click inserts the entry.
             if let Some(action) = sidepanel::notify(l) {
                 with_app(|a| {

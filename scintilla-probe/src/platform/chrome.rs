@@ -956,6 +956,7 @@ pub fn set_tabs(c: &Chrome, tabs: Vec<TabInfo>, active: usize) {
 /// Follow the editor theme: the Mica tint (via the window's dark-mode flag),
 /// the bar text, and the active tab, which continues the editor's background.
 pub fn set_theme(c: &Chrome, dark: bool, editor_bg: (u8, u8, u8), editor_fg: (u8, u8, u8)) {
+    super::modern::set_dark(dark);
     let lk = look();
     if lk.dark == dark && lk.editor_bg == editor_bg && lk.editor_fg == editor_fg {
         return;

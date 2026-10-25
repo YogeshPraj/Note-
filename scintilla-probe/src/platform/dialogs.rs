@@ -12,6 +12,68 @@ use crate::core::sci::Theme;
 use crate::core::settings::{self, ROLES, Settings};
 use crate::core::shortcuts;
 use crate::core::workspace::SortField;
+pub use super::form::Tone;
+
+// ── Message dialog ───────────────────────────────────────────────────────────
+
+pub const BTN_YES: usize = 201;
+pub const BTN_NO: usize = 202;
+pub const BTN_SAVE: usize = 203;
+pub const BTN_DONT_SAVE: usize = 204;
+pub const BTN_CANCEL: usize = 205;
+pub const BTN_OK: usize = 206;
+
+thread_local! {
+    static MSG_PICK: Cell<usize> = const { Cell::new(0) };
+}
+
+fn message_click(f: &Form, id: usize) {
+    if id >= BTN_YES {
+        MSG_PICK.with(|p| p.set(id));
+        f.close(true);
+    }
+}
+
+/// A modern message box: a coloured badge, wrapped text (scrollable when long) and
+/// right-aligned buttons. Returns the id of the button pressed, or `cancel` for Esc / close.
+/// Falls back to the system box if another form is already open.
+pub fn message(host: HWND, title: &str, text: &str, tone: Tone, buttons: &[(&str, usize)], default: usize, cancel: usize) -> usize {
+    if form::is_open() {
+        use windows::Win32::UI::WindowsAndMessaging::{IDYES, MB_ICONINFORMATION, MB_OK, MB_YESNO, MessageBoxW};
+        let (t, c) = (title.encode_utf16().chain([0]).collect::<Vec<u16>>(), text.encode_utf16().chain([0]).collect::<Vec<u16>>());
+        let asks = buttons.len() > 1;
+        let r = unsafe { MessageBoxW(Some(host), windows::core::PCWSTR(c.as_ptr()), windows::core::PCWSTR(t.as_ptr()), if asks { MB_YESNO } else { MB_OK | MB_ICONINFORMATION }) };
+        return if r == IDYES || !asks { default } else { cancel };
+    }
+    const W: i32 = 480;
+    const TEXT_X: i32 = 76;
+    let text_w = W - TEXT_X - 24;
+    let th = form::text_height(text, text_w);
+    let scroll = th > 300;
+    let body_h = if scroll { 300 } else { th.max(36) };
+    let mut ctls = vec![ctl(100, Kind::Badge(tone), "", 24, 24, 36, 36)];
+    if scroll {
+        ctls.push(ctl(101, Kind::MultiEdit(true), text, TEXT_X, 24, text_w, body_h));
+    } else {
+        ctls.push(ctl(101, Kind::Label, text, TEXT_X, 24 + (36 - th).max(0) / 2, text_w, th));
+    }
+    let height = 24 + body_h + 24 + 36;
+    let by = height - 36;
+    let mut x = W - 24;
+    for (label, id) in buttons.iter().rev() {
+        let bw = 100;
+        x -= bw;
+        ctls.push(ctl(*id, Kind::Button, label, x, by, bw, 30));
+        x -= 8;
+    }
+    let spec = Spec { title, size: (W, height), ctls, ok: "", on_change: Some(message_click), on_apply: None };
+    MSG_PICK.with(|p| p.set(cancel));
+    let picked = form::run(host, spec, |f| {
+        form::set_default_button(default);
+        f.focus(default);
+    });
+    if picked.is_some() { MSG_PICK.with(|p| p.get()) } else { cancel }
+}
 
 // ── Window > Windows... ──────────────────────────────────────────────────────
 
@@ -189,9 +251,9 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
             ctl(E_BOM, Kind::Radio(false), "UTF-8-BOM", 170, 272, 100, 20),
             ctl(E_ANSI, Kind::Radio(false), "ANSI", 278, 272, 70, 20),
             ctl(1022, Kind::Label, "Line ending:", 24, 312, 70, 18),
-            ctl(L_CRLF, Kind::Radio(true), "Windows (CR LF)", 98, 310, 120, 20),
-            ctl(L_LF, Kind::Radio(false), "Unix (LF)", 222, 310, 90, 20),
-            ctl(L_CR, Kind::Radio(false), "Mac (CR)", 316, 310, 90, 20),
+            ctl(L_CRLF, Kind::Radio(true), "Windows (CR LF)", 98, 310, 130, 20),
+            ctl(L_LF, Kind::Radio(false), "Unix (LF)", 236, 310, 90, 20),
+            ctl(L_CR, Kind::Radio(false), "Mac (CR)", 334, 310, 90, 20),
             ctl(1030, Kind::Group, "Live preview", 12, 356, 416, 52),
             ctl(REMOTE, Kind::Check, "Load images from the web (applies after restart)", 24, 378, 380, 20),
         ],

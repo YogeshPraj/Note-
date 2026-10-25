@@ -41,8 +41,8 @@ pub fn create(host: HWND) -> HWND {
             dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_TREEVIEW_CLASSES,
         });
-        // TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS
-        let style = WS_CHILD | WS_CLIPSIBLINGS | WS_BORDER | WINDOW_STYLE(0x1 | 0x2 | 0x4 | 0x20);
+        // TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT (no lines, no border: modern explorer look)
+        let style = WS_CHILD | WS_CLIPSIBLINGS | WINDOW_STYLE(0x1 | 0x4 | 0x20 | 0x1000);
         let tree = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             w!("SysTreeView32"),
@@ -59,8 +59,18 @@ pub fn create(host: HWND) -> HWND {
         )
         .unwrap();
         SendMessageW(tree, WM_SETFONT, Some(WPARAM(ui_font_handle().0 as usize)), Some(LPARAM(1)));
+        SendMessageW(tree, 0x112C, Some(WPARAM(0x44)), Some(LPARAM(0x44))); // TVM_SETEXTENDEDSTYLE: double buffer + fade expando
+        SendMessageW(tree, 0x1107, Some(WPARAM(22)), None); // TVM_SETITEMHEIGHT
+        super::modern::style_control(tree, super::modern::Ctl::Tree);
         TREE.with(|c| c.set(Some(tree)));
         tree
+    }
+}
+
+/// Re-apply light/dark styling after a theme change.
+pub fn restyle() {
+    if let Some(tree) = hwnd() {
+        super::modern::style_control(tree, super::modern::Ctl::Tree);
     }
 }
 

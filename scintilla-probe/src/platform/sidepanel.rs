@@ -78,8 +78,8 @@ pub fn create(host: HWND) -> HWND {
             dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_LISTVIEW_CLASSES,
         });
-        // LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS
-        let style = WS_CHILD | WS_CLIPSIBLINGS | WS_BORDER | WS_TABSTOP | WINDOW_STYLE(0x1 | 0x4 | 0x8);
+        // LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS (no border: the panel sits flush against the editor)
+        let style = WS_CHILD | WS_CLIPSIBLINGS | WS_TABSTOP | WINDOW_STYLE(0x1 | 0x4 | 0x8);
         let list = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             w!("SysListView32"),
@@ -96,9 +96,17 @@ pub fn create(host: HWND) -> HWND {
         )
         .unwrap();
         SendMessageW(list, WM_SETFONT, Some(WPARAM(ui_font_handle().0 as usize)), Some(LPARAM(1)));
-        SendMessageW(list, LVM_SETEXTENDEDLISTVIEWSTYLE, Some(WPARAM(0x20)), Some(LPARAM(0x20))); // full-row select
+        SendMessageW(list, LVM_SETEXTENDEDLISTVIEWSTYLE, Some(WPARAM(0x1_0020)), Some(LPARAM(0x1_0020))); // full-row select + double buffering
+        super::modern::style_control(list, super::modern::Ctl::List);
         LIST.with(|c| c.set(Some(list)));
         list
+    }
+}
+
+/// Re-apply light/dark styling after a theme change.
+pub fn restyle() {
+    if let Some(list) = hwnd() {
+        super::modern::style_control(list, super::modern::Ctl::List);
     }
 }
 

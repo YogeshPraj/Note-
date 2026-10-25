@@ -7,8 +7,8 @@ use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
@@ -63,15 +63,14 @@ fn create(host: HWND) -> (HWND, HWND, HWND) {
                 hInstance: hinst.into(),
                 lpszClassName: class,
                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-                hbrBackground: HBRUSH(6 as *mut core::ffi::c_void), // COLOR_WINDOW + 1
-                ..Default::default()
+                ..Default::default() // no class brush: WM_ERASEBKGND paints the themed background
             });
         }
         let win = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT,
             class,
             PCWSTR::null(),
-            WS_POPUP | WS_BORDER | WS_CLIPCHILDREN,
+            WS_POPUP | WS_CLIPCHILDREN,
             0,
             0,
             WIDTH,
@@ -103,17 +102,44 @@ fn create(host: HWND) -> (HWND, HWND, HWND) {
             h
         };
         let edit = child(w!("EDIT"), 0x80 | 0x0001_0000, C_EDIT); // ES_AUTOHSCROLL | WS_TABSTOP
-        // LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL
-        let list = child(w!("LISTBOX"), 0x0001 | 0x0100 | 0x0020_0000, C_LIST);
+        // LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL
+        let list = child(w!("LISTBOX"), 0x0001 | 0x0010 | 0x0040 | 0x0100 | 0x0020_0000, C_LIST);
         SendMessageW(list, 0x01A0, Some(WPARAM(0)), Some(LPARAM(ROW_H as isize))); // LB_SETITEMHEIGHT
         EDIT_PREV.store(SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize), Ordering::Relaxed);
+        super::dwm::round(win);
         (win, edit, list)
+    }
+}
+
+/// One result row: the label on the left, the hint (shortcut or folder) dimmed on the right.
+fn draw_row(dis: &DRAWITEMSTRUCT) {
+    use super::modern as m;
+    let p = m::pal();
+    let (dc, r) = (dis.hDC, dis.rcItem);
+    m::fill(dc, &r, p.card);
+    if dis.itemID == u32::MAX {
+        return;
+    }
+    if dis.itemState.0 & 1 != 0 {
+        let pill = RECT { left: r.left + 6, top: r.top + 2, right: r.right - 6, bottom: r.bottom - 2 };
+        m::round_rect(dc, &pill, 8, p.sel_bg, p.sel_bg);
+    }
+    let Some((label, hint)) = SHOWN.with(|s| s.borrow().get(dis.itemID as usize).copied()).and_then(|i| ITEMS.with(|it| it.borrow().get(i).map(|x| (x.label.clone(), x.hint.clone())))) else { return };
+    use windows::Win32::Graphics::Gdi::{DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, SelectObject};
+    unsafe {
+        let old = SelectObject(dc, ui_font_handle().into());
+        let hint_w = if hint.is_empty() { 0 } else { super::form::text_width(&hint) + 24 };
+        let hint_r = RECT { left: r.left + 16, top: r.top, right: r.right - 16, bottom: r.bottom };
+        m::draw_text(dc, &hint, &hint_r, p.disabled, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        let label_r = RECT { left: r.left + 16, top: r.top, right: (r.right - 16 - hint_w).max(r.left + 40), bottom: r.bottom };
+        m::draw_text(dc, &label, &label_r, p.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        SelectObject(dc, old);
     }
 }
 
 /// Show the palette with `items`, centred near the top of `host`.
 pub fn open(host: HWND, kind: Kind, items: Vec<Item>) {
-    let (win, edit, _) = match WIN.with(|c| c.get()) {
+    let (win, edit, list) = match WIN.with(|c| c.get()) {
         Some(w) => w,
         None => {
             let w = create(host);
@@ -123,6 +149,8 @@ pub fn open(host: HWND, kind: Kind, items: Vec<Item>) {
     };
     KIND.with(|c| c.set(kind));
     ITEMS.with(|c| *c.borrow_mut() = items);
+    super::modern::style_control(edit, super::modern::Ctl::Edit);
+    super::modern::style_control(list, super::modern::Ctl::Check);
     unsafe {
         let _ = SetWindowTextW(edit, w!(""));
         let mut hr = RECT::default();
@@ -171,6 +199,8 @@ fn refilter() {
         scored.sort_by_key(|(s, i)| (*s, *i));
         scored.into_iter().take(300).map(|(_, i)| i).collect()
     });
+    // Store what the rows show before the list repaints (adding strings can paint at once).
+    SHOWN.with(|c| *c.borrow_mut() = shown.clone());
     unsafe {
         SendMessageW(list, 0x0184, None, None); // LB_RESETCONTENT
         ITEMS.with(|items| {
@@ -260,6 +290,37 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
 
 unsafe extern "system" fn palette_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
+        WM_ERASEBKGND => {
+            use super::modern as m;
+            let dc = windows::Win32::Graphics::Gdi::HDC(wp.0 as *mut core::ffi::c_void);
+            let mut r = RECT::default();
+            unsafe {
+                let _ = GetClientRect(hwnd, &mut r);
+            }
+            let p = m::pal();
+            m::fill(dc, &r, p.card);
+            // A hairline under the filter box.
+            m::fill(dc, &RECT { left: 0, top: EDIT_H + 4, right: r.right, bottom: EDIT_H + 5 }, p.card_border);
+            LRESULT(1)
+        }
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORSTATIC => {
+            // The box blends into the palette: same colour as the card.
+            use super::modern as m;
+            let dc = windows::Win32::Graphics::Gdi::HDC(wp.0 as *mut core::ffi::c_void);
+            let p = m::pal();
+            unsafe {
+                windows::Win32::Graphics::Gdi::SetTextColor(dc, m::colorref(p.text));
+                windows::Win32::Graphics::Gdi::SetBkColor(dc, m::colorref(p.card));
+            }
+            LRESULT(m::brush(p.card).0 as isize)
+        }
+        WM_DRAWITEM => {
+            let dis = unsafe { &*(lp.0 as *const DRAWITEMSTRUCT) };
+            if dis.CtlType.0 == 2 {
+                draw_row(dis); // ODT_LISTBOX
+            }
+            LRESULT(1)
+        }
         WM_COMMAND => {
             let id = wp.0 & 0xFFFF;
             let code = (wp.0 >> 16) & 0xFFFF;

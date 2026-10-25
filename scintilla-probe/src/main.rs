@@ -4,6 +4,8 @@
 //   src/platform/  one shell per OS; only win32 exists so far
 
 #![windows_subsystem = "windows"]
+// MinGW links its own default manifest too; ld warns but keeps ours (checked by scripts/package.ps1).
+#![allow(linker_messages)]
 
 mod core;
 mod platform;

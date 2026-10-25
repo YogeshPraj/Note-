@@ -51,7 +51,7 @@ pub fn message(host: HWND, title: &str, text: &str, tone: Tone, buttons: &[(&str
     let th = form::text_height(text, text_w);
     let scroll = th > 300;
     let body_h = if scroll { 300 } else { th.max(36) };
-    let mut ctls = vec![ctl(100, Kind::Badge(tone), "", 24, 24, 36, 36)];
+    let mut ctls = vec![ctl(100, Kind::Badge(tone), "", 24, 24, 32, 32)];
     if scroll {
         ctls.push(ctl(101, Kind::MultiEdit(true), text, TEXT_X, 24, text_w, body_h));
     } else {
@@ -63,15 +63,12 @@ pub fn message(host: HWND, title: &str, text: &str, tone: Tone, buttons: &[(&str
     for (label, id) in buttons.iter().rev() {
         let bw = 100;
         x -= bw;
-        ctls.push(ctl(*id, Kind::Button, label, x, by, bw, 30));
+        ctls.push(ctl(*id, if *id == default { Kind::DefButton } else { Kind::Button }, label, x, by, bw, 26));
         x -= 8;
     }
     let spec = Spec { title, size: (W, height), ctls, ok: "", on_change: Some(message_click), on_apply: None };
     MSG_PICK.with(|p| p.set(cancel));
-    let picked = form::run(host, spec, |f| {
-        form::set_default_button(default);
-        f.focus(default);
-    });
+    let picked = form::run(host, spec, |f| f.focus(default));
     if picked.is_some() { MSG_PICK.with(|p| p.get()) } else { cancel }
 }
 

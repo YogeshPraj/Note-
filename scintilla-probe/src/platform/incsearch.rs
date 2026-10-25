@@ -68,22 +68,8 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         }
     };
     match msg {
-        WM_ERASEBKGND => {
-            let dc = windows::Win32::Graphics::Gdi::HDC(wp.0 as *mut core::ffi::c_void);
-            let mut r = RECT::default();
-            unsafe {
-                let _ = GetClientRect(hwnd, &mut r);
-            }
-            super::modern::fill(dc, &r, super::modern::pal().bg);
-            LRESULT(1)
-        }
+        WM_ERASEBKGND => super::modern::erase_background(hwnd, wp),
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => super::modern::ctl_color(msg, wp, lp),
-        WM_DRAWITEM => {
-            let dis = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::DRAWITEMSTRUCT) };
-            super::modern::paint_button(dis, dis.CtlID as usize == B_NEXT);
-            LRESULT(1)
-        }
-        0x0400 => LRESULT(((0x534B_u32 << 16) | B_NEXT as u32) as isize), // DM_GETDEFID: Enter = Next
         WM_COMMAND => {
             let (id, code) = (wp.0 & 0xFFFF, (wp.0 >> 16) & 0xFFFF);
             match (id, code) {
@@ -178,9 +164,9 @@ pub fn open(host: HWND) {
                 let edit = make(win, w!("EDIT"), "", 0x0001_0000 | 0x80, C_EDIT, (14, 34, 332, 26));
                 sunken(edit);
                 let status = make(win, w!("STATIC"), "", 0, C_STATUS, (14, 68, 332, 18));
-                for (text, id, x, w) in [("&Prev", B_PREV, 14, 84), ("&Next", B_NEXT, 106, 84), ("Close", B_CLOSE, 262, 84)] {
-                    let b = make(win, w!("BUTTON"), text, 0x0001_0000 | 0xB, id, (x, 94, w, 30));
-                    super::modern::track_hover(b);
+                for (text, id, x, w) in [("&Prev", B_PREV, 14, 80), ("&Next", B_NEXT, 102, 80), ("Close", B_CLOSE, 266, 80)] {
+                    // BS_DEFPUSHBUTTON for Next: Enter presses it
+                    make(win, w!("BUTTON"), text, 0x0001_0000 | if id == B_NEXT { 0x1 } else { 0 }, id, (x, 96, w, 26));
                 }
                 WND.with(|c| c.set(Some((win, edit, status))));
                 (win, edit, status)
@@ -188,6 +174,11 @@ pub fn open(host: HWND) {
         };
         super::modern::frame(win);
         super::modern::style_control(edit, super::modern::Ctl::Edit);
+        for id in [B_PREV, B_NEXT, B_CLOSE] {
+            if let Ok(b) = GetDlgItem(Some(win), id as i32) {
+                super::modern::style_control(b, super::modern::Ctl::Button);
+            }
+        }
         let empty = wide("");
         let _ = SetWindowTextW(edit, PCWSTR(empty.as_ptr()));
         set_status("");

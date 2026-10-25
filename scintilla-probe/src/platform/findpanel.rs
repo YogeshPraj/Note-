@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{HBRUSH, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Controls::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::Shell::{BIF_NEWDIALOGSTYLE, BROWSEINFOW, SHBrowseForFolderW, SHGetPathFromIDListW};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -46,7 +45,7 @@ const C_REGEX: usize = 6013;
 const C_DOT: usize = 6014;
 const C_STATUS: usize = 6030;
 const C_LIST: usize = 6031;
-const C_TAB: usize = 6032;
+const C_TAB: usize = 6050; // + 0..3: Find, Replace, Find in Files, Mark
 const G_EDIT: usize = 6101;
 const G_LABEL: usize = 6102;
 
@@ -63,7 +62,7 @@ pub enum Mode {
 #[derive(Clone, Copy)]
 struct Panel {
     hwnd: HWND,
-    tab: HWND,
+    tab: [HWND; 4],
     closex: HWND,
     status: HWND,
     find_lbl: HWND,
@@ -123,16 +122,13 @@ fn set_text(h: HWND, s: &str) {
     }
 }
 
-/// Check boxes are drawn by `modern`; their state lives in the button's user-data slot.
+/// Native check boxes keep their own state.
 fn is_checked(h: HWND) -> bool {
-    unsafe { GetWindowLongPtrW(h, GWLP_USERDATA) != 0 }
+    unsafe { SendMessageW(h, 0x00F0, None, None).0 == 1 } // BM_GETCHECK
 }
 
 fn set_checked(h: HWND, on: bool) {
-    unsafe {
-        SetWindowLongPtrW(h, GWLP_USERDATA, on as isize);
-        let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(h), None, false);
-    }
+    unsafe { SendMessageW(h, 0x00F1, Some(WPARAM(on as usize)), None) }; // BM_SETCHECK
 }
 
 fn show(h: HWND, on: bool) {
@@ -148,7 +144,9 @@ fn place(h: HWND, x: i32, y: i32, w: i32, ht: i32) {
 }
 
 const TABSTOP: u32 = 0x0001_0000;
-const BS_OWNERDRAW: u32 = 0xB;
+const BS_PUSH: u32 = 0x0;
+const BS_DEFPUSH: u32 = 0x1;
+const BS_CHECK: u32 = 0x3;
 const ES_AUTOHSCROLL: u32 = 0x80;
 
 /// Give an edit box the themed (rounded on Windows 11) client-edge border.
@@ -230,30 +228,15 @@ pub fn create(host: HWND) {
         )
         .unwrap();
 
-        let tab = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("SysTabControl32"),
-            PCWSTR::null(),
-            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(0x8000 | TABSTOP), // TCS_FOCUSNEVER
-            0,
-            0,
-            10,
-            10,
-            Some(hwnd),
-            Some(HMENU(C_TAB as *mut core::ffi::c_void)),
-            GetModuleHandleW(None).ok().map(Into::into),
-            None,
-        )
-        .unwrap();
-        SendMessageW(tab, WM_SETFONT, Some(WPARAM(super::chrome::ui_font_handle().0 as usize)), Some(LPARAM(1)));
-        SendMessageW(tab, 0x1329, None, Some(LPARAM(82 | 26 << 16))); // TCM_SETITEMSIZE
-        super::modern::style_tabs(tab);
-        for (i, name) in ["Find", "Replace", "Find in Files", "Mark"].iter().enumerate() {
-            let mut t = wide(name);
-            let item = TcItem { mask: 1, state: 0, state_mask: 0, text: t.as_mut_ptr(), text_max: 0, image: 0, param: 0 };
-            SendMessageW(tab, TCM_INSERTITEMW, Some(WPARAM(i)), Some(LPARAM(&item as *const _ as isize)));
-        }
-
+        // The four modes are native toggle buttons (push-like radio buttons): they theme
+        // properly in dark mode, unlike the tab control.
+        let tab: [HWND; 4] = std::array::from_fn(|i| {
+            // BS_AUTORADIOBUTTON | BS_PUSHLIKE (first one starts the group)
+            let style = 0x9 | 0x1000 | if i == 0 { 0x0002_0000 | TABSTOP } else { 0 };
+            let h = control(hwnd, w!("BUTTON"), ["Find", "Replace", "Find in Files", "Mark"][i], style, C_TAB + i);
+            super::modern::style_control(h, super::modern::Ctl::Button);
+            h
+        });
         let edit = |id| {
             let h = control(hwnd, w!("EDIT"), "", TABSTOP | ES_AUTOHSCROLL, id);
             sunken(h);
@@ -261,19 +244,19 @@ pub fn create(host: HWND) {
             h
         };
         let label = |t: &str| control(hwnd, w!("STATIC"), t, 0, 0);
-        let button = |t: &str, id, _def: bool| {
-            let h = control(hwnd, w!("BUTTON"), t, TABSTOP | BS_OWNERDRAW, id);
-            super::modern::track_hover(h);
+        let button = |t: &str, id, def: bool| {
+            let h = control(hwnd, w!("BUTTON"), t, TABSTOP | if def { BS_DEFPUSH } else { BS_PUSH }, id);
+            super::modern::style_control(h, super::modern::Ctl::Button);
             h
         };
         let check = |t: &str, id| {
-            let h = control(hwnd, w!("BUTTON"), t, TABSTOP | BS_OWNERDRAW, id);
-            super::modern::track_hover(h);
+            let h = control(hwnd, w!("BUTTON"), t, TABSTOP | BS_CHECK, id);
+            super::modern::style_control(h, super::modern::Ctl::Button);
             h
         };
 
-        let closex = control(hwnd, w!("BUTTON"), "✕", BS_OWNERDRAW, P_CLOSE);
-        super::modern::track_hover(closex);
+        let closex = control(hwnd, w!("BUTTON"), "✕", BS_PUSH | 0x8000, P_CLOSE); // BS_FLAT
+        super::modern::style_control(closex, super::modern::Ctl::Button);
         let p = Panel {
             hwnd,
             tab,
@@ -307,7 +290,7 @@ pub fn create(host: HWND) {
                 // WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT
                 let h = control(hwnd, w!("LISTBOX"), "", 0x0020_0000 | 0x0000_0001 | 0x0000_0100 | TABSTOP, C_LIST);
                 sunken(h);
-                super::modern::style_control(h, super::modern::Ctl::Check);
+                super::modern::style_control(h, super::modern::Ctl::Button);
                 h
             },
         };
@@ -316,17 +299,6 @@ pub fn create(host: HWND) {
         PANEL.with(|c| c.set(Some(p)));
         show(hwnd, false);
     }
-}
-
-#[repr(C)]
-struct TcItem {
-    mask: u32,
-    state: u32,
-    state_mask: u32,
-    text: *mut u16,
-    text_max: i32,
-    image: i32,
-    param: isize,
 }
 
 pub fn hwnd() -> Option<HWND> {
@@ -367,7 +339,9 @@ pub fn arrange(width: i32) {
         *x += w + 6;
     };
     let (r1, r2, r3) = (40, 74, 108);
-    place(p.tab, 8, 6, 340, 28);
+    for (i, t) in p.tab.iter().enumerate() {
+        place(*t, 8 + i as i32 * 86, 6, 84, 28);
+    }
     place(p.status, 356, 11, (width - 356 - 44).max(0), 18);
     place(p.closex, width - 30, 7, 24, 24);
 
@@ -458,7 +432,9 @@ pub fn open(mode: Mode, prefill: &str, last_search: &str, dir: &str) {
     MODE.with(|c| c.set(mode));
     SHOWN.with(|c| c.set(true));
     unsafe {
-        SendMessageW(p.tab, TCM_SETCURSEL, Some(WPARAM(mode as usize)), None);
+        for (i, t) in p.tab.iter().enumerate() {
+            set_checked(*t, i == mode as usize);
+        }
         let _ = ShowWindow(p.hwnd, SW_SHOW);
     }
     if !prefill.is_empty() && !prefill.contains(['\r', '\n']) {
@@ -544,11 +520,6 @@ pub fn browse_folder(owner: HWND) -> Option<PathBuf> {
     }
 }
 
-/// Buttons drawn as the filled accent "primary" action of their mode.
-fn is_primary(id: usize) -> bool {
-    matches!(id, P_NEXT | P_FIF | P_MARK)
-}
-
 /// Re-apply the light/dark native styling after the app theme changed (cheap no-op otherwise).
 pub fn retheme() {
     use super::modern::{Ctl, is_dark, style_control};
@@ -560,7 +531,12 @@ pub fn retheme() {
     for h in [p.find, p.repl, p.dir, p.filt] {
         style_control(h, Ctl::Edit);
     }
-    style_control(p.list, Ctl::Check);
+    for h in p.tab.into_iter().chain([
+        p.closex, p.browse, p.case, p.word, p.wrap, p.regex, p.dot, p.next, p.prev, p.findall, p.count, p.replace, p.repl_all, p.fif, p.mark,
+        p.clear, p.close, p.list,
+    ]) {
+        style_control(h, Ctl::Button);
+    }
     unsafe {
         let _ = RedrawWindow(Some(p.hwnd), None, None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
     }
@@ -568,39 +544,22 @@ pub fn retheme() {
 
 unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
-        WM_ERASEBKGND => {
-            let dc = windows::Win32::Graphics::Gdi::HDC(wp.0 as *mut core::ffi::c_void);
-            let mut r = RECT::default();
-            unsafe {
-                let _ = GetClientRect(hwnd, &mut r);
-            }
-            super::modern::fill(dc, &r, super::modern::pal().bg);
-            LRESULT(1)
-        }
+        WM_ERASEBKGND => super::modern::erase_background(hwnd, wp),
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => super::modern::ctl_color(msg, wp, lp),
-        WM_DRAWITEM => {
-            let dis = unsafe { &*(lp.0 as *const DRAWITEMSTRUCT) };
-            let id = dis.CtlID as usize;
-            if matches!(id, C_CASE | C_WORD | C_WRAP | C_REGEX | C_DOT) {
-                super::modern::paint_tick(dis, false, is_checked(dis.hwndItem), super::modern::pal().bg);
-            } else if id == P_CLOSE && dis.hwndItem == PANEL.with(|c| c.get()).map(|p| p.closex).unwrap_or_default() {
-                super::modern::paint_flat(dis);
-            } else {
-                super::modern::paint_button(dis, is_primary(id));
-            }
-            LRESULT(1)
-        }
-        // DM_GETDEFID: Enter presses Find Next (owner-drawn buttons cannot declare themselves default).
-        0x0400 => LRESULT(((0x534B_u32 << 16) | P_NEXT as u32) as isize),
         WM_COMMAND => {
             let id = wp.0 & 0xFFFF;
             let code = (wp.0 >> 16) & 0xFFFF;
             match id {
-                C_CASE | C_WORD | C_WRAP | C_REGEX | C_DOT if code == 0 => {
-                    if let Some(p) = PANEL.with(|c| c.get()) {
-                        let h = [p.case, p.word, p.wrap, p.regex, p.dot][[C_CASE, C_WORD, C_WRAP, C_REGEX, C_DOT].iter().position(|c| *c == id).unwrap_or(0)];
-                        set_checked(h, !is_checked(h));
-                    }
+                _ if (C_TAB..C_TAB + 4).contains(&id) && code == 0 => {
+                    MODE.with(|c| {
+                        c.set(match id - C_TAB {
+                            1 => Mode::Replace,
+                            2 => Mode::InFiles,
+                            3 => Mode::Mark,
+                            _ => Mode::Find,
+                        })
+                    });
+                    post_host(hwnd, P_RELAYOUT, 0);
                 }
                 C_LIST if code == 2 => {
                     // LBN_DBLCLK
@@ -615,24 +574,6 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARA
                     post_host(hwnd, id, 0)
                 }
                 _ => {}
-            }
-            LRESULT(0)
-        }
-        WM_NOTIFY => {
-            let hdr = unsafe { &*(lp.0 as *const NMHDR) };
-            if hdr.code == TCN_SELCHANGE {
-                if let Some(p) = PANEL.with(|c| c.get()) {
-                    let sel = unsafe { SendMessageW(p.tab, TCM_GETCURSEL, None, None).0 };
-                    MODE.with(|c| {
-                        c.set(match sel {
-                            1 => Mode::Replace,
-                            2 => Mode::InFiles,
-                            3 => Mode::Mark,
-                            _ => Mode::Find,
-                        })
-                    });
-                    post_host(hwnd, P_RELAYOUT, 0);
-                }
             }
             LRESULT(0)
         }
@@ -677,14 +618,12 @@ pub fn open_goto(host: HWND, total_lines: isize) {
             let edit = control(hwnd, w!("EDIT"), "", TABSTOP | ES_AUTOHSCROLL | 0x2000, G_EDIT); // ES_NUMBER
             sunken(edit);
             super::modern::style_control(edit, super::modern::Ctl::Edit);
-            let go = control(hwnd, w!("BUTTON"), "&Go", TABSTOP | BS_OWNERDRAW, 1);
-            let cancel = control(hwnd, w!("BUTTON"), "Cancel", TABSTOP | BS_OWNERDRAW, 2);
-            super::modern::track_hover(go);
-            super::modern::track_hover(cancel);
+            let go = control(hwnd, w!("BUTTON"), "&Go", TABSTOP | BS_DEFPUSH, 1);
+            let cancel = control(hwnd, w!("BUTTON"), "Cancel", TABSTOP | BS_PUSH, 2);
             place(label, 14, 14, 272, 20);
             place(edit, 14, 38, 272, 26);
-            place(go, 110, 76, 84, 30);
-            place(cancel, 202, 76, 84, 30);
+            place(go, 118, 78, 80, 26);
+            place(cancel, 206, 78, 80, 26);
             GOTO.with(|c| c.set(Some((hwnd, label, edit))));
             (hwnd, label, edit)
         },
@@ -693,6 +632,11 @@ pub fn open_goto(host: HWND, total_lines: isize) {
     set_text(edit, "");
     super::modern::frame(hwnd);
     super::modern::style_control(edit, super::modern::Ctl::Edit);
+    for id in [1, 2] {
+        if let Ok(b) = unsafe { GetDlgItem(Some(hwnd), id) } {
+            super::modern::style_control(b, super::modern::Ctl::Button);
+        }
+    }
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetFocus(Some(edit));
@@ -701,22 +645,8 @@ pub fn open_goto(host: HWND, total_lines: isize) {
 
 unsafe extern "system" fn goto_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
-        WM_ERASEBKGND => {
-            let dc = windows::Win32::Graphics::Gdi::HDC(wp.0 as *mut core::ffi::c_void);
-            let mut r = RECT::default();
-            unsafe {
-                let _ = GetClientRect(hwnd, &mut r);
-            }
-            super::modern::fill(dc, &r, super::modern::pal().bg);
-            LRESULT(1)
-        }
+        WM_ERASEBKGND => super::modern::erase_background(hwnd, wp),
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => super::modern::ctl_color(msg, wp, lp),
-        WM_DRAWITEM => {
-            let dis = unsafe { &*(lp.0 as *const DRAWITEMSTRUCT) };
-            super::modern::paint_button(dis, dis.CtlID == 1);
-            LRESULT(1)
-        }
-        0x0400 => LRESULT(((0x534B_u32 << 16) | 1) as isize), // DM_GETDEFID: Enter presses Go
         WM_COMMAND => {
             let id = wp.0 & 0xFFFF;
             if let Some((_, _, edit)) = GOTO.with(|c| c.get()) {

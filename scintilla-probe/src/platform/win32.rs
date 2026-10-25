@@ -3157,10 +3157,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_NOTIFY => {
             let hdr = unsafe { &*(l.0 as *const windows::Win32::UI::Controls::NMHDR) };
-            // Column headers of the side-panel list are drawn in the app's colours.
-            if let Some(r) = super::modern::header_custom_draw(l) {
-                return r;
-            }
             // Character Panel / Clipboard History: a double-click inserts the entry.
             if let Some(action) = sidepanel::notify(l) {
                 with_app(|a| {

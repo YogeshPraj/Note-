@@ -19,6 +19,7 @@ const DWMWA_SYSTEMBACKDROP_TYPE: i32 = 38;
 
 const DWMWCP_ROUND: u32 = 2;
 const DWMSBT_MAINWINDOW: u32 = 2; // Mica
+const DWMSBT_NONE: u32 = 1;
 
 fn set(hwnd: HWND, attr: i32, value: u32) -> bool {
     unsafe {
@@ -33,6 +34,15 @@ pub fn apply(hwnd: HWND, dark: bool) -> bool {
     set_dark(hwnd, dark);
     set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
     set(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW)
+}
+
+/// Dark or light caption and rounded corners, without the Mica backdrop. For dialogs and popups
+/// whose client area is painted opaque (Mica would show through unpainted pixels and make
+/// native controls look patchy).
+pub fn apply_opaque(hwnd: HWND, dark: bool) {
+    set_dark(hwnd, dark);
+    set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+    set(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_NONE);
 }
 
 /// Dark or light caption — and, with Mica on, a dark or light Mica tint.

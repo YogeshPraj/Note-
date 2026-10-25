@@ -2,7 +2,6 @@ pub mod bookmarks;
 pub mod complete;
 pub mod doc;
 pub mod edit;
-pub mod export;
 pub mod files;
 pub mod functions;
 pub mod hash;

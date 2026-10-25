@@ -10,7 +10,6 @@ use super::bookmarks;
 use super::complete;
 use super::doc::{self, Enc, Eol};
 use super::edit;
-use super::export;
 use super::files;
 use super::lang;
 use super::lexer;
@@ -233,10 +232,6 @@ pub enum TextTool {
     JsonMinify,
     XmlPretty,
     XmlMinify,
-    AsciiToHex,
-    HexToAscii,
-    QpEncode,
-    QpDecode,
 }
 
 /// Which auto-completion source to use.
@@ -784,10 +779,6 @@ impl<S: Send> Workspace<S> {
             TextTool::JsonMinify => textools::json_minify(&input),
             TextTool::XmlPretty => textools::xml_pretty(&input).map(|s| s.replace('\n', eol)),
             TextTool::XmlMinify => textools::xml_minify(&input),
-            TextTool::AsciiToHex => Ok(textools::ascii_to_hex(&input)),
-            TextTool::HexToAscii => textools::hex_to_ascii(&input),
-            TextTool::QpEncode => Ok(textools::qp_encode(&input)),
-            TextTool::QpDecode => Ok(textools::qp_decode(&input)),
         };
         let out = match result {
             Ok(o) => o,
@@ -1481,20 +1472,6 @@ impl<S: Send> Workspace<S> {
         let mut slots: Vec<Option<Tab>> = std::mem::take(&mut self.tabs).into_iter().map(Some).collect();
         self.tabs = order.iter().filter_map(|&i| slots[i].take()).collect();
         self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
-    }
-
-    /// The active document as HTML or RTF text, styled the way it is on screen.
-    pub fn export_styled(&self, rtf: bool) -> String {
-        let styled = export::read_styled(&self.sci);
-        let runs = export::runs(&styled.text, &styled.styles);
-        let look = |s: u8| export::look_of(&self.sci, s);
-        let size = self.settings.font_size;
-        let bg = self.theme.bg;
-        if rtf {
-            export::rtf(&self.settings.font, size, &runs, &look)
-        } else {
-            export::html(&self.tabs[self.active].title, &self.settings.font, size, bg, &runs, &look)
-        }
     }
 
     pub fn window_title(&self) -> String {

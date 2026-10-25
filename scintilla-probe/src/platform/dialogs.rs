@@ -173,24 +173,6 @@ pub fn windows_dialog(host: HWND, rows: &[Vec<String>], selected: usize) -> Opti
     }
 }
 
-// ── Plugins > Plugins Admin ──────────────────────────────────────────────────
-
-/// Plugins > Plugins Admin...: what is built in (rows: name, version, description).
-pub fn plugins_admin(host: HWND, rows: &[Vec<String>]) {
-    let spec = Spec {
-        title: "Plugins Admin",
-        size: (640, 380),
-        ctls: vec![
-            ctl(100, Kind::List, "", 12, 12, 616, 280),
-            ctl(101, Kind::Label, "These plugins are built into Note++. Loading external plugin DLLs is not supported.", 12, 300, 616, 36),
-        ],
-        ok: "Close",
-        on_change: None,
-        on_apply: None,
-    };
-    let _ = form::run(host, spec, |f| f.list_fill(100, &[("Plugin", 140), ("Version", 70), ("Description", 380)], rows));
-}
-
 fn number(s: &str, fallback: i32) -> i32 {
     s.trim().parse().unwrap_or(fallback)
 }

@@ -243,17 +243,6 @@ const ID_JSON_PRETTY: usize = 3454;
 const ID_JSON_MIN: usize = 3455;
 const ID_XML_PRETTY: usize = 3456;
 const ID_XML_MIN: usize = 3457;
-// Plugins and Window menus
-const ID_PLUGINS_ADMIN: usize = 3500;
-const ID_PLUGINS_FOLDER: usize = 3501;
-const ID_HEX_ENC: usize = 3510;
-const ID_HEX_DEC: usize = 3511;
-const ID_QP_ENC: usize = 3512;
-const ID_QP_DEC: usize = 3513;
-const ID_EXPORT_HTML: usize = 3520;
-const ID_EXPORT_RTF: usize = 3521;
-const ID_COPY_HTML: usize = 3522;
-const ID_COPY_RTF: usize = 3523;
 const ID_WINDOWS: usize = 3600;
 const ID_WINDOW_SORT_BASE: usize = 3610; // + index into dialogs::SORTS
 const ID_WINDOW_DOC_BASE: usize = 11000; // + 0..9: the first nine tabs
@@ -434,16 +423,6 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Tools: SHA-256 from Selection into Clipboard", ID_HASH_BASE + 22, ""),
     ("Tools: SHA-512 Generate...", ID_HASH_BASE + 30, ""),
     ("Tools: SHA-512 from Selection into Clipboard", ID_HASH_BASE + 32, ""),
-    ("Plugins: Plugins Admin...", ID_PLUGINS_ADMIN, ""),
-    ("Plugins: Open Plugins Folder...", ID_PLUGINS_FOLDER, ""),
-    ("Plugins: Quoted-printable Encode", ID_QP_ENC, ""),
-    ("Plugins: Quoted-printable Decode", ID_QP_DEC, ""),
-    ("Plugins: ASCII -> HEX", ID_HEX_ENC, ""),
-    ("Plugins: HEX -> ASCII", ID_HEX_DEC, ""),
-    ("Plugins: Export to HTML...", ID_EXPORT_HTML, ""),
-    ("Plugins: Export to RTF...", ID_EXPORT_RTF, ""),
-    ("Plugins: Copy HTML to Clipboard", ID_COPY_HTML, ""),
-    ("Plugins: Copy RTF to Clipboard", ID_COPY_RTF, ""),
     ("Window: Windows...", ID_WINDOWS, ""),
     ("Edit: Redo", ID_REDO, "Ctrl+Y"),
     ("Edit: Select All", ID_SELALL, "Ctrl+A"),
@@ -667,7 +646,6 @@ pub struct Menus {
     enc: HMENU,
     eol: HMENU,
     lang: HMENU,
-    plugins: HMENU,
     window: HMENU,
 }
 
@@ -721,7 +699,7 @@ fn wb_allows(id: usize) -> bool {
             | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
             | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
             | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE | ID_PREFS | ID_STYLE_CFG | ID_SHORTCUTS
-            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_PLUGINS_ADMIN | ID_PLUGINS_FOLDER | ID_WINDOWS
+            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
         || (ID_WINDOW_SORT_BASE..ID_WINDOW_SORT_BASE + dialogs::SORTS.len()).contains(&id)
@@ -1136,7 +1114,7 @@ fn install_shortcuts(menus: &Menus, s: &Settings, previous: Option<&Settings>) {
     for (id_text, text) in &s.shortcuts {
         if before.is_none_or(|b| b.get(id_text) != Some(text)) {
             if let Ok(id) = id_text.parse::<usize>() {
-                for m in [menus.file, menus.edit, menus.search, menus.view, menus.plugins] {
+                for m in [menus.file, menus.edit, menus.search, menus.view] {
                     retext_deep(m, id, text);
                 }
             }
@@ -1146,7 +1124,7 @@ fn install_shortcuts(menus: &Menus, s: &Settings, previous: Option<&Settings>) {
         for id_text in p.shortcuts.keys().filter(|k| !s.shortcuts.contains_key(*k)) {
             if let Ok(id) = id_text.parse::<usize>() {
                 let default = PALETTE_COMMANDS.iter().find(|(_, i, _)| *i == id).map(|(_, _, d)| *d).unwrap_or("");
-                for m in [menus.file, menus.edit, menus.search, menus.view, menus.plugins] {
+                for m in [menus.file, menus.edit, menus.search, menus.view] {
                     retext_deep(m, id, default);
                 }
             }
@@ -2190,7 +2168,7 @@ impl App {
                     }
                 }
             }
-            ID_B64_ENC | ID_B64_DEC | ID_URL_ENC | ID_URL_DEC | ID_JSON_PRETTY | ID_JSON_MIN | ID_XML_PRETTY | ID_XML_MIN | ID_HEX_ENC | ID_HEX_DEC | ID_QP_ENC | ID_QP_DEC => {
+            ID_B64_ENC | ID_B64_DEC | ID_URL_ENC | ID_URL_DEC | ID_JSON_PRETTY | ID_JSON_MIN | ID_XML_PRETTY | ID_XML_MIN => {
                 let op = match id {
                     ID_B64_ENC => TextTool::Base64Encode,
                     ID_B64_DEC => TextTool::Base64Decode,
@@ -2199,42 +2177,9 @@ impl App {
                     ID_JSON_PRETTY => TextTool::JsonPretty,
                     ID_JSON_MIN => TextTool::JsonMinify,
                     ID_XML_PRETTY => TextTool::XmlPretty,
-                    ID_HEX_ENC => TextTool::AsciiToHex,
-                    ID_HEX_DEC => TextTool::HexToAscii,
-                    ID_QP_ENC => TextTool::QpEncode,
-                    ID_QP_DEC => TextTool::QpDecode,
                     _ => TextTool::XmlMinify,
                 };
                 self.flash = ws.text_tool(op);
-            }
-            ID_PLUGINS_ADMIN => dialogs::plugins_admin(ui.host, &builtin_plugin_rows()),
-            ID_PLUGINS_FOLDER => {
-                let dir = config_dir().join("plugins");
-                let _ = std::fs::create_dir_all(&dir);
-                shell_open(ui.host, &dir);
-            }
-            ID_EXPORT_HTML | ID_EXPORT_RTF => {
-                let rtf = id == ID_EXPORT_RTF;
-                let stem = std::path::Path::new(&ws.tabs[ws.active].title).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "export".into());
-                if let Some(p) = ui.pick_save(&format!("{stem}.{}", if rtf { "rtf" } else { "html" })) {
-                    self.flash = Some(match std::fs::write(&p, ws.export_styled(rtf)) {
-                        Ok(()) => format!("Exported to {}", p.display()),
-                        Err(e) => format!("Cannot export: {e}"),
-                    });
-                }
-            }
-            ID_COPY_HTML | ID_COPY_RTF => {
-                let rtf = id == ID_COPY_RTF;
-                let styled = ws.export_styled(rtf);
-                let plain = sci::get_text(&sci);
-                let ok = if rtf {
-                    clip::set_rich(ui.host, "Rich Text Format", styled.as_bytes(), &plain)
-                } else {
-                    // Paste only the styled block, not a whole page inside a page.
-                    let body = styled.split_once("<body>\n").and_then(|(_, r)| r.rsplit_once("\n</body>")).map_or(styled.as_str(), |(b, _)| b);
-                    clip::set_rich(ui.host, "HTML Format", &clip::html_payload(body), &plain)
-                };
-                self.flash = Some(if ok { format!("Copied as {}", if rtf { "RTF" } else { "HTML" }) } else { "The clipboard is busy".into() });
             }
             ID_WINDOWS => {
                 let mut sel = ws.active;
@@ -3471,17 +3416,6 @@ fn fill_window_menu(menu: HMENU, docs: &[(String, bool)], active: usize) {
     }
 }
 
-fn builtin_plugin_rows() -> Vec<Vec<String>> {
-    [
-        ("MIME Tools", "Base64, URL and quoted-printable encoding and decoding of the selection or the document"),
-        ("Converter", "ASCII to hexadecimal and back"),
-        ("NppExport", "Export the highlighted document as RTF or HTML, to a file or the clipboard"),
-    ]
-    .iter()
-    .map(|(name, what)| vec![name.to_string(), "built in".to_string(), what.to_string()])
-    .collect()
-}
-
 /// Fill the File menu in Notepad++'s order. Run again whenever the recent list
 /// changes; `RemoveMenu` (not `DeleteMenu`) keeps the submenus alive for reuse.
 fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
@@ -3901,33 +3835,6 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(text_tools, ID_XML_MIN, "XML: Minify");
     B::submenu(tools, "Text Tools", text_tools);
 
-    // Plugins: Plugins Admin / Open Plugins Folder, then the built-in "plugins".
-    let plugins = B::popup();
-    B::add(plugins, ID_PLUGINS_ADMIN, "Plugins Admin...");
-    B::add(plugins, ID_PLUGINS_FOLDER, "Open Plugins Folder...");
-    B::sep(plugins);
-    let mime = B::popup();
-    B::add(mime, ID_B64_ENC, "Base64 Encode");
-    B::add(mime, ID_B64_DEC, "Base64 Decode");
-    B::sep(mime);
-    B::add(mime, ID_URL_ENC, "URL Encode");
-    B::add(mime, ID_URL_DEC, "URL Decode");
-    B::sep(mime);
-    B::add(mime, ID_QP_ENC, "Quoted-printable Encode");
-    B::add(mime, ID_QP_DEC, "Quoted-printable Decode");
-    B::submenu(plugins, "MIME Tools", mime);
-    let converter = B::popup();
-    B::add(converter, ID_HEX_ENC, "ASCII -> HEX");
-    B::add(converter, ID_HEX_DEC, "HEX -> ASCII");
-    B::submenu(plugins, "Converter", converter);
-    let export = B::popup();
-    B::add(export, ID_EXPORT_RTF, "Export to RTF...");
-    B::add(export, ID_EXPORT_HTML, "Export to HTML...");
-    B::sep(export);
-    B::add(export, ID_COPY_RTF, "Copy RTF to clipboard");
-    B::add(export, ID_COPY_HTML, "Copy HTML to clipboard");
-    B::submenu(plugins, "NppExport", export);
-
     // Window: Sort By, Windows..., then the open documents (filled as the menu opens).
     let window = B::popup();
 
@@ -3940,11 +3847,10 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Language".to_string(), lang),
         ("Settings".to_string(), settings_menu),
         ("Tools".to_string(), tools),
-        ("Plugins".to_string(), plugins),
         ("Window".to_string(), window),
         ("?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, plugins, window };
+    let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, window };
     fill_file_menu(&menus, &[], false);
     fill_window_menu(window, &[], 0);
     (bar, menus)

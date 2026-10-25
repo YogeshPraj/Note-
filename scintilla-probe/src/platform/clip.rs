@@ -109,40 +109,6 @@ pub fn set_binary(owner: HWND, name: &str, bytes: &[u8]) -> bool {
     put(id, bytes) && put(CF_UNICODETEXT, &text)
 }
 
-/// Replace the clipboard with a rich format (`"Rich Text Format"` or `"HTML Format"`)
-/// plus a plain-text copy for programs that only paste text.
-pub fn set_rich(owner: HWND, name: &str, bytes: &[u8], plain: &str) -> bool {
-    let id = format_id(name);
-    let Some(_c) = Open::new(owner) else { return false };
-    unsafe {
-        let _ = EmptyClipboard();
-    }
-    let mut units: Vec<u16> = plain.encode_utf16().collect();
-    units.push(0);
-    let text: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
-    let mut payload = bytes.to_vec();
-    payload.push(0);
-    put(id, &payload) && put(CF_UNICODETEXT, &text)
-}
-
-/// A CF_HTML clipboard payload (with its offset header) around an HTML fragment.
-pub fn html_payload(fragment: &str) -> Vec<u8> {
-    let head = "<html><body><!--StartFragment-->";
-    let tail = "<!--EndFragment--></body></html>";
-    let header = |s: usize, e: usize, total: usize| {
-        format!("Version:0.9\r\nStartHTML:{:010}\r\nEndHTML:{total:010}\r\nStartFragment:{s:010}\r\nEndFragment:{e:010}\r\n", 0)
-    };
-    let hlen = header(0, 0, 0).len();
-    let start = hlen + head.len();
-    let end = start + fragment.len();
-    let total = end + tail.len();
-    let mut out = header(start, end, total).replace("StartHTML:0000000000", &format!("StartHTML:{hlen:010}"));
-    out.push_str(head);
-    out.push_str(fragment);
-    out.push_str(tail);
-    out.into_bytes()
-}
-
 /// Start (or stop) receiving `WM_CLIPBOARDUPDATE` on `hwnd`.
 pub fn listen(hwnd: HWND, on: bool) {
     unsafe {
@@ -181,14 +147,5 @@ mod tests {
         let payload = format!("{}{}", header(s, e), body);
         assert_eq!(html_fragment(payload.as_bytes()), "<b>hi</b>");
         assert_eq!(html_fragment(b"<p>plain</p>\0"), "<p>plain</p>");
-    }
-
-    #[test]
-    fn html_payload_round_trips() {
-        let p = html_payload("<b>héllo</b>");
-        assert_eq!(html_fragment(&p), "<b>héllo</b>");
-        let text = String::from_utf8(p).unwrap();
-        let start_html: usize = text.split("StartHTML:").nth(1).unwrap()[..10].parse().unwrap();
-        assert!(text[start_html..].starts_with("<html>"));
     }
 }

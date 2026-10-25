@@ -14,6 +14,7 @@ use super::export;
 use super::files;
 use super::lang;
 use super::lexer;
+use super::mdformat;
 use super::preview;
 use super::search::{self, Opts};
 use super::settings::{self, Settings};
@@ -440,6 +441,54 @@ impl<S: Send> Workspace<S> {
         let mini_vis = m.send(sci::SCI_LINESONSCREEN, 0, 0).max(1);
         let first = if total <= mini_vis { 0 } else { main_first * (total - mini_vis) / (total - main_vis).max(1) };
         m.send(sci::SCI_SETFIRSTVISIBLELINE, first.max(0) as usize, 0);
+    }
+
+    /// Is the active tab a Markdown document (so the Markdown toolbar applies)?
+    pub fn is_markdown(&self) -> bool {
+        !self.is_whiteboard() && self.preview_kind() == Some(preview::Kind::Markdown)
+    }
+
+    /// Apply a Markdown formatting command to the selection as one undo step.
+    /// Returns a message when it could not be done.
+    pub fn md_format(&mut self, fmt: mdformat::Fmt) -> Option<String> {
+        if !self.is_markdown() {
+            return Some("Not a Markdown file".into());
+        }
+        if self.send(sci::SCI_GETSELECTIONS, 0, 0) != 1 || self.send(sci::SCI_SELECTIONISRECTANGLE, 0, 0) != 0 {
+            return Some("Select a single block of text first".into());
+        }
+        let text = sci::get_text(&self.sci);
+        let sel = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize);
+        let eol = match self.tabs[self.active].eol {
+            Eol::Crlf => "\r\n",
+            Eol::Lf => "\n",
+            Eol::Cr => "\r",
+        };
+        let edit = mdformat::apply(fmt, &text, sel, eol);
+        self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+        self.send(sci::SCI_SETTARGETSTART, edit.start, 0);
+        self.send(sci::SCI_SETTARGETEND, edit.end, 0);
+        self.send(sci::SCI_REPLACETARGET, edit.text.len(), edit.text.as_ptr() as isize);
+        self.send(sci::SCI_SETSEL, edit.sel.0, edit.sel.1 as isize);
+        self.send(sci::SCI_ENDUNDOACTION, 0, 0);
+        None
+    }
+
+    /// The document line at the top of the editor (wrapped lines count once).
+    pub fn top_doc_line(&self) -> usize {
+        let visible = self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize;
+        self.send(sci::SCI_DOCLINEFROMVISIBLE, visible, 0).max(0) as usize
+    }
+
+    /// Scroll the editor so document line `line` is at the top.
+    pub fn set_top_doc_line(&self, line: usize) {
+        let visible = self.send(sci::SCI_VISIBLEFROMDOCLINE, line, 0).max(0) as usize;
+        self.send(sci::SCI_SETFIRSTVISIBLELINE, visible, 0);
+        self.sync_minimap();
+    }
+
+    pub fn line_total(&self) -> usize {
+        sci::line_count(&self.sci).max(1) as usize
     }
 
     /// Scroll the main view so document line `line` (0-based) is centred.

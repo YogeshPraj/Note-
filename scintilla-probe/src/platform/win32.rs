@@ -22,6 +22,7 @@ use super::clip;
 use super::findpanel::{self, Mode};
 use super::form;
 use super::incsearch;
+use super::mdbar;
 use super::palette::{self, Item, Kind};
 use super::preview as pview;
 use super::print;
@@ -35,6 +36,7 @@ use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
 use super::dialogs;
 use crate::core::functions;
+use crate::core::mdformat;
 use crate::core::view;
 use crate::core::preview as pcore;
 use crate::core::doc::{CHARSETS, Enc, Eol};
@@ -53,6 +55,78 @@ const TIMER_PREVIEW: usize = 1;
 const MINI_W: i32 = 110;
 const SPLIT_W: i32 = 5;
 const ID_PREVIEW: usize = 5301;
+// Markdown toolbar and commands (the toolbar buttons use these ids directly)
+const ID_MD_BOLD: usize = 5400;
+const ID_MD_ITALIC: usize = 5401;
+const ID_MD_STRIKE: usize = 5402;
+const ID_MD_CODE: usize = 5403;
+const ID_MD_H1: usize = 5404;
+const ID_MD_H2: usize = 5405;
+const ID_MD_H3: usize = 5406;
+const ID_MD_QUOTE: usize = 5407;
+const ID_MD_BULLET: usize = 5408;
+const ID_MD_NUMBERED: usize = 5409;
+const ID_MD_TASK: usize = 5410;
+const ID_MD_LINK: usize = 5411;
+const ID_MD_IMAGE: usize = 5412;
+const ID_MD_TABLE: usize = 5413;
+const ID_MD_CODEBLOCK: usize = 5414;
+const ID_MD_RULE: usize = 5415;
+const ID_MD_SYNC: usize = 5416;
+const ID_MD_TOOLBAR: usize = 5417;
+const ID_MD_H4: usize = 5418;
+const ID_MD_H5: usize = 5419;
+const ID_MD_H6: usize = 5420;
+
+/// The format a Markdown command id stands for.
+fn md_fmt(id: usize) -> Option<mdformat::Fmt> {
+    use mdformat::Fmt;
+    Some(match id {
+        ID_MD_BOLD => Fmt::Bold,
+        ID_MD_ITALIC => Fmt::Italic,
+        ID_MD_STRIKE => Fmt::Strike,
+        ID_MD_CODE => Fmt::Code,
+        ID_MD_H1 => Fmt::Heading(1),
+        ID_MD_H2 => Fmt::Heading(2),
+        ID_MD_H3 => Fmt::Heading(3),
+        ID_MD_H4 => Fmt::Heading(4),
+        ID_MD_H5 => Fmt::Heading(5),
+        ID_MD_H6 => Fmt::Heading(6),
+        ID_MD_QUOTE => Fmt::Quote,
+        ID_MD_BULLET => Fmt::Bullet,
+        ID_MD_NUMBERED => Fmt::Numbered,
+        ID_MD_TASK => Fmt::Task,
+        ID_MD_LINK => Fmt::Link,
+        ID_MD_IMAGE => Fmt::Image,
+        ID_MD_TABLE => Fmt::Table,
+        ID_MD_CODEBLOCK => Fmt::CodeBlock,
+        ID_MD_RULE => Fmt::Rule,
+        _ => return None,
+    })
+}
+
+fn md_ids() -> mdbar::Ids {
+    mdbar::Ids {
+        bold: ID_MD_BOLD,
+        italic: ID_MD_ITALIC,
+        strike: ID_MD_STRIKE,
+        code: ID_MD_CODE,
+        h1: ID_MD_H1,
+        h2: ID_MD_H2,
+        h3: ID_MD_H3,
+        quote: ID_MD_QUOTE,
+        bullet: ID_MD_BULLET,
+        numbered: ID_MD_NUMBERED,
+        task: ID_MD_TASK,
+        link: ID_MD_LINK,
+        image: ID_MD_IMAGE,
+        table: ID_MD_TABLE,
+        code_block: ID_MD_CODEBLOCK,
+        rule: ID_MD_RULE,
+        preview: ID_PREVIEW,
+        sync: ID_MD_SYNC,
+    }
+}
 const ID_NEW_WB: usize = 1008;
 
 const ID_NEW: usize = 1001;
@@ -513,6 +587,27 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("View: Open in New Instance", ID_OPEN_NEW_INSTANCE, ""),
     ("View: Move to New Instance", ID_MOVE_NEW_INSTANCE, ""),
     ("View: Toggle Live Preview", ID_PREVIEW, "Ctrl+Shift+V"),
+    ("View: Synchronize Preview Scrolling", ID_MD_SYNC, ""),
+    ("View: Markdown Toolbar", ID_MD_TOOLBAR, ""),
+    ("Markdown: Bold", ID_MD_BOLD, ""),
+    ("Markdown: Italic", ID_MD_ITALIC, ""),
+    ("Markdown: Strikethrough", ID_MD_STRIKE, ""),
+    ("Markdown: Inline Code", ID_MD_CODE, ""),
+    ("Markdown: Heading 1", ID_MD_H1, ""),
+    ("Markdown: Heading 2", ID_MD_H2, ""),
+    ("Markdown: Heading 3", ID_MD_H3, ""),
+    ("Markdown: Heading 4", ID_MD_H4, ""),
+    ("Markdown: Heading 5", ID_MD_H5, ""),
+    ("Markdown: Heading 6", ID_MD_H6, ""),
+    ("Markdown: Quote", ID_MD_QUOTE, ""),
+    ("Markdown: Bulleted List", ID_MD_BULLET, ""),
+    ("Markdown: Numbered List", ID_MD_NUMBERED, ""),
+    ("Markdown: Task List", ID_MD_TASK, ""),
+    ("Markdown: Link", ID_MD_LINK, ""),
+    ("Markdown: Image", ID_MD_IMAGE, ""),
+    ("Markdown: Table", ID_MD_TABLE, ""),
+    ("Markdown: Code Block", ID_MD_CODEBLOCK, ""),
+    ("Markdown: Horizontal Rule", ID_MD_RULE, ""),
     ("View: Toggle Dark Mode", ID_THEME, ""),
     ("View: Toggle Minimap", ID_MINIMAP, ""),
     ("View: Zoom In", ID_ZOOMIN, "Ctrl+Num +"),
@@ -559,6 +654,7 @@ pub struct Handles {
     side: HWND,
     chrome: Chrome,
     panel: HWND,
+    mdbar: HWND,
 }
 
 #[derive(Clone, Copy)]
@@ -640,6 +736,10 @@ thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
     static MINI_ON: Cell<bool> = const { Cell::new(true) };
     static PREVIEW_ON: Cell<bool> = const { Cell::new(false) };
+    /// The Markdown formatting bar is shown (a Markdown tab is active and the bar is enabled).
+    static MD_BAR_ON: Cell<bool> = const { Cell::new(false) };
+    /// Editor top line last pushed to / received from the preview (usize::MAX = send again).
+    static SYNC_LINE: Cell<usize> = const { Cell::new(usize::MAX) };
     static PREVIEW_MAX: Cell<bool> = const { Cell::new(false) };
     /// The active tab is a whiteboard, so the whiteboard view replaces the editor.
     static WB_ON: Cell<bool> = const { Cell::new(false) };
@@ -1500,6 +1600,22 @@ impl App {
             ID_PREVIEW => {
                 let on = !PREVIEW_ON.with(|c| c.get());
                 self.set_preview(on);
+            }
+            _ if md_fmt(id).is_some() => {
+                self.flash = ws.md_format(md_fmt(id).unwrap());
+            }
+            ID_MD_SYNC => {
+                let mut s = ws.settings.clone();
+                s.md_sync_scroll = !s.md_sync_scroll;
+                let on = s.md_sync_scroll;
+                apply_settings(ws, s);
+                SYNC_LINE.with(|c| c.set(usize::MAX));
+                self.flash = Some(format!("Synchronized scrolling {}", if on { "on" } else { "off" }));
+            }
+            ID_MD_TOOLBAR => {
+                let mut s = ws.settings.clone();
+                s.md_toolbar = !s.md_toolbar;
+                apply_settings(ws, s);
             }
             ID_ZOOMIN => drop(sci.send(sci::SCI_ZOOMIN, 0, 0)),
             ID_ZOOMOUT => drop(sci.send(sci::SCI_ZOOMOUT, 0, 0)),
@@ -2544,6 +2660,7 @@ impl App {
             static NATIVE_DARK: Cell<Option<bool>> = const { Cell::new(None) };
         }
         if NATIVE_DARK.with(|c| c.replace(Some(self.ws.theme.dark))) != Some(self.ws.theme.dark) {
+            mdbar::retheme();
             sidepanel::restyle();
             tree::restyle();
         }
@@ -2570,6 +2687,14 @@ impl App {
         }
         chrome::set_checked(&h.chrome, ID_PREVIEW, preview_on);
 
+        // The Markdown formatting bar follows the active tab; its toggles mirror the app state.
+        let want_bar = self.ws.is_markdown() && self.ws.settings.md_toolbar && !DISTRACTION.with(|c| c.get());
+        if MD_BAR_ON.with(|c| c.replace(want_bar)) != want_bar {
+            layout();
+        }
+        mdbar::set_checked(ID_PREVIEW, preview_on);
+        mdbar::set_checked(ID_MD_SYNC, self.ws.settings.md_sync_scroll);
+        self.sync_scroll_to_preview();
         let title = wide(&self.ws.window_title());
         unsafe {
             let _ = SetWindowTextW(h.host, PCWSTR(title.as_ptr()));
@@ -2579,6 +2704,8 @@ impl App {
             CheckMenuItem(m.view, ID_MINIMAP as u32, (MF_BYCOMMAND | on(self.ws.minimap)).0);
             CheckMenuItem(m.view, ID_THEME as u32, (MF_BYCOMMAND | on(self.ws.theme.dark)).0);
             CheckMenuItem(m.view, ID_PREVIEW as u32, (MF_BYCOMMAND | on(preview_on)).0);
+            CheckMenuItem(m.view, ID_MD_SYNC as u32, (MF_BYCOMMAND | on(self.ws.settings.md_sync_scroll)).0);
+            CheckMenuItem(m.view, ID_MD_TOOLBAR as u32, (MF_BYCOMMAND | on(self.ws.settings.md_toolbar)).0);
 
             let t = &self.ws.tabs[self.ws.active];
             let eol = match t.eol {
@@ -2634,14 +2761,39 @@ impl App {
         let text = sci::get_text(&self.ws.sci);
         match kind {
             pcore::Kind::Markdown if pcore::is_bare_mermaid(&text) => pview::render("mermaid", &text),
-            pcore::Kind::Markdown => pview::render("markdown", &pcore::markdown_to_html(&text)),
+            pcore::Kind::Markdown => {
+                pview::render("markdown", &pcore::markdown_to_html(&text));
+                // The page was rebuilt: line it up with the editor again.
+                SYNC_LINE.with(|c| c.set(usize::MAX));
+                self.sync_scroll_to_preview();
+            }
             pcore::Kind::Html => pview::render("html", &text),
             pcore::Kind::Mermaid => pview::render("mermaid", &text),
         }
     }
 
-    fn preview_message(&mut self, code: usize) {
+    /// Scroll the preview to the editor's top line (when synchronized scrolling is on).
+    fn sync_scroll_to_preview(&mut self) {
+        if !PREVIEW_ON.with(|c| c.get()) || !self.ws.settings.md_sync_scroll || !self.ws.is_markdown() {
+            return;
+        }
+        let line = self.ws.top_doc_line();
+        if SYNC_LINE.with(|c| c.replace(line)) != line {
+            pview::scroll_to_line(line as f64, self.ws.line_total());
+        }
+    }
+
+    fn preview_message(&mut self, code: usize, arg: isize) {
         match code {
+            pview::PV_SCROLL => {
+                // The user scrolled the preview: bring the editor to the same source line.
+                if self.ws.settings.md_sync_scroll && self.ws.is_markdown() {
+                    let line = ((arg as f64 / 100.0).floor().max(0.0) as usize).min(self.ws.line_total().saturating_sub(1));
+                    if SYNC_LINE.with(|c| c.replace(line)) != line {
+                        self.ws.set_top_doc_line(line);
+                    }
+                }
+            }
             pview::PV_CLOSE => self.set_preview(false),
             pview::PV_MAX => {
                 let on = !PREVIEW_MAX.with(|c| c.get());
@@ -2863,7 +3015,16 @@ fn layout() {
         mv(c.tabs, 0, tabs_y, w, tabh);
         mv(c.status, 0, total_h - sh, w, sh);
 
-        let top = tabs_y + tabh;
+        // The Markdown formatting bar sits between the tab strip and the editor.
+        let bar_y = tabs_y + tabh;
+        let md_h = if MD_BAR_ON.with(|c| c.get()) && !DISTRACTION.with(|c| c.get()) && !WB_ON.with(|c| c.get()) { mdbar::HEIGHT } else { 0 };
+        let _ = ShowWindow(h.mdbar, if md_h > 0 { SW_SHOW } else { SW_HIDE });
+        mv(h.mdbar, 0, bar_y, w, md_h);
+        if md_h > 0 {
+            mdbar::arrange(&md_ids(), w);
+        }
+
+        let top = bar_y + md_h;
         let panel_h = findpanel::height();
         let panel_y = total_h - sh - panel_h;
         mv(h.panel, 0, panel_y, w, panel_h);
@@ -3123,8 +3284,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             LRESULT(0)
         }
         pview::WM_PREVIEW => {
-            let code = w.0;
-            with_app(|a| a.preview_message(code));
+            let (code, arg) = (w.0, l.0);
+            with_app(|a| a.preview_message(code, arg));
             LRESULT(0)
         }
         wb::WM_WB => {
@@ -3643,6 +3804,8 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::sep(view);
     // Note++ extras that Notepad++ keeps elsewhere.
     B::add(view, ID_PREVIEW, "Live Preview\tCtrl+Shift+V");
+    B::add(view, ID_MD_SYNC, "Synchronize Preview Scrolling");
+    B::add(view, ID_MD_TOOLBAR, "Markdown Toolbar");
     B::add(view, ID_THEME, "Dark mode");
     B::add(view, ID_PALETTE, "Command Palette...\tCtrl+Shift+P");
     B::add(view, ID_QUICKOPEN, "Quick Open...\tCtrl+P");
@@ -4014,6 +4177,8 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
 
         findpanel::create(host);
         let panel = findpanel::hwnd().unwrap();
+        mdbar::create(host, &md_ids());
+        let mdbar_hwnd = mdbar::hwnd().unwrap();
 
         // Splitter between editor and preview (hidden until the preview opens).
         let split_class = w!("NoteppSplit");
@@ -4043,7 +4208,7 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
         let tree_view = tree::create(host);
         let side = sidepanel::create(host);
         clip::listen(host, true);
-        let hs = Handles { host, edit, mini, split, tree: tree_view, side, chrome, panel };
+        let hs = Handles { host, edit, mini, split, tree: tree_view, side, chrome, panel, mdbar: mdbar_hwnd };
         HANDLES.with(|c| c.set(Some(hs)));
         Ok((hs, menus))
     }

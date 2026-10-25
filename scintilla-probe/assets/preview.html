@@ -96,7 +96,49 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
     }
   }
 
+  /* ---- scroll sync with the editor ----
+     Each top-level block is preceded by <span class="ln" data-line="N">. Between two markers the
+     source line maps linearly onto the pixels between them. */
+  var syncUntil = 0, syncFrame = 0, totalLines = 1;
+  function marks() {
+    var root = $('md'), rt = root.getBoundingClientRect().top, st = root.scrollTop;
+    var m = Array.prototype.map.call(root.querySelectorAll('.ln'), function (el) {
+      return { line: +el.getAttribute('data-line'), top: el.getBoundingClientRect().top - rt + st };
+    });
+    // A virtual marker for the end, so the last block has something to interpolate towards.
+    m.push({ line: Math.max(totalLines, m.length ? m[m.length - 1].line + 1 : 1), top: root.scrollHeight });
+    return m;
+  }
+  function lineToTop(line) {
+    var m = marks(), i = 0;
+    if (m.length < 2) return 0;
+    while (i + 2 < m.length && m[i + 1].line <= line) i++;
+    var a = m[i], b = m[i + 1], span = Math.max(1, b.line - a.line);
+    return a.top + Math.min(1, Math.max(0, (line - a.line) / span)) * (b.top - a.top);
+  }
+  function topToLine(top) {
+    var m = marks(), i = 0;
+    if (m.length < 2) return 0;
+    while (i + 2 < m.length && m[i + 1].top <= top) i++;
+    var a = m[i], b = m[i + 1], span = Math.max(1, b.top - a.top);
+    return a.line + Math.min(1, Math.max(0, (top - a.top) / span)) * (b.line - a.line);
+  }
+  $('md').addEventListener('scroll', function () {
+    if (Date.now() < syncUntil || syncFrame) return;      // this scroll came from the editor
+    syncFrame = requestAnimationFrame(function () {
+      syncFrame = 0;
+      post('line:' + topToLine($('md').scrollTop).toFixed(2));
+    });
+  });
+
   window.np = {
+    scrollToLine: function (line, total) {
+      totalLines = total || totalLines;
+      var root = $('md');
+      if (root.classList.contains('hidden')) return;
+      syncUntil = Date.now() + 150;                       // ignore the scroll event this causes
+      root.scrollTop = lineToTop(line);
+    },
     render: function (kind, payload) {
       if (kind === 'markdown') {
         var y = $('md').scrollTop;

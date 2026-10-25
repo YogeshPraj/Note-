@@ -25,6 +25,10 @@ pub struct Settings {
     /// Let the live preview fetch images from the web. Off by default: a previewed
     /// document could otherwise report that it was opened. Needs a restart to change.
     pub preview_remote_images: bool,
+    /// Show the Markdown formatting toolbar above Markdown files.
+    pub md_toolbar: bool,
+    /// Keep the editor and the live preview scrolled together.
+    pub md_sync_scroll: bool,
     pub show_toolbar: bool,
     pub show_tabbar: bool,
     pub show_statusbar: bool,
@@ -53,6 +57,8 @@ impl Default for Settings {
             caret_line: true,
             smart_highlight: true,
             preview_remote_images: false,
+            md_toolbar: true,
+            md_sync_scroll: true,
             show_toolbar: true,
             show_tabbar: true,
             show_statusbar: true,

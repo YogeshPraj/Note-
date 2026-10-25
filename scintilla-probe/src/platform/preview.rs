@@ -21,6 +21,8 @@ pub const PV_CLOSE: usize = 1;
 pub const PV_MAX: usize = 2;
 pub const PV_NEED_MERMAID: usize = 3;
 pub const PV_REFRESH: usize = 4;
+/// The preview was scrolled by the user; the message's lParam is the top source line times 100.
+pub const PV_SCROLL: usize = 5;
 
 const PAGE: &str = include_str!("../../assets/preview.html");
 const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
@@ -83,15 +85,25 @@ pub fn ensure(host: HWND, data_dir: &std::path::Path, remote_images: bool) -> Re
         .with_html(page_html(remote_images))
         .with_bounds(rect(0, 0, 400, 300))
         .with_ipc_handler(move |req| {
-            let code = match req.body().as_str() {
-                "close" => PV_CLOSE,
-                "max" => PV_MAX,
-                "need-mermaid" => PV_NEED_MERMAID,
-                "refresh" => PV_REFRESH,
-                _ => return,
+            let body = req.body().as_str();
+            // The page reports its scroll position as "line:<source line, fractional>".
+            let (code, arg) = if let Some(line) = body.strip_prefix("line:") {
+                match line.trim().parse::<f64>() {
+                    Ok(l) if l.is_finite() && (0.0..1e7).contains(&l) => (PV_SCROLL, (l * 100.0).round() as isize),
+                    _ => return,
+                }
+            } else {
+                let code = match body {
+                    "close" => PV_CLOSE,
+                    "max" => PV_MAX,
+                    "need-mermaid" => PV_NEED_MERMAID,
+                    "refresh" => PV_REFRESH,
+                    _ => return,
+                };
+                (code, 0)
             };
             unsafe {
-                let _ = PostMessageW(Some(HWND(host_raw as *mut _)), WM_PREVIEW, WPARAM(code), LPARAM(0));
+                let _ = PostMessageW(Some(HWND(host_raw as *mut _)), WM_PREVIEW, WPARAM(code), LPARAM(arg));
             }
         })
         .with_navigation_handler(|url| {
@@ -149,6 +161,11 @@ pub fn set_theme(dark: bool) {
 
 pub fn set_max(on: bool) {
     eval(&format!("window.np.setMax({on})"));
+}
+
+/// Scroll the rendered Markdown so source line `line` (0-based, fractional) is at the top.
+pub fn scroll_to_line(line: f64, total_lines: usize) {
+    eval(&format!("window.np.scrollToLine({line:.3},{total_lines})"));
 }
 
 /// Inject Mermaid (once), then tell the page to draw the diagrams it was waiting on.

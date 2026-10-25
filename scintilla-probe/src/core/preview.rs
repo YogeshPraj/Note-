@@ -57,14 +57,35 @@ fn escape(s: &str) -> String {
 
 /// Render Markdown (GFM tables, task lists, strikethrough, footnotes) to HTML.
 /// ```mermaid fences become `<pre class="mermaid">` for the page to draw.
+///
+/// Every top-level block is preceded by an empty `<span class="ln" data-line="N">` (N = the
+/// 0-based source line it starts on). The preview page uses these to keep its scroll position
+/// in step with the editor.
 pub fn markdown_to_html(src: &str) -> String {
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS;
+    let line_starts: Vec<usize> = std::iter::once(0).chain(src.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_of = |offset: usize| line_starts.partition_point(|&s| s <= offset) - 1;
+    let marker = |offset: usize| Event::Html(format!("<span class=\"ln\" data-line=\"{}\"></span>\n", line_of(offset)).into());
+
     let mut events: Vec<Event> = Vec::new();
     let mut mermaid: Option<String> = None;
-    for ev in Parser::new_ext(src, opts) {
+    let mut depth = 0usize;
+    for (ev, range) in Parser::new_ext(src, opts).into_offset_iter() {
+        // Mark where each top-level block starts (nested items are not marked).
+        match &ev {
+            Event::Start(_) => {
+                if depth == 0 {
+                    events.push(marker(range.start));
+                }
+                depth += 1;
+            }
+            Event::End(_) => depth = depth.saturating_sub(1),
+            Event::Rule | Event::Html(_) if depth == 0 => events.push(marker(range.start)),
+            _ => {}
+        }
         match ev {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if lang.split_whitespace().next() == Some("mermaid") => {
                 mermaid = Some(String::new());
@@ -121,6 +142,22 @@ mod tests {
         assert!(!is_bare_mermaid("# Title\n\ngraph is a word"));
         assert!(!is_bare_mermaid("graphite is not a diagram"));
         assert!(!is_bare_mermaid(""));
+    }
+
+    #[test]
+    fn blocks_carry_their_source_line() {
+        let h = markdown_to_html("# A\n\npara one\nstill para\n\n- x\n- y\n\n```mermaid\ngraph TD\n```\n\n---\n");
+        let lines: Vec<usize> = h.split("data-line=\"").skip(1).map(|s| s.split('"').next().unwrap().parse().unwrap()).collect();
+        // heading, paragraph, list (items are not marked), mermaid fence, rule
+        assert_eq!(lines, vec![0, 2, 5, 8, 12], "{h}");
+        assert!(h.contains("<span class=\"ln\" data-line=\"0\"></span>\n<h1>A</h1>"), "{h}");
+    }
+
+    #[test]
+    fn markers_survive_crlf_and_html_blocks() {
+        let h = markdown_to_html("a\r\n\r\n<div>x</div>\r\n\r\nb");
+        let lines: Vec<usize> = h.split("data-line=\"").skip(1).map(|s| s.split('"').next().unwrap().parse().unwrap()).collect();
+        assert_eq!(lines, vec![0, 2, 4], "{h}");
     }
 
     #[test]

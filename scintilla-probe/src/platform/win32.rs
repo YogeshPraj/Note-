@@ -230,7 +230,6 @@ const TIMER_MONITOR: usize = 2;
 const ID_PREFS: usize = 3301;
 const ID_STYLE_CFG: usize = 3302;
 const ID_SHORTCUTS: usize = 3303;
-const ID_IMPORT_PLUGIN: usize = 3304;
 const ID_IMPORT_THEME: usize = 3305;
 const ID_EXPORT_THEME: usize = 3306;
 const ID_EDIT_CONTEXT: usize = 3307;
@@ -3805,7 +3804,6 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(settings_menu, ID_SHORTCUTS, "Shortcut Mapper...");
     B::sep(settings_menu);
     let import = B::popup();
-    B::add_state(import, ID_IMPORT_PLUGIN, "Import plugin(s)...", false);
     B::add(import, ID_IMPORT_THEME, "Import style theme(s)...");
     B::add(import, ID_EXPORT_THEME, "Export style theme...");
     B::submenu(settings_menu, "Import", import);

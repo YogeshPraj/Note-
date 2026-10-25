@@ -3087,7 +3087,20 @@ unsafe extern "system" fn mini_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             LRESULT(0)
         }
-        WM_LBUTTONUP | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SETFOCUS | WM_CONTEXTMENU => LRESULT(0),
+        WM_RBUTTONUP => {
+            if let Some(h) = handles() {
+                let menu = MenuBuilder::popup();
+                MenuBuilder::add(menu, ID_MINIMAP, "Disable Minimap");
+                unsafe {
+                    let mut pt = POINT::default();
+                    let _ = GetCursorPos(&mut pt);
+                    let _ = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN, pt.x, pt.y, Some(0), h.host, None);
+                    let _ = DestroyMenu(menu);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONUP | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SETFOCUS | WM_CONTEXTMENU => LRESULT(0),
         WM_MOUSEACTIVATE => LRESULT(3), // MA_NOACTIVATE
         WM_SETCURSOR => {
             unsafe { SetCursor(LoadCursorW(None, IDC_HAND).ok()) };

@@ -15,7 +15,6 @@ use super::modern;
 
 pub const HEIGHT: i32 = 38;
 
-const BS_PUSHLIKE_CHECK: u32 = 0x1003; // BS_AUTOCHECKBOX | BS_PUSHLIKE
 const TABSTOP: u32 = 0x0001_0000;
 
 /// How a button looks: its label, tooltip, the command id it sends, its width, and its font style.
@@ -34,8 +33,6 @@ pub enum Style {
     Bold,
     Italic,
     Strike,
-    /// A two-state (pushed in / out) toggle, drawn on the right side of the bar.
-    Toggle,
 }
 
 /// What the bar shows, left to right. `None` is a gap between groups.
@@ -83,8 +80,6 @@ pub struct Ids {
     pub table: usize,
     pub code_block: usize,
     pub rule: usize,
-    pub preview: usize,
-    pub sync: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -134,7 +129,7 @@ pub fn create(host: HWND, ids: &Ids) {
         let (bold, italic, strike) = (font(700, false, false), font(400, true, false), font(400, false, true));
         let mut buttons = Vec::new();
         let mut add = |item: Item| {
-            let style = TABSTOP | if item.style == Style::Toggle { BS_PUSHLIKE_CHECK } else { 0 };
+            let style = TABSTOP;
             let t = wide(item.label);
             let h = CreateWindowExW(WINDOW_EX_STYLE::default(), w!("BUTTON"), PCWSTR(t.as_ptr()), WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style), 0, 0, item.width, 28, Some(hwnd), Some(HMENU(item.id as *mut core::ffi::c_void)), Some(hinst.into()), None).unwrap();
             let f = match item.style {
@@ -162,8 +157,6 @@ pub fn create(host: HWND, ids: &Ids) {
         for item in layout(ids).into_iter().flatten() {
             add(item);
         }
-        add(Item { id: ids.preview, label: "Preview", tip: "Show or hide the live preview (Ctrl+Shift+V)", width: 66, style: Style::Toggle });
-        add(Item { id: ids.sync, label: "Sync scroll", tip: "Keep the editor and the preview scrolled together", width: 88, style: Style::Toggle });
         BUTTONS.with(|b| *b.borrow_mut() = buttons);
         arrange(ids, 800);
     }
@@ -171,7 +164,7 @@ pub fn create(host: HWND, ids: &Ids) {
 
 /// Position the buttons for a bar `width` pixels wide: formatting buttons from the left,
 /// the two toggles pinned to the right.
-pub fn arrange(ids: &Ids, width: i32) {
+pub fn arrange(ids: &Ids, _width: i32) {
     let (mut x, y) = (8, 5);
     let gap = 8;
     let mut order = layout(ids).into_iter();
@@ -188,29 +181,6 @@ pub fn arrange(ids: &Ids, width: i32) {
                         }
                         x += w + 2;
                     }
-                }
-            }
-        }
-        let mut right = width - 8;
-        for id in [ids.sync, ids.preview] {
-            if let Some((_, h, _, w)) = find(id) {
-                right -= w;
-                unsafe {
-                    let _ = MoveWindow(h, right, y, w, 28, false);
-                }
-                right -= 6;
-            }
-        }
-    });
-}
-
-/// Set a toggle button's pushed state.
-pub fn set_checked(id: usize, on: bool) {
-    BUTTONS.with(|b| {
-        if let Some((_, h, _, _)) = b.borrow().iter().find(|(i, ..)| *i == id) {
-            unsafe {
-                if (SendMessageW(*h, 0x00F0, None, None).0 == 1) != on {
-                    SendMessageW(*h, 0x00F1, Some(WPARAM(on as usize)), None); // BM_SETCHECK
                 }
             }
         }

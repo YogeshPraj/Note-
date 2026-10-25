@@ -72,7 +72,6 @@ const ID_MD_IMAGE: usize = 5412;
 const ID_MD_TABLE: usize = 5413;
 const ID_MD_CODEBLOCK: usize = 5414;
 const ID_MD_RULE: usize = 5415;
-const ID_MD_SYNC: usize = 5416;
 const ID_MD_TOOLBAR: usize = 5417;
 const ID_MD_H4: usize = 5418;
 const ID_MD_H5: usize = 5419;
@@ -123,8 +122,6 @@ fn md_ids() -> mdbar::Ids {
         table: ID_MD_TABLE,
         code_block: ID_MD_CODEBLOCK,
         rule: ID_MD_RULE,
-        preview: ID_PREVIEW,
-        sync: ID_MD_SYNC,
     }
 }
 const ID_NEW_WB: usize = 1008;
@@ -587,7 +584,6 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("View: Open in New Instance", ID_OPEN_NEW_INSTANCE, ""),
     ("View: Move to New Instance", ID_MOVE_NEW_INSTANCE, ""),
     ("View: Toggle Live Preview", ID_PREVIEW, "Ctrl+Shift+V"),
-    ("View: Synchronize Preview Scrolling", ID_MD_SYNC, ""),
     ("View: Markdown Toolbar", ID_MD_TOOLBAR, ""),
     ("Markdown: Bold", ID_MD_BOLD, ""),
     ("Markdown: Italic", ID_MD_ITALIC, ""),
@@ -1600,17 +1596,10 @@ impl App {
             ID_PREVIEW => {
                 let on = !PREVIEW_ON.with(|c| c.get());
                 self.set_preview(on);
+                self.remember_md_preview(on);
             }
             _ if md_fmt(id).is_some() => {
                 self.flash = ws.md_format(md_fmt(id).unwrap());
-            }
-            ID_MD_SYNC => {
-                let mut s = ws.settings.clone();
-                s.md_sync_scroll = !s.md_sync_scroll;
-                let on = s.md_sync_scroll;
-                apply_settings(ws, s);
-                SYNC_LINE.with(|c| c.set(usize::MAX));
-                self.flash = Some(format!("Synchronized scrolling {}", if on { "on" } else { "off" }));
             }
             ID_MD_TOOLBAR => {
                 let mut s = ws.settings.clone();
@@ -2666,10 +2655,16 @@ impl App {
         }
 
         // Mermaid files open their live preview automatically; the preview follows the theme.
+        // Markdown files follow the user's last choice (preview on by default).
         let doc = self.ws.tabs[self.ws.active].doc;
         if doc != self.preview_doc {
             self.preview_doc = doc;
-            if !PREVIEW_ON.with(|c| c.get()) && self.ws.preview_kind() == Some(pcore::Kind::Mermaid) {
+            let on = PREVIEW_ON.with(|c| c.get());
+            if self.ws.is_markdown() {
+                if self.ws.settings.md_preview != on {
+                    self.set_preview(self.ws.settings.md_preview);
+                }
+            } else if !on && self.ws.preview_kind() == Some(pcore::Kind::Mermaid) {
                 self.set_preview(true);
             }
         }
@@ -2692,8 +2687,6 @@ impl App {
         if MD_BAR_ON.with(|c| c.replace(want_bar)) != want_bar {
             layout();
         }
-        mdbar::set_checked(ID_PREVIEW, preview_on);
-        mdbar::set_checked(ID_MD_SYNC, self.ws.settings.md_sync_scroll);
         self.sync_scroll_to_preview();
         let title = wide(&self.ws.window_title());
         unsafe {
@@ -2704,7 +2697,6 @@ impl App {
             CheckMenuItem(m.view, ID_MINIMAP as u32, (MF_BYCOMMAND | on(self.ws.minimap)).0);
             CheckMenuItem(m.view, ID_THEME as u32, (MF_BYCOMMAND | on(self.ws.theme.dark)).0);
             CheckMenuItem(m.view, ID_PREVIEW as u32, (MF_BYCOMMAND | on(preview_on)).0);
-            CheckMenuItem(m.view, ID_MD_SYNC as u32, (MF_BYCOMMAND | on(self.ws.settings.md_sync_scroll)).0);
             CheckMenuItem(m.view, ID_MD_TOOLBAR as u32, (MF_BYCOMMAND | on(self.ws.settings.md_toolbar)).0);
 
             let t = &self.ws.tabs[self.ws.active];
@@ -2714,6 +2706,15 @@ impl App {
                 Eol::Cr => ID_EOL_CR,
             };
             let _ = CheckMenuRadioItem(m.eol, ID_EOL_CRLF as u32, ID_EOL_CR as u32, eol as u32, MF_BYCOMMAND.0);
+        }
+    }
+
+    /// Remember whether the user wants Markdown files previewed (only while a Markdown tab is active).
+    fn remember_md_preview(&mut self, on: bool) {
+        if self.ws.is_markdown() && self.ws.settings.md_preview != on {
+            let mut s = self.ws.settings.clone();
+            s.md_preview = on;
+            apply_settings(&mut self.ws, s);
         }
     }
 
@@ -2774,7 +2775,7 @@ impl App {
 
     /// Scroll the preview to the editor's top line (when synchronized scrolling is on).
     fn sync_scroll_to_preview(&mut self) {
-        if !PREVIEW_ON.with(|c| c.get()) || !self.ws.settings.md_sync_scroll || !self.ws.is_markdown() {
+        if !PREVIEW_ON.with(|c| c.get()) || !self.ws.is_markdown() {
             return;
         }
         let line = self.ws.top_doc_line();
@@ -2787,14 +2788,17 @@ impl App {
         match code {
             pview::PV_SCROLL => {
                 // The user scrolled the preview: bring the editor to the same source line.
-                if self.ws.settings.md_sync_scroll && self.ws.is_markdown() {
+                if self.ws.is_markdown() {
                     let line = ((arg as f64 / 100.0).floor().max(0.0) as usize).min(self.ws.line_total().saturating_sub(1));
                     if SYNC_LINE.with(|c| c.replace(line)) != line {
                         self.ws.set_top_doc_line(line);
                     }
                 }
             }
-            pview::PV_CLOSE => self.set_preview(false),
+            pview::PV_CLOSE => {
+                self.set_preview(false);
+                self.remember_md_preview(false);
+            }
             pview::PV_MAX => {
                 let on = !PREVIEW_MAX.with(|c| c.get());
                 PREVIEW_MAX.with(|c| c.set(on));
@@ -3808,7 +3812,6 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::sep(view);
     // Note++ extras that Notepad++ keeps elsewhere.
     B::add(view, ID_PREVIEW, "Live Preview\tCtrl+Shift+V");
-    B::add(view, ID_MD_SYNC, "Synchronize Preview Scrolling");
     B::add(view, ID_MD_TOOLBAR, "Markdown Toolbar");
     B::add(view, ID_THEME, "Dark mode");
     B::add(view, ID_PALETTE, "Command Palette...\tCtrl+Shift+P");

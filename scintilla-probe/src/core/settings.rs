@@ -27,8 +27,8 @@ pub struct Settings {
     pub preview_remote_images: bool,
     /// Show the Markdown formatting toolbar above Markdown files.
     pub md_toolbar: bool,
-    /// Keep the editor and the live preview scrolled together.
-    pub md_sync_scroll: bool,
+    /// Whether Markdown files open with the live preview showing (remembers the last choice).
+    pub md_preview: bool,
     pub show_toolbar: bool,
     pub show_tabbar: bool,
     pub show_statusbar: bool,
@@ -58,7 +58,7 @@ impl Default for Settings {
             smart_highlight: true,
             preview_remote_images: false,
             md_toolbar: true,
-            md_sync_scroll: true,
+            md_preview: true,
             show_toolbar: true,
             show_tabbar: true,
             show_statusbar: true,

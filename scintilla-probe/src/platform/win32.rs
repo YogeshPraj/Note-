@@ -3203,7 +3203,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_COMMAND => {
             let id = w.0 & 0xFFFF;
-            with_app(|a| a.command(id));
+            // Scintilla's focus notifications arrive as id 0; handling them as a command would
+            // pull focus back to the editor in the middle of a toolbar button click.
+            if id != 0 {
+                with_app(|a| a.command(id));
+            }
             LRESULT(0)
         }
         chrome::WM_BAR => {

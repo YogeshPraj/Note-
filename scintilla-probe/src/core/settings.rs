@@ -22,6 +22,9 @@ pub struct Settings {
     pub bookmark_margin: bool,
     pub caret_line: bool,
     pub smart_highlight: bool,
+    /// Let the live preview fetch images from the web. Off by default: a previewed
+    /// document could otherwise report that it was opened. Needs a restart to change.
+    pub preview_remote_images: bool,
     pub show_toolbar: bool,
     pub show_tabbar: bool,
     pub show_statusbar: bool,
@@ -49,6 +52,7 @@ impl Default for Settings {
             bookmark_margin: true,
             caret_line: true,
             smart_highlight: true,
+            preview_remote_images: false,
             show_toolbar: true,
             show_tabbar: true,
             show_statusbar: true,
@@ -75,7 +79,7 @@ impl Settings {
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
         }
-        std::fs::write(p, serde_json::to_string_pretty(self).map_err(std::io::Error::other)?)
+        super::files::atomic_write(&p, serde_json::to_string_pretty(self).map_err(std::io::Error::other)?.as_bytes())
     }
 
     /// Keep values in a sane range after the user typed them.

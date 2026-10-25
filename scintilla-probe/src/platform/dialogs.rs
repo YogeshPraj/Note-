@@ -159,9 +159,10 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
     const L_CRLF: usize = 124;
     const L_LF: usize = 125;
     const L_CR: usize = 126;
+    const REMOTE: usize = 130;
     let spec = Spec {
         title: "Preferences",
-        size: (440, 440),
+        size: (440, 474),
         ctls: vec![
             ctl(1000, Kind::Group, "Editor", 12, 8, 416, 118),
             ctl(1001, Kind::Label, "Font:", 24, 32, 56, 18),
@@ -191,6 +192,8 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
             ctl(L_CRLF, Kind::Radio(true), "Windows (CR LF)", 98, 310, 120, 20),
             ctl(L_LF, Kind::Radio(false), "Unix (LF)", 222, 310, 90, 20),
             ctl(L_CR, Kind::Radio(false), "Mac (CR)", 316, 310, 90, 20),
+            ctl(1030, Kind::Group, "Live preview", 12, 356, 416, 52),
+            ctl(REMOTE, Kind::Check, "Load images from the web (applies after restart)", 24, 378, 380, 20),
         ],
         ok: "OK",
         on_change: None,
@@ -204,6 +207,7 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
             (BOOKMARK, cur.bookmark_margin),
             (CARET, cur.caret_line),
             (SMART, cur.smart_highlight),
+            (REMOTE, cur.preview_remote_images),
             (TOOLBAR, cur.show_toolbar),
             (TABBAR, cur.show_tabbar),
             (STATUS, cur.show_statusbar),
@@ -238,6 +242,7 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
         bookmark_margin: v.checked(BOOKMARK),
         caret_line: v.checked(CARET),
         smart_highlight: v.checked(SMART),
+        preview_remote_images: v.checked(REMOTE),
         show_toolbar: v.checked(TOOLBAR),
         show_tabbar: v.checked(TABBAR),
         show_statusbar: v.checked(STATUS),

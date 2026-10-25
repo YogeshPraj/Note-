@@ -11,6 +11,7 @@ use super::complete;
 use super::doc::{self, Enc, Eol};
 use super::edit;
 use super::export;
+use super::files;
 use super::lang;
 use super::lexer;
 use super::preview;
@@ -1108,7 +1109,7 @@ impl<S: Send> Workspace<S> {
                 return false;
             }
         }
-        match std::fs::write(path, self.current_bytes()) {
+        match files::atomic_write(path, &self.current_bytes()) {
             Ok(()) => {
                 if !whiteboard {
                     self.send(sci::SCI_SETSAVEPOINT, 0, 0);
@@ -1143,7 +1144,7 @@ impl<S: Send> Workspace<S> {
     pub fn save_copy_as(&mut self, ui: &dyn Ui) -> Option<PathBuf> {
         let t = &self.tabs[self.active];
         let p = ui.pick_save(&t.title)?;
-        match std::fs::write(&p, self.current_bytes()) {
+        match files::atomic_write(&p, &self.current_bytes()) {
             Ok(()) => Some(p),
             Err(e) => {
                 ui.error(&format!("Cannot save {}\n\n{e}", p.display()));

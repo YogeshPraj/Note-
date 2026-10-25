@@ -63,8 +63,16 @@ fn open_external(url: &str) {
     }
 }
 
+/// The preview page with its Content-Security-Policy set for `remote_images`.
+fn page_html(remote_images: bool) -> String {
+    const OPEN: &str = "img-src data: https: http:;";
+    debug_assert!(PAGE.contains(OPEN));
+    PAGE.replacen(OPEN, if remote_images { OPEN } else { "img-src data:;" }, 1)
+}
+
 /// Create the WebView2 child of `host` (once). `data_dir` holds its profile.
-pub fn ensure(host: HWND, data_dir: &std::path::Path) -> Result<(), String> {
+/// Previewed documents may load web images only when `remote_images` is set.
+pub fn ensure(host: HWND, data_dir: &std::path::Path, remote_images: bool) -> Result<(), String> {
     if is_created() {
         return Ok(());
     }
@@ -72,7 +80,7 @@ pub fn ensure(host: HWND, data_dir: &std::path::Path) -> Result<(), String> {
     let host_raw = host.0 as isize;
     let mut ctx = WebContext::new(Some(data_dir.to_path_buf()));
     let view = WebViewBuilder::new_with_web_context(&mut ctx)
-        .with_html(PAGE)
+        .with_html(page_html(remote_images))
         .with_bounds(rect(0, 0, 400, 300))
         .with_ipc_handler(move |req| {
             let code = match req.body().as_str() {
@@ -149,4 +157,17 @@ pub fn load_mermaid() {
         eval(MERMAID_JS);
     }
     eval("window.np.mermaidLoaded()");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_images_are_blocked_unless_allowed() {
+        let off = page_html(false);
+        assert!(off.contains("img-src data:;") && !off.contains("img-src data: https"), "CSP still allows the web");
+        let on = page_html(true);
+        assert!(on.contains("img-src data: https: http:;"));
+    }
 }

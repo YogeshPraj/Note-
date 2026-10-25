@@ -35,7 +35,11 @@ fn main() -> windows::core::Result<()> {
     std::panic::set_hook(Box::new(|info| {
         let dir = core::session::config_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let log = format!("{info}\n{}\n", std::backtrace::Backtrace::force_capture());
+        // The panic message can quote document text (e.g. a bad slice index), so keep only
+        // where it happened and how long the message was.
+        let at = info.location().map_or_else(|| "unknown location".to_string(), |l| format!("{}:{}", l.file(), l.line()));
+        let len = info.payload().downcast_ref::<&str>().map(|s| s.len()).or_else(|| info.payload().downcast_ref::<String>().map(String::len)).unwrap_or(0);
+        let log = format!("panic at {at} (message of {len} bytes withheld)\n{}\n", std::backtrace::Backtrace::force_capture());
         let _ = std::fs::write(dir.join("crash.log"), log);
     }));
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();

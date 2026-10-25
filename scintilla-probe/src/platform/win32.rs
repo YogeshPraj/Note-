@@ -2602,7 +2602,7 @@ impl App {
                 self.flash = Some("Preview works for Markdown, HTML and Mermaid files".into());
                 return;
             }
-            if let Err(e) = pview::ensure(h.host, &config_dir().join("webview")) {
+            if let Err(e) = pview::ensure(h.host, &config_dir().join("webview"), self.ws.settings.preview_remote_images) {
                 self.flash = Some(format!("Preview unavailable (WebView2): {e}"));
                 return;
             }

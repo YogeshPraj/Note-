@@ -70,8 +70,10 @@ pub fn is_created() -> bool {
 /// Where the bundled page lives: next to the exe (installed) or in the source tree (dev).
 pub fn asset_dir() -> Option<PathBuf> {
     let beside_exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("whiteboard")));
-    let in_tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join("whiteboard");
-    [beside_exe, Some(in_tree)].into_iter().flatten().find(|d| d.join("whiteboard.html").exists())
+    // The source-tree fallback is for development only; a release build never trusts a
+    // compile-time path (which could point at a folder another user can write to).
+    let in_tree = cfg!(debug_assertions).then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join("whiteboard"));
+    [beside_exe, in_tree].into_iter().flatten().find(|d| d.join("whiteboard.html").exists())
 }
 
 pub fn mime_for(path: &str) -> &'static str {

@@ -49,6 +49,10 @@ function Get-Component($name, $version) {
     Step "Downloading $name $version"
     $zip = Join-Path $env:TEMP "$name$compact.zip"
     Invoke-WebRequest -UseBasicParsing "https://www.scintilla.org/$name$compact.zip" -OutFile $zip
+    $expected = $PinnedHashes["$name$compact"]
+    if (-not $expected) { Remove-Item $zip; throw "No pinned SHA-256 for $name$compact. Add it to `$PinnedHashes in setup.ps1 after checking the download." }
+    $actual = (Get-FileHash $zip -Algorithm SHA256).Hash
+    if ($actual -ne $expected) { Remove-Item $zip; throw "$name$compact.zip failed its integrity check (expected $expected, got $actual). Not extracting it." }
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
     Expand-Archive $zip -DestinationPath $proj -Force
     Remove-Item $zip
@@ -56,6 +60,13 @@ function Get-Component($name, $version) {
 }
 
 $env:CXXFLAGS = '-include cstdint'   # GCC 16 no longer includes <cstdint> transitively
+
+# SHA-256 of the release zips, also confirmed against the SourceForge mirror. A different
+# version needs its own hash added here, so a tampered or swapped download is refused.
+$PinnedHashes = @{
+    'scintilla552' = '1A9257C27AA827090726AF813E8E02FC856D62ABB397D1AEB4F6B1029CA11C17'
+    'lexilla554'   = '5E0A21356E4E2F19D6A38ECD1C8172D5A2B7B4542940568B023386080DB90FE0'
+}
 
 Get-Component 'scintilla' $ScintillaVersion
 if ($Force -or -not (Test-Path "$proj\scintilla\bin\Scintilla.dll")) {
@@ -83,8 +94,8 @@ if (-not (Test-Path $mermaid) -or -not (Test-Path $bundle)) {
     Push-Location $root
     try {
         if (-not (Test-Path "$root\node_modules\mermaid")) {
-            Step 'npm install (lifecycle scripts skipped: no Electron download needed)'
-            npm install --ignore-scripts --no-audit --no-fund
+            Step 'npm ci (exact versions and hashes from package-lock.json; lifecycle scripts skipped)'
+            npm ci --ignore-scripts --no-audit --no-fund
             if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
         }
         if (-not (Test-Path $bundle)) {

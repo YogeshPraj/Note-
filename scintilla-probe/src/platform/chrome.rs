@@ -798,6 +798,14 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                         if let Some((l, r)) = s.arrows {
                             let can_l = s.offset > 0;
                             let can_r = s.layout.last().is_some_and(|t| t.right > s.area);
+                            for b in [l, r] {
+                                let pen = CreatePen(PS_SOLID, 1, col(lk.dim()));
+                                let (op, ob) = (SelectObject(dc, pen.into()), SelectObject(dc, GetStockObject(NULL_BRUSH)));
+                                let _ = Rectangle(dc, b.left, b.top, b.right, b.bottom);
+                                SelectObject(dc, op);
+                                SelectObject(dc, ob);
+                                let _ = DeleteObject(pen.into());
+                            }
                             text(dc, "\u{25C0}", &l, if can_l { lk.fg() } else { lk.dim() }, DT_CENTER);
                             text(dc, "\u{25B6}", &r, if can_r { lk.fg() } else { lk.dim() }, DT_CENTER);
                         }

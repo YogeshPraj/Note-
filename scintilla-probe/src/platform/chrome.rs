@@ -684,7 +684,8 @@ unsafe fn layout_tabs(dc: HDC, width: i32, s: &mut TabState) {
     let total = x;
     let overflow = total > width - 34;
     let avail = if overflow { width - 34 - 2 * ARROW_W } else { width - 34 };
-    s.area = avail + 4;
+    let pad = if overflow { ARROW_W + 2 } else { 0 };
+    s.area = pad + avail + 4;
     if !overflow {
         s.offset = 0;
         s.arrows = None;
@@ -701,13 +702,14 @@ unsafe fn layout_tabs(dc: HDC, width: i32, s: &mut TabState) {
         }
         s.offset = s.offset.clamp(0, (total - avail).max(0));
         s.follow = false;
-        s.arrows = Some((rect(width - 2 * ARROW_W - 2, 6, width - ARROW_W - 2, TAB_H - 2), rect(width - ARROW_W - 2, 6, width - 2, TAB_H - 2)));
+        s.arrows = Some((rect(2, 6, 2 + ARROW_W, TAB_H - 2), rect(width - ARROW_W - 2, 6, width - 2, TAB_H - 2)));
     }
+    let shift = pad - s.offset;
     for r in &mut s.layout {
-        r.left -= s.offset;
-        r.right -= s.offset;
+        r.left += shift;
+        r.right += shift;
     }
-    let plus_x = (total - s.offset).min(avail) + 4;
+    let plus_x = pad + (total - s.offset).min(avail) + 4;
     s.plus = rect(plus_x, 6, plus_x + 24, TAB_H - 2);
 }
 
@@ -722,9 +724,9 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                         let mut s = s.borrow_mut();
                         layout_tabs(dc, rc.right, &mut s);
                         under.push(wash(rect(0, rc.bottom - 1, rc.right, rc.bottom), lk.ink(), 0x30));
-                        let clip_right = if s.arrows.is_some() { s.area } else { rc.right };
+                        let (clip_left, clip_right) = if let Some((l, _)) = s.arrows { (l.right, s.area) } else { (0, rc.right) };
                         let saved = SaveDC(dc);
-                        IntersectClipRect(dc, 0, 0, clip_right, rc.bottom);
+                        IntersectClipRect(dc, clip_left, 0, clip_right, rc.bottom);
                         for (i, info) in s.tabs.iter().enumerate() {
                             let (name, dirty) = (&info.title, &info.dirty);
                             let r = s.layout[i];
@@ -808,7 +810,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             let (x, y) = (lx(lp), ly(lp));
             let changed = TABS.with(|s| {
                 let mut s = s.borrow_mut();
-                let hot = s.layout.iter().position(|r| contains(r, x, y) && (s.arrows.is_none() || x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y)));
+                let hot = s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y)));
                 let c = hot != s.hot;
                 s.hot = hot;
                 c
@@ -835,7 +837,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             let host = host_of(hwnd);
             let (hit, plus) = TABS.with(|s| {
                 let s = s.borrow();
-                (s.layout.iter().position(|r| contains(r, x, y) && (s.arrows.is_none() || x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && (i == s.active || s.hot.map(|h| h.0) == Some(i)))), contains(&s.plus, x, y))
+                (s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && (i == s.active || s.hot.map(|h| h.0) == Some(i)))), contains(&s.plus, x, y))
             });
             let post = |kind: usize, arg: usize| unsafe {
                 let _ = PostMessageW(Some(host), WM_BAR, WPARAM(kind), LPARAM(arg as isize));

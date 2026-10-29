@@ -29,6 +29,8 @@ pub const BAR_TAB_SELECT: usize = 1;
 pub const BAR_TAB_CLOSE: usize = 2;
 pub const BAR_TAB_NEW: usize = 3;
 pub const BAR_STATUS: usize = 4;
+/// A tab was dragged to a new place; lParam = from | (to << 16).
+pub const BAR_TAB_MOVE: usize = 5;
 
 pub const SEG_ENC: isize = 1;
 pub const SEG_EOL: isize = 2;
@@ -447,6 +449,40 @@ unsafe extern "system" fn menu_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         }
         WM_MOUSEMOVE => {
             let (x, y) = (lx(lp), ly(lp));
+            if let Some((from, x0, moving)) = DRAG.with(|d| d.get()) {
+                if moving || (x - x0).abs() > 6 {
+                    let to = TABS.with(|s| {
+                        let mut s = s.borrow_mut();
+                        // Near an edge of the visible strip, scroll so tabs further away can be reached.
+                        if let Some((l, _)) = s.arrows {
+                            if x < l.right + 16 {
+                                s.offset -= 30;
+                            } else if x > s.area - 16 {
+                                s.offset += 30;
+                            }
+                        }
+                        let hit = s.layout.iter().position(|r| contains(r, x, y.clamp(0, TAB_H - 1)) || (x >= r.left && x < r.right));
+                        let to = hit.unwrap_or(if x < s.layout.first().map_or(0, |r| r.left) { 0 } else { s.tabs.len().saturating_sub(1) });
+                        if to != from && to < s.tabs.len() {
+                            let tab = s.tabs.remove(from);
+                            s.tabs.insert(to, tab);
+                            s.active = to;
+                            s.hot = Some((to, false));
+                            s.follow = true;
+                        }
+                        to
+                    });
+                    DRAG.with(|d| d.set(Some((to, x0, true))));
+                    if to != from {
+                        let host = host_of(hwnd);
+                        unsafe {
+                            let _ = PostMessageW(Some(host), WM_BAR, WPARAM(BAR_TAB_MOVE), LPARAM((from | (to << 16)) as isize));
+                        }
+                    }
+                    redraw(hwnd);
+                    return LRESULT(0);
+                }
+            }
             let changed = MENU.with(|m| {
                 let mut m = m.borrow_mut();
                 let hot = m.rects.iter().position(|r| contains(r, x, y));
@@ -540,6 +576,40 @@ unsafe extern "system" fn tool_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         }
         WM_MOUSEMOVE => {
             let (x, y) = (lx(lp), ly(lp));
+            if let Some((from, x0, moving)) = DRAG.with(|d| d.get()) {
+                if moving || (x - x0).abs() > 6 {
+                    let to = TABS.with(|s| {
+                        let mut s = s.borrow_mut();
+                        // Near an edge of the visible strip, scroll so tabs further away can be reached.
+                        if let Some((l, _)) = s.arrows {
+                            if x < l.right + 16 {
+                                s.offset -= 30;
+                            } else if x > s.area - 16 {
+                                s.offset += 30;
+                            }
+                        }
+                        let hit = s.layout.iter().position(|r| contains(r, x, y.clamp(0, TAB_H - 1)) || (x >= r.left && x < r.right));
+                        let to = hit.unwrap_or(if x < s.layout.first().map_or(0, |r| r.left) { 0 } else { s.tabs.len().saturating_sub(1) });
+                        if to != from && to < s.tabs.len() {
+                            let tab = s.tabs.remove(from);
+                            s.tabs.insert(to, tab);
+                            s.active = to;
+                            s.hot = Some((to, false));
+                            s.follow = true;
+                        }
+                        to
+                    });
+                    DRAG.with(|d| d.set(Some((to, x0, true))));
+                    if to != from {
+                        let host = host_of(hwnd);
+                        unsafe {
+                            let _ = PostMessageW(Some(host), WM_BAR, WPARAM(BAR_TAB_MOVE), LPARAM((from | (to << 16)) as isize));
+                        }
+                    }
+                    redraw(hwnd);
+                    return LRESULT(0);
+                }
+            }
             let changed = TOOLS.with(|t| {
                 let mut t = t.borrow_mut();
                 let hot = t.items.iter().position(|(it, r)| it.is_some() && contains(r, x, y));
@@ -669,6 +739,8 @@ const ARROW_W: i32 = 24;
 const TIMER_ARROW: usize = 77;
 
 thread_local! {
+    /// A tab being dragged: (its current index, x where the press started, past the drag threshold).
+    static DRAG: std::cell::Cell<Option<(usize, i32, bool)>> = const { std::cell::Cell::new(None) };
     /// -1 / 1 while an arrow is held down (the strip keeps scrolling), else 0.
     static HOLD: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
 }
@@ -822,6 +894,40 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         }
         WM_MOUSEMOVE => {
             let (x, y) = (lx(lp), ly(lp));
+            if let Some((from, x0, moving)) = DRAG.with(|d| d.get()) {
+                if moving || (x - x0).abs() > 6 {
+                    let to = TABS.with(|s| {
+                        let mut s = s.borrow_mut();
+                        // Near an edge of the visible strip, scroll so tabs further away can be reached.
+                        if let Some((l, _)) = s.arrows {
+                            if x < l.right + 16 {
+                                s.offset -= 30;
+                            } else if x > s.area - 16 {
+                                s.offset += 30;
+                            }
+                        }
+                        let hit = s.layout.iter().position(|r| contains(r, x, y.clamp(0, TAB_H - 1)) || (x >= r.left && x < r.right));
+                        let to = hit.unwrap_or(if x < s.layout.first().map_or(0, |r| r.left) { 0 } else { s.tabs.len().saturating_sub(1) });
+                        if to != from && to < s.tabs.len() {
+                            let tab = s.tabs.remove(from);
+                            s.tabs.insert(to, tab);
+                            s.active = to;
+                            s.hot = Some((to, false));
+                            s.follow = true;
+                        }
+                        to
+                    });
+                    DRAG.with(|d| d.set(Some((to, x0, true))));
+                    if to != from {
+                        let host = host_of(hwnd);
+                        unsafe {
+                            let _ = PostMessageW(Some(host), WM_BAR, WPARAM(BAR_TAB_MOVE), LPARAM((from | (to << 16)) as isize));
+                        }
+                    }
+                    redraw(hwnd);
+                    return LRESULT(0);
+                }
+            }
             let changed = TABS.with(|s| {
                 let mut s = s.borrow_mut();
                 let hot = s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y)));
@@ -862,6 +968,13 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                 unsafe { let _ = KillTimer(Some(hwnd), TIMER_ARROW); }
             } else if on_arrow {
                 redraw(hwnd);
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONUP | WM_CAPTURECHANGED if DRAG.with(|d| d.get()).is_some() => {
+            DRAG.with(|d| d.set(None));
+            unsafe {
+                let _ = ReleaseCapture();
             }
             LRESULT(0)
         }
@@ -917,7 +1030,11 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             match (msg, hit) {
                 (WM_MBUTTONUP, Some((i, _))) => post(BAR_TAB_CLOSE, i),
                 (WM_LBUTTONDOWN, Some((i, true))) => post(BAR_TAB_CLOSE, i),
-                (WM_LBUTTONDOWN, Some((i, false))) => post(BAR_TAB_SELECT, i),
+                (WM_LBUTTONDOWN, Some((i, false))) => {
+                    post(BAR_TAB_SELECT, i);
+                    DRAG.with(|d| d.set(Some((i, x, false))));
+                    unsafe { SetCapture(hwnd) };
+                }
                 (WM_LBUTTONDBLCLK, None) | (WM_LBUTTONDOWN, None) if plus => post(BAR_TAB_NEW, 0),
                 (WM_LBUTTONDBLCLK, None) => post(BAR_TAB_NEW, 0),
                 _ => {}

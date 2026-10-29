@@ -343,6 +343,17 @@ impl<S: Send> Workspace<S> {
         view::apply_symbols(&self.sci, &self.symbols);
     }
 
+    /// Drag-and-drop reorder: move tab rom to index 	o; the active tab stays the same tab.
+    pub fn move_tab_to(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let active_id = self.tabs[self.active].id;
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+    }
+
     /// Move the active tab one place (negative = left), keeping it active.
     pub fn move_tab(&mut self, delta: isize) -> bool {
         let to = self.active as isize + delta;

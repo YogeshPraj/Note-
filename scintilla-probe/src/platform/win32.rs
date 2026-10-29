@@ -3183,6 +3183,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                     chrome::BAR_TAB_NEW => {
                         a.ws.new_tab();
                     }
+                    chrome::BAR_TAB_MOVE => a.ws.move_tab_to(arg as usize & 0xFFFF, (arg as usize >> 16) & 0xFFFF),
                     chrome::BAR_STATUS => a.status_click(arg),
                     _ => {}
                 }

@@ -654,11 +654,18 @@ struct TabState {
     offset: i32,
     layout: Vec<RECT>,
     plus: RECT,
+    /// Scroll arrows, shown only while the tabs overflow; `area` is where tabs may show.
+    arrows: Option<(RECT, RECT)>,
+    area: i32,
+    /// Bring the active tab into view on the next paint (not while the user scrolls by hand).
+    follow: bool,
 }
 
 thread_local! {
-    static TABS: RefCell<TabState> = const { RefCell::new(TabState { tabs: Vec::new(), active: 0, hot: None, offset: 0, layout: Vec::new(), plus: RECT { left: 0, top: 0, right: 0, bottom: 0 } }) };
+    static TABS: RefCell<TabState> = const { RefCell::new(TabState { tabs: Vec::new(), active: 0, hot: None, offset: 0, layout: Vec::new(), plus: RECT { left: 0, top: 0, right: 0, bottom: 0 }, arrows: None, area: 0, follow: true }) };
 }
+
+const ARROW_W: i32 = 24;
 
 fn close_rect(r: &RECT) -> RECT {
     rect(r.right - 24, r.top + 7, r.right - 8, r.bottom - 7)
@@ -674,18 +681,27 @@ unsafe fn layout_tabs(dc: HDC, width: i32, s: &mut TabState) {
         s.layout.push(rect(x, 4, x + wd, TAB_H));
         x += wd + 2;
     }
-    let avail = width - 34;
     let total = x;
-    if total <= avail {
+    let overflow = total > width - 34;
+    let avail = if overflow { width - 34 - 2 * ARROW_W } else { width - 34 };
+    s.area = avail + 4;
+    if !overflow {
         s.offset = 0;
-    } else if let Some(a) = s.layout.get(s.active) {
-        if a.right - s.offset > avail {
-            s.offset = a.right - avail;
+        s.arrows = None;
+    } else {
+        if s.follow {
+            if let Some(a) = s.layout.get(s.active) {
+                if a.right - s.offset > avail {
+                    s.offset = a.right - avail;
+                }
+                if a.left - s.offset < 0 {
+                    s.offset = a.left;
+                }
+            }
         }
-        if a.left - s.offset < 0 {
-            s.offset = a.left;
-        }
-        s.offset = s.offset.clamp(0, total - avail);
+        s.offset = s.offset.clamp(0, (total - avail).max(0));
+        s.follow = false;
+        s.arrows = Some((rect(width - 2 * ARROW_W - 2, 6, width - ARROW_W - 2, TAB_H - 2), rect(width - ARROW_W - 2, 6, width - 2, TAB_H - 2)));
     }
     for r in &mut s.layout {
         r.left -= s.offset;
@@ -706,6 +722,9 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                         let mut s = s.borrow_mut();
                         layout_tabs(dc, rc.right, &mut s);
                         under.push(wash(rect(0, rc.bottom - 1, rc.right, rc.bottom), lk.ink(), 0x30));
+                        let clip_right = if s.arrows.is_some() { s.area } else { rc.right };
+                        let saved = SaveDC(dc);
+                        IntersectClipRect(dc, 0, 0, clip_right, rc.bottom);
                         for (i, info) in s.tabs.iter().enumerate() {
                             let (name, dirty) = (&info.title, &info.dirty);
                             let r = s.layout[i];
@@ -771,8 +790,15 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                                 let _ = DeleteObject(pen.into());
                             }
                         }
+                        RestoreDC(dc, saved);
                         let p = s.plus;
                         text(dc, "+", &p, lk.fg(), DT_CENTER);
+                        if let Some((l, r)) = s.arrows {
+                            let can_l = s.offset > 0;
+                            let can_r = s.layout.last().is_some_and(|t| t.right > s.area);
+                            text(dc, "\u{25C0}", &l, if can_l { lk.fg() } else { lk.dim() }, DT_CENTER);
+                            text(dc, "\u{25B6}", &r, if can_r { lk.fg() } else { lk.dim() }, DT_CENTER);
+                        }
                     });
                 });
             }
@@ -782,7 +808,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             let (x, y) = (lx(lp), ly(lp));
             let changed = TABS.with(|s| {
                 let mut s = s.borrow_mut();
-                let hot = s.layout.iter().position(|r| contains(r, x, y)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y)));
+                let hot = s.layout.iter().position(|r| contains(r, x, y) && (s.arrows.is_none() || x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y)));
                 let c = hot != s.hot;
                 s.hot = hot;
                 c
@@ -809,11 +835,30 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             let host = host_of(hwnd);
             let (hit, plus) = TABS.with(|s| {
                 let s = s.borrow();
-                (s.layout.iter().position(|r| contains(r, x, y)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && (i == s.active || s.hot.map(|h| h.0) == Some(i)))), contains(&s.plus, x, y))
+                (s.layout.iter().position(|r| contains(r, x, y) && (s.arrows.is_none() || x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && (i == s.active || s.hot.map(|h| h.0) == Some(i)))), contains(&s.plus, x, y))
             });
             let post = |kind: usize, arg: usize| unsafe {
                 let _ = PostMessageW(Some(host), WM_BAR, WPARAM(kind), LPARAM(arg as isize));
             };
+            let arrow = msg == WM_LBUTTONDOWN
+                && TABS.with(|s| {
+                    let mut s = s.borrow_mut();
+                    match s.arrows {
+                        Some((l, _)) if contains(&l, x, y) => {
+                            s.offset -= 150;
+                            true
+                        }
+                        Some((_, r)) if contains(&r, x, y) => {
+                            s.offset += 150;
+                            true
+                        }
+                        _ => false,
+                    }
+                });
+            if arrow {
+                redraw(hwnd);
+                return LRESULT(0);
+            }
             match (msg, hit) {
                 (WM_MBUTTONUP, Some((i, _))) => post(BAR_TAB_CLOSE, i),
                 (WM_LBUTTONDOWN, Some((i, true))) => post(BAR_TAB_CLOSE, i),
@@ -947,6 +992,7 @@ pub fn create(host: HWND, menus: Vec<(String, HMENU)>, tools: &[ToolItem]) -> Ch
 pub fn set_tabs(c: &Chrome, tabs: Vec<TabInfo>, active: usize) {
     TABS.with(|s| {
         let mut s = s.borrow_mut();
+        s.follow = s.follow || s.active != active || s.tabs.len() != tabs.len();
         s.tabs = tabs;
         s.active = active;
     });

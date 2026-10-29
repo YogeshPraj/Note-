@@ -14,7 +14,7 @@ use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, W
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
@@ -666,6 +666,12 @@ thread_local! {
 }
 
 const ARROW_W: i32 = 24;
+const TIMER_ARROW: usize = 77;
+
+thread_local! {
+    /// -1 / 1 while an arrow is held down (the strip keeps scrolling), else 0.
+    static HOLD: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+}
 
 fn close_rect(r: &RECT) -> RECT {
     rect(r.right - 24, r.top + 7, r.right - 8, r.bottom - 7)
@@ -834,6 +840,39 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             redraw(hwnd);
             LRESULT(0)
         }
+        WM_TIMER if wp.0 == TIMER_ARROW => {
+            let dir = HOLD.with(|h| h.get());
+            let mut pt = POINT::default();
+            unsafe {
+                let _ = GetCursorPos(&mut pt);
+                let _ = ScreenToClient(hwnd, &mut pt);
+            }
+            let (x, y) = (pt.x, pt.y);
+            // After the first pause, scroll fast and steadily; stop when the pointer leaves the arrow.
+            let on_arrow = TABS.with(|s| {
+                let mut s = s.borrow_mut();
+                let hit = s.arrows.is_some_and(|(l, r)| contains(if dir < 0 { &l } else { &r }, x, y));
+                if hit {
+                    s.offset += dir * 40;
+                }
+                hit
+            });
+            unsafe { SetTimer(Some(hwnd), TIMER_ARROW, 30, None) };
+            if dir == 0 {
+                unsafe { let _ = KillTimer(Some(hwnd), TIMER_ARROW); }
+            } else if on_arrow {
+                redraw(hwnd);
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONUP | WM_CAPTURECHANGED if HOLD.with(|h| h.get()) != 0 => {
+            HOLD.with(|h| h.set(0));
+            unsafe {
+                let _ = KillTimer(Some(hwnd), TIMER_ARROW);
+                let _ = ReleaseCapture();
+            }
+            LRESULT(0)
+        }
         WM_MOUSEWHEEL => {
             let delta = ((wp.0 >> 16) & 0xFFFF) as i16 as i32;
             TABS.with(|s| s.borrow_mut().offset -= delta / 2);
@@ -856,16 +895,22 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                     match s.arrows {
                         Some((l, _)) if contains(&l, x, y) => {
                             s.offset -= 150;
+                            HOLD.with(|h| h.set(-1));
                             true
                         }
                         Some((_, r)) if contains(&r, x, y) => {
                             s.offset += 150;
+                            HOLD.with(|h| h.set(1));
                             true
                         }
                         _ => false,
                     }
                 });
             if arrow {
+                unsafe {
+                    SetCapture(hwnd);
+                    SetTimer(Some(hwnd), TIMER_ARROW, 400, None);
+                }
                 redraw(hwnd);
                 return LRESULT(0);
             }

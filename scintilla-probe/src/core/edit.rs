@@ -77,26 +77,25 @@ fn leading_number(line: &str, comma: bool, integer: bool) -> Option<f64> {
 
 pub fn sort_lines_by(text: &str, eol: &str, kind: SortKind, descending: bool) -> String {
     map_lines(text, eol, |mut l| {
+        // Descending is a reversed comparison, so lines that compare equal keep their order.
+        let dir = |o: std::cmp::Ordering| if descending { o.reverse() } else { o };
         match kind {
-            SortKind::Lexicographic => l.sort(),
-            SortKind::IgnoreCase => l.sort_by_key(|x| x.to_lowercase()),
+            SortKind::Lexicographic => l.sort_by(|a, b| dir(a.cmp(b))),
+            SortKind::IgnoreCase => l.sort_by(|a, b| dir(a.to_lowercase().cmp(&b.to_lowercase()))),
             SortKind::Integer | SortKind::DecimalDot | SortKind::DecimalComma => {
                 let comma = kind == SortKind::DecimalComma;
                 let integer = kind == SortKind::Integer;
                 // Lines without a number sort first.
                 l.sort_by(|a, b| {
                     let (x, y) = (leading_number(a, comma, integer), leading_number(b, comma, integer));
-                    match (x, y) {
+                    dir(match (x, y) {
                         (None, None) => std::cmp::Ordering::Equal,
                         (None, Some(_)) => std::cmp::Ordering::Less,
                         (Some(_), None) => std::cmp::Ordering::Greater,
                         (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
-                    }
+                    })
                 });
             }
-        }
-        if descending {
-            l.reverse();
         }
         l.into_iter().map(String::from).collect()
     })
@@ -166,7 +165,7 @@ pub fn remove_empty_lines(text: &str, eol: &str) -> String {
 
 /// Empty lines and lines holding only blanks.
 pub fn remove_blank_lines(text: &str, eol: &str) -> String {
-    map_lines(text, eol, |l| l.into_iter().filter(|x| !x.trim().is_empty()).map(String::from).collect())
+    map_lines(text, eol, |l| l.into_iter().filter(|x| !x.trim_matches(BLANKS).is_empty()).map(String::from).collect())
 }
 
 pub fn join_lines(text: &str) -> String {
@@ -202,21 +201,24 @@ pub fn split_lines(text: &str, eol: &str, width: usize) -> String {
 
 // ── blanks ───────────────────────────────────────────────────────────────────
 
+/// Only spaces and tabs count as blanks, as in Notepad++ (not no-break or ideographic spaces).
+const BLANKS: [char; 2] = [' ', '\t'];
+
 pub fn trim_trailing(text: &str, eol: &str) -> String {
-    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_end().to_string()).collect())
+    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_end_matches(BLANKS).to_string()).collect())
 }
 
 pub fn trim_leading(text: &str, eol: &str) -> String {
-    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_start().to_string()).collect())
+    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_start_matches(BLANKS).to_string()).collect())
 }
 
 pub fn trim_both(text: &str, eol: &str) -> String {
-    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim().to_string()).collect())
+    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_matches(BLANKS).to_string()).collect())
 }
 
 /// Trim every line and drop the lines that were only blanks.
 pub fn remove_unnecessary_blanks(text: &str, eol: &str) -> String {
-    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim()).filter(|x| !x.is_empty()).map(String::from).collect())
+    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_matches(BLANKS)).filter(|x| !x.is_empty()).map(String::from).collect())
 }
 
 /// Replace each tab with the spaces that reach the next tab stop.

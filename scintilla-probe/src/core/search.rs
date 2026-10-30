@@ -54,9 +54,17 @@ type Span = (usize, usize);
 
 pub fn compile(o: &Opts) -> Result<Regex, String> {
     let body = if o.regex { o.find.clone() } else { fancy_regex::escape(&o.find).into_owned() };
-    let body = if o.whole_word { format!(r"\b(?:{body})\b") } else { body };
-    // (?m): ^ and $ match at every line, as in Notepad++.
-    RegexBuilder::new(&format!("(?m){body}"))
+    // Whole word: no word character may touch the match. An edge that is itself punctuation
+    // (such as "@name" or "f()") has nothing to separate from, as in Scintilla's whole-word search.
+    let body = if o.whole_word {
+        let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+        let (before, after) = if o.regex { (true, true) } else { (is_word(o.find.chars().next()), is_word(o.find.chars().next_back())) };
+        format!("{}(?:{body}){}", if before { r"(?<!\w)" } else { "" }, if after { r"(?!\w)" } else { "" })
+    } else {
+        body
+    };
+    // (?m): ^ and $ match at every line, as in Notepad++. (?R): a CR LF pair counts as one line break.
+    RegexBuilder::new(&format!("(?mR){body}"))
         .case_insensitive(!o.match_case)
         .dot_matches_new_line(o.regex && o.dot_all)
         .build()
@@ -203,40 +211,55 @@ pub fn prev_match(text: &str, re: &Regex, limit: usize) -> Option<Span> {
     all_matches(text, re).into_iter().rev().find(|m| m.1 <= limit)
 }
 
-/// Expand `\1`, `$1`, `\n`, `\r`, `\t`, `\\` in a regex replacement.
+/// Expand `\1`, `$1`, `\n`, `\r`, `\t`, `\\` and the case switches `\U \L \E \u \l` in a regex
+/// replacement (the Boost.Regex format Notepad++ uses).
 pub fn expand(rep: &str, caps: &Captures<'_, str>) -> String {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Case {
+        Keep,
+        Upper,
+        Lower,
+    }
+    fn put(out: &mut String, s: &str, mode: Case, once: &mut Case) {
+        for c in s.chars() {
+            let m = if *once != Case::Keep { std::mem::replace(once, Case::Keep) } else { mode };
+            match m {
+                Case::Upper => out.extend(c.to_uppercase()),
+                Case::Lower => out.extend(c.to_lowercase()),
+                Case::Keep => out.push(c),
+            }
+        }
+    }
     let mut out = String::new();
+    let (mut mode, mut once) = (Case::Keep, Case::Keep);
     let mut it = rep.chars().peekable();
     while let Some(c) = it.next() {
         match (c, it.peek().copied()) {
             ('\\' | '$', Some(d)) if d.is_ascii_digit() => {
                 it.next();
                 if let Some(g) = caps.get(d.to_digit(10).unwrap() as usize) {
-                    out.push_str(g.as_str());
+                    put(&mut out, g.as_str(), mode, &mut once);
                 }
             }
-            ('\\', Some('n')) => {
+            ('\\', Some(d @ ('n' | 'r' | 't' | '\\' | 'U' | 'L' | 'E' | 'u' | 'l'))) => {
                 it.next();
-                out.push('\n');
+                match d {
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    '\\' => out.push('\\'),
+                    'U' => mode = Case::Upper,
+                    'L' => mode = Case::Lower,
+                    'E' => (mode, once) = (Case::Keep, Case::Keep),
+                    'u' => once = Case::Upper,
+                    _ => once = Case::Lower,
+                }
             }
-            ('\\', Some('r')) => {
-                it.next();
-                out.push('\r');
-            }
-            ('\\', Some('t')) => {
-                it.next();
-                out.push('\t');
-            }
-            ('\\', Some('\\')) => {
-                it.next();
-                out.push('\\');
-            }
-            _ => out.push(c),
+            _ => put(&mut out, c.encode_utf8(&mut [0; 4]), mode, &mut once),
         }
     }
     out
 }
-
 fn replacement_for(text: &str, re: &Regex, o: &Opts, span: Span) -> String {
     if !o.regex {
         return o.replace.clone();
@@ -283,14 +306,17 @@ pub fn find<S: Send>(s: &S, o: &Opts, forward: bool) -> Found {
         Err(e) => return Found::BadPattern(e),
     };
     let (sel_a, sel_b) = selection(s);
+    // A zero-length match that is already the (empty) selection must not be found again.
+    let stuck = |m: &Span| sel_a == sel_b && m.0 == m.1 && m.0 == sel_a;
     let hit = if forward {
-        next_match(&text, &re, sel_b).map(|m| (m, false)).or_else(|| {
-            if o.wrap { next_match(&text, &re, 0).map(|m| (m, true)) } else { None }
-        })
+        let step = |from: usize| match next_match(&text, &re, from) {
+            Some(m) if stuck(&m) => next_match(&text, &re, next_boundary(&text, m.1)),
+            other => other,
+        };
+        step(sel_b).map(|m| (m, false)).or_else(|| if o.wrap { step(0).map(|m| (m, true)) } else { None })
     } else {
-        prev_match(&text, &re, sel_a).map(|m| (m, false)).or_else(|| {
-            if o.wrap { prev_match(&text, &re, text.len()).map(|m| (m, true)) } else { None }
-        })
+        let before = |limit: usize| all_matches(&text, &re).into_iter().rev().find(|m| m.1 <= limit && !stuck(m));
+        before(sel_a).map(|m| (m, false)).or_else(|| if o.wrap { before(text.len()).map(|m| (m, true)) } else { None })
     };
     match hit {
         Some(((a, b), wrapped)) => {
@@ -752,6 +778,44 @@ mod tests {
         assert_eq!(count_of("a\nb", &o), 0);
         let o = Opts { regex: true, dot_all: true, ..opts("a.b") };
         assert_eq!(count_of("a\nb", &o), 1);
+    }
+
+    #[test]
+    fn probe_crlf_and_edges() {
+        let re = |f: &str, o: Opts| compile(&Opts { regex: true, find: f.into(), ..o }).unwrap();
+        let crlf = "ab\r\ncd\r\n";
+        // `$` must match before a CRLF, and `.` must not swallow the CR.
+        assert_eq!(all_matches(crlf, &re("b$", Opts::default())), vec![(1, 2)], "dollar before CRLF");
+        assert_eq!(all_matches(crlf, &re(".*", Opts::default())).iter().filter(|m| m.1 > m.0).count(), 2);
+        assert_eq!(all_matches(crlf, &re(".+", Opts::default())), vec![(0, 2), (4, 6)], "dot excludes CR");
+        // Whole word with a pattern that starts or ends with punctuation.
+        let w = compile(&Opts { find: "@foo".into(), whole_word: true, ..Default::default() }).unwrap();
+        assert_eq!(all_matches("x @foo y", &w).len(), 1, "whole word @foo");
+        let w = compile(&Opts { find: "foo()".into(), whole_word: true, ..Default::default() }).unwrap();
+        assert_eq!(all_matches("a foo() b", &w).len(), 1, "whole word foo()");
+    }
+
+    #[test]
+    fn replacement_case_switches() {
+        let rep = |f: &str, r: &str, text: &str| {
+            let o = Opts { regex: true, replace: r.into(), ..opts(f) };
+            let reps = replacements(text, &o).unwrap();
+            let mut out = text.to_string();
+            for (a, b, w) in reps.iter().rev() {
+                out.replace_range(*a..*b, w);
+            }
+            out
+        };
+        assert_eq!(rep(r"(\w+) (\w+)", r"\U$1\E $2", "hello world"), "HELLO world");
+        assert_eq!(rep(r"(\w+)", r"\u$1", "hello"), "Hello");
+        assert_eq!(rep(r"(\w+)", r"\L$1", "HELLO"), "hello");
+        assert_eq!(rep(r"(\w)(\w*)", r"\u$1\L$2", "wORLD"), "World");
+    }
+
+    #[test]
+    fn crlf_anchor_with_lookaround() {
+        let re = compile(&Opts { regex: true, find: r"(?<=a)b$".into(), ..Default::default() }).unwrap();
+        assert_eq!(all_matches("ab\r\ncb\r\n", &re), vec![(1, 2)]);
     }
 
     #[test]

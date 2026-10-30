@@ -870,7 +870,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                                 let _ = DeleteObject(pen.into());
                             }
                         }
-                        RestoreDC(dc, saved);
+                        let _ = RestoreDC(dc, saved);
                         let p = s.plus;
                         text(dc, "+", &p, lk.fg(), DT_CENTER);
                         if let Some((l, r)) = s.arrows {

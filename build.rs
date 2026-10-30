@@ -25,6 +25,7 @@ fn embed_manifest(manifest_dir: &Path) {
         _ => panic!("\n\nwindres failed (it ships with the WinLibs MinGW package). The app manifest is required.\n"),
     }
     println!("cargo:rerun-if-changed=app.rc");
+    println!("cargo:rerun-if-changed=assets/app.ico");
     println!("cargo:rerun-if-changed=assets/app.manifest");
 }
 

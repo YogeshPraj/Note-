@@ -6,7 +6,7 @@
   Gets everything the repository deliberately does not store:
     1. Scintilla + Lexilla  - downloaded at pinned versions and built with MinGW.
     2. Mermaid + the Excalidraw whiteboard bundle and fonts - restored from the
-       Electron app's own build (npm install / build-whiteboard.js).
+       old-src build (npm install / build-whiteboard.js).
   Safe to re-run: finished steps are skipped unless -Force is given.
 
 .EXAMPLE
@@ -20,8 +20,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$proj = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)   # scintilla-probe\
-$root = Split-Path -Parent $proj                                                # repo root
+$proj = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)   # repo root
+$root = Join-Path $proj 'old-src'                                               # the previous app, source of Mermaid + Excalidraw
 function Step($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Ok($m) { Write-Host "    $m" -ForegroundColor Green }
 

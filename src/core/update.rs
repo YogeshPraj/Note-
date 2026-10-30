@@ -1,9 +1,9 @@
 //! Auto-update for the native app: ask GitHub whether a newer release exists, download it in the
 //! background, check it, unpack it next to nothing else, and swap it in on the user's click.
 //!
-//! Releases of this app are tagged `native-vX.Y.Z` (the repository also carries the Electron
-//! app's `vX.Y.Z` releases, which are ignored). A release carries two assets:
-//! `NotePP-native-windows-x64.zip` and `NotePP-native-windows-x64.zip.sha256` (the hex digest).
+//! Releases of this app are tagged `vX.Y.Z`. Older releases of the previous app have no zip
+//! asset and are ignored. A release carries two assets:
+//! `NotePP-windows-x64.zip` and `NotePP-windows-x64.zip.sha256` (the hex digest).
 //! The download is only unpacked when its SHA-256 matches. That catches damaged or swapped
 //! files; it is not a code signature, because the app is not signed.
 
@@ -15,8 +15,8 @@ use std::time::Duration;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const RELEASES_API: &str = "https://api.github.com/repos/YogeshPraj/Note-/releases?per_page=30";
-const TAG_PREFIX: &str = "native-v";
-pub const ASSET: &str = "NotePP-native-windows-x64.zip";
+const TAG_PREFIX: &str = "v";
+pub const ASSET: &str = "NotePP-windows-x64.zip";
 /// The program inside the archive; an archive without it is refused.
 const EXE: &str = "sci_probe.exe";
 
@@ -243,20 +243,20 @@ mod tests {
 
     #[test]
     fn picks_the_newest_complete_native_release() {
-        let both = [ASSET, "NotePP-native-windows-x64.zip.sha256"];
+        let both = [ASSET, "NotePP-windows-x64.zip.sha256"];
         let list = serde_json::json!([
-            release("v9.9.9", false, false, &["Note++ Setup.exe"]), // the Electron app: ignored
-            release("native-v0.3.0", true, false, &both),           // draft
-            release("native-v0.2.5", false, true, &both),           // prerelease
-            release("native-v0.2.0", false, false, &both),
-            release("native-v0.2.1", false, false, &[ASSET]),       // no checksum: unusable
-            release("native-v0.1.0", false, false, &both),          // not newer
-            release("native-v0.1.5", false, false, &both),
+            release("v9.9.9", false, false, &["Note++ Setup.exe"]), // the previous app: no zip, ignored
+            release("v0.3.0", true, false, &both),                  // draft
+            release("v0.2.5", false, true, &both),                  // prerelease
+            release("v0.2.0", false, false, &both),
+            release("v0.2.1", false, false, &[ASSET]),              // no checksum: unusable
+            release("v0.1.0", false, false, &both),                 // not newer
+            release("v0.1.5", false, false, &both),
         ])
         .to_string();
         let r = pick_release(&list, "0.1.0").unwrap().unwrap();
         assert_eq!(r.version, "0.2.0");
-        assert!(r.zip_url.ends_with("native-v0.2.0/NotePP-native-windows-x64.zip") && r.sha_url.ends_with(".zip.sha256"));
+        assert!(r.zip_url.ends_with("v0.2.0/NotePP-windows-x64.zip") && r.sha_url.ends_with(".zip.sha256"));
         assert!(pick_release(&list, "0.2.0").unwrap().is_none(), "drafts, prereleases and incomplete releases are skipped");
         assert!(pick_release(&list, "0.9.0").unwrap().is_none());
         assert!(pick_release("[]", "0.1.0").unwrap().is_none());

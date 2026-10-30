@@ -4871,6 +4871,7 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
             hInstance: hinstance.into(),
             lpszClassName: class,
             hCursor: LoadCursorW(None, IDC_ARROW)?,
+            hIcon: LoadIconW(Some(hinstance.into()), PCWSTR(1 as *const u16)).unwrap_or_default(),
             ..Default::default()
         });
 

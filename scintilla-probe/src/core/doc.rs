@@ -163,6 +163,32 @@ pub fn detect_eol(text: &str) -> Eol {
     }
 }
 
+/// UTF-16 text without a byte-order mark: mostly Latin text has a zero byte next to every
+/// letter. `Some(true)` for little-endian, `Some(false)` for big-endian.
+fn utf16_without_bom(bytes: &[u8]) -> Option<bool> {
+    let sample = &bytes[..bytes.len().min(4096) & !1];
+    if sample.len() < 4 {
+        return None;
+    }
+    let pairs = sample.len() / 2;
+    let (mut little, mut big) = (0usize, 0usize);
+    for p in sample.chunks_exact(2) {
+        match (p[0], p[1]) {
+            (a, 0) if a != 0 => little += 1,
+            (0, b) if b != 0 => big += 1,
+            _ => {}
+        }
+    }
+    // Most pairs must be "letter + zero", the other way round hardly ever.
+    if little * 10 >= pairs * 7 && big * 20 <= pairs {
+        Some(true)
+    } else if big * 10 >= pairs * 7 && little * 20 <= pairs {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 pub fn decode(bytes: &[u8]) -> (String, Enc, Eol) {
     let (text, enc) = if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
         (String::from_utf8_lossy(rest).into_owned(), Enc::Utf8Bom)
@@ -170,6 +196,12 @@ pub fn decode(bytes: &[u8]) -> (String, Enc, Eol) {
         (encoding_rs::UTF_16LE.decode_without_bom_handling(rest).0.into_owned(), Enc::Utf16Le)
     } else if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
         (encoding_rs::UTF_16BE.decode_without_bom_handling(rest).0.into_owned(), Enc::Utf16Be)
+    } else if let Some(little) = utf16_without_bom(bytes) {
+        if little {
+            (encoding_rs::UTF_16LE.decode_without_bom_handling(bytes).0.into_owned(), Enc::Utf16Le)
+        } else {
+            (encoding_rs::UTF_16BE.decode_without_bom_handling(bytes).0.into_owned(), Enc::Utf16Be)
+        }
     } else if let Ok(s) = std::str::from_utf8(bytes) {
         (s.to_owned(), Enc::Utf8)
     } else {
@@ -250,6 +282,18 @@ mod tests {
     fn unmappable_characters_become_question_marks() {
         assert_eq!(encode("a日b", Enc::Ansi), b"a?b");
         assert_eq!(encode("é日", Enc::Ansi), b"\xE9?");
+    }
+
+    #[test]
+    fn utf16_without_a_bom_is_recognised() {
+        let le: Vec<u8> = "héllo wörld, plain text".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        let be: Vec<u8> = "hello world, plain text".encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
+        assert_eq!(decode(&le).1, Enc::Utf16Le);
+        assert_eq!(decode(&le).0, "héllo wörld, plain text");
+        assert_eq!(decode(&be).1, Enc::Utf16Be);
+        // Ordinary text, even with a stray NUL, stays UTF-8.
+        assert_eq!(decode(b"plain text with a \0 NUL").1, Enc::Utf8);
+        assert_eq!(decode("日本語のテキスト".as_bytes()).1, Enc::Utf8);
     }
 
     #[test]

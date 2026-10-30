@@ -599,13 +599,36 @@ pub fn styled_text<S: Send>(s: &S, slots: &[usize]) -> String {
 
 // ---- braces ------------------------------------------------------------------
 
-/// The brace at (or just before) the caret and its partner.
-pub fn matching_brace<S: Send>(s: &S) -> Option<Span> {
+/// The bracket next to the caret: the one before it, else the one after, like Notepad++.
+/// Only `()[]{}` count (Scintilla would also pair `<` and `>`).
+fn brace_at_caret<S: Send>(s: &S) -> Option<usize> {
     let pos = s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-    [Some(pos), pos.checked_sub(1)].into_iter().flatten().find_map(|p| {
-        let m = s.send(sci::SCI_BRACEMATCH, p, 0);
-        (m >= 0).then_some((p, m as usize))
-    })
+    let is_brace = |p: usize| matches!(s.send(sci::SCI_GETCHARAT, p, 0) as u8, b'(' | b')' | b'[' | b']' | b'{' | b'}');
+    [pos.checked_sub(1), Some(pos)].into_iter().flatten().find(|&p| p < sci::length(s).max(0) as usize && is_brace(p))
+}
+
+/// The brace at the caret and its partner.
+pub fn matching_brace<S: Send>(s: &S) -> Option<Span> {
+    let p = brace_at_caret(s)?;
+    let m = s.send(sci::SCI_BRACEMATCH, p, 0);
+    (m >= 0).then_some((p, m as usize))
+}
+
+/// Mark the pair next to the caret (or the lone bracket that has no partner).
+pub fn highlight_braces<S: Send>(s: &S) {
+    match brace_at_caret(s) {
+        Some(p) => {
+            let m = s.send(sci::SCI_BRACEMATCH, p, 0);
+            if m >= 0 {
+                s.send(sci::SCI_BRACEHIGHLIGHT, p, m);
+            } else {
+                s.send(sci::SCI_BRACEBADLIGHT, p, 0);
+            }
+        }
+        None => {
+            s.send(sci::SCI_BRACEHIGHLIGHT, usize::MAX, -1);
+        }
+    }
 }
 
 pub fn goto_matching_brace<S: Send>(s: &S) -> bool {

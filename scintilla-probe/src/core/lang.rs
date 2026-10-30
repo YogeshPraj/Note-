@@ -227,6 +227,10 @@ pub fn apply_lexer<S: Send>(sci: &S, name: &str, theme: &Theme) {
 pub fn apply_palette<S: Send>(sci: &S, name: &str, theme: &Theme) {
     // Up to 127 covers PHP, whose styles sit high in the HTML lexer's range.
     for style in 0..128usize {
+        // The brace-match styles keep their own colours (see `sci::configure`).
+        if style == sci::STYLE_BRACELIGHT || style == sci::STYLE_BRACEBAD || style == sci::STYLE_LINENUMBER {
+            continue;
+        }
         sci.send(sci::SCI_STYLESETFORE, style, rgb(theme.fg.0, theme.fg.1, theme.fg.2));
     }
     for (style, c) in palette(name, theme) {

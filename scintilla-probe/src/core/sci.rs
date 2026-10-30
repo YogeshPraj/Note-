@@ -132,6 +132,9 @@ pub const SCI_GETLINEVISIBLE: u32 = 2228;
 pub const SCI_INDICATOREND: u32 = 2509;
 pub const SCI_INDICATORVALUEAT: u32 = 2507;
 pub const SCI_BRACEMATCH: u32 = 2353;
+pub const SCI_BRACEHIGHLIGHT: u32 = 2351;
+pub const SCI_BRACEBADLIGHT: u32 = 2352;
+pub const SCI_GETCHARAT: u32 = 2007;
 pub const SCI_WORDSTARTPOSITION: u32 = 2266;
 pub const SCI_WORDENDPOSITION: u32 = 2267;
 pub const SCI_DELETERANGE: u32 = 2645;
@@ -187,6 +190,8 @@ pub const SCN_UPDATEUI: u32 = 2007;
 
 pub const STYLE_DEFAULT: usize = 32;
 pub const STYLE_LINENUMBER: usize = 33;
+pub const STYLE_BRACELIGHT: usize = 34;
+pub const STYLE_BRACEBAD: usize = 35;
 pub const SC_MARGIN_NUMBER: isize = 1;
 pub const SC_MARGIN_SYMBOL: isize = 0;
 pub const SC_MASK_FOLDERS: isize = 0xFE00_0000_u32 as i32 as isize;
@@ -305,6 +310,13 @@ pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
     // STYLECLEARALL propagates the default to every style slot; do it before
     // any per-style colours or they get wiped.
     sci.send(SCI_STYLECLEARALL, 0, 0);
+
+    // Matching braces are bold red, an unmatched one white on red (Notepad++'s defaults).
+    let red = if theme.dark { rgb(0xFF, 0x6B, 0x6B) } else { rgb(0xFF, 0x00, 0x00) };
+    sci.send(SCI_STYLESETFORE, STYLE_BRACELIGHT, red);
+    sci.send(SCI_STYLESETBOLD, STYLE_BRACELIGHT, 1);
+    sci.send(SCI_STYLESETFORE, STYLE_BRACEBAD, rgb(0xFF, 0xFF, 0xFF));
+    sci.send(SCI_STYLESETBACK, STYLE_BRACEBAD, rgb(0xE0, 0x30, 0x30));
 
     sci.send(SCI_SETCARETFORE, rgb(theme.fg.0, theme.fg.1, theme.fg.2) as usize, 0);
     sci.send(SCI_SETSELBACK, 1, rgb(theme.sel_bg.0, theme.sel_bg.1, theme.sel_bg.2));

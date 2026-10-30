@@ -354,7 +354,7 @@ impl<S: Send> Workspace<S> {
         view::apply_symbols(&self.sci, &self.symbols);
     }
 
-    /// Drag-and-drop reorder: move tab rom to index 	o; the active tab stays the same tab.
+    /// Drag-and-drop reorder: move tab `from` to index `to`; the active tab stays the same tab.
     pub fn move_tab_to(&mut self, from: usize, to: usize) {
         if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
             return;
@@ -520,6 +520,9 @@ impl<S: Send> Workspace<S> {
         let a = self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize;
         let b = self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize;
         let key = (a, b, sci::length(&self.sci).max(0) as usize);
+        if !self.is_whiteboard() {
+            search::highlight_braces(&self.sci);
+        }
         if key != self.smart_key {
             self.smart_key = key;
             if self.settings.smart_highlight {

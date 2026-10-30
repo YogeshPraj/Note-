@@ -427,7 +427,7 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Edit: Redo", ID_REDO, "Ctrl+Y"),
     ("Edit: Select All", ID_SELALL, "Ctrl+A"),
     ("Edit: Duplicate Line", ID_L_DUP, "Ctrl+D"),
-    ("Edit: Delete Line", ID_L_DEL, "Ctrl+L"),
+    ("Edit: Delete Line", ID_L_DEL, "Ctrl+Shift+L"),
     ("Edit: Move Line Up", ID_L_UP, "Ctrl+Shift+Up"),
     ("Edit: Move Line Down", ID_L_DOWN, "Ctrl+Shift+Down"),
     ("Edit: Sort Lines Ascending", ID_L_SORT_ASC, ""),
@@ -455,23 +455,23 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Edit: Copy All File Paths", ID_CP_ALLPATHS, ""),
     ("Edit: Increase Line Indent", ID_INDENT_INC, "Tab"),
     ("Edit: Decrease Line Indent", ID_INDENT_DEC, "Shift+Tab"),
-    ("Edit: Proper Case", ID_CASE_PROPER, ""),
-    ("Edit: Proper Case (blend)", ID_CASE_PROPER_BLEND, ""),
-    ("Edit: Sentence case", ID_CASE_SENTENCE, ""),
-    ("Edit: Sentence case (blend)", ID_CASE_SENTENCE_BLEND, ""),
+    ("Edit: Proper Case", ID_CASE_PROPER, "Alt+U"),
+    ("Edit: Proper Case (blend)", ID_CASE_PROPER_BLEND, "Alt+Shift+U"),
+    ("Edit: Sentence case", ID_CASE_SENTENCE, "Ctrl+Alt+U"),
+    ("Edit: Sentence case (blend)", ID_CASE_SENTENCE_BLEND, "Ctrl+Alt+Shift+U"),
     ("Edit: iNVERT cASE", ID_CASE_INVERT, ""),
     ("Edit: ranDOm CasE", ID_CASE_RANDOM, ""),
     ("Edit: Remove Consecutive Duplicate Lines", ID_L_RM_CONSEC, ""),
     ("Edit: Remove Empty Lines (Containing Blank characters)", ID_L_RM_BLANK, ""),
-    ("Edit: Split Lines", ID_L_SPLIT, ""),
-    ("Edit: Join Lines", ID_L_JOIN, ""),
+    ("Edit: Split Lines", ID_L_SPLIT, "Ctrl+I"),
+    ("Edit: Join Lines", ID_L_JOIN, "Ctrl+J"),
     ("Edit: Transpose Current Line", ID_L_TRANSPOSE, "Ctrl+T"),
-    ("Edit: Insert Blank Line Above Current", ID_L_INS_ABOVE, "Ctrl+Alt+Shift+Enter"),
-    ("Edit: Insert Blank Line Below Current", ID_L_INS_BELOW, "Ctrl+Alt+Enter"),
+    ("Edit: Insert Blank Line Above Current", ID_L_INS_ABOVE, "Ctrl+Alt+Enter"),
+    ("Edit: Insert Blank Line Below Current", ID_L_INS_BELOW, "Ctrl+Alt+Shift+Enter"),
     ("Edit: Reverse Line Order", ID_L_REVERSE, ""),
     ("Edit: Randomize Line Order", ID_L_RANDOM, ""),
-    ("Edit: Cut Current Line", ID_L_CUT, ""),
-    ("Edit: Copy Current Line", ID_L_COPY, ""),
+    ("Edit: Cut Current Line", ID_L_CUT, "Ctrl+L"),
+    ("Edit: Copy Current Line", ID_L_COPY, "Ctrl+Shift+X"),
     ("Edit: Sort Lines Ignoring Case Ascending", ID_L_SORT_NOCASE_ASC, ""),
     ("Edit: Sort Lines Ignoring Case Descending", ID_L_SORT_NOCASE_DESC, ""),
     ("Edit: Sort Lines As Integers Ascending", ID_L_SORT_INT_ASC, ""),
@@ -1587,7 +1587,8 @@ impl App {
             ID_ZOOMIN => drop(sci.send(sci::SCI_ZOOMIN, 0, 0)),
             ID_ZOOMOUT => drop(sci.send(sci::SCI_ZOOMOUT, 0, 0)),
             ID_ZOOMRESET => drop(sci.send(sci::SCI_SETZOOM, 0, 0)),
-            ID_L_DUP => drop(sci.send(sci::SCI_LINEDUPLICATE, 0, 0)),
+            // With a selection this repeats the selected text; with none, the whole line.
+            ID_L_DUP => drop(sci.send(sci::SCI_SELECTIONDUPLICATE, 0, 0)),
             ID_L_DEL => drop(sci.send(sci::SCI_LINEDELETE, 0, 0)),
             ID_L_UP => drop(sci.send(sci::SCI_MOVESELECTEDLINESUP, 0, 0)),
             ID_L_DOWN => drop(sci.send(sci::SCI_MOVESELECTEDLINESDOWN, 0, 0)),
@@ -3606,10 +3607,10 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(case, ID_C_UPPER, "&UPPERCASE\tCtrl+Shift+U");
     B::add(case, ID_C_LOWER, "&lowercase\tCtrl+U");
     B::sep(case);
-    B::add(case, ID_CASE_PROPER, "&Proper Case");
-    B::add(case, ID_CASE_PROPER_BLEND, "Proper Case (blend)");
-    B::add(case, ID_CASE_SENTENCE, "&Sentence case");
-    B::add(case, ID_CASE_SENTENCE_BLEND, "Sentence case (blend)");
+    B::add(case, ID_CASE_PROPER, "&Proper Case\tAlt+U");
+    B::add(case, ID_CASE_PROPER_BLEND, "Proper Case (blend)\tAlt+Shift+U");
+    B::add(case, ID_CASE_SENTENCE, "&Sentence case\tCtrl+Alt+U");
+    B::add(case, ID_CASE_SENTENCE_BLEND, "Sentence case (blend)\tCtrl+Alt+Shift+U");
     B::add(case, ID_CASE_INVERT, "i&NVERT cASE");
     B::add(case, ID_CASE_RANDOM, "&ranDOm CasE");
     B::submenu(edit, "Convert Case &to", case);
@@ -3618,21 +3619,21 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(lines, ID_L_DUP, "&Duplicate Current Line\tCtrl+D");
     B::add(lines, ID_L_DEDUP, "Remove Duplicate Lines");
     B::add(lines, ID_L_RM_CONSEC, "Remove Consecutive Duplicate Lines");
-    B::add(lines, ID_L_SPLIT, "S&plit Lines");
-    B::add(lines, ID_L_JOIN, "&Join Lines");
+    B::add(lines, ID_L_SPLIT, "S&plit Lines\tCtrl+I");
+    B::add(lines, ID_L_JOIN, "&Join Lines\tCtrl+J");
     B::add(lines, ID_L_UP, "Move Up Current Line\tCtrl+Shift+Up");
     B::add(lines, ID_L_DOWN, "Move Down Current Line\tCtrl+Shift+Down");
     B::add(lines, ID_L_TRANSPOSE, "&Transpose Current Line\tCtrl+T");
     B::add(lines, ID_L_NOEMPTY, "Remove Empty Lines");
     B::add(lines, ID_L_RM_BLANK, "Remove Empty Lines (Containing Blank characters)");
-    B::add(lines, ID_L_INS_ABOVE, "Insert Blank Line Above Current\tCtrl+Alt+Shift+Enter");
-    B::add(lines, ID_L_INS_BELOW, "Insert Blank Line Below Current\tCtrl+Alt+Enter");
+    B::add(lines, ID_L_INS_ABOVE, "Insert Blank Line Above Current\tCtrl+Alt+Enter");
+    B::add(lines, ID_L_INS_BELOW, "Insert Blank Line Below Current\tCtrl+Alt+Shift+Enter");
     B::add(lines, ID_L_REVERSE, "Reverse Line Order");
     B::add(lines, ID_L_RANDOM, "Randomize Line Order");
     B::sep(lines);
-    B::add(lines, ID_L_CUT, "Cut Current Line");
-    B::add(lines, ID_L_COPY, "Copy Current Line");
-    B::add(lines, ID_L_DEL, "Delete Current Line\tCtrl+L");
+    B::add(lines, ID_L_CUT, "Cut Current Line\tCtrl+L");
+    B::add(lines, ID_L_COPY, "Copy Current Line\tCtrl+Shift+X");
+    B::add(lines, ID_L_DEL, "Delete Current Line\tCtrl+Shift+L");
     B::sep(lines);
     B::add(lines, ID_L_SORT_ASC, "Sort Lines Lexicographically Ascending");
     B::add(lines, ID_L_SORT_DESC, "Sort Lines Lexicographically Descending");
@@ -4039,7 +4040,15 @@ fn accelerators(overrides: &std::collections::BTreeMap<String, String>) -> HACCE
         k(CTRL, 'P', ID_QUICKOPEN),
         k(CTRL_SHIFT, 'V', ID_PREVIEW),
         k(CTRL_SHIFT, 'P', ID_PALETTE),
-        k(CTRL, 'L', ID_L_DEL),
+        k(CTRL, 'L', ID_L_CUT),
+        k(CTRL_SHIFT, 'L', ID_L_DEL),
+        k(CTRL_SHIFT, 'X', ID_L_COPY),
+        k(CTRL, 'I', ID_L_SPLIT),
+        k(CTRL, 'J', ID_L_JOIN),
+        k(ALT, 'U', ID_CASE_PROPER),
+        k(ALT_SHIFT, 'U', ID_CASE_PROPER_BLEND),
+        k(CTRL_ALT, 'U', ID_CASE_SENTENCE),
+        k(CTRL_ALT_SHIFT, 'U', ID_CASE_SENTENCE_BLEND),
         k(CTRL, 'U', ID_C_LOWER),
         k(CTRL_SHIFT, 'U', ID_C_UPPER),
         ACCEL { fVirt: CTRL_SHIFT, key: 0x26, cmd: ID_L_UP as u16 },   // Ctrl+Shift+Up
@@ -4060,8 +4069,9 @@ fn accelerators(overrides: &std::collections::BTreeMap<String, String>) -> HACCE
         ACCEL { fVirt: CTRL, key: 0x0D, cmd: ID_AC_WORD as u16 },        // Ctrl+Enter
         ACCEL { fVirt: CTRL_SHIFT, key: 0x20, cmd: ID_AC_HINT as u16 },  // Ctrl+Shift+Space
         ACCEL { fVirt: CTRL_ALT, key: 0x20, cmd: ID_AC_PATH as u16 },    // Ctrl+Alt+Space
-        ACCEL { fVirt: CTRL_ALT, key: 0x0D, cmd: ID_L_INS_BELOW as u16 }, // Ctrl+Alt+Enter
-        ACCEL { fVirt: CTRL_ALT_SHIFT, key: 0x0D, cmd: ID_L_INS_ABOVE as u16 },
+        ACCEL { fVirt: CTRL_ALT, key: 0x0D, cmd: ID_L_INS_ABOVE as u16 }, // Ctrl+Alt+Enter
+        ACCEL { fVirt: CTRL_ALT_SHIFT, key: 0x0D, cmd: ID_L_INS_BELOW as u16 },
+        ACCEL { fVirt: CTRL, key: 0x73, cmd: ID_CLOSE as u16 }, // Ctrl+F4
         ACCEL { fVirt: NONE, key: 0x7A, cmd: ID_FULLSCREEN as u16 }, // F11
         ACCEL { fVirt: NONE, key: 0x7B, cmd: ID_POSTIT as u16 },     // F12
         k(ALT, 'H', ID_HIDE_LINES),
@@ -4076,6 +4086,15 @@ fn accelerators(overrides: &std::collections::BTreeMap<String, String>) -> HACCE
         ACCEL { fVirt: CTRL_SHIFT, key: 0x22, cmd: ID_MOVE_TAB_FWD as u16 },
         ACCEL { fVirt: CTRL_SHIFT, key: 0x21, cmd: ID_MOVE_TAB_BACK as u16 },
         ACCEL { fVirt: CTRL, key: 0x6F, cmd: ID_ZOOMRESET as u16 },       // Ctrl+Num /
+        ACCEL { fVirt: CTRL, key: 0x61, cmd: ID_TAB_BASE as u16 },        // Ctrl+Num 1 .. 9: go to that tab
+        ACCEL { fVirt: CTRL, key: 0x62, cmd: (ID_TAB_BASE + 1) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x63, cmd: (ID_TAB_BASE + 2) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x64, cmd: (ID_TAB_BASE + 3) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x65, cmd: (ID_TAB_BASE + 4) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x66, cmd: (ID_TAB_BASE + 5) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x67, cmd: (ID_TAB_BASE + 6) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x68, cmd: (ID_TAB_BASE + 7) as u16 },
+        ACCEL { fVirt: CTRL, key: 0x69, cmd: (ID_TAB_BASE + 8) as u16 },
         k(ALT, '1', ID_FOLD_LEVEL_BASE),
         k(ALT, '2', ID_FOLD_LEVEL_BASE + 1),
         k(ALT, '3', ID_FOLD_LEVEL_BASE + 2),

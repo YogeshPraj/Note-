@@ -62,6 +62,12 @@ fn escape(s: &str) -> String {
 /// 0-based source line it starts on). The preview page uses these to keep its scroll position
 /// in step with the editor.
 pub fn markdown_to_html(src: &str) -> String {
+    markdown_to_html_in(src, None)
+}
+
+/// Like `markdown_to_html`, and with `base` (the folder of the document) images that point at
+/// local files are embedded, so they show although the page itself may load no files.
+pub fn markdown_to_html_in(src: &str, base: Option<&Path>) -> String {
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
@@ -95,6 +101,10 @@ pub fn markdown_to_html(src: &str) -> String {
                 let code = mermaid.take().unwrap();
                 events.push(Event::Html(format!("<pre class=\"mermaid\">{}</pre>\n", escape(&code)).into()));
             }
+            Event::Start(Tag::Image { link_type, dest_url, title, id }) => {
+                let dest = base.and_then(|b| local_image_data_uri(b, &dest_url)).map(Into::into).unwrap_or(dest_url);
+                events.push(Event::Start(Tag::Image { link_type, dest_url: dest, title, id }));
+            }
             // Raw HTML is displayed, not executed.
             Event::Html(s) | Event::InlineHtml(s) => events.push(Event::Text(s)),
             Event::Start(Tag::Link { link_type, dest_url, title, id }) => {
@@ -108,6 +118,38 @@ pub fn markdown_to_html(src: &str) -> String {
     let mut out = String::new();
     html::push_html(&mut out, events.into_iter());
     out
+}
+
+/// Biggest local image that is embedded in the preview.
+const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// A `data:` URI for a relative (or drive-letter) image path next to the document, if it is a
+/// picture of a known type and not too big.
+fn local_image_data_uri(base: &Path, dest: &str) -> Option<String> {
+    let d = dest.trim();
+    // Anything with a scheme (http:, data:, file:...) or a network path is not a local file here.
+    let drive = d.len() > 2 && d.as_bytes()[1] == b':' && matches!(d.as_bytes()[2], b'\\' | b'/');
+    if d.is_empty() || d.starts_with("//") || d.starts_with('#') || (d.contains(':') && !drive) {
+        return None;
+    }
+    let d = d.split(['?', '#']).next().unwrap_or(d);
+    let path = base.join(super::textools::url_decode(d).replace('/', std::path::MAIN_SEPARATOR_STR));
+    let mime = match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        _ => return None,
+    };
+    let meta = std::fs::metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_IMAGE_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    Some(format!("data:{mime};base64,{}", super::textools::base64_encode(&bytes)))
 }
 
 /// Links may only go to http(s), mailto, or stay on the page (no scheme at all).
@@ -126,6 +168,20 @@ fn safe_link(url: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn local_images_are_embedded() {
+        let d = std::env::temp_dir().join(format!("npp_md_img_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(d.join("img"));
+        std::fs::write(d.join("img").join("a b.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        std::fs::write(d.join("notes.txt"), "secret").unwrap();
+        let html = markdown_to_html_in("![x](img/a%20b.png) ![y](notes.txt) ![z](https://e.com/a.png) ![w](missing.png)", Some(&d));
+        assert!(html.contains("src=\"data:image/png;base64,iVBORw==\""), "{html}");
+        // Not an image type, a web address, or absent: left exactly as written.
+        assert!(html.contains("src=\"notes.txt\"") && html.contains("src=\"https://e.com/a.png\"") && html.contains("src=\"missing.png\""));
+        // Without a base folder nothing is read.
+        assert!(markdown_to_html("![x](img/a%20b.png)").contains("src=\"img/a%20b.png\""));
+        let _ = std::fs::remove_dir_all(&d);
+    }
     #[test]
     fn kinds() {
         assert_eq!(kind_for("markdown", None), Some(Kind::Markdown));

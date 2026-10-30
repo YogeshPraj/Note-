@@ -2715,7 +2715,8 @@ impl App {
         match kind {
             pcore::Kind::Markdown if pcore::is_bare_mermaid(&text) => pview::render("mermaid", &text),
             pcore::Kind::Markdown => {
-                pview::render("markdown", &pcore::markdown_to_html(&text));
+                let base = self.ws.tabs[self.ws.active].path.as_deref().and_then(|p| p.parent());
+                pview::render("markdown", &pcore::markdown_to_html_in(&text, base));
                 // The page was rebuilt: line it up with the editor again.
                 SYNC_LINE.with(|c| c.set(usize::MAX));
                 self.sync_scroll_to_preview();

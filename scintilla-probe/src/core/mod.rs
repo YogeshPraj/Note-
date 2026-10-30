@@ -11,6 +11,7 @@ pub mod hash;
 pub mod http;
 pub mod lang;
 pub mod lexer;
+pub mod logfollow;
 pub mod mdformat;
 pub mod jsonpath;
 pub mod preview;

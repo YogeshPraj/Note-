@@ -231,6 +231,11 @@ pub fn render(kind: &str, payload: &str) {
     eval(&format!("window.np.render({},{})", js_string(kind), js_string(payload)));
 }
 
+/// Call a function of the page with one string argument, e.g. `window.np.logAppend("...")`.
+pub fn call(name: &str, payload: &str) {
+    eval(&format!("window.np.{name}({})", js_string(payload)));
+}
+
 pub fn set_theme(dark: bool) {
     eval(&format!("window.np.setTheme({dark})"));
 }

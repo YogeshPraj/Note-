@@ -33,6 +33,7 @@ use super::whiteboard as wb;
 use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
 use crate::core::bookmarks;
 use crate::core::jsonpath;
+use crate::core::logfollow::{self, Follower};
 use crate::core::hash::{ALGOS, Algo};
 use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
@@ -380,6 +381,8 @@ const ID_TAB_COLOR_NONE: usize = 5609;
 const ID_TAB_CMP_FILE: usize = 5610;
 const ID_TAB_CMP_CLIP: usize = 5611;
 const ID_TAB_REVEAL: usize = 5612;
+const ID_LOG_FOLLOW: usize = 3213;
+const TIMER_LOG: usize = 6;
 const ID_RESTORE_CLOSED: usize = 1119;
 const ID_OPEN_ALL_RECENT: usize = 1120;
 const ID_WORKSPACE_TOGGLE: usize = 3007;
@@ -426,6 +429,7 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Settings: Encryption...", ID_ENC_SETTINGS, ""),
     ("Tools: Passwords (Bitwarden)...", ID_PASSWORDS, ""),
     ("Tools: Lock Passwords (Bitwarden)", ID_PW_LOCK, ""),
+    ("View: Log Follow (.log / .out / .err)", ID_LOG_FOLLOW, ""),
     ("Tab: Pin / Unpin Current Tab", ID_TAB_PIN, ""),
     ("Tab: Clear Colour Mark", ID_TAB_COLOR_NONE, ""),
     ("Tab: Compare with File...", ID_TAB_CMP_FILE, ""),
@@ -727,6 +731,10 @@ struct App {
     /// The document whose response the preview page is showing now.
     http_shown: Option<isize>,
     http_busy: bool,
+    /// Log Follow: the tab being followed and where reading stands.
+    log: Option<(u64, Follower)>,
+    /// The tab whose log the preview page is showing now.
+    log_shown: Option<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1595,6 +1603,14 @@ impl App {
             }
             ID_PAGE_SETUP => drop(print::page_setup(ui.host)),
             ID_HTTP_SEND => self.http_send(),
+            ID_LOG_FOLLOW => {
+                if ws.preview_kind() != Some(pcore::Kind::Log) {
+                    self.flash = Some("Log Follow works on .log, .out and .err files".into());
+                } else {
+                    let on = !PREVIEW_ON.with(|c| c.get());
+                    self.set_preview(on);
+                }
+            }
             ID_TAB_PIN => {
                 let i = ws.active;
                 ws.toggle_pin(i);
@@ -2853,6 +2869,7 @@ impl App {
         chrome::set_checked(&h.chrome, ID_WRAP, self.ws.wrap);
         chrome::set_checked(&h.chrome, ID_THEME, self.ws.theme.dark);
         chrome::set_checked(&h.chrome, ID_ENC_TOGGLE, self.ws.is_encrypted());
+        chrome::set_checked(&h.chrome, ID_LOG_FOLLOW, PREVIEW_ON.with(|c| c.get()) && self.ws.preview_kind() == Some(pcore::Kind::Log));
         chrome::set_theme(&h.chrome, self.ws.theme.dark, self.ws.theme.bg, self.ws.theme.fg);
         findpanel::retheme();
         thread_local! {
@@ -2911,6 +2928,7 @@ impl App {
             CheckMenuItem(m.view, ID_MINIMAP as u32, (MF_BYCOMMAND | on(self.ws.minimap)).0);
             CheckMenuItem(m.view, ID_THEME as u32, (MF_BYCOMMAND | on(self.ws.theme.dark)).0);
             CheckMenuItem(m.view, ID_PREVIEW as u32, (MF_BYCOMMAND | on(preview_on)).0);
+            CheckMenuItem(m.view, ID_LOG_FOLLOW as u32, (MF_BYCOMMAND | on(preview_on && self.ws.preview_kind() == Some(pcore::Kind::Log))).0);
             CheckMenuItem(m.view, ID_MD_TOOLBAR as u32, (MF_BYCOMMAND | on(self.ws.settings.md_toolbar)).0);
 
             let t = &self.ws.tabs[self.ws.active];
@@ -2986,6 +3004,15 @@ impl App {
             pcore::Kind::Html => pview::render("html", &text),
             pcore::Kind::Mermaid => pview::render("mermaid", &text),
             pcore::Kind::Json => pview::render("json", &text),
+            pcore::Kind::Log => {
+                let (id, path) = (self.ws.tabs[self.ws.active].id, self.ws.tabs[self.ws.active].path.clone());
+                if force || self.log_shown != Some(id) {
+                    self.log_start(id, path);
+                }
+                unsafe {
+                    SetTimer(Some(self.ui.host), TIMER_LOG, 700, None);
+                }
+            }
             pcore::Kind::Http => {
                 let doc = self.ws.tabs[self.ws.active].doc;
                 // Typing in the request must not rebuild the page and lose the tab you were reading.
@@ -3041,6 +3068,49 @@ impl App {
                 let _ = PostMessageW(Some(HWND(host as *mut core::ffi::c_void)), WM_HTTP_DONE, WPARAM(0), LPARAM(0));
             }
         });
+    }
+
+    /// Begin following `path` in the preview pane, showing the end of the file.
+    fn log_start(&mut self, id: u64, path: Option<PathBuf>) {
+        self.log = None;
+        self.log_shown = Some(id);
+        let Some(p) = path else {
+            pview::render("message", "Save the file to follow it.");
+            return;
+        };
+        match Follower::open(&p, logfollow::TAIL_BYTES) {
+            Ok((f, u)) => {
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                pview::render("log", &serde_json::json!({ "name": name, "lines": u.lines, "skipped": u.skipped_bytes }).to_string());
+                self.log = Some((id, f));
+            }
+            Err(e) => pview::render("message", &format!("Cannot read {}: {e}", p.display())),
+        }
+    }
+
+    /// Timer: send what was added to the followed log since the last look.
+    fn log_tick(&mut self) {
+        let showing = PREVIEW_ON.with(|c| c.get()) && self.ws.preview_kind() == Some(pcore::Kind::Log);
+        if !showing {
+            unsafe {
+                let _ = KillTimer(Some(self.ui.host), TIMER_LOG);
+            }
+            self.log = None;
+            self.log_shown = None;
+            return;
+        }
+        let id = self.ws.tabs[self.ws.active].id;
+        let Some((lid, f)) = self.log.as_mut() else { return };
+        if *lid != id {
+            return;
+        }
+        match f.poll() {
+            Ok(u) if u.reset || !u.lines.is_empty() => pview::call("logAppend", &serde_json::json!({ "lines": u.lines, "reset": u.reset }).to_string()),
+            Ok(_) => {}
+            Err(_) => {
+                // Deleted or locked for a moment: keep what is shown and try again on the next tick.
+            }
+        }
     }
 
     fn http_done(&mut self) {
@@ -3691,6 +3761,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
             LRESULT(0)
         }
+        WM_TIMER if w.0 == TIMER_LOG => {
+            with_app(|a| a.log_tick());
+            LRESULT(0)
+        }
         WM_TIMER if w.0 == TIMER_MONITOR => {
             with_app(|a| a.monitor_tick());
             LRESULT(0)
@@ -4266,6 +4340,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(view, ID_LTR, "Text Direction LTR\tCtrl+Alt+L");
     B::sep(view);
     B::add(view, ID_MONITOR, "Monitoring (tail -f)");
+    B::add(view, ID_LOG_FOLLOW, "Log Follow (.log / .out / .err)");
     B::sep(view);
     // Note++ extras that Notepad++ keeps elsewhere.
     B::add(view, ID_PREVIEW, "Live Preview\tCtrl+Shift+V");
@@ -4435,6 +4510,7 @@ fn toolbar_items() -> Vec<ToolItem> {
         ToolItem::Sep,
         btn!(ID_WRAP, "wordwrap.svg", "Word Wrap"),
         btn!(ID_PREVIEW, "preview.svg", "Live Preview (Ctrl+Shift+V)"),
+        btn!(ID_LOG_FOLLOW, "follow.svg", "Log Follow: stream a .log / .out / .err file as it grows"),
         btn!(ID_THEME, "darkmode.svg", "Dark Mode"),
     ]
 }
@@ -4750,7 +4826,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         TREE_ON.with(|c| c.set(true));
     }
     APP.with(|c| {
-        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), window_key: (vec![("\u{0}".into(), false)], usize::MAX), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None, http_last: None, http_shown: None, http_busy: false })
+        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), window_key: (vec![("\u{0}".into(), false)], usize::MAX), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None, http_last: None, http_shown: None, http_busy: false, log: None, log_shown: None })
     });
 
     unsafe {

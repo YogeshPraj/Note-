@@ -53,6 +53,21 @@ body.dark #http .herr { color:#f48771; }
 #http pre.hbody { margin:0; padding:12px 16px; font:12.5px/1.5 Consolas, monospace; white-space:pre-wrap; word-break:break-word; }
 #http .hrow { display:flex; gap:12px; padding:3px 16px; font:12px Consolas, monospace; border-bottom:1px solid var(--border); }
 #http .hk { flex:0 0 220px; color:var(--link); word-break:break-all; } #http .hv { flex:1; word-break:break-all; }
+#log { position:absolute; inset:0; display:flex; flex-direction:column; }
+#log .lbar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+#log .lbar input[type=text] { flex:1; min-width:120px; height:24px; padding:0 8px; border:1px solid var(--border); border-radius:3px; background:var(--bg); color:var(--fg); font:12px Consolas, monospace; }
+#log .lbar input.bad { border-color:#cc3b3b; }
+#log .lbar label { font:12px "Segoe UI", sans-serif; display:flex; align-items:center; gap:3px; }
+#log .lv { width:auto; height:22px; padding:0 8px; border:1px solid var(--border); font:600 11px "Segoe UI", sans-serif; opacity:.45; }
+#log .lv.on { opacity:1; }
+#log .lv[data-l=E].on { background:#cc3b3b; color:#fff; } #log .lv[data-l=W].on { background:#d08a12; color:#fff; } #log .lv[data-l=I].on { background:#3883fa; color:#fff; } #log .lv[data-l=D].on { background:#7a7a7a; color:#fff; }
+#log .lbtn { width:auto; height:24px; padding:0 10px; border:1px solid var(--border); font:12px "Segoe UI", sans-serif; }
+#log .lbtn.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
+#log .linfo { padding:3px 12px; font:11px "Segoe UI", sans-serif; color:var(--muted); border-bottom:1px solid var(--border); }
+#logbody { flex:1; overflow:auto; padding:4px 0; font:12px/1.5 Consolas, 'Cascadia Code', monospace; }
+#logbody div { padding:0 12px; white-space:pre-wrap; word-break:break-all; }
+#logbody .E { color:#cc3b3b; } #logbody .W { color:#b57614; } #logbody .D { color:var(--muted); }
+body.dark #logbody .E { color:#f48771; } body.dark #logbody .W { color:#e5c07b; }
 #je { position:absolute; inset:0; }
 #je .jsoneditor { border:0; height:100%; }
 #jerr { position:absolute; inset:0; overflow:auto; padding:16px 20px; font-size:12px; }
@@ -100,6 +115,7 @@ body.dark .jsoneditor-poweredBy { display:none; }
   <div id="je" class="hidden"></div>
   <div id="jerr" class="hidden"></div>
   <div id="http" class="hidden"></div>
+  <div id="log" class="hidden"></div>
   <div id="msg">Open a Markdown, HTML, Mermaid or JSON file to see a live preview.</div>
 </div>
 <script>
@@ -121,7 +137,7 @@ body.dark .jsoneditor-poweredBy { display:none; }
   }, { passive: false });
 
   function show(which) {
-    ['md', 'frame', 'mm', 'je', 'jerr', 'http', 'msg'].forEach(function (id) { $(id).classList.toggle('hidden', id !== which); });
+    ['md', 'frame', 'mm', 'je', 'jerr', 'http', 'log', 'msg'].forEach(function (id) { $(id).classList.toggle('hidden', id !== which); });
   }
   function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -293,6 +309,89 @@ body.dark .jsoneditor-poweredBy { display:none; }
     root.scrollTop = keep;
   }
 
+  /* ---- Log Follow: lines are pushed in by the host as the file grows; filtering is done here ---- */
+  var L = { lines: [], dropped: 0, follow: true, text: '', regex: false, on: { E: true, W: true, I: true, D: true }, built: false, skipped: 0, name: '', queued: false, last: 'O' };
+  var LOG_CAP = 50000, LOG_SHOW = 4000;
+  function level(t, prev) {
+    if (/\b(FATAL|CRITICAL|SEVERE|ERROR|ERR)\b/i.test(t)) return 'E';
+    if (/\bWARN(ING)?\b/i.test(t)) return 'W';
+    if (/\bINFO\b/i.test(t)) return 'I';
+    if (/\b(DEBUG|TRACE|VERBOSE)\b/i.test(t)) return 'D';
+    return prev;   // a stack-trace line belongs to the line above it
+  }
+  function logBuild() {
+    var root = $('log'); root.textContent = '';
+    var bar = el('div', 'lbar');
+    var inp = el('input'); inp.type = 'text'; inp.placeholder = 'Filter (text or regex)'; inp.id = 'lfilter';
+    inp.oninput = function () { L.text = inp.value; logRender(); };
+    var rx = el('label'); var cb = el('input'); cb.type = 'checkbox'; cb.onchange = function () { L.regex = cb.checked; logRender(); };
+    rx.appendChild(cb); rx.appendChild(document.createTextNode('Regex'));
+    bar.appendChild(inp); bar.appendChild(rx);
+    [['E', 'ERROR'], ['W', 'WARN'], ['I', 'INFO'], ['D', 'DEBUG']].forEach(function (p) {
+      var b = el('button', 'lv on', p[1]); b.setAttribute('data-l', p[0]);
+      b.onclick = function () { L.on[p[0]] = !L.on[p[0]]; b.classList.toggle('on', L.on[p[0]]); logRender(); };
+      bar.appendChild(b);
+    });
+    var f = el('button', 'lbtn on', 'Follow \u21e9'); f.id = 'lfollow';
+    f.onclick = function () { L.follow = !L.follow; logRender(true); };
+    var c = el('button', 'lbtn', 'Clear'); c.onclick = function () { L.lines = []; L.dropped = 0; L.skipped = 0; logRender(); };
+    bar.appendChild(f); bar.appendChild(c);
+    var info = el('div', 'linfo'); info.id = 'linfo';
+    var body = el('div'); body.id = 'logbody';
+    // Scrolling up means you want to read: following stops. Reaching the bottom again resumes it.
+    body.onscroll = function () {
+      var atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 6;
+      if (atBottom !== L.follow) { L.follow = atBottom; $('lfollow').classList.toggle('on', L.follow); }
+    };
+    root.appendChild(bar); root.appendChild(info); root.appendChild(body);
+    L.built = true;
+  }
+  function logMatcher() {
+    if (!L.text) return null;
+    if (L.regex) { try { var re = new RegExp(L.text, 'i'); $('lfilter').classList.remove('bad'); return function (s) { return re.test(s); }; } catch (e) { $('lfilter').classList.add('bad'); return null; } }
+    $('lfilter').classList.remove('bad');
+    var q = L.text.toLowerCase(); return function (s) { return s.toLowerCase().indexOf(q) >= 0; };
+  }
+  function logRender(force) {
+    if (L.queued && !force) return;
+    L.queued = true;
+    setTimeout(function () {
+      L.queued = false;
+      var body = $('logbody'), keep = body.scrollTop, m = logMatcher(), out = [], n = 0;
+      for (var i = L.lines.length - 1; i >= 0 && n < LOG_SHOW; i--) {
+        var ln = L.lines[i];
+        if (!L.on[ln.l === 'O' ? 'I' : ln.l]) continue;
+        if (m && !m(ln.t)) continue;
+        out.push('<div class="' + ln.l + '">' + esc(ln.t) + '</div>'); n++;
+      }
+      out.reverse();
+      body.innerHTML = out.join('');
+      $('lfollow').classList.toggle('on', L.follow);
+      var notes = [L.lines.length.toLocaleString() + ' lines'];
+      if (n >= LOG_SHOW) notes.push('showing the last ' + LOG_SHOW.toLocaleString() + ' that match');
+      else if (m || !(L.on.E && L.on.W && L.on.I && L.on.D)) notes.push(n.toLocaleString() + ' shown');
+      if (L.dropped) notes.push(L.dropped.toLocaleString() + ' older lines dropped from the buffer');
+      if (L.skipped) notes.push('showing only the end of the file (' + (L.skipped / 1048576).toFixed(1) + ' MB skipped)');
+      $('linfo').textContent = L.name + ' \u00b7 ' + notes.join(' \u00b7 ');
+      if (L.follow) body.scrollTop = body.scrollHeight; else body.scrollTop = keep;
+    }, 30);
+  }
+  function logPush(lines) {
+    for (var i = 0; i < lines.length; i++) { L.last = level(lines[i], L.last); L.lines.push({ t: lines[i], l: L.last }); }
+    if (L.lines.length > LOG_CAP) { var d = L.lines.length - LOG_CAP; L.lines.splice(0, d); L.dropped += d; }
+  }
+  function logSet(raw) {
+    var d = JSON.parse(raw);
+    if (!L.built) logBuild();
+    L.lines = []; L.dropped = 0; L.last = 'O'; L.skipped = d.skipped || 0; L.name = d.name; L.follow = true;
+    logPush(d.lines); show('log'); logRender(true);
+  }
+  function logAppend(raw) {
+    var d = JSON.parse(raw);
+    if (d.reset) { L.lines = []; L.dropped = 0; L.skipped = 0; L.last = 'O'; }
+    logPush(d.lines); logRender();
+  }
+
   window.np = {
     scrollToLine: function (line, total) {
       totalLines = total || totalLines;
@@ -310,6 +409,8 @@ body.dark .jsoneditor-poweredBy { display:none; }
         var y2 = $('mm').scrollTop;
         $('mm').innerHTML = '<pre class="mermaid">' + esc(payload) + '</pre>'; show('mm'); $('mm').scrollTop = y2;
         runMermaid($('mm'));
+      } else if (kind === 'log') {
+        logSet(payload);
       } else if (kind === 'http') {
         renderHttp(payload);
       } else if (kind === 'json') {
@@ -323,6 +424,7 @@ body.dark .jsoneditor-poweredBy { display:none; }
     setTheme: function (d) { dark = d; document.body.classList.toggle('dark', d); },
     setMax: function (m) { $('max').classList.toggle('on', m); },
     mermaidLoaded: function () { if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); } },
+    logAppend: logAppend,
     jsonLoaded: function () { if (pendingJson !== null) { var t = pendingJson; pendingJson = null; renderJson(t); } }
   };
   applyZoom();

@@ -17,6 +17,8 @@ pub enum Kind {
     Json,
     /// An `.http` / `.rest` scratchpad: the preview pane shows the response of the last request.
     Http,
+    /// A `.log` / `.out` / `.err` file: the pane follows it as it grows (Log Follow).
+    Log,
 }
 
 /// What kind of preview (if any) a document supports.
@@ -25,6 +27,7 @@ pub fn kind_for(lexer: &str, path: Option<&Path>) -> Option<Kind> {
     match ext.as_deref() {
         Some("mmd" | "mermaid") => return Some(Kind::Mermaid),
         Some("http" | "rest") => return Some(Kind::Http),
+        Some("log" | "out" | "err") => return Some(Kind::Log),
         _ => {}
     }
     match lexer {
@@ -195,6 +198,7 @@ mod tests {
         assert_eq!(kind_for("json", None), Some(Kind::Json));
         assert_eq!(kind_for("null", Some(Path::new("api/calls.HTTP"))), Some(Kind::Http));
         assert_eq!(kind_for("null", Some(Path::new("x.rest"))), Some(Kind::Http));
+        assert_eq!(kind_for("null", Some(Path::new("server.LOG"))), Some(Kind::Log));
         assert_eq!(kind_for("null", Some(Path::new("x/diagram.MMD"))), Some(Kind::Mermaid));
         assert_eq!(kind_for("rust", Some(Path::new("a.rs"))), None);
     }

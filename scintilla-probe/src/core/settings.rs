@@ -41,6 +41,8 @@ pub struct Settings {
     pub dark_colors: BTreeMap<String, String>,
     /// Command id -> shortcut text ("" = shortcut removed). Absent = default.
     pub shortcuts: BTreeMap<String, String>,
+    /// Look for new versions in the background (and download them).
+    pub auto_update: bool,
     /// Lock the Bitwarden vault after this many idle minutes; 0 = never.
     pub passwords_auto_lock_min: u32,
 }
@@ -70,6 +72,7 @@ impl Default for Settings {
             dark_colors: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
             passwords_auto_lock_min: 15,
+            auto_update: true,
         }
     }
 }

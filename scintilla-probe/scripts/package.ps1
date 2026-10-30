@@ -40,13 +40,13 @@ foreach ($k in $parts.Keys) { Copy-Item $parts[$k] (Join-Path $dist $k) }
 Copy-Item $wbSrc (Join-Path $dist 'whiteboard') -Recurse
 
 # Every non-system DLL the exe or Scintilla imports must be in the folder.
-$system = 'kernel32|user32|gdi32|gdiplus|advapi32|shell32|shlwapi|ole32|oleaut32|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcryptprimitives|combase|propsys|rpcrt4|uxtheme|api-ms-win-.*'
+$system = 'kernel32|user32|gdi32|gdiplus|advapi32|shell32|shlwapi|ole32|oleaut32|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcrypt|winspool|wtsapi32|winmm|version|crypt32|secur32|ncrypt|bcryptprimitives|combase|propsys|rpcrt4|uxtheme|api-ms-win-.*'
 $objdump = Get-Command objdump -ErrorAction SilentlyContinue
 if ($objdump) {
     foreach ($bin in 'sci_probe.exe', 'Scintilla.dll') {
         $imports = & $objdump.Source -p (Join-Path $dist $bin) | Select-String 'DLL Name:' | ForEach-Object { ($_ -split ':')[1].Trim() } | Sort-Object -Unique
         foreach ($dll in $imports) {
-            if ($dll -match "^($system)\.dll$" -or $dll -match '^api-ms-win-') { continue }
+            if ($dll -match "^($system)\.(dll|drv)$" -or $dll -match '^api-ms-win-') { continue }
             if (-not (Test-Path (Join-Path $dist $dll))) { throw "$bin needs $dll, which is neither a Windows system DLL nor in the package" }
         }
     }

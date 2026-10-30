@@ -545,13 +545,39 @@ thread_local! {
 const ICON: i32 = 18;
 const BTN: i32 = 28;
 
+/// The update notice at the far right of the toolbar.
+struct Pill {
+    text: String,
+    color: Rgb,
+    cmd: usize,
+    rect: RECT,
+}
+
+thread_local! {
+    static PILL: RefCell<Option<Pill>> = const { RefCell::new(None) };
+}
+
+/// Show (or hide, with None) the pill: (text, colour, command sent when it is clicked).
+pub fn set_pill(c: &Chrome, p: Option<(String, Rgb, usize)>) {
+    PILL.with(|s| *s.borrow_mut() = p.map(|(text, color, cmd)| Pill { text, color, cmd, rect: RECT::default() }));
+    redraw(c.tools);
+}
+
 unsafe extern "system" fn tool_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_ERASEBKGND => LRESULT(1),
         WM_PAINT => {
             unsafe {
-                paint_mica(hwnd, |dc, _rc, under| {
+                paint_mica(hwnd, |dc, rc, under| {
                     let lk = look();
+                    PILL.with(|p| {
+                        if let Some(p) = p.borrow_mut().as_mut() {
+                            let w = text_width(dc, &p.text) + 26;
+                            p.rect = rect(rc.right - w - 10, 6, rc.right - 10, 3 + BTN - 3);
+                            fill(dc, &p.rect, p.color);
+                            text(dc, &p.text, &p.rect, WHITE, DT_CENTER);
+                        }
+                    });
                     TOOLS.with(|t| {
                         let t = t.borrow();
                         for (i, (item, r)) in t.items.iter().enumerate() {
@@ -643,6 +669,14 @@ unsafe extern "system" fn tool_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             LRESULT(0)
         }
         WM_LBUTTONUP => {
+            let (px, py) = (lx(lp), ly(lp));
+            let pill = PILL.with(|p| p.borrow().as_ref().filter(|p| contains(&p.rect, px, py)).map(|p| p.cmd));
+            if let Some(cmd) = pill {
+                unsafe {
+                    let _ = PostMessageW(Some(host_of(hwnd)), WM_COMMAND, WPARAM(cmd), LPARAM(0));
+                }
+                return LRESULT(0);
+            }
             let cmd = TOOLS.with(|t| {
                 let mut t = t.borrow_mut();
                 let hit = t.down.filter(|d| t.hot == Some(*d)).and_then(|d| t.items[d].0.as_ref().map(|i| i.0));

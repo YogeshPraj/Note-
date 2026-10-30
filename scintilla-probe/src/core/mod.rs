@@ -21,6 +21,7 @@ pub mod session;
 pub mod settings;
 pub mod shortcuts;
 pub mod textools;
+pub mod update;
 pub mod view;
 pub mod whiteboard;
 pub mod workspace;

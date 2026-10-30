@@ -34,6 +34,7 @@ use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
 use crate::core::bookmarks;
 use crate::core::jsonpath;
 use crate::core::logfollow::{self, Follower};
+use crate::core::update;
 use crate::core::hash::{ALGOS, Algo};
 use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
@@ -383,6 +384,30 @@ const ID_TAB_CMP_CLIP: usize = 5611;
 const ID_TAB_REVEAL: usize = 5612;
 const ID_LOG_FOLLOW: usize = 3213;
 const TIMER_LOG: usize = 6;
+const TIMER_UPDATE: usize = 7;
+const ID_UPDATE_PILL: usize = 3350;
+const ID_UPDATE_CHECK: usize = 3351;
+const ID_UPDATE_AUTO: usize = 3352;
+/// A background update step finished; see `UPD`.
+const WM_UPDATE: u32 = WM_APP + 62;
+
+/// What the update threads hand to the window.
+#[derive(Default)]
+struct UpdShared {
+    check: Option<(bool, Result<Option<update::Release>, String>)>,
+    pct: Option<u32>,
+    done: Option<Result<(String, PathBuf), String>>,
+}
+static UPD: std::sync::Mutex<UpdShared> = std::sync::Mutex::new(UpdShared { check: None, pct: None, done: None });
+
+#[derive(Clone)]
+enum UpdState {
+    Idle,
+    Checking,
+    Available(update::Release),
+    Downloading(update::Release, u32),
+    Ready(String, PathBuf),
+}
 const ID_RESTORE_CLOSED: usize = 1119;
 const ID_OPEN_ALL_RECENT: usize = 1120;
 const ID_WORKSPACE_TOGGLE: usize = 3007;
@@ -636,6 +661,8 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("View: Next Tab", ID_NEXT_TAB, "Ctrl+Tab"),
     ("View: Previous Tab", ID_PREV_TAB, "Ctrl+Shift+Tab"),
     ("Help: About Note++", ID_ABOUT, ""),
+    ("Help: Check for Updates Now", ID_UPDATE_CHECK, ""),
+    ("Help: Check for Updates Automatically", ID_UPDATE_AUTO, ""),
 ];
 
 fn command_items() -> Vec<Item> {
@@ -692,6 +719,7 @@ pub struct Menus {
     eol: HMENU,
     lang: HMENU,
     window: HMENU,
+    help: HMENU,
 }
 
 struct App {
@@ -735,6 +763,7 @@ struct App {
     log: Option<(u64, Follower)>,
     /// The tab whose log the preview page is showing now.
     log_shown: Option<u64>,
+    upd: UpdState,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -753,7 +782,7 @@ fn wb_allows(id: usize) -> bool {
             | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
             | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
             | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE | ID_PREFS | ID_STYLE_CFG | ID_SHORTCUTS
-            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS | ID_PW_TOOLBAR | ID_PW_LOCK | ID_ENC_LOCK | ID_TAB_PIN | ID_TAB_COLOR_NONE | ID_TAB_REVEAL
+            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS | ID_PW_TOOLBAR | ID_PW_LOCK | ID_ENC_LOCK | ID_TAB_PIN | ID_TAB_COLOR_NONE | ID_TAB_REVEAL | ID_UPDATE_PILL | ID_UPDATE_CHECK | ID_UPDATE_AUTO
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
         || (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id)
@@ -1603,6 +1632,20 @@ impl App {
             }
             ID_PAGE_SETUP => drop(print::page_setup(ui.host)),
             ID_HTTP_SEND => self.http_send(),
+            ID_UPDATE_CHECK => self.update_check(true),
+            ID_UPDATE_AUTO => {
+                let mut s = ws.settings.clone();
+                s.auto_update = !s.auto_update;
+                let on = s.auto_update;
+                apply_settings(ws, s);
+                self.flash = Some(if on { "Updates are checked for automatically" } else { "Automatic update checks are off" }.into());
+            }
+            ID_UPDATE_PILL => match self.upd.clone() {
+                UpdState::Available(rel) => self.update_download(rel),
+                UpdState::Ready(ver, dir) => self.update_install(&ver, &dir),
+                UpdState::Downloading(..) | UpdState::Checking => self.flash = Some("The update is still downloading".into()),
+                UpdState::Idle => self.update_check(true),
+            },
             ID_LOG_FOLLOW => {
                 if ws.preview_kind() != Some(pcore::Kind::Log) {
                     self.flash = Some("Log Follow works on .log, .out and .err files".into());
@@ -2928,6 +2971,7 @@ impl App {
             CheckMenuItem(m.view, ID_MINIMAP as u32, (MF_BYCOMMAND | on(self.ws.minimap)).0);
             CheckMenuItem(m.view, ID_THEME as u32, (MF_BYCOMMAND | on(self.ws.theme.dark)).0);
             CheckMenuItem(m.view, ID_PREVIEW as u32, (MF_BYCOMMAND | on(preview_on)).0);
+            CheckMenuItem(m.help, ID_UPDATE_AUTO as u32, (MF_BYCOMMAND | on(self.ws.settings.auto_update)).0);
             CheckMenuItem(m.view, ID_LOG_FOLLOW as u32, (MF_BYCOMMAND | on(preview_on && self.ws.preview_kind() == Some(pcore::Kind::Log))).0);
             CheckMenuItem(m.view, ID_MD_TOOLBAR as u32, (MF_BYCOMMAND | on(self.ws.settings.md_toolbar)).0);
 
@@ -3068,6 +3112,123 @@ impl App {
                 let _ = PostMessageW(Some(HWND(host as *mut core::ffi::c_void)), WM_HTTP_DONE, WPARAM(0), LPARAM(0));
             }
         });
+    }
+
+    // ---- auto-update --------------------------------------------------------------------
+
+    /// Show the state of the update in the toolbar pill.
+    fn update_pill(&self) {
+        let Some(h) = handles() else { return };
+        let pill = match &self.upd {
+            UpdState::Available(r) => Some((format!("New update available (v{})", r.version), (0x38, 0x83, 0xFA), ID_UPDATE_PILL)),
+            UpdState::Downloading(_, p) => Some((format!("Downloading {p}%"), (0xD0, 0x8A, 0x12), ID_UPDATE_PILL)),
+            UpdState::Ready(v, _) => Some((format!("Click to update to v{v}"), (0x2E, 0x9E, 0x4F), ID_UPDATE_PILL)),
+            UpdState::Idle | UpdState::Checking => None,
+        };
+        chrome::set_pill(&h.chrome, pill);
+    }
+
+    /// Ask GitHub for a newer version in the background. `manual`: the user asked, so say the result.
+    fn update_check(&mut self, manual: bool) {
+        if !matches!(self.upd, UpdState::Idle | UpdState::Available(_)) {
+            if manual {
+                self.flash = Some(match self.upd {
+                    UpdState::Ready(..) => "An update is ready: click the green notice to install it",
+                    _ => "An update check or download is already running",
+                }.into());
+            }
+            return;
+        }
+        if manual {
+            self.flash = Some("Checking for updates...".into());
+        }
+        let was = self.upd.clone();
+        self.upd = UpdState::Checking;
+        let host = self.ui.host.0 as isize;
+        let _ = was;
+        std::thread::spawn(move || {
+            let r = update::check(update::VERSION);
+            UPD.lock().unwrap_or_else(|e| e.into_inner()).check = Some((manual, r));
+            unsafe {
+                let _ = PostMessageW(Some(HWND(host as *mut core::ffi::c_void)), WM_UPDATE, WPARAM(0), LPARAM(0));
+            }
+        });
+    }
+
+    fn update_download(&mut self, rel: update::Release) {
+        self.upd = UpdState::Downloading(rel.clone(), 0);
+        self.update_pill();
+        let host = self.ui.host.0 as isize;
+        std::thread::spawn(move || {
+            let post = move || unsafe {
+                let _ = PostMessageW(Some(HWND(host as *mut core::ffi::c_void)), WM_UPDATE, WPARAM(0), LPARAM(0));
+            };
+            let r = update::download(&rel, &mut |p| {
+                UPD.lock().unwrap_or_else(|e| e.into_inner()).pct = Some(p);
+                post();
+            });
+            UPD.lock().unwrap_or_else(|e| e.into_inner()).done = Some(r.map(|dir| (rel.version.clone(), dir)));
+            post();
+        });
+    }
+
+    /// A background update step has finished.
+    fn update_event(&mut self) {
+        let (check, pct, done) = {
+            let mut u = UPD.lock().unwrap_or_else(|e| e.into_inner());
+            (u.check.take(), u.pct.take(), u.done.take())
+        };
+        if let Some(p) = pct {
+            if let UpdState::Downloading(r, _) = &self.upd {
+                self.upd = UpdState::Downloading(r.clone(), p);
+            }
+        }
+        if let Some((manual, result)) = check {
+            self.upd = UpdState::Idle;
+            match result {
+                Ok(Some(rel)) => {
+                    self.upd = UpdState::Available(rel.clone());
+                    // With automatic updates on (or when asked) the download starts at once.
+                    if manual || self.ws.settings.auto_update {
+                        self.update_download(rel);
+                    }
+                }
+                Ok(None) if manual => {
+                    let msg = format!("You have the latest version of Note++ (v{}).", update::VERSION);
+                    dialogs::message(self.ui.host, "Note++", &msg, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
+                }
+                Ok(None) => {}
+                Err(e) if manual => self.ui.error(&format!("Cannot check for updates\n\n{e}")),
+                Err(_) => {}
+            }
+        }
+        if let Some(result) = done {
+            match result {
+                Ok((ver, dir)) => {
+                    self.upd = UpdState::Ready(ver, dir);
+                    self.flash = Some("Update downloaded - click the green notice to install".into());
+                }
+                Err(e) => {
+                    self.upd = UpdState::Idle;
+                    self.ui.error(&format!("The update could not be downloaded\n\n{e}"));
+                }
+            }
+        }
+        self.update_pill();
+    }
+
+    /// Swap the new version in: a small script waits for this program to exit, copies the files and starts it again.
+    fn update_install(&mut self, ver: &str, dir: &std::path::Path) {
+        let msg = format!("Install Note++ v{ver} now?\n\nNote++ closes and starts again with the new version. Your tabs come back.");
+        if !self.ui.ask_yes_no(&msg) {
+            return;
+        }
+        match update::launch_apply(dir) {
+            Ok(()) => unsafe {
+                let _ = PostMessageW(Some(self.ui.host), WM_CLOSE, WPARAM(0), LPARAM(0));
+            },
+            Err(e) => self.ui.error(&format!("Cannot install the update\n\n{e}")),
+        }
     }
 
     /// Begin following `path` in the preview pane, showing the end of the file.
@@ -3761,6 +3922,22 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
             LRESULT(0)
         }
+        WM_UPDATE => {
+            with_app(|a| a.update_event());
+            LRESULT(0)
+        }
+        WM_TIMER if w.0 == TIMER_UPDATE => {
+            // First look 8 seconds after start; then every 6 hours.
+            unsafe {
+                SetTimer(Some(hwnd), TIMER_UPDATE, 6 * 60 * 60 * 1000, None);
+            }
+            with_app(|a| {
+                if a.ws.settings.auto_update {
+                    a.update_check(false);
+                }
+            });
+            LRESULT(0)
+        }
         WM_TIMER if w.0 == TIMER_LOG => {
             with_app(|a| a.log_tick());
             LRESULT(0)
@@ -4395,6 +4572,9 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
 
     let help = B::popup();
     B::add(help, ID_ABOUT, "&About Note++");
+    B::sep(help);
+    B::add(help, ID_UPDATE_CHECK, "Check for Updates &Now");
+    B::add(help, ID_UPDATE_AUTO, "Check for Updates &Automatically");
 
     // Settings
     let settings_menu = B::popup();
@@ -4459,7 +4639,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Window".to_string(), window),
         ("?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, window };
+    let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, window, help };
     fill_file_menu(&menus, &[], false);
     fill_window_menu(window, &[], 0);
     (bar, menus)
@@ -4826,7 +5006,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         TREE_ON.with(|c| c.set(true));
     }
     APP.with(|c| {
-        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), window_key: (vec![("\u{0}".into(), false)], usize::MAX), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None, http_last: None, http_shown: None, http_busy: false, log: None, log_shown: None })
+        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), window_key: (vec![("\u{0}".into(), false)], usize::MAX), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None, http_last: None, http_shown: None, http_busy: false, log: None, log_shown: None, upd: UpdState::Idle })
     });
 
     unsafe {
@@ -4834,6 +5014,14 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         with_app(|a| a.refresh());
         SetTimer(Some(hs.host), TIMER_EXTERNAL, 2000, None);
         SetTimer(Some(hs.host), TIMER_SESSION, 10_000, None);
+        SetTimer(Some(hs.host), TIMER_UPDATE, 8_000, None);
+        // An update downloaded earlier (by a previous run) is offered again straight away.
+        with_app(|a| {
+            if let Some((v, d)) = update::staged(update::VERSION) {
+                a.upd = UpdState::Ready(v, d);
+                a.update_pill();
+            }
+        });
         // Files dropped on the window open as tabs; the editor has its own file-accepting drop target.
         windows::Win32::UI::Shell::DragAcceptFiles(hs.host, true);
         // Learn when the screen is locked, to lock the Bitwarden vault with it.

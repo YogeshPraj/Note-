@@ -741,6 +741,7 @@ impl<S: Send> Workspace<S> {
         };
         let (lang, label) = (t.lang, t.lang_label);
         let tab = self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1) as usize;
+        let edge = self.settings.edge_column.max(0) as usize;
         let s = &self.sci;
         let has_selection = self.send(sci::SCI_GETSELECTIONSTART, 0, 0) != self.send(sci::SCI_GETSELECTIONEND, 0, 0);
         let lines = |scope, f: &dyn Fn(&str) -> String| edit::apply_lines(s, scope, f);
@@ -757,7 +758,11 @@ impl<S: Send> Workspace<S> {
             }
             LineOp::Join | LineOp::Split if !has_selection => return Some("Select the lines first".into()),
             LineOp::Join => lines(CurrentLine, &|x| edit::join_lines(x)),
-            LineOp::Split => lines(CurrentLine, &|x| edit::split_lines(x, eol, 80)),
+            // At the edge column when one is set (Preferences), else at 80.
+            LineOp::Split => {
+                let width = if edge > 0 { edge } else { 80 };
+                lines(CurrentLine, &|x| edit::split_lines(x, eol, width))
+            }
             LineOp::TrimTrailing => lines(WholeDocument, &|x| edit::trim_trailing(x, eol)),
             LineOp::TrimLeading => lines(WholeDocument, &|x| edit::trim_leading(x, eol)),
             LineOp::TrimBoth => lines(WholeDocument, &|x| edit::trim_both(x, eol)),

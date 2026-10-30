@@ -75,6 +75,94 @@ fn leading_number(line: &str, comma: bool, integer: bool) -> Option<f64> {
     t[..i].replace(',', ".").parse().ok()
 }
 
+/// Notepad++'s "Sort Lines As Integers": a natural sort. Lines are compared chunk by chunk;
+/// runs of digits (with an optional leading minus) compare by value however long they are, and
+/// the rest compares as text, so "item2" sorts before "item10".
+pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let digit = |c: char| c.is_ascii_digit();
+    let (mut ai, mut bi) = (0usize, 0usize);
+    let mut cmp: i64 = 0;
+    while cmp == 0 {
+        if ai >= a.len() || bi >= b.len() {
+            cmp = match a[ai.min(a.len())..].cmp(&b[bi.min(b.len())..]) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            };
+            break;
+        }
+        let (mut a_num, mut b_num) = (digit(a[ai]), digit(b[bi]));
+        let (mut a_sign, mut b_sign) = (1i64, 1i64);
+        // A minus sign right before a digit starts a negative number.
+        if !a_num && ai + 1 < a.len() {
+            a_num = a[ai] == '-' && digit(a[ai + 1]);
+            a_sign = -1;
+        }
+        if !b_num && bi + 1 < b.len() {
+            b_num = b[bi] == '-' && digit(b[bi + 1]);
+            b_sign = -1;
+        }
+        if a_num != b_num {
+            // A number against text: compare the first characters, then go on.
+            cmp = a[ai] as i64 - b[bi] as i64;
+            ai += 1;
+            bi += 1;
+        } else if a_num {
+            if a_sign != b_sign {
+                cmp = if a_sign == 1 { 1 } else { -1 };
+            } else {
+                if a_sign == -1 {
+                    ai += 1;
+                    bi += 1;
+                }
+                let end_of = |v: &[char], from: usize| v[from..].iter().position(|c| !digit(*c)).map_or(v.len(), |p| from + p);
+                let (a_end, b_end) = (end_of(&a, ai), end_of(&b, bi));
+                let (mut a_zeros, mut b_zeros) = (0i64, 0i64);
+                while ai < a.len() && a[ai] == '0' {
+                    a_zeros += 1;
+                    ai += 1;
+                }
+                while bi < b.len() && b[bi] == '0' {
+                    b_zeros += 1;
+                    bi += 1;
+                }
+                let (a_len, b_len) = (a_end.saturating_sub(ai), b_end.saturating_sub(bi));
+                if a_len != b_len {
+                    cmp = if a_len > b_len { a_sign } else { -a_sign };
+                } else {
+                    while cmp == 0 && ai < a.len() && digit(a[ai]) && bi < b.len() && digit(b[bi]) {
+                        cmp = (a[ai] as i64 - b[bi] as i64) * a_sign;
+                        ai += 1;
+                        bi += 1;
+                    }
+                    if cmp == 0 {
+                        cmp = b_zeros - a_zeros;
+                    }
+                }
+            }
+        } else {
+            // Both are text: up to the next digit or minus sign.
+            if a[ai] == '-' {
+                ai += 1;
+            }
+            if b[bi] == '-' {
+                bi += 1;
+            }
+            let chunk_end = |v: &[char], from: usize| v[from.min(v.len())..].iter().position(|c| digit(*c) || *c == '-').map_or(v.len(), |p| from.min(v.len()) + p);
+            let (a_end, b_end) = (chunk_end(&a, ai), chunk_end(&b, bi));
+            cmp = match a[ai.min(a.len())..a_end].cmp(&b[bi.min(b.len())..b_end]) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            };
+            ai = a_end;
+            bi = b_end;
+        }
+    }
+    cmp.cmp(&0)
+}
+
 pub fn sort_lines_by(text: &str, eol: &str, kind: SortKind, descending: bool) -> String {
     map_lines(text, eol, |mut l| {
         // Descending is a reversed comparison, so lines that compare equal keep their order.
@@ -82,9 +170,10 @@ pub fn sort_lines_by(text: &str, eol: &str, kind: SortKind, descending: bool) ->
         match kind {
             SortKind::Lexicographic => l.sort_by(|a, b| dir(a.cmp(b))),
             SortKind::IgnoreCase => l.sort_by(|a, b| dir(a.to_lowercase().cmp(&b.to_lowercase()))),
-            SortKind::Integer | SortKind::DecimalDot | SortKind::DecimalComma => {
+            SortKind::Integer => l.sort_by(|a, b| dir(natural_cmp(a, b))),
+            SortKind::DecimalDot | SortKind::DecimalComma => {
                 let comma = kind == SortKind::DecimalComma;
-                let integer = kind == SortKind::Integer;
+                let integer = false;
                 // Lines without a number sort first.
                 l.sort_by(|a, b| {
                     let (x, y) = (leading_number(a, comma, integer), leading_number(b, comma, integer));
@@ -853,7 +942,10 @@ mod tests {
     #[test]
     fn sort_kinds() {
         assert_eq!(sort_lines_by("b\nA\nc", "\n", SortKind::IgnoreCase, false), "A\nb\nc");
-        assert_eq!(sort_lines_by("10\n9\n100\nx", "\n", SortKind::Integer, false), "x\n9\n10\n100");
+        assert_eq!(sort_lines_by("10\n9\n100\nx", "\n", SortKind::Integer, false), "9\n10\n100\nx");
+        // Natural order: runs of digits compare by value, however long; text compares as text.
+        assert_eq!(sort_lines_by("item10\nitem2\nitem1\nitem-3\nitem007", "\n", SortKind::Integer, false), "item-3\nitem1\nitem2\nitem007\nitem10");
+        assert_eq!(sort_lines_by("99999999999999999999\n100000000000000000000\n5", "\n", SortKind::Integer, true), "100000000000000000000\n99999999999999999999\n5");
         assert_eq!(sort_lines_by("1.5\n1.25\n-2", "\n", SortKind::DecimalDot, true), "1.5\n1.25\n-2");
         assert_eq!(sort_lines_by("1,5\n1,25\n-2", "\n", SortKind::DecimalComma, false), "-2\n1,25\n1,5");
     }

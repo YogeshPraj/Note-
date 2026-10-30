@@ -168,3 +168,21 @@ fn pure_functions_never_panic() {
 fn r_i64(round: usize) -> i64 {
     (round as i64 % 2000) - 1000
 }
+
+#[test]
+fn natural_sort_never_panics_and_is_consistent() {
+    let mut r = Rng(0xDEAD_BEEF_CAFE_F00D);
+    let alphabet: Vec<char> = "0123456789--ab é".chars().collect();
+    let mut words: Vec<String> = Vec::new();
+    for _ in 0..300 {
+        let n = r.below(9);
+        words.push((0..n).map(|_| alphabet[r.below(alphabet.len())]).collect());
+    }
+    for a in &words {
+        assert_eq!(natural_cmp(a, a), std::cmp::Ordering::Equal, "{a:?}");
+        for b in &words {
+            // Swapping the arguments swaps the answer.
+            assert_eq!(natural_cmp(a, b), natural_cmp(b, a).reverse(), "{a:?} vs {b:?}");
+        }
+    }
+}

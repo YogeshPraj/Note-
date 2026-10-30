@@ -18,3 +18,5 @@ pub mod textools;
 pub mod view;
 pub mod whiteboard;
 pub mod workspace;
+#[cfg(test)]
+mod fuzz;

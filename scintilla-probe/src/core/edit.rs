@@ -560,15 +560,22 @@ pub fn stream_comment(text: &str, start: &str, end: &str) -> String {
 /// delimiters and the one blank inside each. Returns the byte range to replace and its new text.
 pub fn undo_stream_comment(text: &str, sel: (usize, usize), start: &str, end: &str) -> Option<(usize, usize, String)> {
     let around = |pos: usize| -> Option<(usize, usize)> {
-        let s = text[..(pos + start.len()).min(text.len())].rfind(start)?;
-        let e = pos + text[pos..].find(end)?;
+        // The start symbol may begin at the caret itself, so look that far ahead (on a character boundary).
+        let mut upto = (pos + start.len()).min(text.len());
+        while !text.is_char_boundary(upto) {
+            upto += 1;
+        }
+        let s = text[..upto].rfind(start)?;
+        // The end symbol must come after the start symbol (they can be the same, as with quotes).
+        let from = pos.max(s + start.len());
+        let e = from + text[from..].find(end)?;
         let end_before = text[..pos].rfind(end);
-        let start_after = text[pos..].find(start).map(|i| pos + i);
+        let start_after = text[from..].find(start).map(|i| from + i);
         (end_before.is_none_or(|x| s >= x) && start_after.is_none_or(|x| e <= x)).then_some((s, e))
     };
     let (s, e) = around(sel.0).or_else(|| around(sel.1)).or_else(|| {
         let s = sel.0 + text[sel.0..].find(start)?;
-        let e = s + text[s..].find(end)?;
+        let e = s + start.len() + text[s + start.len()..].find(end)?;
         (s < sel.1 && e > sel.0).then_some((s, e))
     })?;
     let inner = &text[s + start.len()..e];

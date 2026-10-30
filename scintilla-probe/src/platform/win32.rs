@@ -2079,10 +2079,10 @@ impl App {
             ID_ABOUT => {
                 let build = if cfg!(debug_assertions) { "debug" } else { "release" };
                 let t = format!(
-                    "Note++ (native)\n\
+                    "Note++\n\
                      Version {} ({build} build)\n\n\
                      A developer-focused text editor in Rust, built on the Scintilla editing component \
-                     and Lexilla lexers. It is the native counterpart of the Note++ Electron app (v1.9.0).\n\n\
+                     and Lexilla lexers.\n\n\
                      Author: Yogesh Prajapati\n\
                      https://github.com/YogeshPraj/Note-\n\n\
                      Components:\n\

@@ -3150,7 +3150,7 @@ impl App {
         if !upgraded {
             return;
         }
-        let text = "Experience the native power.";
+        let text = "Note++ is rewritten in Rust and built on native code, bringing stronger security, the functionality you rely on and better performance.";
         dialogs::message(self.ui.host, &format!("Welcome to Note++ {}", update::VERSION), text, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
     }
 

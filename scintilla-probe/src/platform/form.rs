@@ -70,6 +70,10 @@ pub struct Form {
 }
 
 impl Form {
+    /// The native window of control id.
+    pub fn handle(&self, id: usize) -> Option<HWND> {
+        self.controls.get(&id).copied()
+    }
     /// The form window, for dialogs opened on top of it.
     pub fn hwnd(&self) -> HWND {
         self.hwnd

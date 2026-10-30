@@ -183,6 +183,16 @@ fn number(s: &str, fallback: i32) -> i32 {
 pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
     const FONT: usize = 101;
     const SIZE: usize = 102;
+    const FONT_PICK: usize = 130;
+    fn on_click(f: &Form, id: usize) {
+        if id == FONT_PICK {
+            let size = f.text(SIZE).trim().parse().unwrap_or(11);
+            if let Some((name, pt)) = pick_font(f.hwnd(), f.text(FONT).trim(), size) {
+                f.set_text(FONT, &name);
+                f.set_text(SIZE, &pt.to_string());
+            }
+        }
+    }
     const TAB: usize = 103;
     const SPACES: usize = 104;
     const EDGE: usize = 105;
@@ -207,7 +217,8 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
         ctls: vec![
             ctl(1000, Kind::Group, "Editor", 12, 8, 416, 118),
             ctl(1001, Kind::Label, "Font:", 24, 32, 56, 18),
-            ctl(FONT, Kind::Edit, &cur.font, 84, 29, 180, 22),
+            ctl(FONT, Kind::Edit, &cur.font, 84, 29, 146, 22),
+            ctl(FONT_PICK, Kind::Button, "...", 234, 28, 30, 24),
             ctl(1002, Kind::Label, "Size:", 282, 32, 36, 18),
             ctl(SIZE, Kind::Edit, &cur.font_size.to_string(), 322, 29, 50, 22),
             ctl(1003, Kind::Label, "Tab size:", 24, 62, 60, 18),
@@ -237,7 +248,7 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
             ctl(REMOTE, Kind::Check, "Load images from the web (applies after restart)", 24, 378, 380, 20),
         ],
         ok: "OK",
-        on_change: None,
+        on_change: Some(on_click),
         on_apply: None,
     };
     let v = form::run(host, spec, |f| {
@@ -302,6 +313,32 @@ pub struct StyleEdit {
     pub reset: bool,
     /// (role key, "#RRGGBB" as typed) for every role.
     pub entered: Vec<(&'static str, String)>,
+}
+
+/// The system font dialog; returns (family, size in points).
+fn pick_font(owner: HWND, family: &str, size: i32) -> Option<(String, i32)> {
+    use windows::Win32::Graphics::Gdi::LOGFONTW;
+    use windows::Win32::UI::Controls::Dialogs::{CF_INITTOLOGFONTSTRUCT, CF_NOSCRIPTSEL, CF_SCREENFONTS, CF_TTONLY, CHOOSEFONTW, ChooseFontW};
+    let mut lf = LOGFONTW::default();
+    for (i, c) in family.encode_utf16().take(31).enumerate() {
+        lf.lfFaceName[i] = c;
+    }
+    lf.lfHeight = -(size * 96 + 36) / 72; // so the dialog preselects the current size
+    lf.lfCharSet = windows::Win32::Graphics::Gdi::FONT_CHARSET(1);
+    let mut cf = CHOOSEFONTW {
+        lStructSize: size_of::<CHOOSEFONTW>() as u32,
+        hwndOwner: owner,
+        lpLogFont: &mut lf,
+        iPointSize: size * 10,
+        Flags: CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_NOSCRIPTSEL | CF_TTONLY,
+        ..Default::default()
+    };
+    if !unsafe { ChooseFontW(&mut cf) }.as_bool() {
+        return None;
+    }
+    let end = lf.lfFaceName.iter().position(|c| *c == 0).unwrap_or(lf.lfFaceName.len());
+    let name = String::from_utf16_lossy(&lf.lfFaceName[..end]);
+    (!name.is_empty()).then_some((name, (cf.iPointSize / 10).clamp(6, 72)))
 }
 
 fn pick_color(owner: HWND, start: (u8, u8, u8)) -> Option<(u8, u8, u8)> {
@@ -440,6 +477,47 @@ fn mapper_click(f: &Form, id: usize) {
     }
 }
 
+/// The shortcut box records the key combination pressed in it instead of taking typed text.
+unsafe extern "system" fn capture_proc(hwnd: HWND, msg: u32, wp: windows::Win32::Foundation::WPARAM, lp: windows::Win32::Foundation::LPARAM, _id: usize, _data: usize) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
+    use windows::Win32::UI::WindowsAndMessaging::SetWindowTextW;
+    use windows::core::{PCWSTR, w};
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    const WM_KEYDOWN: u32 = 0x100;
+    const WM_CHAR: u32 = 0x102;
+    const WM_SYSKEYDOWN: u32 = 0x104;
+    const WM_SYSCHAR: u32 = 0x106;
+    let down = |vk: i32| unsafe { GetKeyState(vk) } < 0;
+    match msg {
+        WM_KEYDOWN | WM_SYSKEYDOWN => {
+            let vk = wp.0 as u16;
+            let (ctrl, alt, shift) = (down(0x11), down(0x12), down(0x10));
+            let bare = !ctrl && !alt && !shift;
+            match vk {
+                0x10 | 0x11 | 0x12 | 0x5B | 0x5C => return LRESULT(0), // a modifier on its own
+                0x09 | 0x0D | 0x1B if bare => {}                       // keep Tab / Enter / Esc working
+                0x08 | 0x2E if bare => {
+                    unsafe { let _ = SetWindowTextW(hwnd, w!("")); }
+                    return LRESULT(0);
+                }
+                _ => {
+                    let chord = shortcuts::Chord { ctrl, alt, shift, vk };
+                    let text = shortcuts::format(&chord);
+                    if shortcuts::parse(&text).is_some_and(|c| c == chord) {
+                        let t: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+                        unsafe { let _ = SetWindowTextW(hwnd, PCWSTR(t.as_ptr())); }
+                    }
+                    return LRESULT(0);
+                }
+            }
+        }
+        WM_CHAR | WM_SYSCHAR if !matches!(wp.0, 9 | 13 | 27) => return LRESULT(0),
+        _ => {}
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
+}
+
 /// Settings > Shortcut Mapper. Returns the edited rows on OK.
 pub fn shortcut_mapper(host: HWND, rows: Vec<MapRow>) -> Option<Vec<MapRow>> {
     ROWS.with(|r| *r.borrow_mut() = rows);
@@ -453,7 +531,7 @@ pub fn shortcut_mapper(host: HWND, rows: Vec<MapRow>) -> Option<Vec<MapRow>> {
             ctl(102, Kind::Button, "Set", 280, 362, 64, 26),
             ctl(103, Kind::Button, "Clear", 350, 362, 64, 26),
             ctl(104, Kind::Button, "Reset all", 420, 362, 80, 26),
-            ctl(105, Kind::Label, "Select a command, type a shortcut such as Ctrl+Shift+K, and press Set.", 12, 396, 576, 18),
+            ctl(105, Kind::Label, "Select a command, click the Shortcut box, press the keys you want, then press Set.", 12, 396, 576, 18),
         ],
         ok: "OK",
         on_change: Some(mapper_click),
@@ -462,6 +540,9 @@ pub fn shortcut_mapper(host: HWND, rows: Vec<MapRow>) -> Option<Vec<MapRow>> {
     let accepted = form::run(host, spec, |f| {
         let rows: Vec<Vec<String>> = ROWS.with(|r| r.borrow().iter().map(|row| vec![row.name.clone(), row.current.clone()]).collect());
         f.list_fill(100, &[("Command", 380), ("Shortcut", 170)], &rows);
+        if let Some(h) = f.handle(101) {
+            unsafe { let _ = windows::Win32::UI::Shell::SetWindowSubclass(h, Some(capture_proc), 7, 0); }
+        }
     });
     accepted.map(|_| ROWS.with(|r| r.borrow().clone()))
 }

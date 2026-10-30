@@ -1639,8 +1639,20 @@ impl<S: Send> Workspace<S> {
 
     // ---- sessions ----------------------------------------------------------
 
-    pub fn snapshot(&mut self) -> Session {
-        self.remember_view();
+    /// A cheap fingerprint of what a session snapshot would hold (the tabs, which one is active
+    /// and how much unsaved text there is), so identical snapshots can be skipped.
+    pub fn session_fingerprint(&self) -> (usize, usize, usize, u64) {
+        let (mut unsaved, mut ids) = (0usize, 0u64);
+        for i in 0..self.tabs.len() {
+            ids = ids.wrapping_mul(31).wrapping_add(self.tabs[i].id);
+            if self.is_dirty(i) || self.tabs[i].path.is_none() {
+                unsaved += self.doc_length(i);
+            }
+        }
+        (self.tabs.len(), self.active, unsaved, ids)
+    }
+
+    pub fn snapshot(&mut self) -> Session {        self.remember_view();
         let cur = self.active;
         // Reading hidden tabs means swapping documents in; put back whatever was showing.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);

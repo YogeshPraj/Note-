@@ -77,7 +77,13 @@ pub fn settings_path() -> PathBuf {
 
 impl Settings {
     pub fn load() -> Settings {
-        std::fs::read_to_string(settings_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        let path = settings_path();
+        let Ok(text) = std::fs::read_to_string(&path) else { return Settings::default() };
+        serde_json::from_str(&text).unwrap_or_else(|_| {
+            // Keep what the user had: the next save would otherwise overwrite it with defaults.
+            let _ = std::fs::copy(&path, path.with_extension("json.bad"));
+            Settings::default()
+        })
     }
 
     pub fn save(&self) -> std::io::Result<()> {

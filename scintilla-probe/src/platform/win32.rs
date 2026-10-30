@@ -227,6 +227,7 @@ const ID_LTR: usize = 3211;
 const ID_MONITOR: usize = 3212;
 const TIMER_MONITOR: usize = 2;
 const TIMER_EXTERNAL: usize = 3;
+const TIMER_SESSION: usize = 4;
 // Settings and Tools menus
 const ID_PREFS: usize = 3301;
 const ID_STYLE_CFG: usize = 3302;
@@ -2972,6 +2973,19 @@ impl App {
         let s = self.ws.snapshot();
         let _ = s.save(&session_path());
     }
+
+    /// Periodic snapshot, so a crash or power cut loses at most a few seconds of unsaved text.
+    fn autosave_session(&mut self) {
+        thread_local! {
+            static LAST: Cell<(usize, usize, usize, u64)> = const { Cell::new((usize::MAX, 0, 0, 0)) };
+        }
+        let key = self.ws.session_fingerprint();
+        // Very large unsaved buffers are left to the normal save at exit.
+        if key.2 > 50_000_000 || LAST.with(|c| c.replace(key)) == key {
+            return;
+        }
+        self.save_session();
+    }
 }
 
 // ---- layout ------------------------------------------------------------------
@@ -3256,6 +3270,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             with_app(|a| {
                 a.ws.scroll_to_line(l.0.max(0) as usize);
             });
+            LRESULT(0)
+        }
+        WM_TIMER if w.0 == TIMER_SESSION => {
+            with_app(|a| a.autosave_session());
+            LRESULT(0)
+        }
+        // Logging off or shutting down ends the process without a WM_CLOSE: keep the session.
+        0x0016 => {
+            if w.0 != 0 {
+                with_app(|a| a.save_session());
+            }
             LRESULT(0)
         }
         WM_TIMER if w.0 == TIMER_EXTERNAL => {
@@ -4312,6 +4337,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         layout();
         with_app(|a| a.refresh());
         SetTimer(Some(hs.host), TIMER_EXTERNAL, 2000, None);
+        SetTimer(Some(hs.host), TIMER_SESSION, 10_000, None);
         // Files dropped on the window open as tabs; the editor has its own file-accepting drop target.
         windows::Win32::UI::Shell::DragAcceptFiles(hs.host, true);
         super::filedrop::install(hs.edit, hs.host);

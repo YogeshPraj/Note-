@@ -3392,8 +3392,7 @@ fn layout() {
         // Folder workspace tree on the far left; everything below uses the space to its right.
         let distraction = DISTRACTION.with(|c| c.get());
         let tree_w = if TREE_ON.with(|c| c.get()) && !distraction { tree::WIDTH.min(w / 2) } else { 0 };
-        let _ = ShowWindow(h.tree, if tree_w > 0 { SW_SHOW } else { SW_HIDE });
-        mv(h.tree, 0, top, tree_w, area_h);
+        tree::place(0, top, tree_w, area_h, tree_w > 0);
         let (x0, w) = (tree_w, w - tree_w);
         let side_w = if sidepanel::mode().is_some() && !distraction { sidepanel::WIDTH.min(w / 3) } else { 0 };
         let _ = ShowWindow(h.side, if side_w > 0 { SW_SHOW } else { SW_HIDE });

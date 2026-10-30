@@ -7,7 +7,8 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -16,6 +17,10 @@ use windows::core::{PWSTR, w};
 use super::chrome::ui_font_handle;
 
 pub const WIDTH: i32 = 260;
+/// Height of the bar above the tree (folder name and the close button).
+const HEADER_H: i32 = 26;
+/// The command the close button sends (View > Folder as Workspace toggles the pane).
+const CLOSE_ID: usize = 3007;
 /// Folders that are never worth listing.
 const HIDDEN: [&str; 1] = [".git"];
 const MAX_PER_DIR: usize = 5000;
@@ -27,6 +32,9 @@ struct Entry {
 }
 
 thread_local! {
+    static HEADER: Cell<Option<HWND>> = const { Cell::new(None) };
+    static TITLE: RefCell<String> = const { RefCell::new(String::new()) };
+    static CLOSE_HOT: Cell<bool> = const { Cell::new(false) };
     static TREE: Cell<Option<HWND>> = const { Cell::new(None) };
     static ENTRIES: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
 }
@@ -35,8 +43,125 @@ pub fn hwnd() -> Option<HWND> {
     TREE.with(|c| c.get())
 }
 
+fn close_rect(w: i32) -> RECT {
+    RECT { left: w - 26, top: 3, right: w - 4, bottom: HEADER_H - 3 }
+}
+
+unsafe extern "system" fn header_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    let at = |lp: LPARAM| ((lp.0 & 0xFFFF) as i16 as i32, ((lp.0 >> 16) & 0xFFFF) as i16 as i32);
+    let mut rc = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+    }
+    let on_close = |x: i32, y: i32| {
+        let c = close_rect(rc.right);
+        x >= c.left && x < c.right && y >= c.top && y < c.bottom
+    };
+    match msg {
+        WM_ERASEBKGND => LRESULT(1),
+        WM_PAINT => unsafe {
+            let mut ps = PAINTSTRUCT::default();
+            let dc = BeginPaint(hwnd, &mut ps);
+            let p = super::modern::pal();
+            let bg = CreateSolidBrush(super::modern::colorref(p.card));
+            FillRect(dc, &rc, bg);
+            let _ = DeleteObject(bg.into());
+            let line = CreateSolidBrush(super::modern::colorref(p.disabled));
+            FillRect(dc, &RECT { left: 0, top: rc.bottom - 1, right: rc.right, bottom: rc.bottom }, line);
+            let _ = DeleteObject(line.into());
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, super::modern::colorref(p.text));
+            let old = SelectObject(dc, ui_font_handle().into());
+            let mut title: Vec<u16> = TITLE.with(|t| t.borrow().to_uppercase()).encode_utf16().collect();
+            let mut tr = RECT { left: 10, top: 0, right: rc.right - 30, bottom: rc.bottom - 1 };
+            DrawTextW(dc, &mut title, &mut tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            // The close button: a cross, with a soft square under it while the pointer is over it.
+            let c = close_rect(rc.right);
+            if CLOSE_HOT.with(|h| h.get()) {
+                let hot = CreateSolidBrush(super::modern::colorref(if p.bg.0 < 0x80 { (0x45, 0x45, 0x45) } else { (0xD8, 0xD8, 0xD8) }));
+                FillRect(dc, &c, hot);
+                let _ = DeleteObject(hot.into());
+            }
+            let pen = CreatePen(PS_SOLID, 1, super::modern::colorref(p.text));
+            let op = SelectObject(dc, pen.into());
+            let (cx, cy) = ((c.left + c.right) / 2, (c.top + c.bottom) / 2);
+            let _ = MoveToEx(dc, cx - 4, cy - 4, None);
+            let _ = LineTo(dc, cx + 5, cy + 5);
+            let _ = MoveToEx(dc, cx + 4, cy - 4, None);
+            let _ = LineTo(dc, cx - 5, cy + 5);
+            SelectObject(dc, op);
+            let _ = DeleteObject(pen.into());
+            SelectObject(dc, old);
+            let _ = EndPaint(hwnd, &ps);
+            LRESULT(0)
+        },
+        WM_MOUSEMOVE => {
+            let (x, y) = at(lp);
+            let hot = on_close(x, y);
+            if CLOSE_HOT.with(|h| h.replace(hot)) != hot {
+                unsafe {
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                    use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT};
+                    let mut t = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+                    let _ = windows::Win32::UI::Input::KeyboardAndMouse::TrackMouseEvent(&mut t);
+                }
+            }
+            LRESULT(0)
+        }
+        0x02A3 => {
+            // WM_MOUSELEAVE
+            CLOSE_HOT.with(|h| h.set(false));
+            unsafe {
+                let _ = InvalidateRect(Some(hwnd), None, false);
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONUP => {
+            let (x, y) = at(lp);
+            if on_close(x, y) {
+                unsafe {
+                    if let Ok(host) = GetParent(hwnd) {
+                        let _ = PostMessageW(Some(host), WM_COMMAND, WPARAM(CLOSE_ID), LPARAM(0));
+                    }
+                }
+            }
+            LRESULT(0)
+        }
+        _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    }
+}
+
+/// Position the pane: the bar on top, the tree under it. `show` false hides both.
+pub fn place(x: i32, y: i32, w: i32, h: i32, show: bool) {
+    let cmd = if show { SW_SHOW } else { SW_HIDE };
+    unsafe {
+        if let Some(hd) = HEADER.with(|c| c.get()) {
+            let _ = MoveWindow(hd, x, y, w.max(0), HEADER_H, true);
+            let _ = ShowWindow(hd, cmd);
+        }
+        if let Some(t) = hwnd() {
+            let _ = MoveWindow(t, x, y + HEADER_H, w.max(0), (h - HEADER_H).max(0), true);
+            let _ = ShowWindow(t, cmd);
+        }
+    }
+}
+
 pub fn create(host: HWND) -> HWND {
     unsafe {
+        let hinst = GetModuleHandleW(None).unwrap();
+        let mut wc = WNDCLASSW::default();
+        if GetClassInfoW(Some(hinst.into()), w!("NoteppTreeHeader"), &mut wc).is_err() {
+            RegisterClassW(&WNDCLASSW {
+                lpfnWndProc: Some(header_proc),
+                hInstance: hinst.into(),
+                lpszClassName: w!("NoteppTreeHeader"),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                ..Default::default()
+            });
+        }
+        if let Ok(hd) = CreateWindowExW(WINDOW_EX_STYLE::default(), w!("NoteppTreeHeader"), None, WS_CHILD | WS_CLIPSIBLINGS, 0, 0, WIDTH, HEADER_H, Some(host), None, Some(hinst.into()), None) {
+            HEADER.with(|c| c.set(Some(hd)));
+        }
         let _ = InitCommonControlsEx(&INITCOMMONCONTROLSEX {
             dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_TREEVIEW_CLASSES,
@@ -139,6 +264,12 @@ pub fn set_root(root: &Path) {
     }
     ENTRIES.with(|e| e.borrow_mut().clear());
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| root.display().to_string());
+    TITLE.with(|t| *t.borrow_mut() = name.clone());
+    if let Some(hd) = HEADER.with(|c| c.get()) {
+        unsafe {
+            let _ = InvalidateRect(Some(hd), None, true);
+        }
+    }
     if let Some(item) = insert(None, root, true, &name) {
         load_children(item, 0);
         unsafe {

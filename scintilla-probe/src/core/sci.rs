@@ -304,7 +304,8 @@ impl Default for Theme {
 
 /// Everything Notepad++ shows by default, applied through the portable API.
 pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
-    let f = CString::new(font).unwrap();
+    // A NUL in a hand-edited settings file must not take the whole app down.
+    let f = CString::new(font.replace('\0', "")).unwrap_or_default();
 
     sci.send(SCI_SETCODEPAGE, SC_CP_UTF8 as usize, 0);
     sci.send(SCI_STYLESETFONT, STYLE_DEFAULT, f.as_ptr() as isize);

@@ -49,7 +49,11 @@ fn main() -> windows::core::Result<()> {
         core::session::set_standalone();
         args.retain(|a| a != "--new-instance");
     }
-    let files = args.into_iter().map(std::path::PathBuf::from).collect();
+    let files: Vec<std::path::PathBuf> = args.into_iter().map(std::path::PathBuf::from).collect();
+    // One Note++ per user: if one is already running, give it the files and stop.
+    if !core::session::standalone() && platform::win32::hand_over_to_running(&files) {
+        return Ok(());
+    }
     let (handles, menus) = platform::win32::create_window("Note++", 1200, 800)?;
     platform::win32::run(handles, menus, files);
     Ok(())

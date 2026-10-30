@@ -2817,6 +2817,29 @@ impl App {
         }
     }
 
+    /// Open files handed to this window: from a second launch or dropped onto it. Folders
+    /// become the workspace.
+    fn open_from_outside(&mut self, paths: &[PathBuf]) {
+        {
+            let App { ws, ui, .. } = self;
+            for p in paths {
+                if p.is_dir() {
+                    open_workspace(ws, p.clone());
+                } else {
+                    ws.open_path(ui, p);
+                }
+            }
+        }
+        self.refresh();
+        self.focus_active();
+        unsafe {
+            if IsIconic(self.ui.host).as_bool() {
+                let _ = ShowWindow(self.ui.host, SW_RESTORE);
+            }
+            let _ = SetForegroundWindow(self.ui.host);
+        }
+    }
+
     fn check_external(&mut self) {
         let App { ws, ui, .. } = self;
         if ws.check_external(ui) {
@@ -3360,6 +3383,37 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
         }
         WM_REFRESH => {
             with_app(|a| a.refresh());
+            LRESULT(0)
+        }
+        WM_COPYDATA => {
+            // Files from a second launch (see `hand_over_to_running`).
+            let cds = unsafe { &*(l.0 as *const windows::Win32::System::DataExchange::COPYDATASTRUCT) };
+            if cds.dwData != COPY_TAG || cds.lpData.is_null() || cds.cbData % 2 != 0 {
+                return LRESULT(0);
+            }
+            let units = unsafe { std::slice::from_raw_parts(cds.lpData as *const u16, cds.cbData as usize / 2) };
+            let paths: Vec<PathBuf> = String::from_utf16_lossy(units).split('\n').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
+            with_app(|a| a.open_from_outside(&paths));
+            LRESULT(1)
+        }
+        super::filedrop::WM_FILES_DROPPED => {
+            let paths = super::filedrop::take();
+            with_app(|a| a.open_from_outside(&paths));
+            LRESULT(0)
+        }
+        WM_DROPFILES => {
+            use windows::Win32::UI::Shell::{DragFinish, DragQueryFileW, HDROP};
+            let drop = HDROP(w.0 as *mut core::ffi::c_void);
+            let n = unsafe { DragQueryFileW(drop, u32::MAX, None) };
+            let mut paths = Vec::new();
+            for i in 0..n {
+                let len = unsafe { DragQueryFileW(drop, i, None) } as usize;
+                let mut buf = vec![0u16; len + 1];
+                let got = unsafe { DragQueryFileW(drop, i, Some(&mut buf)) } as usize;
+                paths.push(PathBuf::from(String::from_utf16_lossy(&buf[..got])));
+            }
+            unsafe { DragFinish(drop) };
+            with_app(|a| a.open_from_outside(&paths));
             LRESULT(0)
         }
         WM_CLOSE => {
@@ -4164,7 +4218,45 @@ pub fn create_window(title: &str, w: i32, h: i32) -> windows::core::Result<(Hand
     }
 }
 
-/// Build the workspace, restore the last session, open `files`, and run the message loop.
+/// Tag on the WM_COPYDATA a second launch sends to the running Note++.
+const COPY_TAG: usize = 0x4E50_4F50;
+
+/// One Note++ per user, like Notepad++: a second launch hands its files to the running copy and
+/// exits. Returns true when the files were handed over, so the caller should quit.
+pub fn hand_over_to_running(files: &[PathBuf]) -> bool {
+    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use windows::Win32::System::DataExchange::COPYDATASTRUCT;
+    use windows::Win32::System::Threading::CreateMutexW;
+    unsafe {
+        let Ok(mutex) = CreateMutexW(None, true, w!("Local\\NotePlusPlusNative.SingleInstance")) else { return false };
+        if GetLastError() != ERROR_ALREADY_EXISTS {
+            let _ = mutex; // the handle stays open until this process ends
+            return false;
+        }
+        // The first copy may still be opening its window.
+        let mut host = None;
+        for _ in 0..40 {
+            if let Ok(h) = FindWindowW(w!("NoteppHost"), PCWSTR::null()) {
+                host = Some(h);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let Some(host) = host else { return false };
+        let list: Vec<String> = files.iter().map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone()).to_string_lossy().into_owned()).collect();
+        let text: Vec<u16> = list.join("\n").encode_utf16().collect();
+        let cds = COPYDATASTRUCT { dwData: COPY_TAG, cbData: (text.len() * 2) as u32, lpData: text.as_ptr() as *mut core::ffi::c_void };
+        let mut result = 0usize;
+        let _ = SendMessageTimeoutW(host, WM_COPYDATA, WPARAM(0), LPARAM(&cds as *const _ as isize), SMTO_ABORTIFHUNG, 5000, Some(&mut result));
+        if IsIconic(host).as_bool() {
+            let _ = ShowWindow(host, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(host);
+        true
+    }
+}
+
+/// Build the workspace, restore the last session, open ``files``, and run the message loop.
 pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
     let ui = Win32Ui { host: hs.host };
     let mut ws = Workspace::new(Win32Sci(hs.edit));
@@ -4201,6 +4293,9 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         layout();
         with_app(|a| a.refresh());
         SetTimer(Some(hs.host), TIMER_EXTERNAL, 2000, None);
+        // Files dropped on the window open as tabs; the editor has its own file-accepting drop target.
+        windows::Win32::UI::Shell::DragAcceptFiles(hs.host, true);
+        super::filedrop::install(hs.edit, hs.host);
         let _ = ShowWindow(hs.host, SW_SHOW);
         let _ = SetFocus(Some(hs.edit));
 

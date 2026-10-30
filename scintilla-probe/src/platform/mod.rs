@@ -14,6 +14,7 @@ pub mod form;
 #[cfg(target_os = "windows")]
 pub mod incsearch;
 #[cfg(target_os = "windows")]
+pub mod filedrop;
 pub mod mdbar;
 #[cfg(target_os = "windows")]
 pub mod modern;

@@ -27,6 +27,10 @@ pub struct Opts {
     pub wrap: bool,
     /// Regex only: `.` also matches line breaks.
     pub dot_all: bool,
+    /// Extended search mode: `\n \r \t \0 \xHH \dNNN \oNNN \bBBBBBBBB \uHHHH` in the text stand for characters.
+    pub extended: bool,
+    /// Count, Find All, Replace All and Mark All only look inside the current selection.
+    pub in_selection: bool,
 }
 
 /// One search result: where it is and the line it is on.
@@ -52,13 +56,68 @@ type Span = (usize, usize);
 
 // ---- pure engine ----------------------------------------------------------
 
+/// Expand the escapes of Notepad++'s Extended search mode.
+pub fn unescape_ext(s: &str) -> String {
+    let mut out = String::new();
+    let mut it = s.chars().peekable();
+    // Up to max digits of adix, as a character.
+    fn number(it: &mut std::iter::Peekable<std::str::Chars<'_>>, radix: u32, max: usize) -> Option<char> {
+        let mut n = 0u32;
+        let mut got = 0;
+        while got < max {
+            match it.peek().and_then(|c| c.to_digit(radix)) {
+                Some(d) => {
+                    n = n * radix + d;
+                    it.next();
+                    got += 1;
+                }
+                None => break,
+            }
+        }
+        if got == 0 { None } else { char::from_u32(n) }
+    }
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match it.peek().copied() {
+            Some('n') => { it.next(); out.push('\n') }
+            Some('r') => { it.next(); out.push('\r') }
+            Some('t') => { it.next(); out.push('\t') }
+            Some('0') => { it.next(); out.push('\0') }
+            Some('\\') => { it.next(); out.push('\\') }
+            Some(k @ ('x' | 'd' | 'o' | 'b' | 'u')) => {
+                it.next();
+                let (radix, max) = match k {
+                    'x' => (16, 2),
+                    'd' => (10, 3),
+                    'o' => (8, 3),
+                    'b' => (2, 8),
+                    _ => (16, 4),
+                };
+                match number(&mut it, radix, max) {
+                    Some(ch) => out.push(ch),
+                    None => {
+                        out.push('\\');
+                        out.push(k);
+                    }
+                }
+            }
+            _ => out.push('\\'),
+        }
+    }
+    out
+}
+
 pub fn compile(o: &Opts) -> Result<Regex, String> {
-    let body = if o.regex { o.find.clone() } else { fancy_regex::escape(&o.find).into_owned() };
+    let literal = if o.extended { unescape_ext(&o.find) } else { o.find.clone() };
+    let body = if o.regex { o.find.clone() } else { fancy_regex::escape(&literal).into_owned() };
     // Whole word: no word character may touch the match. An edge that is itself punctuation
     // (such as "@name" or "f()") has nothing to separate from, as in Scintilla's whole-word search.
     let body = if o.whole_word {
         let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-        let (before, after) = if o.regex { (true, true) } else { (is_word(o.find.chars().next()), is_word(o.find.chars().next_back())) };
+        let (before, after) = if o.regex { (true, true) } else { (is_word(literal.chars().next()), is_word(literal.chars().next_back())) };
         format!("{}(?:{body}){}", if before { r"(?<!\w)" } else { "" }, if after { r"(?!\w)" } else { "" })
     } else {
         body
@@ -161,8 +220,9 @@ pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, St
 
 /// Every match in the current document, for the "Find All" results list.
 pub fn find_all<S: Send>(s: &S, o: &Opts) -> Result<Vec<Hit>, String> {
+    let range = limit(s, o);
     match prepare(s, o) {
-        Ok((text, re)) => Ok(hits_in_text(&text, &re, None)),
+        Ok((text, re)) => Ok(hits_in_text(&text, &re, None).into_iter().filter(|h| inside(range, (h.start, h.end))).collect()),
         Err(e) if e.is_empty() => Ok(Vec::new()),
         Err(e) => Err(e),
     }
@@ -263,7 +323,7 @@ pub fn expand(rep: &str, caps: &Captures<'_, str>) -> String {
 }
 fn replacement_for(text: &str, re: &Regex, o: &Opts, span: Span) -> String {
     if !o.regex {
-        return o.replace.clone();
+        return if o.extended { unescape_ext(&o.replace) } else { o.replace.clone() };
     }
     match re.captures_from_pos(text, span.0) {
         Ok(Some(c)) => expand(&o.replace, &c),
@@ -278,6 +338,19 @@ pub fn replacements(text: &str, o: &Opts) -> Result<Vec<(usize, usize, String)>,
 }
 
 // ---- Scintilla-facing -----------------------------------------------------
+
+/// The selection when the options say to search only inside it (and one exists).
+fn limit<S: Send>(s: &S, o: &Opts) -> Option<Span> {
+    if !o.in_selection {
+        return None;
+    }
+    let (a, b) = selection(s);
+    (b > a).then_some((a, b))
+}
+
+fn inside(range: Option<Span>, m: Span) -> bool {
+    range.is_none_or(|(a, b)| m.0 >= a && m.1 <= b)
+}
 
 fn select<S: Send>(s: &S, a: usize, b: usize) {
     let line = s.send(sci::SCI_LINEFROMPOSITION, a, 0);
@@ -354,7 +427,8 @@ pub fn replace_all<S: Send>(s: &S, o: &Opts) -> Result<usize, String> {
     if o.find.is_empty() {
         return Ok(0);
     }
-    let reps = replacements(&sci::get_text(s), o)?;
+    let range = limit(s, o);
+    let reps: Vec<_> = replacements(&sci::get_text(s), o)?.into_iter().filter(|r| inside(range, (r.0, r.1))).collect();
     s.send(sci::SCI_BEGINUNDOACTION, 0, 0);
     for (a, b, with) in reps.iter().rev() {
         replace_range(s, *a, *b, with);
@@ -364,8 +438,9 @@ pub fn replace_all<S: Send>(s: &S, o: &Opts) -> Result<usize, String> {
 }
 
 pub fn count<S: Send>(s: &S, o: &Opts) -> Result<usize, String> {
+    let range = limit(s, o);
     match prepare(s, o) {
-        Ok((text, re)) => Ok(all_matches(&text, &re).len()),
+        Ok((text, re)) => Ok(all_matches(&text, &re).into_iter().filter(|m| inside(range, *m)).count()),
         Err(e) if e.is_empty() => Ok(0),
         Err(e) => Err(e),
     }
@@ -388,7 +463,8 @@ fn fill_marks<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, Strin
         Err(e) if e.is_empty() => return Ok(0),
         Err(e) => return Err(e),
     };
-    let marks = all_matches(&text, &re);
+    let range = limit(s, o);
+    let marks: Vec<Span> = all_matches(&text, &re).into_iter().filter(|m| inside(range, *m)).collect();
     s.send(sci::SCI_SETINDICATORCURRENT, indicator, 0);
     for (a, b) in &marks {
         s.send(sci::SCI_INDICATORFILLRANGE, *a, (*b - *a) as isize);
@@ -817,6 +893,21 @@ mod tests {
     fn crlf_anchor_with_lookaround() {
         let re = compile(&Opts { regex: true, find: r"(?<=a)b$".into(), ..Default::default() }).unwrap();
         assert_eq!(all_matches("ab\r\ncb\r\n", &re), vec![(1, 2)]);
+    }
+
+    #[test]
+    fn extended_mode_escapes() {
+        assert_eq!(unescape_ext(r"a\tb\n\x41\d066\o103\u00e9\0"), "a\tb\nABC\u{e9}\0");
+        assert_eq!(unescape_ext(r"\\n"), "\\n");
+        assert_eq!(unescape_ext(r"\q"), r"\q");
+        let re = compile(&Opts { extended: true, find: r"a\nb".into(), ..Default::default() }).unwrap();
+        assert_eq!(all_matches("a\nb a b", &re).len(), 1);
+        let re = compile(&Opts { extended: true, find: r"two\r\nthree".into(), ..Default::default() }).unwrap();
+        assert_eq!(all_matches("one two\r\nthree one\r\n", &re), vec![(4, 14)]);
+        let full = Opts { extended: true, find: r"two\r\nthree".into(), replace: r"2\t3".into(), wrap: true, ..Default::default() };
+        assert_eq!(replacements("one two\r\nthree one\r\n", &full).unwrap(), vec![(4, 14, "2\t3".to_string())]);
+        let o = Opts { extended: true, find: "x".into(), replace: r"1\t2".into(), ..Default::default() };
+        assert_eq!(replacements("x", &o).unwrap()[0].2, "1\t2");
     }
 
     #[test]

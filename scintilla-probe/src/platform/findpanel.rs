@@ -43,6 +43,8 @@ const C_WORD: usize = 6011;
 const C_WRAP: usize = 6012;
 const C_REGEX: usize = 6013;
 const C_DOT: usize = 6014;
+const C_EXT: usize = 6015;
+const C_INSEL: usize = 6016;
 const C_STATUS: usize = 6030;
 const C_LIST: usize = 6031;
 const C_TAB: usize = 6050; // + 0..3: Find, Replace, Find in Files, Mark
@@ -79,6 +81,8 @@ struct Panel {
     wrap: HWND,
     regex: HWND,
     dot: HWND,
+    ext: HWND,
+    insel: HWND,
     next: HWND,
     prev: HWND,
     findall: HWND,
@@ -276,6 +280,8 @@ pub fn create(host: HWND) {
             wrap: check("Wrap around", C_WRAP),
             regex: check("Regular expression", C_REGEX),
             dot: check(". matches newline", C_DOT),
+            ext: check("Extended (\\n, \\r, \\t, \\0, \\x...)", C_EXT),
+            insel: check("In selection", C_INSEL),
             next: button("Find Next", P_NEXT, true),
             prev: button("Find Previous", P_PREV, false),
             findall: button("Find All in Current Document", P_FINDALL, false),
@@ -318,7 +324,8 @@ pub fn height() -> i32 {
     if !visible() {
         return 0;
     }
-    let base = match MODE.with(|c| c.get()) {
+    // The second row of check boxes (search mode, in selection) adds 26.
+    let base = 26 + match MODE.with(|c| c.get()) {
         Mode::Find | Mode::Mark => 108,
         Mode::Replace => 142,
         Mode::InFiles => 176,
@@ -348,7 +355,7 @@ pub fn arrange(width: i32) {
     // Everything starts hidden; each mode reveals what it uses.
     let all = [
         p.find_lbl, p.find, p.repl_lbl, p.repl, p.dir_lbl, p.dir, p.filt_lbl, p.filt, p.browse, p.case, p.word, p.wrap, p.regex,
-        p.dot, p.next, p.prev, p.findall, p.count, p.replace, p.repl_all, p.fif, p.mark, p.clear, p.close,
+        p.dot, p.ext, p.insel, p.next, p.prev, p.findall, p.count, p.replace, p.repl_all, p.fif, p.mark, p.clear, p.close,
     ];
     for h in all {
         show(h, false);
@@ -371,6 +378,12 @@ pub fn arrange(width: i32) {
             place(h, x, y, w, 22);
             show(h, true);
             x += w + 6;
+        }
+        place(p.ext, 108, y + 26, 230, 22);
+        show(p.ext, true);
+        if mode != Mode::InFiles {
+            place(p.insel, 344, y + 26, 130, 22);
+            show(p.insel, true);
         }
     };
 
@@ -468,6 +481,8 @@ pub fn read_opts() -> Opts {
         regex: is_checked(p.regex),
         wrap: is_checked(p.wrap),
         dot_all: is_checked(p.dot),
+        extended: is_checked(p.ext),
+        in_selection: is_checked(p.insel),
     }
 }
 
@@ -532,7 +547,7 @@ pub fn retheme() {
         style_control(h, Ctl::Edit);
     }
     for h in p.tab.into_iter().chain([
-        p.closex, p.browse, p.case, p.word, p.wrap, p.regex, p.dot, p.next, p.prev, p.findall, p.count, p.replace, p.repl_all, p.fif, p.mark,
+        p.closex, p.browse, p.case, p.word, p.wrap, p.regex, p.dot, p.ext, p.insel, p.next, p.prev, p.findall, p.count, p.replace, p.repl_all, p.fif, p.mark,
         p.clear, p.close, p.list,
     ]) {
         style_control(h, Ctl::Button);
@@ -560,6 +575,15 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARA
                         })
                     });
                     post_host(hwnd, P_RELAYOUT, 0);
+                }
+                // Search mode: Regular expression and Extended exclude each other.
+                C_REGEX | C_EXT if code == 0 => {
+                    if let Some(p) = PANEL.with(|c| c.get()) {
+                        let (on, other) = if id == C_REGEX { (p.regex, p.ext) } else { (p.ext, p.regex) };
+                        if is_checked(on) {
+                            set_checked(other, false);
+                        }
+                    }
                 }
                 C_LIST if code == 2 => {
                     // LBN_DBLCLK

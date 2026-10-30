@@ -26,6 +26,7 @@ use super::mdbar;
 use super::palette::{self, Item, Kind};
 use super::preview as pview;
 use super::print;
+use super::printpreview;
 use super::sidepanel;
 use super::tree;
 use super::whiteboard as wb;
@@ -354,6 +355,7 @@ const ID_LOAD_SESSION: usize = 1115;
 const ID_SAVE_SESSION: usize = 1116;
 const ID_PRINT: usize = 1117;
 const ID_PRINT_NOW: usize = 1118;
+const ID_PAGE_SETUP: usize = 1125;
 const ID_RESTORE_CLOSED: usize = 1119;
 const ID_OPEN_ALL_RECENT: usize = 1120;
 const ID_WORKSPACE_TOGGLE: usize = 3007;
@@ -394,6 +396,7 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("File: Save Session...", ID_SAVE_SESSION, ""),
     ("File: Print...", ID_PRINT, ""),
     ("File: Print Now", ID_PRINT_NOW, ""),
+    ("File: Page Setup...", ID_PAGE_SETUP, ""),
     ("File: Restore Recent Closed File", ID_RESTORE_CLOSED, "Ctrl+Shift+T"),
     ("File: Open All Recent Files", ID_OPEN_ALL_RECENT, ""),
     ("File: Empty Recent Files List", ID_RECENT_CLEAR, ""),
@@ -1538,9 +1541,12 @@ impl App {
                     }
                 }
             }
+            ID_PAGE_SETUP => drop(print::page_setup(ui.host)),
             ID_PRINT | ID_PRINT_NOW => {
                 let title = ws.tabs[ws.active].title.clone();
-                match print::print(ui.host, &sci, &title, id == ID_PRINT) {
+                // "Print..." opens the preview first (it has its own Print button); "Print Now" goes straight to the default printer.
+                let outcome = if id == ID_PRINT { Ok::<_, String>(printpreview::show(ui.host, &sci, &title)) } else { print::print(ui.host, &sci, &title, false) };
+                match outcome {
                     Ok(print::Outcome::Printed { pages }) => self.flash = Some(format!("Printed {pages} page(s)")),
                     Ok(print::Outcome::Cancelled) => {}
                     Err(e) => ui.error(&e),
@@ -3598,8 +3604,9 @@ fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::add(f, ID_SAVE_SESSION, "Save Session...");
     B::sep(f);
     // Ctrl+P is Quick Open in Note++, so Print has no shortcut.
-    B::add(f, ID_PRINT, "&Print...");
+    B::add(f, ID_PRINT, "&Print Preview / Print...");
     B::add(f, ID_PRINT_NOW, "Print No&w");
+    B::add(f, ID_PAGE_SETUP, "Page Se&tup...");
     B::sep(f);
     if !recent.is_empty() {
         for (i, p) in recent.iter().enumerate() {

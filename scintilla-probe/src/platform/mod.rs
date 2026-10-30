@@ -24,6 +24,7 @@ pub mod palette;
 pub mod preview;
 #[cfg(target_os = "windows")]
 pub mod print;
+pub mod printpreview;
 #[cfg(target_os = "windows")]
 pub mod sidepanel;
 #[cfg(target_os = "windows")]

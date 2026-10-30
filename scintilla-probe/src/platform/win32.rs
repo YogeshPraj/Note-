@@ -37,6 +37,7 @@ use crate::core::hash::{ALGOS, Algo};
 use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
 use super::dialogs;
+use super::compare;
 use super::encdialogs;
 use super::pwdialogs;
 use crate::core::functions;
@@ -372,6 +373,13 @@ const ID_PW_LOCK: usize = 3343;
 const ID_ENC_LOCK: usize = 3344;
 const ID_PW_TOOLBAR: usize = 3345;
 const TIMER_CLIP: usize = 5;
+// Tab right-click menu (commands act on the tab that was clicked, which is made active first).
+const ID_TAB_PIN: usize = 5600;
+const ID_TAB_COLOR_BASE: usize = 5601; // + 0..7 = the colours
+const ID_TAB_COLOR_NONE: usize = 5609;
+const ID_TAB_CMP_FILE: usize = 5610;
+const ID_TAB_CMP_CLIP: usize = 5611;
+const ID_TAB_REVEAL: usize = 5612;
 const ID_RESTORE_CLOSED: usize = 1119;
 const ID_OPEN_ALL_RECENT: usize = 1120;
 const ID_WORKSPACE_TOGGLE: usize = 3007;
@@ -418,6 +426,11 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("Settings: Encryption...", ID_ENC_SETTINGS, ""),
     ("Tools: Passwords (Bitwarden)...", ID_PASSWORDS, ""),
     ("Tools: Lock Passwords (Bitwarden)", ID_PW_LOCK, ""),
+    ("Tab: Pin / Unpin Current Tab", ID_TAB_PIN, ""),
+    ("Tab: Clear Colour Mark", ID_TAB_COLOR_NONE, ""),
+    ("Tab: Compare with File...", ID_TAB_CMP_FILE, ""),
+    ("Tab: Compare with Clipboard", ID_TAB_CMP_CLIP, ""),
+    ("Tab: Reveal in File Tree", ID_TAB_REVEAL, ""),
     ("Settings: Lock Encryption", ID_ENC_LOCK, ""),
     ("Tools: Send HTTP Request (Ctrl+Enter in a .http file)", ID_HTTP_SEND, ""),
     ("File: Restore Recent Closed File", ID_RESTORE_CLOSED, "Ctrl+Shift+T"),
@@ -732,7 +745,7 @@ fn wb_allows(id: usize) -> bool {
             | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
             | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
             | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE | ID_PREFS | ID_STYLE_CFG | ID_SHORTCUTS
-            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS | ID_PW_TOOLBAR | ID_PW_LOCK | ID_ENC_LOCK
+            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS | ID_PW_TOOLBAR | ID_PW_LOCK | ID_ENC_LOCK | ID_TAB_PIN | ID_TAB_COLOR_NONE | ID_TAB_REVEAL
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
         || (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id)
@@ -1582,6 +1595,21 @@ impl App {
             }
             ID_PAGE_SETUP => drop(print::page_setup(ui.host)),
             ID_HTTP_SEND => self.http_send(),
+            ID_TAB_PIN => {
+                let i = ws.active;
+                ws.toggle_pin(i);
+            }
+            ID_TAB_COLOR_NONE => {
+                let i = ws.active;
+                ws.set_tab_color(i, None);
+            }
+            _ if (ID_TAB_COLOR_BASE..ID_TAB_COLOR_BASE + crate::core::workspace::TAB_COLORS.len()).contains(&id) => {
+                let i = ws.active;
+                ws.set_tab_color(i, Some((id - ID_TAB_COLOR_BASE) as u8));
+            }
+            ID_TAB_CMP_CLIP => self.compare_with_clipboard(),
+            ID_TAB_CMP_FILE => self.compare_with_file(),
+            ID_TAB_REVEAL => self.reveal_in_tree(),
             ID_PW_LOCK => {
                 crate::core::bitwarden::lock();
                 self.flash = Some("Passwords locked".into());
@@ -2638,6 +2666,128 @@ impl App {
         }
     }
 
+    /// The right-click menu of the active tab.
+    fn show_tab_menu(&mut self) {
+        use MenuBuilder as B;
+        use crate::core::workspace::TAB_COLORS;
+        use windows::Win32::Foundation::COLORREF;
+        use windows::Win32::Graphics::Gdi::*;
+        let t = &self.ws.tabs[self.ws.active];
+        let (has_path, is_text, pinned, color) = (t.path.is_some(), t.kind == crate::core::workspace::TabKind::Text, t.pinned, t.color);
+        unsafe {
+            let menu = B::popup();
+            B::add(menu, ID_TAB_PIN, if pinned { "Unpin Tab" } else { "Pin Tab" });
+            B::sep(menu);
+            B::add(menu, ID_CLOSE, "Close");
+            B::add(menu, ID_CLOSE_ALL, "Close All");
+            B::add(menu, ID_CLOSE_OTHERS, "Close All But This");
+            B::add(menu, ID_CLOSE_LEFT, "Close All to the Left");
+            B::add(menu, ID_CLOSE_RIGHT, "Close All to the Right");
+            B::sep(menu);
+            // Colour marks: a small swatch beside each name.
+            let colors = B::popup();
+            let mut bitmaps = Vec::new();
+            for (i, (name, (r, g, b))) in TAB_COLORS.iter().enumerate() {
+                let dc = GetDC(None);
+                let bmp = CreateCompatibleBitmap(dc, 14, 14);
+                let mem = CreateCompatibleDC(Some(dc));
+                let old = SelectObject(mem, bmp.into());
+                let br = CreateSolidBrush(COLORREF(*r as u32 | (*g as u32) << 8 | (*b as u32) << 16));
+                FillRect(mem, &RECT { left: 0, top: 0, right: 14, bottom: 14 }, br);
+                let _ = DeleteObject(br.into());
+                SelectObject(mem, old);
+                let _ = DeleteDC(mem);
+                ReleaseDC(None, dc);
+                bitmaps.push(bmp);
+                let text = wide(name);
+                let mii = MENUITEMINFOW {
+                    cbSize: size_of::<MENUITEMINFOW>() as u32,
+                    fMask: MIIM_ID | MIIM_STRING | MIIM_BITMAP | MIIM_STATE,
+                    fState: if color == Some(i as u8) { MFS_CHECKED } else { MFS_UNCHECKED },
+                    wID: (ID_TAB_COLOR_BASE + i) as u32,
+                    dwTypeData: PWSTR(text.as_ptr() as *mut u16),
+                    hbmpItem: bmp,
+                    ..Default::default()
+                };
+                let _ = InsertMenuItemW(colors, i as u32, true, &mii);
+            }
+            B::sep(colors);
+            B::add_state(colors, ID_TAB_COLOR_NONE, "No colour", color.is_some());
+            B::submenu(menu, "Tab Colour", colors);
+            B::sep(menu);
+            B::add_state(menu, ID_CP_FULLPATH, "Copy Full Path", has_path);
+            B::add_state(menu, ID_OPEN_FOLDER_EXPLORER, "Open Containing Folder", has_path);
+            B::sep(menu);
+            B::add_state(menu, ID_TAB_CMP_FILE, "Compare...", is_text);
+            B::add_state(menu, ID_TAB_CMP_CLIP, "Compare with Clipboard", is_text);
+            B::sep(menu);
+            B::add_state(menu, ID_TAB_REVEAL, "Reveal in File Tree", has_path);
+            let mut at = POINT::default();
+            let _ = GetCursorPos(&mut at);
+            let _ = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN, at.x, at.y, Some(0), self.ui.host, None);
+            let _ = DestroyMenu(menu);
+            for b in bitmaps {
+                let _ = DeleteObject(b.into());
+            }
+        }
+    }
+
+    /// Compare the active document with `right` in a new window.
+    fn show_compare(&mut self, right_name: &str, right: &str) {
+        let name = self.ws.tabs[self.ws.active].title.clone();
+        let left = sci::get_text(&self.ws.sci);
+        let html = crate::core::compare::diff_html(&name, &left, right_name, right, self.ws.theme.dark);
+        if let Err(e) = compare::show(self.ui.host, &config_dir().join("webview-compare"), &format!("Compare - {name} / {right_name}"), &html) {
+            self.flash = Some(format!("Compare unavailable (WebView2): {e}"));
+        }
+    }
+
+    fn compare_with_clipboard(&mut self) {
+        if self.ws.is_whiteboard() {
+            return;
+        }
+        match clip::get_text(self.ui.host) {
+            Some(t) if !t.is_empty() => self.show_compare("Clipboard", &t),
+            _ => self.flash = Some("The clipboard has no text to compare".into()),
+        }
+    }
+
+    fn compare_with_file(&mut self) {
+        if self.ws.is_whiteboard() {
+            return;
+        }
+        let Some(p) = self.ui.pick_open().into_iter().next() else { return };
+        match std::fs::read(&p) {
+            Ok(bytes) => {
+                let (text, _, _) = crate::core::doc::decode(&bytes);
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                self.show_compare(&name, &text);
+            }
+            Err(e) => self.ui.error(&format!("Cannot read {}\n\n{e}", p.display())),
+        }
+    }
+
+    /// Show the active file in the workspace tree (opening its folder as the workspace if needed).
+    fn reveal_in_tree(&mut self) {
+        let Some(p) = self.ws.tabs[self.ws.active].path.clone() else {
+            self.flash = Some("Save the file first".into());
+            return;
+        };
+        let inside = self.ws.workspace.as_ref().is_some_and(|r| p.starts_with(r));
+        if !inside {
+            if let Some(d) = p.parent() {
+                open_workspace(&mut self.ws, d.to_path_buf());
+            }
+        }
+        TREE_ON.with(|c| c.set(true));
+        layout();
+        if let Some(root) = self.ws.workspace.clone() {
+            if !tree::reveal(&root, &p) {
+                self.flash = Some("The file was not found in the tree".into());
+            }
+        }
+    }
+
     fn status_click(&mut self, seg: isize) {
         let menu = match seg {
             chrome::SEG_ENC => self.menus.enc,
@@ -3444,6 +3594,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                         a.ws.new_tab();
                     }
                     chrome::BAR_TAB_MOVE => a.ws.move_tab_to(arg as usize & 0xFFFF, (arg as usize >> 16) & 0xFFFF),
+                    chrome::BAR_TAB_CONTEXT => {
+                        a.ws.activate(arg as usize);
+                        a.refresh();
+                        a.show_tab_menu();
+                    }
                     chrome::BAR_STATUS => a.status_click(arg),
                     _ => {}
                 }

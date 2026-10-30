@@ -1,6 +1,7 @@
 // One module per platform. Only one is compiled; the core is shared.
 #[cfg(target_os = "windows")]
 pub mod chrome;
+pub mod compare;
 #[cfg(target_os = "windows")]
 pub mod clip;
 #[cfg(target_os = "windows")]

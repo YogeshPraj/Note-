@@ -28,6 +28,8 @@ getrandom = "0.3"
 zeroize = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 ureq = { version = "3", features = ["gzip", "brotli"] }
+# Compare (text diff).
+similar = { version = "2", features = ["inline"] }
 
 # Key derivation is slow unoptimised; keep the tests quick.
 [profile.dev.package.sha2]

@@ -164,6 +164,38 @@ fn selected_file() -> Option<PathBuf> {
     ENTRIES.with(|e| e.borrow().get(idx).filter(|x| !x.is_dir).map(|x| x.path.clone()))
 }
 
+/// Expand the tree down to `file` (which must be under `root`) and select it. False if it is not there.
+pub fn reveal(root: &Path, file: &Path) -> bool {
+    let Some(tree) = hwnd() else { return false };
+    let Ok(rel) = file.strip_prefix(root) else { return false };
+    let send = |m: u32, w: usize, l: isize| unsafe { SendMessageW(tree, m, Some(WPARAM(w)), Some(LPARAM(l))).0 };
+    let mut item = send(TVM_GETNEXTITEM, TVGN_ROOT as usize, 0);
+    if item == 0 {
+        return false;
+    }
+    for comp in rel.components() {
+        // Expanding loads the folder's entries (the host passes the notification to `notify`).
+        send(TVM_EXPAND, TVE_EXPAND.0 as usize, item);
+        let want = comp.as_os_str().to_string_lossy().to_lowercase();
+        let mut child = send(TVM_GETNEXTITEM, TVGN_CHILD as usize, item);
+        loop {
+            if child == 0 {
+                return false;
+            }
+            let name = param_of(HTREEITEM(child))
+                .and_then(|i| ENTRIES.with(|e| e.borrow().get(i).and_then(|x| x.path.file_name().map(|n| n.to_string_lossy().to_lowercase()))));
+            if name.as_deref() == Some(want.as_str()) {
+                break;
+            }
+            child = send(TVM_GETNEXTITEM, TVGN_NEXT as usize, child);
+        }
+        item = child;
+    }
+    send(TVM_SELECTITEM, TVGN_CARET as usize, item);
+    send(TVM_ENSUREVISIBLE, 0, item);
+    true
+}
+
 /// Handle a `WM_NOTIFY` that came from the tree. Returns a file to open, if any.
 pub fn notify(lparam: LPARAM) -> Option<PathBuf> {
     let hdr = unsafe { &*(lparam.0 as *const NMHDR) };

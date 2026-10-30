@@ -1,5 +1,6 @@
 pub mod bitwarden;
 pub mod bookmarks;
+pub mod compare;
 pub mod complete;
 pub mod crypto;
 pub mod doc;

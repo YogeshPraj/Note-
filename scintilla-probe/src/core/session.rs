@@ -14,6 +14,12 @@ pub struct SessionTab {
     pub top: usize,
     pub enc: String,
     pub eol: String,
+    /// Pinned tabs stay at the left and are skipped by the Close All commands.
+    #[serde(default)]
+    pub pinned: bool,
+    /// Index into `workspace::TAB_COLORS`.
+    #[serde(default)]
+    pub color: Option<u8>,
     /// The tab is an encrypted file; `text` (if any) then holds the encrypted envelope, never plain text.
     #[serde(default)]
     pub encrypted: bool,
@@ -111,6 +117,8 @@ mod tests {
                 enc: "utf8".into(),
                 eol: "lf".into(),
                 encrypted: false,
+                pinned: false,
+                color: None,
                 kind: "text".into(),
             }],
             active: 0,

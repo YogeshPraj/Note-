@@ -129,6 +129,18 @@ pub enum TabKind {
     Whiteboard,
 }
 
+/// The colours a tab can be marked with (name, RGB).
+pub const TAB_COLORS: [(&str, (u8, u8, u8)); 8] = [
+    ("Red", (0xE0, 0x5A, 0x5A)),
+    ("Orange", (0xE8, 0x8B, 0x3A)),
+    ("Yellow", (0xD1, 0xA8, 0x2C)),
+    ("Green", (0x4C, 0xAF, 0x68)),
+    ("Teal", (0x1F, 0x9E, 0xA6)),
+    ("Blue", (0x4A, 0x8F, 0xE8)),
+    ("Purple", (0x8E, 0x5B, 0xC9)),
+    ("Pink", (0xD0, 0x5E, 0xA8)),
+];
+
 pub struct Tab {
     /// Stable identity (indices shift when tabs close).
     pub id: u64,
@@ -148,6 +160,10 @@ pub struct Tab {
     pub lang_label: &'static str,
     /// Saved as an encrypted file (see `crypto`); the editor always shows the plain text.
     pub encrypted: bool,
+    /// Pinned tabs sit at the left, show no close button and survive the Close All commands.
+    pub pinned: bool,
+    /// Index into `TAB_COLORS`.
+    pub color: Option<u8>,
     pub caret: usize,
     pub top: usize,
     /// The file's modification time and size when it was last read or written, to notice
@@ -169,6 +185,9 @@ pub struct TabInfo {
     pub dirty: bool,
     /// Small pill shown before the title (e.g. "wb" for whiteboards).
     pub badge: Option<&'static str>,
+    pub pinned: bool,
+    /// The colour mark of the tab.
+    pub color: Option<(u8, u8, u8)>,
 }
 
 pub struct Workspace<S: Send> {
@@ -368,14 +387,47 @@ impl<S: Send> Workspace<S> {
     }
 
     /// Drag-and-drop reorder: move tab `from` to index `to`; the active tab stays the same tab.
+    /// How many tabs are pinned (they always come first).
+    pub fn pinned_count(&self) -> usize {
+        self.tabs.iter().take_while(|t| t.pinned).count()
+    }
+
     pub fn move_tab_to(&mut self, from: usize, to: usize) {
-        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+        if from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        // A tab stays inside its own group: pinned tabs left, the others right.
+        let pinned = self.pinned_count();
+        let to = if self.tabs[from].pinned { to.min(pinned.saturating_sub(1)) } else { to.max(pinned) };
+        if from == to {
             return;
         }
         let active_id = self.tabs[self.active].id;
         let tab = self.tabs.remove(from);
         self.tabs.insert(to, tab);
         self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+    }
+
+    /// Pin or unpin tab `i`: a pinned tab moves to the end of the pinned group, an unpinned one to its start.
+    pub fn toggle_pin(&mut self, i: usize) {
+        if i >= self.tabs.len() {
+            return;
+        }
+        let now = !self.tabs[i].pinned;
+        self.tabs[i].pinned = now;
+        let id = self.tabs[i].id;
+        // The count of the others that are pinned decides where it lands.
+        let others = self.tabs.iter().filter(|t| t.pinned && t.id != id).count();
+        let active_id = self.tabs[self.active].id;
+        let tab = self.tabs.remove(i);
+        self.tabs.insert(others, tab);
+        self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+    }
+
+    pub fn set_tab_color(&mut self, i: usize, color: Option<u8>) {
+        if let Some(t) = self.tabs.get_mut(i) {
+            t.color = color.filter(|c| (*c as usize) < TAB_COLORS.len());
+        }
     }
 
     /// Move the active tab one place (negative = left), keeping it active.
@@ -624,6 +676,8 @@ impl<S: Send> Workspace<S> {
             lang,
             lang_label,
             encrypted: false,
+            pinned: false,
+            color: None,
             caret: 0,
             top: 0,
             disk,
@@ -652,6 +706,8 @@ impl<S: Send> Workspace<S> {
             lang: "null",
             lang_label: "Normal text",
             encrypted: false,
+            pinned: false,
+            color: None,
             caret: 0,
             top: 0,
             disk,
@@ -1651,7 +1707,8 @@ impl<S: Send> Workspace<S> {
     pub fn close_many(&mut self, ui: &dyn Ui, op: CloseOp) -> bool {
         let dirty: Vec<bool> = (0..self.tabs.len()).map(|i| self.is_dirty(i)).collect();
         // Tab ids stay stable while indices shift as tabs go away.
-        let ids: Vec<u64> = close_targets(op, self.active, &dirty).into_iter().map(|i| self.tabs[i].id).collect();
+        // Pinned tabs are left alone by every "close many" command.
+        let ids: Vec<u64> = close_targets(op, self.active, &dirty).into_iter().filter(|&i| !self.tabs[i].pinned).map(|i| self.tabs[i].id).collect();
         for id in ids {
             let Some(i) = self.tabs.iter().position(|t| t.id == id) else { continue };
             if !self.close(ui, i) {
@@ -1729,6 +1786,8 @@ impl<S: Send> Workspace<S> {
             .map(|i| TabInfo {
                 title: self.tabs[i].title.clone(),
                 dirty: self.is_dirty(i),
+                pinned: self.tabs[i].pinned,
+                color: self.tabs[i].color.and_then(|c| TAB_COLORS.get(c as usize)).map(|c| c.1),
                 badge: if self.tabs[i].kind == TabKind::Whiteboard {
                     Some("wb")
                 } else if self.tabs[i].encrypted {
@@ -1917,6 +1976,8 @@ impl<S: Send> Workspace<S> {
                 enc: t.enc.key().into(),
                 eol: t.eol.key().into(),
                 encrypted: t.encrypted && has_text,
+                pinned: t.pinned,
+                color: t.color,
                 kind: if t.kind == TabKind::Whiteboard { "whiteboard".into() } else { "text".into() },
             });
         }
@@ -2005,7 +2066,9 @@ impl<S: Send> Workspace<S> {
                     (None, Some(d)) => (d, false),
                     (None, None) => continue,
                 };
-                self.open_whiteboard(st.title.clone(), path, content, dirty);
+                let i = self.open_whiteboard(st.title.clone(), path, content, dirty);
+                self.tabs[i].pinned = st.pinned;
+                self.tabs[i].color = st.color;
                 continue;
             }
             let (enc, eol) = (Enc::from_key(&st.enc), Eol::from_key(&st.eol));
@@ -2064,6 +2127,8 @@ impl<S: Send> Workspace<S> {
             }
             let t = &mut self.tabs[idx];
             t.encrypted = encrypted;
+            t.pinned = st.pinned;
+            t.color = st.color;
             t.caret = st.caret;
             t.top = st.top;
         }

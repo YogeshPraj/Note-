@@ -31,6 +31,8 @@ pub const BAR_TAB_NEW: usize = 3;
 pub const BAR_STATUS: usize = 4;
 /// A tab was dragged to a new place; lParam = from | (to << 16).
 pub const BAR_TAB_MOVE: usize = 5;
+/// A tab was right-clicked; the message's lParam is its index.
+pub const BAR_TAB_CONTEXT: usize = 6;
 
 pub const SEG_ENC: isize = 1;
 pub const SEG_EOL: isize = 2;
@@ -754,7 +756,7 @@ unsafe fn layout_tabs(dc: HDC, width: i32, s: &mut TabState) {
     let mut x = 4;
     s.layout.clear();
     for info in &s.tabs {
-        let extra = if info.badge.is_some() { 30 } else { 0 };
+        let extra = if info.badge.is_some() { 30 } else { 0 } + if info.pinned { 16 } else { 0 };
         let wd = (unsafe { text_width(dc, &info.title) } + 56 + extra).clamp(96, 260);
         s.layout.push(rect(x, 4, x + wd, TAB_H));
         x += wd + 2;
@@ -821,7 +823,25 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                             if !active && !hot && s.active != i + 1 && s.hot.map(|h| h.0) != Some(i + 1) {
                                 under.push(wash(rect(r.right, r.top + 8, r.right + 1, r.bottom - 8), lk.ink(), 0x30));
                             }
+                            if let Some(c) = info.color {
+                                // The tab's colour mark: a bar along its top edge.
+                                fill(dc, &rect(r.left, r.top, r.right, r.top + 3), c);
+                            }
                             let mut tx = r.left + 10;
+                            if info.pinned {
+                                // A small push-pin.
+                                let pen = CreatePen(PS_SOLID, 1, col(fg));
+                                let br = CreateSolidBrush(col(fg));
+                                let (op, ob) = (SelectObject(dc, pen.into()), SelectObject(dc, br.into()));
+                                let _ = Ellipse(dc, tx, r.top + 9, tx + 8, r.top + 17);
+                                let _ = MoveToEx(dc, tx + 4, r.top + 17, None);
+                                let _ = LineTo(dc, tx + 4, r.top + 23);
+                                SelectObject(dc, op);
+                                SelectObject(dc, ob);
+                                let _ = DeleteObject(pen.into());
+                                let _ = DeleteObject(br.into());
+                                tx += 16;
+                            }
                             if *dirty {
                                 let dot = rect(tx, r.top + 12, tx + 8, r.top + 20);
                                 let br = CreateSolidBrush(col(TAB_DIRTY));
@@ -849,7 +869,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                                 tx += 30;
                             }
                             text(dc, name, &rect(tx, r.top, r.right - 26, r.bottom), fg, DT_LEFT | DT_END_ELLIPSIS);
-                            if active || hot {
+                            if (active || hot) && !info.pinned {
                                 let c = close_rect(&r);
                                 if s.hot == Some((i, true)) {
                                     if active {
@@ -930,7 +950,7 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             }
             let changed = TABS.with(|s| {
                 let mut s = s.borrow_mut();
-                let hot = s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y)));
+                let hot = s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && !s.tabs[i].pinned));
                 let c = hot != s.hot;
                 s.hot = hot;
                 c
@@ -992,12 +1012,25 @@ unsafe extern "system" fn tab_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             redraw(hwnd);
             LRESULT(0)
         }
+        WM_RBUTTONUP => {
+            let (x, y) = (lx(lp), ly(lp));
+            let hit = TABS.with(|s| {
+                let s = s.borrow();
+                s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area))
+            });
+            if let Some(i) = hit {
+                unsafe {
+                    let _ = PostMessageW(Some(host_of(hwnd)), WM_BAR, WPARAM(BAR_TAB_CONTEXT), LPARAM(i as isize));
+                }
+            }
+            LRESULT(0)
+        }
         WM_LBUTTONDOWN | WM_MBUTTONUP | WM_LBUTTONDBLCLK => {
             let (x, y) = (lx(lp), ly(lp));
             let host = host_of(hwnd);
             let (hit, plus) = TABS.with(|s| {
                 let s = s.borrow();
-                (s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && (i == s.active || s.hot.map(|h| h.0) == Some(i)))), contains(&s.plus, x, y))
+                (s.layout.iter().position(|r| contains(r, x, y) && s.arrows.is_none_or(|(l, _)| x >= l.right && x < s.area)).map(|i| (i, contains(&close_rect(&s.layout[i]), x, y) && !s.tabs[i].pinned && (i == s.active || s.hot.map(|h| h.0) == Some(i)))), contains(&s.plus, x, y))
             });
             let post = |kind: usize, arg: usize| unsafe {
                 let _ = PostMessageW(Some(host), WM_BAR, WPARAM(kind), LPARAM(arg as isize));

@@ -3150,11 +3150,7 @@ impl App {
         if !upgraded {
             return;
         }
-        let text = "Note++ has been rebuilt as a native Windows application, built on the Scintilla editing engine. It replaces the previous version.\n\n\
-                    \u{2022} Your open tabs, unsaved text, settings and encryption profile were carried over.\n\
-                    \u{2022} The new version keeps using the same data folder, so nothing needs to be moved.\n\
-                    \u{2022} A few extras of 1.x, such as draw.io diagrams, are not available yet.\n\n\
-                    Updates arrive here automatically from now on.";
+        let text = "Experience the native power.";
         dialogs::message(self.ui.host, &format!("Welcome to Note++ {}", update::VERSION), text, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
     }
 

@@ -1173,6 +1173,15 @@ pub fn set_tabs(c: &Chrome, tabs: Vec<TabInfo>, active: usize) {
 
 /// Follow the editor theme: the Mica tint (via the window's dark-mode flag),
 /// the bar text, and the active tab, which continues the editor's background.
+/// Keep the Mica glass exactly behind the bars that are showing; hidden bars (Post-It,
+/// distraction free) would otherwise leave a tinted band at the top of the editor.
+pub fn fit_glass(c: &Chrome, px: i32) {
+    thread_local! { static LAST: Cell<i32> = const { Cell::new(-1) }; }
+    if look().mica && LAST.with(|l| l.replace(px)) != px {
+        super::dwm::extend_top(host_of(c.menu), px);
+    }
+}
+
 pub fn set_theme(c: &Chrome, dark: bool, editor_bg: (u8, u8, u8), editor_fg: (u8, u8, u8)) {
     super::modern::set_dark(dark);
     let lk = look();

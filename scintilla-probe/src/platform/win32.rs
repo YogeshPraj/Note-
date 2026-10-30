@@ -3041,6 +3041,7 @@ fn layout() {
         mv(c.menu, 0, 0, w, mh);
         mv(c.tools, 0, mh, w, th);
         let tabs_y = mh + th;
+        chrome::fit_glass(&c, mh + th + tabh);
         mv(c.tabs, 0, tabs_y, w, tabh);
         mv(c.status, 0, total_h - sh, w, sh);
 

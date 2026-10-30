@@ -709,6 +709,8 @@ pub struct Menus {
     file: HMENU,
     open_folder: HMENU,
     close_multi: HMENU,
+    print: HMENU,
+    recent: HMENU,
     edit: HMENU,
     sym: HMENU,
     search: HMENU,
@@ -4233,23 +4235,29 @@ fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::add(f, ID_SAVE_SESSION, "Save Session...");
     B::sep(f);
     // Ctrl+P is Quick Open in Note++, so Print has no shortcut.
-    B::add(f, ID_PRINT, "&Print Preview / Print...");
-    B::add(f, ID_PRINT_NOW, "Print No&w");
-    B::add(f, ID_PAGE_SETUP, "Page Se&tup...");
+    B::submenu(f, "&Print", m.print);
     B::sep(f);
     B::add(f, ID_ENCRYPT, "&Encrypt This File");
     B::add(f, ID_DECRYPT, "Remove Encr&yption From This File");
     B::sep(f);
-    if !recent.is_empty() {
-        for (i, p) in recent.iter().enumerate() {
-            let mnemonic = if i < 9 { format!("&{}", i + 1) } else { "1&0".to_string() };
-            B::add(f, ID_RECENT_BASE + i, &format!("{mnemonic}: {}", p.display().to_string().replace('&', "&&")));
+    unsafe {
+        while GetMenuItemCount(Some(m.recent)) > 0 {
+            let _ = RemoveMenu(m.recent, 0, MF_BYPOSITION);
         }
-        B::sep(f);
     }
+    let r = m.recent;
+    if recent.is_empty() {
+        B::add_state(r, 0, "(no recent files)", false);
+    }
+    for (i, p) in recent.iter().enumerate() {
+        let mnemonic = if i < 9 { format!("&{}", i + 1) } else { "1&0".to_string() };
+        B::add(r, ID_RECENT_BASE + i, &format!("{mnemonic}: {}", p.display().to_string().replace('&', "&&")));
+    }
+    B::sep(r);
+    B::add_state(r, ID_OPEN_ALL_RECENT, "Open All Recent Files", !recent.is_empty());
+    B::add_state(r, ID_RECENT_CLEAR, "Empty Recent Files List", !recent.is_empty());
+    B::submenu(f, "&Recent Files", m.recent);
     B::add_state(f, ID_RESTORE_CLOSED, "Restore Recent Closed File\tCtrl+Shift+T", can_restore);
-    B::add_state(f, ID_OPEN_ALL_RECENT, "Open All Recent Files", !recent.is_empty());
-    B::add_state(f, ID_RECENT_CLEAR, "Empty Recent Files List", !recent.is_empty());
     B::sep(f);
     B::add(f, ID_EXIT, "E&xit\tAlt+F4");
 }
@@ -4266,6 +4274,11 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(close_multi, ID_CLOSE_LEFT, "Close All to the Left");
     B::add(close_multi, ID_CLOSE_RIGHT, "Close All to the Right");
     B::add(close_multi, ID_CLOSE_UNCHANGED, "Close All Unchanged");
+    let print = B::popup();
+    B::add(print, ID_PRINT, "Print &Preview / Print...");
+    B::add(print, ID_PRINT_NOW, "Print No&w");
+    B::add(print, ID_PAGE_SETUP, "Page Se&tup...");
+    let recent = B::popup();
 
     let edit = B::popup();
     B::add(edit, ID_UNDO, "&Undo\tCtrl+Z or Alt+Backspace");
@@ -4655,7 +4668,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
         ("Window".to_string(), window),
         ("?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, window, help };
+    let menus = Menus { file, open_folder, close_multi, print, recent, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, window, help };
     fill_file_menu(&menus, &[], false);
     fill_window_menu(window, &[], 0);
     (bar, menus)

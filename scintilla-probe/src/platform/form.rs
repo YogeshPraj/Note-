@@ -268,7 +268,37 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         WM_NOTIFY => {
             // A different row was selected in a list.
             let hdr = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::NMHDR) };
-            if hdr.code == windows::Win32::UI::Controls::LVN_ITEMCHANGED {
+            // Dark mode: themed radio buttons draw their text in a near-invisible grey, so
+            // paint the label again in the normal text colour after the control has drawn.
+            if hdr.code == (-12i32) as u32 && modern::is_dark() {
+                let nm = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::NMCUSTOMDRAW) };
+                let h = hdr.hwndFrom;
+                let style = unsafe { GetWindowLongPtrW(h, GWL_STYLE) } as u32;
+                let mut class = [0u16; 8];
+                let n = unsafe { GetClassNameW(h, &mut class) }.max(0) as usize;
+                let radio = String::from_utf16_lossy(&class[..n]).eq_ignore_ascii_case("Button") && matches!(style & 0xF, 4 | 9);
+                if radio {
+                    match nm.dwDrawStage.0 {
+                        1 => return LRESULT(0x10), // CDRF_NOTIFYPOSTPAINT
+                        2 => unsafe {
+                            let mut text = [0u16; 128];
+                            let len = GetWindowTextW(h, &mut text).max(0) as usize;
+                            let p = modern::pal();
+                            let mut r = nm.rc;
+                            r.left += 20;
+                            FillRect(nm.hdc, &r, modern::brush(p.bg));
+                            let font = SendMessageW(h, WM_GETFONT, None, None).0;
+                            let old = SelectObject(nm.hdc, HGDIOBJ(font as *mut _));
+                            SetBkMode(nm.hdc, TRANSPARENT);
+                            SetTextColor(nm.hdc, modern::colorref(p.text));
+                            DrawTextW(nm.hdc, &mut text[..len], &mut r, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                            SelectObject(nm.hdc, old);
+                        },
+                        _ => {}
+                    }
+                }
+                return LRESULT(0);
+            }            if hdr.code == windows::Win32::UI::Controls::LVN_ITEMCHANGED {
                 let nm = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::NMLISTVIEW) };
                 if nm.uNewState & 2 != 0 && nm.uOldState & 2 == 0 {
                     let cb = LIVE.with(|l| l.borrow().as_ref().and_then(|(_, cb)| *cb));

@@ -766,7 +766,7 @@ impl<S: Send> Workspace<S> {
             LineOp::TrimTrailing => lines(WholeDocument, &|x| edit::trim_trailing(x, eol)),
             LineOp::TrimLeading => lines(WholeDocument, &|x| edit::trim_leading(x, eol)),
             LineOp::TrimBoth => lines(WholeDocument, &|x| edit::trim_both(x, eol)),
-            LineOp::EolToSpace => lines(WholeDocument, &|x| edit::eol_to_space(x)),
+            LineOp::EolToSpace => lines(WholeDocument, &|x| edit::join_all(x)),
             LineOp::RemoveUnnecessaryBlanks => lines(WholeDocument, &|x| edit::remove_unnecessary_blanks(x, eol)),
             LineOp::TabsToSpaces => lines(WholeDocument, &|x| edit::tabs_to_spaces(x, eol, tab)),
             LineOp::SpacesToTabsAll => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, false)),
@@ -996,10 +996,9 @@ impl<S: Send> Workspace<S> {
         } as usize;
         let text = std::ffi::CString::new(eol).unwrap_or_default();
         self.send(sci::SCI_INSERTTEXT, at, text.as_ptr() as isize);
-        if !above {
-            let next = self.send(sci::SCI_POSITIONFROMLINE, line + 1, 0);
-            self.send(sci::SCI_GOTOPOS, next as usize, 0);
-        }
+        // The caret lands on the new blank line either way (as in Notepad++).
+        let target = if above { at as isize } else { self.send(sci::SCI_POSITIONFROMLINE, line + 1, 0) };
+        self.send(sci::SCI_GOTOPOS, target.max(0) as usize, 0);
     }
 
     /// Indent or dedent by one level: the selected lines, or the caret's line.

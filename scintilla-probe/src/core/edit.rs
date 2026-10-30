@@ -271,9 +271,25 @@ pub fn join_lines(text: &str) -> String {
     out
 }
 
-/// "EOL to Space": every line break becomes one blank (including a final one).
-pub fn eol_to_space(text: &str) -> String {
-    text.replace("\r\n", " ").replace(['\r', '\n'], " ")
+/// Scintilla's "Lines Join" over a whole block, as Notepad++'s "EOL to Space" uses it: every line
+/// break becomes one blank, unless the text before it already ends in one.
+pub fn join_all(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' | '\n' => {
+                if c == '\r' && chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                if !out.ends_with(' ') {
+                    out.push(' ');
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Break lines longer than `width` characters, preferring a blank to break at.
@@ -319,9 +335,9 @@ pub fn trim_both(text: &str, eol: &str) -> String {
     map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_matches(BLANKS).to_string()).collect())
 }
 
-/// Trim every line and drop the lines that were only blanks.
+/// Notepad++'s "Remove Unnecessary Blank and EOL": trim every line, then join them all into one.
 pub fn remove_unnecessary_blanks(text: &str, eol: &str) -> String {
-    map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_matches(BLANKS)).filter(|x| !x.is_empty()).map(String::from).collect())
+    join_all(&trim_both(text, eol))
 }
 
 /// Replace each tab with the spaces that reach the next tab stop.
@@ -971,9 +987,11 @@ mod tests {
         assert_eq!(v, ["1", "2", "3", "4", "5", "6"]);
         assert_eq!(join_lines("a\nb\r\nc\n"), "a b c");
         assert_eq!(join_lines("a \nb"), "a b");
-        assert_eq!(eol_to_space("a\r\nb\nc\r"), "a b c ");
+        assert_eq!(join_all("a\r\nb\nc\r"), "a b c ");
+        assert_eq!(join_all("a \r\nb"), "a b");
         assert_eq!(join_lines("a \nb"), "a b");
-        assert_eq!(eol_to_space("a\r\nb\nc\r"), "a b c ");
+        assert_eq!(join_all("a\r\nb\nc\r"), "a b c ");
+        assert_eq!(join_all("a \r\nb"), "a b");
         assert_eq!(split_lines("aaa bbb ccc ddd", "\n", 7), "aaa bbb\nccc ddd");
         assert_eq!(split_lines("abcdefghij", "\n", 4), "abcd\nefgh\nij");
     }
@@ -983,7 +1001,8 @@ mod tests {
         assert_eq!(trim_trailing("a  \nb\t\nc", "\n"), "a\nb\nc");
         assert_eq!(trim_leading("  a\n\tb", "\n"), "a\nb");
         assert_eq!(trim_both(" a \n b ", "\n"), "a\nb");
-        assert_eq!(remove_unnecessary_blanks(" a \n\n  \n b", "\n"), "a\nb");
+        // Trimmed, then everything on one line (Notepad++'s Remove Unnecessary Blank and EOL).
+        assert_eq!(remove_unnecessary_blanks(" a \n\n  \n b", "\n"), "a b");
         assert_eq!(tabs_to_spaces("a\tb\n\tc", "\n", 4), "a   b\n    c");
         assert_eq!(spaces_to_tabs("    a    b", "\n", 4, false), "\ta\t b");
         assert_eq!(spaces_to_tabs("    a    b", "\n", 4, true), "\ta    b");

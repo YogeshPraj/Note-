@@ -116,7 +116,7 @@ fn ui_font() -> HFONT {
         }
         let f = unsafe {
             CreateFontW(
-                -13, 0, 0, 0, 400, 0, 0, 0,
+                -12, 0, 0, 0, 400, 0, 0, 0,
                 FONT_CHARSET(1), FONT_OUTPUT_PRECISION(0), FONT_CLIP_PRECISION(0), CLEARTYPE_QUALITY, 0,
                 w!("Segoe UI"),
             )
@@ -143,7 +143,7 @@ fn mica_font() -> HFONT {
         }
         let f = unsafe {
             CreateFontW(
-                -13, 0, 0, 0, 400, 0, 0, 0,
+                -12, 0, 0, 0, 400, 0, 0, 0,
                 FONT_CHARSET(1), FONT_OUTPUT_PRECISION(0), FONT_CLIP_PRECISION(0), ANTIALIASED_QUALITY, 0,
                 w!("Segoe UI"),
             )

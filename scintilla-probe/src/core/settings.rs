@@ -127,6 +127,43 @@ pub const ROLES: &[(&str, &str)] = &[
     ("Properties / attributes", "prop"),
 ];
 
+/// A ready-made colour scheme: name, dark?, and the colours in `ROLES` order.
+pub struct Preset {
+    pub name: &'static str,
+    pub dark: bool,
+    pub colors: [&'static str; 14],
+}
+
+/// Popular Notepad++ style themes, approximated from their published palettes.
+pub const PRESETS: &[Preset] = &[
+    Preset { name: "Monokai", dark: true, colors: ["#F8F8F2", "#272822", "#8F908A", "#272822", "#3E3D32", "#49483E", "#75715E", "#AE81FF", "#F92672", "#E6DB74", "#66D9EF", "#FD971F", "#A6E22E", "#FD971F"] },
+    Preset { name: "Dracula", dark: true, colors: ["#F8F8F2", "#282A36", "#6272A4", "#282A36", "#44475A", "#44475A", "#6272A4", "#BD93F9", "#FF79C6", "#F1FA8C", "#8BE9FD", "#FF5555", "#50FA7B", "#FFB86C"] },
+    Preset { name: "Solarized Dark", dark: true, colors: ["#839496", "#002B36", "#586E75", "#073642", "#0A3A47", "#134B5A", "#586E75", "#D33682", "#859900", "#2AA198", "#B58900", "#CB4B16", "#268BD2", "#6C71C4"] },
+    Preset { name: "Solarized Light", dark: false, colors: ["#657B83", "#FDF6E3", "#93A1A1", "#EEE8D5", "#EEE8D5", "#D3CBB0", "#93A1A1", "#D33682", "#859900", "#2AA198", "#B58900", "#CB4B16", "#268BD2", "#6C71C4"] },
+    Preset { name: "Obsidian", dark: true, colors: ["#E0E2E4", "#293134", "#81969A", "#293134", "#2F393C", "#3A4A4F", "#66747B", "#FFCD22", "#93C763", "#EC7600", "#678CB1", "#A082BD", "#F1F2F3", "#8CBBAD"] },
+    Preset { name: "Zenburn", dark: true, colors: ["#DCDCCC", "#3F3F3F", "#9FAFAF", "#3F3F3F", "#4F4F4F", "#5F5F5F", "#7F9F7F", "#8CD0D3", "#F0DFAF", "#CC9393", "#DFDFBF", "#DFAF8F", "#EFEF8F", "#93E0E3"] },
+    Preset { name: "Twilight", dark: true, colors: ["#F8F8F8", "#141414", "#5F5A60", "#141414", "#222222", "#2D3033", "#5F5A60", "#CF6A4C", "#CDA869", "#8F9D6A", "#F9EE98", "#9B703F", "#9B859D", "#7587A6"] },
+    Preset { name: "Deep Black", dark: true, colors: ["#E0E0E0", "#000000", "#808080", "#000000", "#141414", "#264F78", "#6A9955", "#B5CEA8", "#569CD6", "#CE9178", "#4EC9B0", "#C586C0", "#DCDCAA", "#9CDCFE"] },
+    Preset { name: "Bespin", dark: true, colors: ["#BAAE9E", "#2A211C", "#6D6458", "#2A211C", "#36312E", "#5E5D5C", "#666666", "#CF6A4C", "#5EA6EA", "#54BE0D", "#F9EE98", "#9B859D", "#937121", "#7587A6"] },
+    Preset { name: "Vibrant Ink", dark: true, colors: ["#FFFFFF", "#000000", "#888888", "#000000", "#1A1A1A", "#3A3A5C", "#9933CC", "#99CC99", "#FF6600", "#66FF00", "#FFCC00", "#FFEE98", "#FFEE98", "#66CCFF"] },
+    Preset { name: "Nord", dark: true, colors: ["#D8DEE9", "#2E3440", "#4C566A", "#2E3440", "#3B4252", "#434C5E", "#616E88", "#B48EAD", "#81A1C1", "#A3BE8C", "#8FBCBB", "#5E81AC", "#88C0D0", "#EBCB8B"] },
+    Preset { name: "One Dark", dark: true, colors: ["#ABB2BF", "#282C34", "#636D83", "#282C34", "#2C313C", "#3E4451", "#5C6370", "#D19A66", "#C678DD", "#98C379", "#E5C07B", "#E06C75", "#61AFEF", "#56B6C2"] },
+];
+
+impl Settings {
+    /// Make `p` the colour scheme of its light/dark mode (None = the built-in default).
+    pub fn apply_preset(&mut self, dark: bool, p: Option<&Preset>) {
+        let base = if dark { Theme::dark() } else { Theme::light() };
+        let diff = match p {
+            Some(p) => {
+                let entered: Vec<(&str, String)> = ROLES.iter().zip(p.colors.iter()).map(|((_, k), h)| (*k, h.to_string())).collect();
+                diff_from(&base, &entered)
+            }
+            None => BTreeMap::new(),
+        };
+        if dark { self.dark_colors = diff } else { self.light_colors = diff }
+    }
+}
 pub fn parse_hex(s: &str) -> Option<Rgb> {
     let h = s.trim().trim_start_matches('#');
     if h.len() != 6 || !h.is_ascii() {
@@ -190,6 +227,19 @@ pub fn diff_from(base: &Theme, entered: &[(&str, String)]) -> BTreeMap<String, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presets_are_complete_and_valid() {
+        for p in PRESETS {
+            assert_eq!(p.colors.len(), ROLES.len());
+            assert!(p.colors.iter().all(|h| parse_hex(h).is_some()), "{}", p.name);
+        }
+        let mut s = Settings::default();
+        s.apply_preset(true, Some(&PRESETS[0]));
+        assert_eq!(themed(Theme::dark(), &s.dark_colors).bg, (0x27, 0x28, 0x22));
+        s.apply_preset(true, None);
+        assert!(s.dark_colors.is_empty());
+    }
 
     #[test]
     fn hex_round_trips() {

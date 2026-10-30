@@ -235,6 +235,7 @@ const ID_SHORTCUTS: usize = 3303;
 const ID_IMPORT_THEME: usize = 3305;
 const ID_EXPORT_THEME: usize = 3306;
 const ID_EDIT_CONTEXT: usize = 3307;
+const ID_PRESET_BASE: usize = 3320; // + 0 = default light, 1 = default dark, 2.. = settings::PRESETS
 const ID_HASH_BASE: usize = 3400; // + algorithm index * 10 + (0 generate, 1 from files, 2 from selection)
 const ID_B64_ENC: usize = 3450;
 const ID_B64_DEC: usize = 3451;
@@ -703,6 +704,7 @@ fn wb_allows(id: usize) -> bool {
             | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
+        || (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id)
         || (ID_WINDOW_SORT_BASE..ID_WINDOW_SORT_BASE + dialogs::SORTS.len()).contains(&id)
 }
 
@@ -2140,6 +2142,19 @@ impl App {
                         Err(e) => ui.error(&format!("Cannot save the theme\n\n{e}")),
                     }
                 }
+            }
+            _ if (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id) => {
+                let i = id - ID_PRESET_BASE;
+                let (dark, preset) = match i {
+                    0 => (false, None),
+                    1 => (true, None),
+                    _ => (settings::PRESETS[i - 2].dark, Some(&settings::PRESETS[i - 2])),
+                };
+                let mut s = ws.settings.clone();
+                s.apply_preset(dark, preset);
+                apply_settings(ws, s);
+                ws.set_theme(if dark { Theme::dark() } else { Theme::light() });
+                self.flash = Some(format!("Theme: {}", preset.map_or(if dark { "Default (dark)" } else { "Default (light)" }, |p| p.name)));
             }
             ID_EDIT_CONTEXT => {
                 let p = ensure_context_menu_file();
@@ -3930,6 +3945,14 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(settings_menu, ID_STYLE_CFG, "Style Configurator...");
     B::add(settings_menu, ID_SHORTCUTS, "Shortcut Mapper...");
     B::sep(settings_menu);
+    let themes = B::popup();
+    B::add(themes, ID_PRESET_BASE, "Default (light)");
+    B::add(themes, ID_PRESET_BASE + 1, "Default (dark)");
+    B::sep(themes);
+    for (i, p) in settings::PRESETS.iter().enumerate() {
+        B::add(themes, ID_PRESET_BASE + 2 + i, p.name);
+    }
+    B::submenu(settings_menu, "Themes", themes);
     let import = B::popup();
     B::add(import, ID_IMPORT_THEME, "Import style theme(s)...");
     B::add(import, ID_EXPORT_THEME, "Export style theme...");

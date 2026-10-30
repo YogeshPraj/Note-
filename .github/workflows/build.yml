@@ -1,0 +1,115 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Build (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # MinGW-w64 with the UCRT runtime: builds Scintilla and Lexilla, and links the Rust
+      # "gnu" toolchain the project is pinned to (rust-toolchain.toml).
+      - name: Install MinGW (UCRT)
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-make
+
+      - name: Put MinGW on PATH
+        run: echo "${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin" >> $env:GITHUB_PATH
+
+      - name: Install Rust (gnu toolchain)
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
+          rustc --version
+          g++ --version | Select-Object -First 1
+
+      # Mermaid and the Excalidraw whiteboard are bundled from old-src/ by scripts/setup.ps1.
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: old-src/package-lock.json
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Cache Scintilla and Lexilla
+        uses: actions/cache@v4
+        with:
+          path: |
+            scintilla
+            lexilla
+          key: scintilla-${{ runner.os }}-${{ hashFiles('scripts/setup.ps1') }}
+
+      - name: Set up (Scintilla, Lexilla, Mermaid, whiteboard)
+        run: ./scripts/setup.ps1
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Package
+        run: ./scripts/package.ps1
+
+      - name: Release files (zip + checksum)
+        run: ./scripts/release.ps1
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: NotePP-windows-x64
+          path: dist/release/*
+          if-no-files-found: error
+
+      - name: Tag matches the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $ver = (Select-String Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          if ($ver -ne $tag) { throw "Tag ${{ github.ref_name }} does not match version $ver in Cargo.toml" }
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Note++ $($tag.TrimStart('v'))" --generate-notes dist/release/NotePP-windows-x64.zip dist/release/NotePP-windows-x64.zip.sha256
+          } else {
+            gh release upload $tag dist/release/NotePP-windows-x64.zip dist/release/NotePP-windows-x64.zip.sha256 --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed' }

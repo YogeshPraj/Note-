@@ -331,7 +331,7 @@ pub fn proper_case(s: &str, blend: bool) -> String {
         } else {
             out.push(c);
             // An apostrophe inside a word does not start a new one.
-            if !(c == '\'' && !start) {
+            if !((c == '\'' || c == '\u{2019}') && !start) {
                 start = true;
             }
         }
@@ -339,38 +339,51 @@ pub fn proper_case(s: &str, blend: bool) -> String {
     out
 }
 
-/// Capitalise the first letter of each sentence.
+/// Capitalise the first letter of each sentence, as Notepad++ does: a sentence ends at ``.`` ``!``
+/// ``?`` followed by a non-letter, and at a blank line; a lone "i" becomes "I". With ``blend`` the
+/// other letters keep their case.
 pub fn sentence_case(s: &str, blend: bool) -> String {
-    let mut out = String::with_capacity(s.len());
-    let (mut cap, mut ended) = (true, false);
-    for c in s.chars() {
-        if c.is_alphabetic() {
-            if cap {
-                out.extend(c.to_uppercase());
-                cap = false;
-            } else if blend {
-                out.push(c);
-            } else {
-                out.extend(c.to_lowercase());
-            }
-            ended = false;
-        } else {
-            out.push(c);
-            if matches!(c, '.' | '!' | '?') {
-                ended = true;
-            } else if c.is_whitespace() {
-                if ended {
-                    cap = true;
-                    ended = false;
-                }
-            } else if !c.is_ascii_punctuation() || c.is_ascii_digit() {
-                ended = false;
-            }
+    // One character in, one character out (no "ß" -> "SS"), so positions stay put.
+    fn one(mut it: impl Iterator<Item = char>, same: char) -> char {
+        match (it.next(), it.next()) {
+            (Some(c), None) => c,
+            _ => same,
         }
     }
-    out
+    let mut out: Vec<char> = s.chars().collect();
+    let n = out.len();
+    let (mut new_sentence, mut was_r, mut was_n) = (true, false, false);
+    for i in 0..n {
+        let c = out[i];
+        if c.is_alphabetic() {
+            if new_sentence {
+                out[i] = one(c.to_uppercase(), c);
+                new_sentence = false;
+            } else if !blend {
+                out[i] = one(c.to_lowercase(), c);
+            }
+            (was_r, was_n) = (false, false);
+            let before_ok = i > 0 && (out[i - 1].is_whitespace() || out[i - 1] == '(' || out[i - 1] == '"');
+            let after_ok = i + 1 < n && (out[i + 1].is_whitespace() || out[i + 1] == '\'');
+            if out[i] == 'i' && before_ok && after_ok {
+                out[i] = 'I';
+            }
+        } else if matches!(c, '.' | '!' | '?') {
+            new_sentence = !(i + 1 == n || out[i + 1].is_alphanumeric());
+        } else if c == '\r' {
+            if was_r {
+                new_sentence = true;
+            }
+            was_r = true;
+        } else if c == '\n' {
+            if was_n {
+                new_sentence = true;
+            }
+            was_n = true;
+        }
+    }
+    out.into_iter().collect()
 }
-
 pub fn invert_case(s: &str) -> String {
     s.chars()
         .flat_map(|c| -> Vec<char> {
@@ -883,6 +896,14 @@ mod tests {
         assert_eq!(spaces_to_tabs("    a    b", "\n", 4, false), "\ta\t b");
         assert_eq!(spaces_to_tabs("    a    b", "\n", 4, true), "\ta    b");
         assert_eq!(spaces_to_tabs("a b", "\n", 4, false), "a b");
+    }
+
+    #[test]
+    fn sentence_case_follows_notepad_plus_plus() {
+        assert_eq!(sentence_case("hello. WORLD! how are you? i think i am fine.", false), "Hello. World! How are you? I think I am fine.");
+        assert_eq!(sentence_case("one\n\ntwo\r\n\r\nthree", false), "One\n\nTwo\r\n\r\nThree");
+        assert_eq!(sentence_case("keep iPhone. but A.b stays", true), "Keep iPhone. But A.b stays");
+        assert_eq!(proper_case("don\u{2019}t stop", false), "Don\u{2019}t Stop");
     }
 
     #[test]

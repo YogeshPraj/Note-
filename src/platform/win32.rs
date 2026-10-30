@@ -436,7 +436,6 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("File: Save As...", ID_SAVEAS, "Ctrl+Alt+S"),
     ("File: Save a Copy As...", ID_SAVE_COPY, ""),
     ("File: Save All", ID_SAVEALL, "Ctrl+Shift+S"),
-    ("File: Rename...", ID_RENAME, ""),
     ("File: Close", ID_CLOSE, "Ctrl+W"),
     ("File: Close All", ID_CLOSE_ALL, "Ctrl+Shift+W"),
     ("File: Close All but Active Document", ID_CLOSE_OTHERS, ""),
@@ -4225,7 +4224,6 @@ fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::add(f, ID_SAVEAS, "Save &As...\tCtrl+Alt+S");
     B::add(f, ID_SAVE_COPY, "Save a Cop&y As...");
     B::add(f, ID_SAVEALL, "Save A&ll\tCtrl+Shift+S");
-    B::add(f, ID_RENAME, "Rena&me...");
     B::add(f, ID_CLOSE, "&Close\tCtrl+W");
     B::add(f, ID_CLOSE_ALL, "Close All\tCtrl+Shift+W");
     B::submenu(f, "Close M&ultiple Documents", m.close_multi);

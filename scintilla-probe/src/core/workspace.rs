@@ -284,6 +284,8 @@ fn lang_for(path: &Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
         Some("Makefile" | "makefile" | "GNUmakefile") => return "makefile",
         Some("CMakeLists.txt") => return "cmake",
+        Some(".bashrc" | ".bash_profile" | ".bash_login" | ".bash_logout" | ".profile" | ".zshrc" | ".zprofile" | ".zshenv" | "bashrc" | "profile") => return "bash",
+        Some("Rakefile" | "Gemfile" | "Vagrantfile" | "Guardfile" | "Podfile") => return "ruby",
         _ => {}
     }
     path.extension()

@@ -8,6 +8,7 @@ pub mod hash;
 pub mod lang;
 pub mod lexer;
 pub mod mdformat;
+pub mod jsonpath;
 pub mod preview;
 pub mod sci;
 pub mod search;

@@ -892,6 +892,12 @@ fn replace_range<S: Send>(s: &S, start: usize, end: usize, new: &str, select: bo
     }
 }
 
+/// Replace the whole document as one undo step (the JSON preview writes its edits back this way).
+pub fn replace_whole<S: Send>(s: &S, new: &str) {
+    let len = sci::length(s).max(0) as usize;
+    replace_range(s, 0, len, new, false);
+}
+
 /// Run `f` over the selected whole lines. With no selection it covers the whole
 /// document or the caret's line, per `scope`. Returns true if the text changed.
 pub fn apply_lines<S: Send>(s: &S, scope: Scope, f: &dyn Fn(&str) -> String) -> bool {

@@ -32,6 +32,7 @@ use super::tree;
 use super::whiteboard as wb;
 use crate::core::edit::{self, ColumnNumbers, NumFormat, SortKind};
 use crate::core::bookmarks;
+use crate::core::jsonpath;
 use crate::core::hash::{ALGOS, Algo};
 use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
@@ -2709,7 +2710,7 @@ impl App {
         let Some(h) = handles() else { return };
         if on {
             if self.ws.preview_kind().is_none() {
-                self.flash = Some("Preview works for Markdown, HTML and Mermaid files".into());
+                self.flash = Some("Preview works for Markdown, HTML, Mermaid and JSON files".into());
                 return;
             }
             if let Err(e) = pview::ensure(h.host, &config_dir().join("webview"), self.ws.settings.preview_remote_images) {
@@ -2743,7 +2744,7 @@ impl App {
         }
         self.preview_key = Some(key);
         let Some(kind) = self.ws.preview_kind() else {
-            return pview::render("message", "Preview is available for Markdown, HTML and Mermaid files.");
+            return pview::render("message", "Preview is available for Markdown, HTML, Mermaid and JSON files.");
         };
         let text = sci::get_text(&self.ws.sci);
         match kind {
@@ -2757,6 +2758,7 @@ impl App {
             }
             pcore::Kind::Html => pview::render("html", &text),
             pcore::Kind::Mermaid => pview::render("mermaid", &text),
+            pcore::Kind::Json => pview::render("json", &text),
         }
     }
 
@@ -2793,6 +2795,34 @@ impl App {
                 layout();
             }
             pview::PV_NEED_MERMAID => pview::load_mermaid(),
+            pview::PV_NEED_JSON => pview::load_json_editor(),
+            pview::PV_JSON_EDIT => {
+                // An edit made in the JSON editor (arg 1: the auto-fix button) becomes one undo step in the document.
+                if let Some(text) = pview::take_json_edit() {
+                    if self.ws.preview_kind() == Some(pcore::Kind::Json) {
+                        let eol = match self.ws.tabs[self.ws.active].eol {
+                            Eol::Crlf => "\r\n",
+                            Eol::Lf => "\n",
+                            Eol::Cr => "\r",
+                        };
+                        self.ws.replace_text(&text.replace('\n', eol));
+                        if arg == 1 {
+                            self.flash = Some("JSON auto-fixed - Ctrl+Z to undo".into());
+                        }
+                    }
+                }
+            }
+            pview::PV_JSON_PATH => {
+                // A tree node was clicked: put the editor on that node's line.
+                if let Some(path) = pview::take_json_path().and_then(|p| jsonpath::parse_path(&p)) {
+                    if self.ws.preview_kind() == Some(pcore::Kind::Json) {
+                        let text = sci::get_text(&self.ws.sci);
+                        if let Some(line) = jsonpath::line_of(&text, &path) {
+                            self.ws.select_doc_line(line);
+                        }
+                    }
+                }
+            }
             pview::PV_REFRESH => self.preview_update(true),
             _ => {}
         }

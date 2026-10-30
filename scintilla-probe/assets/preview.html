@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src about: data:; font-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src about: data:; font-src data:; worker-src blob:">
 <style>
 :root { --bg:#fff; --fg:#24292f; --muted:#57606a; --border:#d0d7de; --code:#f6f8fa; --link:#0969da; --bar:#f0f0f0; --barborder:#c0c0c0; --btn:#dcdcdc; --quote:#d0d7de; }
 body.dark { --bg:#1e1e1e; --fg:#d4d4d4; --muted:#9da5ae; --border:#3c3c3c; --code:#2b2b2b; --link:#4da3ff; --bar:#3c3c3c; --barborder:#555; --btn:#505050; --quote:#555; }
@@ -36,6 +36,34 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
 .mermaid { background:transparent !important; text-align:center; }
 #md pre.mermaid { background:transparent; }
 .merr { color:#c00; font:12px Consolas, monospace; white-space:pre-wrap; text-align:left; }
+#je { position:absolute; inset:0; }
+#je .jsoneditor { border:0; height:100%; }
+#jerr { position:absolute; inset:0; overflow:auto; padding:16px 20px; font-size:12px; }
+#jerr .t { color:#c00; font:600 12px Consolas, monospace; }
+#jerr .m { color:#c00; font:12px Consolas, monospace; white-space:pre-wrap; margin-top:6px; }
+#jerr .fix { margin-top:14px; padding:10px 12px; border:1px solid var(--border); border-radius:4px; }
+#jerr .fix button { width:auto; height:26px; padding:0 12px; border:1px solid #3883fa; background:#3883fa; color:#fff; border-radius:3px; margin-top:8px; }
+body.dark #jerr .t, body.dark #jerr .m { color:#f48771; }
+/* JSON editor, dark: the library is light-only, so recolour the tree, the text modes and the bars. */
+body.dark .jsoneditor, body.dark div.jsoneditor-tree, body.dark div.jsoneditor-tree-inner { background:#1e1e1e; color:#d4d4d4; }
+body.dark div.jsoneditor-field, body.dark div.jsoneditor-readonly, body.dark div.jsoneditor-value { color:#d4d4d4; }
+body.dark div.jsoneditor-value.jsoneditor-string { color:#ce9178; }
+body.dark div.jsoneditor-value.jsoneditor-number { color:#b5cea8; }
+body.dark div.jsoneditor-value.jsoneditor-boolean, body.dark div.jsoneditor-value.jsoneditor-null { color:#569cd6; }
+body.dark div.jsoneditor-field.jsoneditor-highlight, body.dark div.jsoneditor-field[contenteditable=true]:focus, body.dark div.jsoneditor-field[contenteditable=true]:hover,
+body.dark div.jsoneditor-value.jsoneditor-highlight, body.dark div.jsoneditor-value[contenteditable=true]:focus, body.dark div.jsoneditor-value[contenteditable=true]:hover { background:#2f3a4a; border-color:#3883fa; }
+body.dark tr.jsoneditor-selected, body.dark tr.jsoneditor-selected tr, body.dark tr.jsoneditor-selected td { background:#2a3b57; }
+body.dark .jsoneditor-navigation-bar, body.dark .jsoneditor-statusbar { background:#2b2b2b; color:#aaa; border-color:#3c3c3c; }
+body.dark .jsoneditor-navigation-bar .jsoneditor-separator, body.dark .jsoneditor-treepath-element { color:#bbb; }
+body.dark table.jsoneditor-search div.jsoneditor-frame { background:#fff; }
+body.dark .jsoneditor-text, body.dark textarea.jsoneditor-text, body.dark .ace-jsoneditor, body.dark .ace-jsoneditor .ace_scroller, body.dark .ace-jsoneditor .ace_gutter { background:#1e1e1e; color:#d4d4d4; }
+body.dark .ace-jsoneditor .ace_gutter { color:#858585; }
+body.dark .ace-jsoneditor .ace_string { color:#ce9178; }
+body.dark .ace-jsoneditor .ace_constant.ace_numeric { color:#b5cea8; }
+body.dark .ace-jsoneditor .ace_variable { color:#9cdcfe; }
+body.dark .ace-jsoneditor .ace_marker-layer .ace_active-line { background:#2a2a2b; }
+body.dark .ace-jsoneditor .ace_cursor { color:#d4d4d4; }
+body.dark .jsoneditor-poweredBy { display:none; }
 </style>
 </head>
 <body>
@@ -52,7 +80,9 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
   <div id="md" class="hidden"></div>
   <iframe id="frame" class="hidden" sandbox="allow-scripts"></iframe>
   <div id="mm" class="hidden"></div>
-  <div id="msg">Open a Markdown, HTML or Mermaid file to see a live preview.</div>
+  <div id="je" class="hidden"></div>
+  <div id="jerr" class="hidden"></div>
+  <div id="msg">Open a Markdown, HTML, Mermaid or JSON file to see a live preview.</div>
 </div>
 <script>
 (function () {
@@ -73,7 +103,7 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
   }, { passive: false });
 
   function show(which) {
-    ['md', 'frame', 'mm', 'msg'].forEach(function (id) { $(id).classList.toggle('hidden', id !== which); });
+    ['md', 'frame', 'mm', 'je', 'jerr', 'msg'].forEach(function (id) { $(id).classList.toggle('hidden', id !== which); });
   }
   function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -131,6 +161,72 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
     });
   });
 
+  /* ---- JSON editor: josdejong/jsoneditor, the same library as the Electron app ---- */
+  var je = null, jeText = null, jeBusy = false, pendingJson = null;
+  function norm(s) { return s.replace(/\r\n?/g, '\n'); }
+  // Close any braces/brackets a truncated file left open (null when nothing is missing).
+  function balanceBraces(c) {
+    var stack = [], q = false, esc1 = false, lc = false, bc = false;
+    for (var i = 0; i < c.length; i++) {
+      var ch = c[i], nx = c[i + 1];
+      if (lc) { if (ch === '\n') lc = false; continue; }
+      if (bc) { if (ch === '*' && nx === '/') { bc = false; i++; } continue; }
+      if (esc1) { esc1 = false; continue; }
+      if (q) { if (ch === '\\') esc1 = true; else if (ch === q) q = false; continue; }
+      if (ch === '"' || ch === "'") { q = ch; continue; }
+      if (ch === '/' && nx === '/') { lc = true; i++; continue; }
+      if (ch === '/' && nx === '*') { bc = true; i++; continue; }
+      if (ch === '{') stack.push('}');
+      else if (ch === '[') stack.push(']');
+      else if (ch === '}' || ch === ']') { if (!stack.length || stack[stack.length - 1] !== ch) return null; stack.pop(); }
+    }
+    return stack.length ? c + stack.reverse().join('') : null;
+  }
+  function showJsonError(text, err) {
+    if (je) { je.destroy(); je = null; jeText = null; }
+    var rec = null, note = '';
+    if (window.JSON5) {
+      try { rec = window.JSON5.parse(text); note = 'trailing commas, single quotes, comments, unquoted keys'; } catch (e) {}
+      if (rec === null) {
+        var b = balanceBraces(text);
+        if (b) { try { rec = window.JSON5.parse(b); note = 'appended missing closing brace(s)/bracket(s)'; } catch (e) {} }
+      }
+    }
+    var h = '<div class="t">JSON parse error</div><div class="m">' + esc(String((err && err.message) || err)) + '</div>';
+    if (rec !== null) h += '<div class="fix"><div>We found a likely fix \u2014 ' + esc(note) + '.</div><button id="jfix">Auto-fix syntax</button></div>';
+    $('jerr').innerHTML = h;
+    show('jerr');
+    if (rec !== null) $('jfix').onclick = function () { post('jsonfix:' + JSON.stringify(rec, null, 2)); };
+  }
+  function renderJson(text) {
+    if (!window.JSONEditor) { pendingJson = text; post('need-jsoneditor'); return; }
+    text = norm(text);
+    if (je && text === jeText) { show('je'); return; }
+    var v;
+    try { v = JSON.parse(text); } catch (e) { showJsonError(text, e); return; }
+    if (!je) {
+      $('je').innerHTML = '';
+      je = new window.JSONEditor($('je'), {
+        mode: 'tree',
+        modes: ['tree', 'view', 'form', 'code', 'text'],
+        onChange: function () {
+          if (jeBusy) return;
+          try { var s = JSON.stringify(je.get(), null, 2); jeText = s; post('json:' + s); } catch (e) { /* mid-edit, not valid yet */ }
+        },
+        // Clicking or arrowing onto a node puts the editor on its line.
+        onEvent: function (node, ev) {
+          if (!node || !node.path) return;
+          if (ev.type === 'click' || (ev.type === 'keydown' && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown'))) post('jpath:' + JSON.stringify(node.path));
+        }
+      });
+      jeBusy = true; try { je.set(v); } finally { jeBusy = false; }
+    } else {
+      jeBusy = true; try { je.update(v); } finally { jeBusy = false; }   // keeps what is expanded
+    }
+    jeText = text;
+    show('je');
+  }
+
   window.np = {
     scrollToLine: function (line, total) {
       totalLines = total || totalLines;
@@ -148,6 +244,8 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
         var y2 = $('mm').scrollTop;
         $('mm').innerHTML = '<pre class="mermaid">' + esc(payload) + '</pre>'; show('mm'); $('mm').scrollTop = y2;
         runMermaid($('mm'));
+      } else if (kind === 'json') {
+        renderJson(payload);
       } else if (kind === 'html') {
         $('frame').srcdoc = payload; show('frame');
       } else {
@@ -156,7 +254,8 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
     },
     setTheme: function (d) { dark = d; document.body.classList.toggle('dark', d); },
     setMax: function (m) { $('max').classList.toggle('on', m); },
-    mermaidLoaded: function () { if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); } }
+    mermaidLoaded: function () { if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); } },
+    jsonLoaded: function () { if (pendingJson !== null) { var t = pendingJson; pendingJson = null; renderJson(t); } }
   };
   applyZoom();
 })();

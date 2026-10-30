@@ -1122,6 +1122,24 @@ impl<S: Send> Workspace<S> {
         (self.tabs.get(self.active).map(|t| t.doc).unwrap_or(0), text.len(), h)
     }
 
+    /// The JSON preview edited the document: take its text, as one undo step.
+    pub fn replace_text(&self, text: &str) {
+        let top = self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize;
+        edit::replace_whole(&self.sci, text);
+        self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
+    }
+
+    /// Put the caret on 0-based `line` and select it, scrolling it into view.
+    pub fn select_doc_line(&self, line: usize) {
+        let total = self.line_total();
+        let line = line.min(total.saturating_sub(1));
+        self.send(sci::SCI_ENSUREVISIBLE, line, 0);
+        let start = self.send(sci::SCI_POSITIONFROMLINE, line, 0).max(0) as usize;
+        let end = self.send(sci::SCI_GETLINEENDPOSITION, line, 0).max(0) as usize;
+        self.send(sci::SCI_SETSEL, start, end as isize);
+        self.send(sci::SCI_SCROLLCARET, 0, 0);
+    }
+
     pub fn toggle_bookmark(&self) {
         bookmarks::toggle(&self.sci, bookmarks::current_line(&self.sci));
     }

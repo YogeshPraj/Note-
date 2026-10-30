@@ -23,9 +23,19 @@ pub const PV_NEED_MERMAID: usize = 3;
 pub const PV_REFRESH: usize = 4;
 /// The preview was scrolled by the user; the message's lParam is the top source line times 100.
 pub const PV_SCROLL: usize = 5;
+pub const PV_NEED_JSON: usize = 6;
+/// The JSON editor changed the document; fetch the text with `take_json_edit`.
+pub const PV_JSON_EDIT: usize = 7;
+/// A JSON tree node was clicked; fetch its path with `take_json_path`.
+pub const PV_JSON_PATH: usize = 8;
 
 const PAGE: &str = include_str!("../../assets/preview.html");
 const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
+// JSON editor: josdejong/jsoneditor (Apache-2.0) and JSON5 (MIT), loaded on the first JSON preview.
+const JSONEDITOR_JS: &str = include_str!("../../assets/jsoneditor.min.js");
+const JSONEDITOR_CSS: &str = include_str!("../../assets/jsoneditor.min.css");
+const JSONEDITOR_ICONS: &str = include_str!("../../assets/jsoneditor-icons.svg");
+const JSON5_JS: &str = include_str!("../../assets/json5.min.js");
 
 struct Parent(isize);
 
@@ -41,6 +51,9 @@ thread_local! {
     static CTX: RefCell<Option<WebContext>> = const { RefCell::new(None) };
     static VIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
     static MERMAID: Cell<bool> = const { Cell::new(false) };
+    static JSON_EDITOR: Cell<bool> = const { Cell::new(false) };
+    static JSON_EDIT: RefCell<Option<String>> = const { RefCell::new(None) };
+    static JSON_PATH: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 pub fn is_created() -> bool {
@@ -87,6 +100,28 @@ pub fn ensure(host: HWND, data_dir: &std::path::Path, remote_images: bool) -> Re
         .with_ipc_handler(move |req| {
             let body = req.body().as_str();
             // The page reports its scroll position as "line:<source line, fractional>".
+            // The JSON editor sends its text ("json:" / "jsonfix:") or the clicked node's path ("jpath:").
+            if let Some(text) = body.strip_prefix("json:") {
+                JSON_EDIT.with(|j| *j.borrow_mut() = Some(text.to_string()));
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(host_raw as *mut _)), WM_PREVIEW, WPARAM(PV_JSON_EDIT), LPARAM(0));
+                }
+                return;
+            }
+            if let Some(text) = body.strip_prefix("jsonfix:") {
+                JSON_EDIT.with(|j| *j.borrow_mut() = Some(text.to_string()));
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(host_raw as *mut _)), WM_PREVIEW, WPARAM(PV_JSON_EDIT), LPARAM(1));
+                }
+                return;
+            }
+            if let Some(path) = body.strip_prefix("jpath:") {
+                JSON_PATH.with(|j| *j.borrow_mut() = Some(path.to_string()));
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(host_raw as *mut _)), WM_PREVIEW, WPARAM(PV_JSON_PATH), LPARAM(0));
+                }
+                return;
+            }
             let (code, arg) = if let Some(line) = body.strip_prefix("line:") {
                 match line.trim().parse::<f64>() {
                     Ok(l) if l.is_finite() && (0.0..1e7).contains(&l) => (PV_SCROLL, (l * 100.0).round() as isize),
@@ -97,6 +132,7 @@ pub fn ensure(host: HWND, data_dir: &std::path::Path, remote_images: bool) -> Re
                     "close" => PV_CLOSE,
                     "max" => PV_MAX,
                     "need-mermaid" => PV_NEED_MERMAID,
+                    "need-jsoneditor" => PV_NEED_JSON,
                     "refresh" => PV_REFRESH,
                     _ => return,
                 };
@@ -150,7 +186,47 @@ pub fn set_visible(on: bool) {
     });
 }
 
-/// Push content to the page. `kind` is "markdown" | "html" | "mermaid" | "message".
+pub fn take_json_edit() -> Option<String> {
+    JSON_EDIT.with(|j| j.borrow_mut().take())
+}
+
+pub fn take_json_path() -> Option<String> {
+    JSON_PATH.with(|j| j.borrow_mut().take())
+}
+
+fn base64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// The editor's stylesheet with its icon sprite inlined (the page has no files to load it from).
+fn jsoneditor_css() -> String {
+    let icons = format!("data:image/svg+xml;base64,{}", base64(JSONEDITOR_ICONS.as_bytes()));
+    JSONEDITOR_CSS.replace("./img/jsoneditor-icons.svg", &icons).replace("img/jsoneditor-icons.svg", &icons)
+}
+
+/// Inject the JSON editor (once), then tell the page to draw the document it was waiting on.
+pub fn load_json_editor() {
+    if !JSON_EDITOR.with(|c| c.replace(true)) {
+        eval(&format!(
+            "(function(){{var s=document.createElement('style');s.textContent={};document.head.appendChild(s);}})();",
+            js_string(&jsoneditor_css())
+        ));
+        eval(JSON5_JS);
+        eval(JSONEDITOR_JS);
+    }
+    eval("window.np.jsonLoaded()");
+}
+
+/// Push content to the page. `kind` is "markdown" | "html" | "mermaid" | "json" | "message".
 pub fn render(kind: &str, payload: &str) {
     eval(&format!("window.np.render({},{})", js_string(kind), js_string(payload)));
 }
@@ -179,6 +255,22 @@ pub fn load_mermaid() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_matches_known_vectors() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn jsoneditor_icons_are_inlined() {
+        assert!(!jsoneditor_css().contains("img/jsoneditor-icons.svg"));
+        assert!(jsoneditor_css().contains("data:image/svg+xml;base64,"));
+        assert!(!jsoneditor_css().contains("./data:"));
+    }
 
     #[test]
     fn remote_images_are_blocked_unless_allowed() {

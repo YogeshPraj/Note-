@@ -13,6 +13,8 @@ pub enum Kind {
     Markdown,
     Html,
     Mermaid,
+    /// A JSON document: shown in the tree/code/text JSON editor.
+    Json,
 }
 
 /// What kind of preview (if any) a document supports.
@@ -25,6 +27,7 @@ pub fn kind_for(lexer: &str, path: Option<&Path>) -> Option<Kind> {
     match lexer {
         "markdown" => Some(Kind::Markdown),
         "hypertext" => Some(Kind::Html),
+        "json" => Some(Kind::Json),
         _ => None,
     }
 }
@@ -186,6 +189,7 @@ mod tests {
     fn kinds() {
         assert_eq!(kind_for("markdown", None), Some(Kind::Markdown));
         assert_eq!(kind_for("hypertext", None), Some(Kind::Html));
+        assert_eq!(kind_for("json", None), Some(Kind::Json));
         assert_eq!(kind_for("null", Some(Path::new("x/diagram.MMD"))), Some(Kind::Mermaid));
         assert_eq!(kind_for("rust", Some(Path::new("a.rs"))), None);
     }

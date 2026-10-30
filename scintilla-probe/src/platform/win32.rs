@@ -1755,7 +1755,16 @@ impl App {
                 let on = GetWindowLongPtrW(ui.host, GWL_EXSTYLE) & WS_EX_TOPMOST.0 as isize == 0;
                 let _ = SetWindowPos(ui.host, Some(if on { HWND_TOPMOST } else { HWND_NOTOPMOST }), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             },
-            ID_FULLSCREEN => set_fullscreen(ui.host, !FULLSCREEN.with(|c| c.get())),
+            ID_FULLSCREEN => {
+                let on = !FULLSCREEN.with(|c| c.get());
+                // Leaving full screen also ends distraction free mode, which is a full-screen view.
+                if !on && DISTRACTION.with(|c| c.replace(false)) {
+                    HIDE.with(|c| c.set(0));
+                    ws.set_margins_visible(true);
+                }
+                set_fullscreen(ui.host, on);
+                layout();
+            }
             ID_POSTIT | ID_DISTRACTION => {
                 if id == ID_POSTIT {
                     POSTIT.with(|c| c.set(!c.get()));

@@ -761,7 +761,7 @@ impl<S: Send> Workspace<S> {
             LineOp::TrimTrailing => lines(WholeDocument, &|x| edit::trim_trailing(x, eol)),
             LineOp::TrimLeading => lines(WholeDocument, &|x| edit::trim_leading(x, eol)),
             LineOp::TrimBoth => lines(WholeDocument, &|x| edit::trim_both(x, eol)),
-            LineOp::EolToSpace => lines(WholeDocument, &|x| edit::join_lines(x)),
+            LineOp::EolToSpace => lines(WholeDocument, &|x| edit::eol_to_space(x)),
             LineOp::RemoveUnnecessaryBlanks => lines(WholeDocument, &|x| edit::remove_unnecessary_blanks(x, eol)),
             LineOp::TabsToSpaces => lines(WholeDocument, &|x| edit::tabs_to_spaces(x, eol, tab)),
             LineOp::SpacesToTabsAll => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, false)),
@@ -968,7 +968,10 @@ impl<S: Send> Workspace<S> {
     pub fn insert_bytes(&mut self, bytes: &[u8]) {
         self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
         self.send(sci::SCI_CLEAR, 0, 0);
-        self.send(sci::SCI_ADDTEXT, bytes.len(), bytes.as_ptr() as isize);
+        // The document is UTF-8; anything else on the clipboard is repaired rather than stored raw
+        // (which would make every byte offset we compute from the text wrong).
+        let text = String::from_utf8_lossy(bytes);
+        self.send(sci::SCI_ADDTEXT, text.len(), text.as_ptr() as isize);
         self.send(sci::SCI_ENDUNDOACTION, 0, 0);
     }
 

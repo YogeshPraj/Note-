@@ -168,9 +168,23 @@ pub fn remove_blank_lines(text: &str, eol: &str) -> String {
     map_lines(text, eol, |l| l.into_iter().filter(|x| !x.trim_matches(BLANKS).is_empty()).map(String::from).collect())
 }
 
+/// Join lines like Scintilla's Lines Join: one blank between them, unless the earlier line
+/// already ends in one.
 pub fn join_lines(text: &str) -> String {
     let (lines, _) = split(text);
-    lines.join(" ")
+    let mut out = String::new();
+    for (i, l) in lines.iter().enumerate() {
+        if i > 0 && !out.ends_with(' ') {
+            out.push(' ');
+        }
+        out.push_str(l);
+    }
+    out
+}
+
+/// "EOL to Space": every line break becomes one blank (including a final one).
+pub fn eol_to_space(text: &str) -> String {
+    text.replace("\r\n", " ").replace(['\r', '\n'], " ")
 }
 
 /// Break lines longer than `width` characters, preferring a blank to break at.
@@ -851,6 +865,10 @@ mod tests {
         v.sort();
         assert_eq!(v, ["1", "2", "3", "4", "5", "6"]);
         assert_eq!(join_lines("a\nb\r\nc\n"), "a b c");
+        assert_eq!(join_lines("a \nb"), "a b");
+        assert_eq!(eol_to_space("a\r\nb\nc\r"), "a b c ");
+        assert_eq!(join_lines("a \nb"), "a b");
+        assert_eq!(eol_to_space("a\r\nb\nc\r"), "a b c ");
         assert_eq!(split_lines("aaa bbb ccc ddd", "\n", 7), "aaa bbb\nccc ddd");
         assert_eq!(split_lines("abcdefghij", "\n", 4), "abcd\nefgh\nij");
     }

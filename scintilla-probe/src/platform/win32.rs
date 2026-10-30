@@ -13,7 +13,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
 use windows::Win32::UI::Controls::Dialogs::*;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture, SetFocus};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetActiveWindow, GetCapture, ReleaseCapture, SetCapture, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, PWSTR, w};
 
@@ -226,6 +226,7 @@ const ID_RTL: usize = 3210;
 const ID_LTR: usize = 3211;
 const ID_MONITOR: usize = 3212;
 const TIMER_MONITOR: usize = 2;
+const TIMER_EXTERNAL: usize = 3;
 // Settings and Tools menus
 const ID_PREFS: usize = 3301;
 const ID_STYLE_CFG: usize = 3302;
@@ -2814,6 +2815,14 @@ impl App {
         }
     }
 
+    fn check_external(&mut self) {
+        let App { ws, ui, .. } = self;
+        if ws.check_external(ui) {
+            self.wb_shown = None; // a reloaded whiteboard must push its scene to the page
+            self.refresh();
+        }
+    }
+
     /// Monitoring (tail -f): reload the active file when it has changed on disk.
     fn monitor_tick(&mut self) {
         let alive: Vec<u64> = self.ws.tabs.iter().map(|t| t.id).collect();
@@ -3221,6 +3230,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             with_app(|a| {
                 a.ws.scroll_to_line(l.0.max(0) as usize);
             });
+            LRESULT(0)
+        }
+        WM_TIMER if w.0 == TIMER_EXTERNAL => {
+            // Only while this window is the one in use: a prompt of ours must not stack on another.
+            if unsafe { GetActiveWindow() } == hwnd {
+                with_app(|a| a.check_external());
+            }
+            LRESULT(0)
+        }
+        0x001C => {
+            // WM_ACTIVATEAPP: coming back to the app is when changes made elsewhere are noticed.
+            if w.0 != 0 {
+                with_app(|a| a.check_external());
+            }
             LRESULT(0)
         }
         WM_TIMER if w.0 == TIMER_MONITOR => {
@@ -4175,6 +4198,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
     unsafe {
         layout();
         with_app(|a| a.refresh());
+        SetTimer(Some(hs.host), TIMER_EXTERNAL, 2000, None);
         let _ = ShowWindow(hs.host, SW_SHOW);
         let _ = SetFocus(Some(hs.edit));
 

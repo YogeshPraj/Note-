@@ -207,6 +207,7 @@ pub fn next_match(text: &str, re: &Regex, from: usize) -> Option<Span> {
 }
 
 /// Last match that ends at or before `limit`.
+#[cfg(test)]
 pub fn prev_match(text: &str, re: &Regex, limit: usize) -> Option<Span> {
     all_matches(text, re).into_iter().rev().find(|m| m.1 <= limit)
 }

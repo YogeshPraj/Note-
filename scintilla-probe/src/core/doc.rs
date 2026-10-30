@@ -193,9 +193,29 @@ pub fn encode(text: &str, enc: Enc) -> Vec<u8> {
             out.extend(text.encode_utf16().flat_map(|u| u.to_be_bytes()));
             out
         }
-        Enc::Ansi => encoding_rs::WINDOWS_1252.encode(text).0.into_owned(),
-        Enc::Cs(i) => CHARSETS[i as usize].enc.encode(text).0.into_owned(),
+        Enc::Ansi => encode_legacy(encoding_rs::WINDOWS_1252, text),
+        Enc::Cs(i) => encode_legacy(CHARSETS[i as usize].enc, text),
     }
+}
+
+/// Encode for a legacy character set. A character the set cannot hold becomes ? (what
+/// Notepad++ writes), never an HTML numeric reference, which would corrupt the file.
+fn encode_legacy(e: &'static encoding_rs::Encoding, text: &str) -> Vec<u8> {
+    let (out, _, unmappable) = e.encode(text);
+    if !unmappable {
+        return out.into_owned();
+    }
+    let mut bytes = Vec::with_capacity(text.len());
+    let mut buf = [0u8; 4];
+    for c in text.chars() {
+        let (o, _, bad) = e.encode(c.encode_utf8(&mut buf));
+        if bad {
+            bytes.push(b'?');
+        } else {
+            bytes.extend_from_slice(&o);
+        }
+    }
+    bytes
 }
 
 /// Interpret `bytes` as `enc` (the user's choice, not a guess). A BOM that
@@ -213,7 +233,7 @@ pub fn decode_with(bytes: &[u8], enc: Enc) -> (String, Eol) {
 }
 
 /// Can every character be written in `enc`? (Unicode encodings always can; the
-/// legacy ones would otherwise silently replace characters with `&#...;`.)
+/// legacy ones would otherwise replace the characters with `?`.)
 pub fn can_encode(text: &str, enc: Enc) -> bool {
     match enc {
         Enc::Ansi => !encoding_rs::WINDOWS_1252.encode(text).2,
@@ -225,6 +245,12 @@ pub fn can_encode(text: &str, enc: Enc) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmappable_characters_become_question_marks() {
+        assert_eq!(encode("a日b", Enc::Ansi), b"a?b");
+        assert_eq!(encode("é日", Enc::Ansi), b"\xE9?");
+    }
 
     #[test]
     fn detects_encodings() {

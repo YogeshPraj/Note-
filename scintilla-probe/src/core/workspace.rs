@@ -142,6 +142,17 @@ pub struct Tab {
     pub lang_label: &'static str,
     pub caret: usize,
     pub top: usize,
+    /// The file's modification time and size when it was last read or written, to notice
+    /// changes made by other programs.
+    pub disk: Option<Stamp>,
+}
+
+/// Modification time and size of a file.
+pub type Stamp = (std::time::SystemTime, u64);
+
+pub fn stamp_of(path: &Path) -> Option<Stamp> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
 }
 
 /// What the tab strip needs to draw one tab.
@@ -582,6 +593,7 @@ impl<S: Send> Workspace<S> {
         lang::apply_lexer(&self.sci, lang, &self.theme);
         let id = self.take_id();
         let lang_label = lang::label_for(lang, path.as_deref());
+        let disk = path.as_deref().and_then(stamp_of);
         self.tabs.push(Tab {
             id,
             kind: TabKind::Text,
@@ -597,6 +609,7 @@ impl<S: Send> Workspace<S> {
             lang_label,
             caret: 0,
             top: 0,
+            disk,
         });
         self.active = self.tabs.len() - 1;
         self.apply_view();
@@ -607,6 +620,7 @@ impl<S: Send> Workspace<S> {
     pub fn open_whiteboard(&mut self, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
         self.remember_view();
         let id = self.take_id();
+        let disk = path.as_deref().and_then(stamp_of);
         self.tabs.push(Tab {
             id,
             kind: TabKind::Whiteboard,
@@ -622,6 +636,7 @@ impl<S: Send> Workspace<S> {
             lang_label: "Normal text",
             caret: 0,
             top: 0,
+            disk,
         });
         self.active = self.tabs.len() - 1;
         self.active
@@ -693,6 +708,9 @@ impl<S: Send> Workspace<S> {
         t.enc = enc;
         t.eol = eol;
         t.forced_dirty = !had_path;
+        if let Some(p) = t.path.clone() {
+            t.disk = stamp_of(&p);
+        }
         let len = sci::length(&self.sci).max(0) as usize;
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
@@ -1168,6 +1186,7 @@ impl<S: Send> Workspace<S> {
                 let t = &mut self.tabs[self.active];
                 t.dirty = false;
                 t.forced_dirty = false;
+                t.disk = stamp_of(path);
                 true
             }
             Err(e) => {
@@ -1207,10 +1226,18 @@ impl<S: Send> Workspace<S> {
     /// Re-read the active file from disk, discarding unsaved changes after asking.
     /// Returns false if there is nothing to reload or the user declined.
     pub fn reload_from_disk(&mut self, ui: &dyn Ui) -> bool {
-        let Some(path) = self.tabs[self.active].path.clone() else { return false };
+        if self.tabs[self.active].path.is_none() {
+            return false;
+        }
         if self.is_dirty(self.active) && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload from disk and lose them?", self.tabs[self.active].title)) {
             return false;
         }
+        self.reload_now(ui)
+    }
+
+    /// Re-read the active file without asking.
+    fn reload_now(&mut self, ui: &dyn Ui) -> bool {
+        let Some(path) = self.tabs[self.active].path.clone() else { return false };
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
@@ -1219,6 +1246,7 @@ impl<S: Send> Workspace<S> {
             }
         };
         let (text, enc, eol) = doc::decode(&bytes);
+        self.tabs[self.active].disk = stamp_of(&path);
         if self.is_whiteboard() {
             let t = &mut self.tabs[self.active];
             t.content = text;
@@ -1242,6 +1270,39 @@ impl<S: Send> Workspace<S> {
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
         true
+    }
+
+    /// Notice files changed or deleted by other programs and ask what to do, as Notepad++ does.
+    /// Returns true if any tab was reloaded, kept or closed.
+    pub fn check_external(&mut self, ui: &dyn Ui) -> bool {
+        let ids: Vec<u64> = self.tabs.iter().filter(|t| t.path.is_some()).map(|t| t.id).collect();
+        let mut changed = false;
+        for id in ids {
+            let Some(i) = self.tabs.iter().position(|t| t.id == id) else { continue };
+            let Some(path) = self.tabs[i].path.clone() else { continue };
+            let now = stamp_of(&path);
+            if self.tabs[i].disk == now {
+                continue;
+            }
+            self.tabs[i].disk = now;
+            changed = true;
+            self.activate(i);
+            if now.is_none() {
+                let msg = format!("{}\n\nThis file has been deleted by another program.\nKeep this file in the editor?", path.display());
+                if ui.ask_yes_no(&msg) {
+                    self.tabs[i].forced_dirty = true;
+                } else {
+                    self.remove_tab(i, false);
+                }
+            } else {
+                let lose = if self.is_dirty(i) { "\n\nYour unsaved changes will be lost." } else { "" };
+                let msg = format!("{}\n\nThis file has been modified by another program.\nDo you want to reload it?{lose}", path.display());
+                if ui.ask_yes_no(&msg) {
+                    self.reload_now(ui);
+                }
+            }
+        }
+        changed
     }
 
     /// Move/rename the active file on disk (or just give an unsaved tab a name).
@@ -1281,6 +1342,7 @@ impl<S: Send> Workspace<S> {
         let changed = !whiteboard && self.tabs[self.active].lang != lang;
         let t = &mut self.tabs[self.active];
         t.title = file_title(&p);
+        t.disk = stamp_of(&p);
         t.path = Some(p);
         if !whiteboard {
             t.lang = lang;
@@ -1507,7 +1569,8 @@ impl<S: Send> Workspace<S> {
         let line = self.send(sci::SCI_LINEFROMPOSITION, pos as usize, 0) + 1;
         let col = self.send(sci::SCI_GETCOLUMN, pos as usize, 0) + 1;
         let (a, b) = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0), self.send(sci::SCI_GETSELECTIONEND, 0, 0));
-        let sel = (b - a).max(0);
+        // Characters, not bytes: an accented letter or a CJK character counts once.
+        let sel = if b > a { self.send(sci::SCI_COUNTCHARACTERS, a as usize, b) } else { 0 };
         let sel_lines = if sel > 0 {
             self.send(sci::SCI_LINEFROMPOSITION, b as usize, 0) - self.send(sci::SCI_LINEFROMPOSITION, a as usize, 0) + 1
         } else {
@@ -1684,7 +1747,7 @@ impl<S: Send> Workspace<S> {
 
 fn unmappable_warning(enc: Enc) -> String {
     format!(
-        "Some characters cannot be represented in {} and would be saved as numeric references (like &#1234;).\n\nContinue anyway?",
+        "Some characters cannot be represented in {} and would be saved as ?.\n\nContinue anyway?",
         enc.label()
     )
 }

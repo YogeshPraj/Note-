@@ -41,6 +41,8 @@ pub struct Settings {
     pub dark_colors: BTreeMap<String, String>,
     /// Command id -> shortcut text ("" = shortcut removed). Absent = default.
     pub shortcuts: BTreeMap<String, String>,
+    /// Lock the Bitwarden vault after this many idle minutes; 0 = never.
+    pub passwords_auto_lock_min: u32,
 }
 
 impl Default for Settings {
@@ -67,6 +69,7 @@ impl Default for Settings {
             light_colors: BTreeMap::new(),
             dark_colors: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
+            passwords_auto_lock_min: 15,
         }
     }
 }
@@ -99,6 +102,7 @@ impl Settings {
         self.font_size = self.font_size.clamp(6, 72);
         self.tab_width = self.tab_width.clamp(1, 16);
         self.edge_column = self.edge_column.clamp(0, 500);
+        self.passwords_auto_lock_min = self.passwords_auto_lock_min.min(1440);
         if self.font.trim().is_empty() {
             self.font = Settings::default().font;
         }

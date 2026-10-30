@@ -85,6 +85,42 @@ pub fn get_text(owner: HWND) -> Option<String> {
     Some(String::from_utf16_lossy(&units))
 }
 
+/// Put a secret on the clipboard and ask Windows not to keep it: not in Win+V clipboard history,
+/// not synced to other devices, and not recorded by clipboard monitors (including our own panel).
+pub fn set_secret_text(owner: HWND, text: &str) -> bool {
+    let Some(_c) = Open::new(owner) else { return false };
+    let mut units: Vec<u16> = text.encode_utf16().collect();
+    units.push(0);
+    let bytes: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
+    unsafe {
+        let _ = EmptyClipboard();
+    }
+    let ok = put(CF_UNICODETEXT, &bytes);
+    put(format_id("ExcludeClipboardContentFromMonitorProcessing"), &[1]);
+    put(format_id("CanIncludeInClipboardHistory"), &0u32.to_le_bytes());
+    put(format_id("CanUploadToCloudClipboard"), &0u32.to_le_bytes());
+    ok
+}
+
+/// Does the clipboard hold something its owner asked not to be recorded?
+pub fn is_excluded(owner: HWND) -> bool {
+    let id = format_id("ExcludeClipboardContentFromMonitorProcessing");
+    let Some(_c) = Open::new(owner) else { return false };
+    unsafe { IsClipboardFormatAvailable(id) }.is_ok()
+}
+
+/// Empty the clipboard if its text still has this SHA-256 (so something the user copied since
+/// stays, and the secret itself need not be kept to compare).
+pub fn clear_if_digest(owner: HWND, digest: &[u8]) -> bool {
+    use sha2::{Digest, Sha256};
+    match get_text(owner) {
+        Some(t) if Sha256::digest(t.as_bytes()).as_slice() == digest => {}
+        _ => return false,
+    }
+    let Some(_c) = Open::new(owner) else { return false };
+    unsafe { EmptyClipboard() }.is_ok()
+}
+
 /// Raw bytes of a registered clipboard format, if the clipboard holds it.
 pub fn get_bytes(owner: HWND, name: &str) -> Option<Vec<u8>> {
     let id = format_id(name);

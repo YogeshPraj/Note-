@@ -1,3 +1,4 @@
+pub mod bitwarden;
 pub mod bookmarks;
 pub mod complete;
 pub mod crypto;
@@ -6,6 +7,7 @@ pub mod edit;
 pub mod files;
 pub mod functions;
 pub mod hash;
+pub mod http;
 pub mod lang;
 pub mod lexer;
 pub mod mdformat;

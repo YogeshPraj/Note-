@@ -36,6 +36,23 @@ button.on { background:#cfe0f7; border-color:#7aa7e0; color:#000; }
 .mermaid { background:transparent !important; text-align:center; }
 #md pre.mermaid { background:transparent; }
 .merr { color:#c00; font:12px Consolas, monospace; white-space:pre-wrap; text-align:left; }
+#http { position:absolute; inset:0; overflow:auto; padding:0; }
+#http .hbar { display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:2; }
+#http .hm { font:600 12px Consolas, monospace; }
+#http .hu { font:12px Consolas, monospace; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+#http .hmeta { font-size:12px; color:var(--muted); }
+#http .hbadge { padding:2px 9px; border-radius:10px; font:600 12px "Segoe UI", sans-serif; color:#fff; }
+#http .hbadge.ok { background:#2e9e4f; } #http .hbadge.redir { background:#d08a12; } #http .hbadge.err { background:#cc3b3b; }
+#http .hpend { padding:20px 16px; color:var(--muted); }
+#http .herr { padding:14px 16px; color:#c00; font:12px Consolas, monospace; white-space:pre-wrap; }
+body.dark #http .herr { color:#f48771; }
+#http .htabs { display:flex; gap:2px; padding:6px 10px 0; border-bottom:1px solid var(--border); }
+#http .htab { width:auto; height:26px; padding:0 12px; border-radius:3px 3px 0 0; font:12px "Segoe UI", sans-serif; }
+#http .htab.on { background:var(--code); border-color:var(--border); border-bottom-color:var(--code); }
+#http .hcopy { width:auto; height:24px; padding:0 10px; border:1px solid var(--border); font:12px "Segoe UI", sans-serif; }
+#http pre.hbody { margin:0; padding:12px 16px; font:12.5px/1.5 Consolas, monospace; white-space:pre-wrap; word-break:break-word; }
+#http .hrow { display:flex; gap:12px; padding:3px 16px; font:12px Consolas, monospace; border-bottom:1px solid var(--border); }
+#http .hk { flex:0 0 220px; color:var(--link); word-break:break-all; } #http .hv { flex:1; word-break:break-all; }
 #je { position:absolute; inset:0; }
 #je .jsoneditor { border:0; height:100%; }
 #jerr { position:absolute; inset:0; overflow:auto; padding:16px 20px; font-size:12px; }
@@ -82,6 +99,7 @@ body.dark .jsoneditor-poweredBy { display:none; }
   <div id="mm" class="hidden"></div>
   <div id="je" class="hidden"></div>
   <div id="jerr" class="hidden"></div>
+  <div id="http" class="hidden"></div>
   <div id="msg">Open a Markdown, HTML, Mermaid or JSON file to see a live preview.</div>
 </div>
 <script>
@@ -103,7 +121,7 @@ body.dark .jsoneditor-poweredBy { display:none; }
   }, { passive: false });
 
   function show(which) {
-    ['md', 'frame', 'mm', 'je', 'jerr', 'msg'].forEach(function (id) { $(id).classList.toggle('hidden', id !== which); });
+    ['md', 'frame', 'mm', 'je', 'jerr', 'http', 'msg'].forEach(function (id) { $(id).classList.toggle('hidden', id !== which); });
   }
   function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -227,6 +245,54 @@ body.dark .jsoneditor-poweredBy { display:none; }
     show('je');
   }
 
+  /* ---- HTTP scratchpad: the last response (strings are only ever set as text) ---- */
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  var httpTab = 'body';
+  function copyText(t) {
+    try { navigator.clipboard.writeText(t); return; } catch (e) {}
+    var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {} ta.remove();
+  }
+  function renderHttp(raw) {
+    var d; try { d = JSON.parse(raw); } catch (e) { return; }
+    var root = $('http'), keep = root.scrollTop;
+    root.textContent = '';
+    var bar = el('div', 'hbar');
+    root.appendChild(bar);
+    if (d.state === 'pending') {
+      bar.appendChild(el('span', 'hm', d.method)); bar.appendChild(el('span', 'hu', d.url));
+      root.appendChild(el('div', 'hpend', 'Sending\u2026'));
+    } else if (d.state === 'error') {
+      bar.appendChild(el('span', 'hbadge err', 'failed')); bar.appendChild(el('span', 'hm', d.method)); bar.appendChild(el('span', 'hu', d.url));
+      root.appendChild(el('div', 'herr', d.error));
+    } else {
+      var cls = d.status >= 200 && d.status < 300 ? 'ok' : d.status >= 300 && d.status < 400 ? 'redir' : 'err';
+      bar.appendChild(el('span', 'hbadge ' + cls, d.status + ' ' + (d.statusText || '')));
+      bar.appendChild(el('span', 'hm', d.method)); bar.appendChild(el('span', 'hu', d.url));
+      var bits = [d.bytes.toLocaleString() + ' B', d.timeMs + ' ms'];
+      if (d.redirects) bits.push(d.redirects + ' redirect' + (d.redirects === 1 ? '' : 's'));
+      if (d.truncated) bits.push('truncated');
+      if (d.vault && d.vault.length) bits.push('vault: ' + d.vault.join(', '));
+      bar.appendChild(el('span', 'hmeta', bits.join(' \u00b7 ')));
+      var copy = el('button', 'hcopy', 'Copy body'); copy.onclick = function () { copyText(d.body || ''); copy.textContent = 'Copied'; setTimeout(function () { copy.textContent = 'Copy body'; }, 1200); };
+      bar.appendChild(copy);
+      var tabs = el('div', 'htabs'), body = el('div'), heads = el('div');
+      var b = el('button', 'htab', 'Body'), h = el('button', 'htab', 'Headers (' + d.headers.length + ')');
+      function pick(which) { httpTab = which; b.classList.toggle('on', which === 'body'); h.classList.toggle('on', which === 'headers'); body.classList.toggle('hidden', which !== 'body'); heads.classList.toggle('hidden', which !== 'headers'); }
+      b.onclick = function () { pick('body'); }; h.onclick = function () { pick('headers'); };
+      tabs.appendChild(b); tabs.appendChild(h);
+      var text = d.body || '';
+      if (d.binary) text = (d.contentType || 'binary') + ' \u00b7 ' + d.bytes.toLocaleString() + ' bytes (not shown)';
+      else if (/json/i.test(d.contentType || '')) { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) {} }
+      body.appendChild(el('pre', 'hbody', text));
+      d.headers.forEach(function (kv) { var r = el('div', 'hrow'); r.appendChild(el('span', 'hk', kv[0])); r.appendChild(el('span', 'hv', kv[1])); heads.appendChild(r); });
+      root.appendChild(tabs); root.appendChild(body); root.appendChild(heads);
+      pick(httpTab);
+    }
+    show('http');
+    root.scrollTop = keep;
+  }
+
   window.np = {
     scrollToLine: function (line, total) {
       totalLines = total || totalLines;
@@ -244,6 +310,8 @@ body.dark .jsoneditor-poweredBy { display:none; }
         var y2 = $('mm').scrollTop;
         $('mm').innerHTML = '<pre class="mermaid">' + esc(payload) + '</pre>'; show('mm'); $('mm').scrollTop = y2;
         runMermaid($('mm'));
+      } else if (kind === 'http') {
+        renderHttp(payload);
       } else if (kind === 'json') {
         renderJson(payload);
       } else if (kind === 'html') {

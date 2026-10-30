@@ -1142,6 +1142,12 @@ impl<S: Send> Workspace<S> {
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
     }
 
+    /// The 0-based line the caret is on.
+    pub fn caret_line(&self) -> usize {
+        let pos = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+        self.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0) as usize
+    }
+
     /// Put the caret on 0-based `line` and select it, scrolling it into view.
     pub fn select_doc_line(&self, line: usize) {
         let total = self.line_total();

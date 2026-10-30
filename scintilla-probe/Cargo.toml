@@ -16,7 +16,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 # The `implement` macro for the file drop target refers to this crate by name.
 windows-core = "0.62.2"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Win32_UI_Controls_Dialogs", "Win32_Graphics_Dwm", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_Storage_Xps", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Globalization", "Win32_System_SystemInformation", "Win32_System_Time", "Win32_System_Threading", "Win32_Security", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_Graphics_Printing"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Win32_UI_Controls_Dialogs", "Win32_Graphics_Dwm", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_Storage_Xps", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Globalization", "Win32_System_SystemInformation", "Win32_System_Time", "Win32_System_Threading", "Win32_Security", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_Graphics_Printing", "Win32_System_RemoteDesktop"] }
 wry = "0.57.1"
 # Encrypted pad (same formats as the Electron app), Bitwarden CLI installer, HTTP scratchpad.
 aes-gcm = "0.10"

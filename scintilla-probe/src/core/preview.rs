@@ -15,6 +15,8 @@ pub enum Kind {
     Mermaid,
     /// A JSON document: shown in the tree/code/text JSON editor.
     Json,
+    /// An `.http` / `.rest` scratchpad: the preview pane shows the response of the last request.
+    Http,
 }
 
 /// What kind of preview (if any) a document supports.
@@ -22,6 +24,7 @@ pub fn kind_for(lexer: &str, path: Option<&Path>) -> Option<Kind> {
     let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
     match ext.as_deref() {
         Some("mmd" | "mermaid") => return Some(Kind::Mermaid),
+        Some("http" | "rest") => return Some(Kind::Http),
         _ => {}
     }
     match lexer {
@@ -190,6 +193,8 @@ mod tests {
         assert_eq!(kind_for("markdown", None), Some(Kind::Markdown));
         assert_eq!(kind_for("hypertext", None), Some(Kind::Html));
         assert_eq!(kind_for("json", None), Some(Kind::Json));
+        assert_eq!(kind_for("null", Some(Path::new("api/calls.HTTP"))), Some(Kind::Http));
+        assert_eq!(kind_for("null", Some(Path::new("x.rest"))), Some(Kind::Http));
         assert_eq!(kind_for("null", Some(Path::new("x/diagram.MMD"))), Some(Kind::Mermaid));
         assert_eq!(kind_for("rust", Some(Path::new("a.rs"))), None);
     }

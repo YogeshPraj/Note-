@@ -183,6 +183,7 @@ fn number(s: &str, fallback: i32) -> i32 {
 pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
     const FONT: usize = 101;
     const SIZE: usize = 102;
+    const LOCKMIN: usize = 140;
     const FONT_PICK: usize = 130;
     fn on_click(f: &Form, id: usize) {
         if id == FONT_PICK {
@@ -213,7 +214,7 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
     const REMOTE: usize = 130;
     let spec = Spec {
         title: "Preferences",
-        size: (440, 474),
+        size: (440, 534),
         ctls: vec![
             ctl(1000, Kind::Group, "Editor", 12, 8, 416, 118),
             ctl(1001, Kind::Label, "Font:", 24, 32, 56, 18),
@@ -246,6 +247,9 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
             ctl(L_CR, Kind::Radio(false), "Mac (CR)", 334, 310, 90, 20),
             ctl(1030, Kind::Group, "Live preview", 12, 356, 416, 52),
             ctl(REMOTE, Kind::Check, "Load images from the web (applies after restart)", 24, 378, 380, 20),
+            ctl(1040, Kind::Group, "Passwords", 12, 414, 416, 52),
+            ctl(1041, Kind::Label, "Lock the Bitwarden vault after idle minutes (0 = never):", 24, 438, 316, 18),
+            ctl(LOCKMIN, Kind::Edit, &cur.passwords_auto_lock_min.to_string(), 346, 435, 50, 22),
         ],
         ok: "OK",
         on_change: Some(on_click),
@@ -295,6 +299,7 @@ pub fn preferences(host: HWND, cur: &Settings) -> Option<Settings> {
         caret_line: v.checked(CARET),
         smart_highlight: v.checked(SMART),
         preview_remote_images: v.checked(REMOTE),
+        passwords_auto_lock_min: number(v.text(LOCKMIN), cur.passwords_auto_lock_min as i32).max(0) as u32,
         show_toolbar: v.checked(TOOLBAR),
         show_tabbar: v.checked(TABBAR),
         show_statusbar: v.checked(STATUS),

@@ -38,6 +38,7 @@ use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
 use super::dialogs;
 use super::encdialogs;
+use super::pwdialogs;
 use crate::core::functions;
 use crate::core::mdformat;
 use crate::core::view;
@@ -54,6 +55,9 @@ use crate::core::workspace::{CaseOp, CloseOp, Completion, Confirm, LineOp, PathT
 const WM_REFRESH: u32 = WM_APP + 1;
 const WM_MINIMAP: u32 = WM_APP + 2;
 const WM_SPLIT: u32 = WM_APP + 60;
+/// A background HTTP request finished; its result is in `HTTP_RESULT`.
+const WM_HTTP_DONE: u32 = WM_APP + 61;
+static HTTP_RESULT: std::sync::Mutex<Option<(isize, String)>> = std::sync::Mutex::new(None);
 const TIMER_PREVIEW: usize = 1;
 const MINI_W: i32 = 110;
 const SPLIT_W: i32 = 5;
@@ -364,6 +368,10 @@ const ID_ENC_TOGGLE: usize = 1128; // the toolbar's lock button
 const ID_ENC_SETTINGS: usize = 3340;
 const ID_PASSWORDS: usize = 3341;
 const ID_HTTP_SEND: usize = 3342;
+const ID_PW_LOCK: usize = 3343;
+const ID_ENC_LOCK: usize = 3344;
+const ID_PW_TOOLBAR: usize = 3345;
+const TIMER_CLIP: usize = 5;
 const ID_RESTORE_CLOSED: usize = 1119;
 const ID_OPEN_ALL_RECENT: usize = 1120;
 const ID_WORKSPACE_TOGGLE: usize = 3007;
@@ -409,7 +417,9 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("File: Remove Encryption From This File", ID_DECRYPT, ""),
     ("Settings: Encryption...", ID_ENC_SETTINGS, ""),
     ("Tools: Passwords (Bitwarden)...", ID_PASSWORDS, ""),
-    ("Tools: Send HTTP Request", ID_HTTP_SEND, "Ctrl+Enter"),
+    ("Tools: Lock Passwords (Bitwarden)", ID_PW_LOCK, ""),
+    ("Settings: Lock Encryption", ID_ENC_LOCK, ""),
+    ("Tools: Send HTTP Request (Ctrl+Enter in a .http file)", ID_HTTP_SEND, ""),
     ("File: Restore Recent Closed File", ID_RESTORE_CLOSED, "Ctrl+Shift+T"),
     ("File: Open All Recent Files", ID_OPEN_ALL_RECENT, ""),
     ("File: Empty Recent Files List", ID_RECENT_CLEAR, ""),
@@ -699,6 +709,11 @@ struct App {
     wb_dark: bool,
     /// A Save / Save As waiting for the page to hand over its latest scene.
     wb_pending: Option<WbPending>,
+    /// The last HTTP scratchpad response as the page wants it: (document it belongs to, JSON).
+    http_last: Option<(isize, String)>,
+    /// The document whose response the preview page is showing now.
+    http_shown: Option<isize>,
+    http_busy: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -717,7 +732,7 @@ fn wb_allows(id: usize) -> bool {
             | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
             | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
             | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE | ID_PREFS | ID_STYLE_CFG | ID_SHORTCUTS
-            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS
+            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS | ID_PW_TOOLBAR | ID_PW_LOCK | ID_ENC_LOCK
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
         || (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id)
@@ -725,6 +740,8 @@ fn wb_allows(id: usize) -> bool {
 }
 
 thread_local! {
+    /// SHA-256 of the secret last copied from Passwords, so it is only cleared if still on the clipboard.
+    static CLIP_SECRET: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     static HANDLES: Cell<Option<Handles>> = const { Cell::new(None) };
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
     static MINI_ON: Cell<bool> = const { Cell::new(true) };
@@ -1083,6 +1100,7 @@ fn user_hide(s: &Settings) -> u8 {
 
 /// Make `s` current: restyle the editor, save it, and update the chrome.
 fn apply_settings(ws: &mut Workspace<Win32Sci>, s: Settings) {
+    crate::core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
     ws.set_settings(s);
     let _ = ws.settings.save();
     USER_HIDE.with(|c| c.set(user_hide(&ws.settings)));
@@ -1563,6 +1581,34 @@ impl App {
                 }
             }
             ID_PAGE_SETUP => drop(print::page_setup(ui.host)),
+            ID_HTTP_SEND => self.http_send(),
+            ID_PW_LOCK => {
+                crate::core::bitwarden::lock();
+                self.flash = Some("Passwords locked".into());
+            }
+            ID_ENC_LOCK => {
+                ws.vault.lock();
+                self.flash = Some("Encryption locked".into());
+            }
+            ID_PASSWORDS | ID_PW_TOOLBAR => {
+                use sha2::{Digest, Sha256};
+                match pwdialogs::run(ui.host, !ws.is_whiteboard()) {
+                    pwdialogs::Outcome::Insert(secret) => {
+                        ws.insert_text(&secret);
+                        self.flash = Some("Inserted at the cursor (the clipboard was not used)".into());
+                    }
+                    pwdialogs::Outcome::Copy(secret) => {
+                        if clip::set_secret_text(ui.host, &secret) {
+                            CLIP_SECRET.with(|c| *c.borrow_mut() = Some(Sha256::digest(secret.as_bytes()).to_vec()));
+                            unsafe {
+                                SetTimer(Some(ui.host), TIMER_CLIP, 30_000, None);
+                            }
+                            self.flash = Some("Copied - the clipboard is cleared in 30 seconds".into());
+                        }
+                    }
+                    pwdialogs::Outcome::Closed => {}
+                }
+            }
             ID_ENCRYPT => self.flash = ws.encrypt_active(ui),
             ID_DECRYPT => self.flash = ws.decrypt_active(ui),
             ID_ENC_TOGGLE => self.flash = if ws.is_encrypted() { ws.decrypt_active(ui) } else { ws.encrypt_active(ui) },
@@ -1681,6 +1727,8 @@ impl App {
             ID_BEGIN_END_COL => self.flash = ws.begin_end_select(true),
             ID_INDENT_INC | ID_INDENT_DEC => ws.indent(id == ID_INDENT_INC),
             ID_AC_FUNC => self.flash = ws.complete(Completion::Functions),
+            // Ctrl+Enter sends the request in a .http file, and completes the word everywhere else.
+            ID_AC_WORD if ws.preview_kind() == Some(pcore::Kind::Http) => self.http_send(),
             ID_AC_WORD => self.flash = ws.complete(Completion::Words),
             ID_AC_HINT => self.flash = ws.complete(Completion::Hint),
             ID_AC_PATH => self.flash = ws.complete(Completion::Path),
@@ -2788,6 +2836,71 @@ impl App {
             pcore::Kind::Html => pview::render("html", &text),
             pcore::Kind::Mermaid => pview::render("mermaid", &text),
             pcore::Kind::Json => pview::render("json", &text),
+            pcore::Kind::Http => {
+                let doc = self.ws.tabs[self.ws.active].doc;
+                // Typing in the request must not rebuild the page and lose the tab you were reading.
+                if force || self.http_shown != Some(doc) {
+                    match &self.http_last {
+                        Some((d, json)) if *d == doc => pview::render("http", json),
+                        _ => pview::render("message", "Press Ctrl+Enter to send the request under the cursor."),
+                    }
+                    self.http_shown = Some(doc);
+                }
+            }
+        }
+    }
+
+    /// Send the request under the cursor (HTTP scratchpad, Ctrl+Enter in a .http / .rest file).
+    fn http_send(&mut self) {
+        if self.ws.preview_kind() != Some(pcore::Kind::Http) {
+            self.flash = Some("Open a .http or .rest file to send requests".into());
+            return;
+        }
+        if self.http_busy {
+            self.flash = Some("A request is already running".into());
+            return;
+        }
+        let Some(h) = handles() else { return };
+        let text = sci::get_text(&self.ws.sci);
+        let line = self.ws.caret_line();
+        let Some(req) = crate::core::http::request_at(&text, line) else {
+            self.flash = Some("No request found at the cursor".into());
+            return;
+        };
+        if !PREVIEW_ON.with(|c| c.get()) {
+            self.set_preview(true);
+            if !PREVIEW_ON.with(|c| c.get()) {
+                return;
+            }
+        }
+        let doc = self.ws.tabs[self.ws.active].doc;
+        let pending = crate::core::http::pending_json(&req);
+        pview::render("http", &pending);
+        self.http_last = Some((doc, pending));
+        self.http_shown = Some(doc);
+        self.http_busy = true;
+        let host = h.host.0 as isize;
+        std::thread::spawn(move || {
+            // {{vault:...}} is looked up here, at send time, and never leaves this thread.
+            let json = match crate::core::http::send(&req, &mut |r| crate::core::bitwarden::resolve_reference(r).ok()) {
+                Ok(res) => crate::core::http::response_json(&req, &res),
+                Err(e) => crate::core::http::error_json(&req, &e),
+            };
+            *HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()) = Some((doc, json));
+            unsafe {
+                let _ = PostMessageW(Some(HWND(host as *mut core::ffi::c_void)), WM_HTTP_DONE, WPARAM(0), LPARAM(0));
+            }
+        });
+    }
+
+    fn http_done(&mut self) {
+        self.http_busy = false;
+        let Some((doc, json)) = HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+        self.http_last = Some((doc, json.clone()));
+        let showing = self.ws.tabs.get(self.ws.active).is_some_and(|t| t.doc == doc);
+        if showing && PREVIEW_ON.with(|c| c.get()) && self.ws.preview_kind() == Some(pcore::Kind::Http) {
+            pview::render("http", &json);
+            self.http_shown = Some(doc);
         }
     }
 
@@ -3371,7 +3484,36 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             LRESULT(0)
         }
         WM_TIMER if w.0 == TIMER_SESSION => {
-            with_app(|a| a.autosave_session());
+            with_app(|a| {
+                a.autosave_session();
+                if crate::core::bitwarden::tick_auto_lock() {
+                    a.flash = Some("Passwords locked (idle)".into());
+                }
+            });
+            LRESULT(0)
+        }
+        WM_TIMER if w.0 == TIMER_CLIP => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), TIMER_CLIP);
+            }
+            if let Some(d) = CLIP_SECRET.with(|c| c.borrow_mut().take()) {
+                clip::clear_if_digest(hwnd, &d);
+            }
+            LRESULT(0)
+        }
+        // The vault locks when the PC goes to sleep or the screen is locked.
+        0x0218 => {
+            // WM_POWERBROADCAST, PBT_APMSUSPEND
+            if w.0 == 4 {
+                crate::core::bitwarden::lock();
+            }
+            unsafe { DefWindowProcW(hwnd, msg, w, l) }
+        }
+        0x02B1 => {
+            // WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK
+            if w.0 == 7 {
+                crate::core::bitwarden::lock();
+            }
             LRESULT(0)
         }
         // Logging off or shutting down ends the process without a WM_CLOSE: keep the session.
@@ -3421,6 +3563,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             }
             LRESULT(0)
         }
+        WM_HTTP_DONE => {
+            with_app(|a| a.http_done());
+            LRESULT(0)
+        }
         pview::WM_PREVIEW => {
             let (code, arg) = (w.0, l.0);
             with_app(|a| a.preview_message(code, arg));
@@ -3449,8 +3595,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             LRESULT(0)
         }
         WM_CLIPBOARDUPDATE => {
-            if let Some(text) = clip::get_text(hwnd) {
-                sidepanel::record_clipboard(&text);
+            // Secrets that asked not to be recorded (copied from Passwords) stay out of the history.
+            if !clip::is_excluded(hwnd) {
+                if let Some(text) = clip::get_text(hwnd) {
+                    sidepanel::record_clipboard(&text);
+                }
             }
             LRESULT(0)
         }
@@ -4062,6 +4211,9 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(text_tools, ID_XML_PRETTY, "XML: Pretty-print");
     B::add(text_tools, ID_XML_MIN, "XML: Minify");
     B::submenu(tools, "Text Tools", text_tools);
+    B::sep(tools);
+    B::add(tools, ID_PASSWORDS, "Passwords (Bitwarden)...");
+    B::add(tools, ID_HTTP_SEND, "Send HTTP Request\tCtrl+Enter (.http / .rest files)");
 
     // Window: Sort By, Windows..., then the open documents (filled as the menu opens).
     let window = B::popup();
@@ -4112,6 +4264,7 @@ fn toolbar_items() -> Vec<ToolItem> {
         btn!(ID_CLOSE, "close.svg", "Close (Ctrl+W)"),
         btn!(ID_PRINT, "print.svg", "Print"),
         btn!(ID_ENC_TOGGLE, "lock.svg", "Encrypt this file (or remove its encryption)"),
+        btn!(ID_PW_TOOLBAR, "key.svg", "Passwords (Bitwarden)"),
         ToolItem::Sep,
         btn!(ID_CUT, "cut.svg", "Cut (Ctrl+X)"),
         btn!(ID_COPY, "copy.svg", "Copy (Ctrl+C)"),
@@ -4424,6 +4577,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
     let prefs = Settings::load();
     USER_HIDE.with(|c| c.set(user_hide(&prefs)));
     install_shortcuts(&menus, &prefs, None);
+    crate::core::bitwarden::set_auto_lock_minutes(prefs.passwords_auto_lock_min);
     ws.set_settings(prefs);
     if !crate::core::session::standalone() {
         if let Some(s) = Session::load(&session_path()) {
@@ -4442,7 +4596,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         TREE_ON.with(|c| c.set(true));
     }
     APP.with(|c| {
-        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), window_key: (vec![("\u{0}".into(), false)], usize::MAX), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None })
+        *c.borrow_mut() = Some(App { ws, ui, menus, hits: Vec::new(), hit_cursor: 0, monitoring: HashMap::new(), side_key: None, hits_root: PathBuf::new(), flash: None, file_menu_key: (vec![PathBuf::from("\u{0}")], false), window_key: (vec![("\u{0}".into(), false)], usize::MAX), quick_files: Vec::new(), preview_key: None, preview_doc: 0, preview_dark: false, wb_ready: false, wb_shown: None, wb_dark: false, wb_pending: None, http_last: None, http_shown: None, http_busy: false })
     });
 
     unsafe {
@@ -4452,6 +4606,8 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         SetTimer(Some(hs.host), TIMER_SESSION, 10_000, None);
         // Files dropped on the window open as tabs; the editor has its own file-accepting drop target.
         windows::Win32::UI::Shell::DragAcceptFiles(hs.host, true);
+        // Learn when the screen is locked, to lock the Bitwarden vault with it.
+        let _ = windows::Win32::System::RemoteDesktop::WTSRegisterSessionNotification(hs.host, windows::Win32::System::RemoteDesktop::NOTIFY_FOR_THIS_SESSION);
         super::filedrop::install(hs.edit, hs.host);
         let _ = ShowWindow(hs.host, SW_SHOW);
         let _ = SetFocus(Some(hs.edit));

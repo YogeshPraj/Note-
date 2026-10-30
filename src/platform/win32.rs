@@ -385,6 +385,12 @@ const ID_TAB_REVEAL: usize = 5612;
 const ID_LOG_FOLLOW: usize = 3213;
 const TIMER_LOG: usize = 6;
 const TIMER_UPDATE: usize = 7;
+const TIMER_WELCOME: usize = 8;
+
+thread_local! {
+    /// This start is the first of this version, and an earlier version's session was found.
+    static UPGRADED: Cell<bool> = const { Cell::new(false) };
+}
 const ID_UPDATE_PILL: usize = 3350;
 const ID_UPDATE_CHECK: usize = 3351;
 const ID_UPDATE_AUTO: usize = 3352;
@@ -3131,6 +3137,27 @@ impl App {
         });
     }
 
+    // ---- first start of a new major version ---------------------------------------------
+
+    /// Once per version: after an upgrade from the Electron-based Note++, say what changed.
+    fn show_whats_new(&mut self) {
+        if crate::core::session::standalone() || self.ws.settings.whats_new_seen == update::VERSION {
+            return;
+        }
+        let upgraded = UPGRADED.with(|c| c.get());
+        self.ws.settings.whats_new_seen = update::VERSION.into();
+        let _ = self.ws.settings.save();
+        if !upgraded {
+            return;
+        }
+        let text = "Note++ has been rebuilt as a native Windows application, built on the Scintilla editing engine. It replaces the previous version.\n\n\
+                    \u{2022} Your open tabs, unsaved text, settings and encryption profile were carried over.\n\
+                    \u{2022} The new version keeps using the same data folder, so nothing needs to be moved.\n\
+                    \u{2022} A few extras of 1.x, such as draw.io diagrams, are not available yet.\n\n\
+                    Updates arrive here automatically from now on.";
+        dialogs::message(self.ui.host, &format!("Welcome to Note++ {}", update::VERSION), text, dialogs::Tone::Info, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
+    }
+
     // ---- auto-update --------------------------------------------------------------------
 
     /// Show the state of the update in the toolbar pill.
@@ -3953,6 +3980,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                     a.update_check(false);
                 }
             });
+            LRESULT(0)
+        }
+        WM_TIMER if w.0 == TIMER_WELCOME => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), TIMER_WELCOME);
+            }
+            with_app(|a| a.show_whats_new());
             LRESULT(0)
         }
         WM_TIMER if w.0 == TIMER_LOG => {
@@ -5013,6 +5047,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         SendMessageW(hs.edit, sci::SCI_USEPOPUP, Some(WPARAM(0)), None);
     }
     let prefs = Settings::load();
+    UPGRADED.with(|c| c.set(prefs.whats_new_seen.is_empty() && session_path().exists()));
     USER_HIDE.with(|c| c.set(user_hide(&prefs)));
     install_shortcuts(&menus, &prefs, None);
     crate::core::bitwarden::set_auto_lock_minutes(prefs.passwords_auto_lock_min);
@@ -5043,6 +5078,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
         SetTimer(Some(hs.host), TIMER_EXTERNAL, 2000, None);
         SetTimer(Some(hs.host), TIMER_SESSION, 10_000, None);
         SetTimer(Some(hs.host), TIMER_UPDATE, 8_000, None);
+        SetTimer(Some(hs.host), TIMER_WELCOME, 1_200, None);
         // An update downloaded earlier (by a previous run) is offered again straight away.
         with_app(|a| {
             if let Some((v, d)) = update::staged(update::VERSION) {

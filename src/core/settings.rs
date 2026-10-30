@@ -45,6 +45,8 @@ pub struct Settings {
     pub auto_update: bool,
     /// Lock the Bitwarden vault after this many idle minutes; 0 = never.
     pub passwords_auto_lock_min: u32,
+    /// The version whose "what's new" notice was already shown.
+    pub whats_new_seen: String,
 }
 
 impl Default for Settings {
@@ -73,6 +75,7 @@ impl Default for Settings {
             shortcuts: BTreeMap::new(),
             passwords_auto_lock_min: 15,
             auto_update: true,
+            whats_new_seen: String::new(),
         }
     }
 }

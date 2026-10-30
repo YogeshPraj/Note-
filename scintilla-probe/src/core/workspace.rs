@@ -8,6 +8,7 @@
 
 use super::bookmarks;
 use super::complete;
+use super::crypto;
 use super::doc::{self, Enc, Eol};
 use super::edit;
 use super::files;
@@ -40,6 +41,11 @@ pub trait Ui {
     /// Move a file to the Recycle Bin.
     fn recycle(&self, path: &Path) -> Result<(), String>;
     fn error(&self, msg: &str);
+    /// Ask for the profile's password (or recovery key). On success `vault.dek` is set.
+    fn unlock(&self, vault: &mut crypto::Vault, what: &str) -> bool;
+    /// First-time encryption setup: choose a password and show the recovery key. On success the
+    /// profile exists, is saved, and is unlocked.
+    fn setup_encryption(&self, vault: &mut crypto::Vault) -> bool;
 }
 
 /// Which tabs a "Close Multiple Documents" command targets.
@@ -140,6 +146,8 @@ pub struct Tab {
     pub lang: &'static str,
     /// The Language-menu entry in effect (several share one lexer, e.g. C and Java).
     pub lang_label: &'static str,
+    /// Saved as an encrypted file (see `crypto`); the editor always shows the plain text.
+    pub encrypted: bool,
     pub caret: usize,
     pub top: usize,
     /// The file's modification time and size when it was last read or written, to notice
@@ -188,6 +196,8 @@ pub struct Workspace<S: Send> {
     pub symbols: view::Symbols,
     /// Picture used by Insert > Date Time (customized).
     pub date_format: String,
+    /// The encryption profile and, while unlocked, its key.
+    pub vault: crypto::Vault,
     /// Where "Begin/End Select" was started: (document, caret position).
     select_anchor: Option<(isize, usize)>,
     smart_key: (usize, usize, usize),
@@ -317,6 +327,7 @@ impl<S: Send> Workspace<S> {
             symbols: view::Symbols::default(),
             settings: Settings::default(),
             date_format: "yyyy-MM-dd HH:mm:ss".into(),
+            vault: crypto::Vault::load(),
             select_anchor: None,
             smart_key: (0, 0, 0),
             next_id: 1,
@@ -612,6 +623,7 @@ impl<S: Send> Workspace<S> {
             eol,
             lang,
             lang_label,
+            encrypted: false,
             caret: 0,
             top: 0,
             disk,
@@ -639,6 +651,7 @@ impl<S: Send> Workspace<S> {
             eol: Eol::Lf,
             lang: "null",
             lang_label: "Normal text",
+            encrypted: false,
             caret: 0,
             top: 0,
             disk,
@@ -1191,8 +1204,8 @@ impl<S: Send> Workspace<S> {
             Ok(b) => b,
             Err(e) => return ui.error(&format!("Cannot open {}\n\n{e}", path.display())),
         };
-        let (text, enc, eol) = doc::decode(&bytes);
-        if super::whiteboard::is_whiteboard_file(&text, path) {
+        let Some((text, enc, eol, encrypted)) = self.read_text(ui, &bytes, &file_title(path)) else { return };
+        if !encrypted && super::whiteboard::is_whiteboard_file(&text, path) {
             self.open_whiteboard(file_title(path), Some(path.to_path_buf()), text, false);
             self.note_recent(path);
             return;
@@ -1203,6 +1216,7 @@ impl<S: Send> Workspace<S> {
             && !self.is_dirty(0)
             && sci::length(&self.sci) == 0;
         self.open_doc(file_title(path), Some(path.to_path_buf()), &text, enc, eol, lang_for(path));
+        self.tabs[self.active].encrypted = encrypted;
         self.note_recent(path);
         if replace_pristine {
             let old = self.tabs.remove(0);
@@ -1245,15 +1259,39 @@ impl<S: Send> Workspace<S> {
         }
     }
 
+    /// The active tab as it goes to `path`: encrypted when the tab is protected (asking for the
+    /// password first if the profile is locked). None when that was declined or failed.
+    fn bytes_for(&mut self, ui: &dyn Ui, path: &Path) -> Option<Vec<u8>> {
+        if self.is_whiteboard() || !self.tabs[self.active].encrypted {
+            return Some(self.current_bytes());
+        }
+        let title = self.tabs[self.active].title.clone();
+        if !self.vault.unlocked() && !ui.unlock(&mut self.vault, &title) {
+            ui.error(&format!("\"{title}\" is encrypted, so it was not saved.\n\nUnlock encryption to save it."));
+            return None;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let text = sci::get_text(&self.sci);
+        match self.vault.dek.as_ref().map(|d| crypto::encrypt_text(&text, d, ext)) {
+            Some(Ok(s)) => Some(s.into_bytes()),
+            Some(Err(e)) => {
+                ui.error(&format!("Cannot encrypt \"{title}\"\n\n{e}"));
+                None
+            }
+            None => None,
+        }
+    }
+
     fn write_to(&mut self, ui: &dyn Ui, path: &Path) -> bool {
         let whiteboard = self.is_whiteboard();
-        if !whiteboard {
+        if !whiteboard && !self.tabs[self.active].encrypted {
             let enc = self.tabs[self.active].enc;
             if !doc::can_encode(&sci::get_text(&self.sci), enc) && !ui.ask_yes_no(&unmappable_warning(enc)) {
                 return false;
             }
         }
-        match files::atomic_write(path, &self.current_bytes()) {
+        let Some(bytes) = self.bytes_for(ui, path) else { return false };
+        match files::atomic_write(path, &bytes) {
             Ok(()) => {
                 if !whiteboard {
                     self.send(sci::SCI_SETSAVEPOINT, 0, 0);
@@ -1289,7 +1327,8 @@ impl<S: Send> Workspace<S> {
     pub fn save_copy_as(&mut self, ui: &dyn Ui) -> Option<PathBuf> {
         let t = &self.tabs[self.active];
         let p = ui.pick_save(&t.title)?;
-        match files::atomic_write(&p, &self.current_bytes()) {
+        let bytes = self.bytes_for(ui, &p)?;
+        match files::atomic_write(&p, &bytes) {
             Ok(()) => Some(p),
             Err(e) => {
                 ui.error(&format!("Cannot save {}\n\n{e}", p.display()));
@@ -1320,7 +1359,8 @@ impl<S: Send> Workspace<S> {
                 return false;
             }
         };
-        let (text, enc, eol) = doc::decode(&bytes);
+        let title = self.tabs[self.active].title.clone();
+        let Some((text, enc, eol, encrypted)) = self.read_text(ui, &bytes, &title) else { return false };
         self.tabs[self.active].disk = stamp_of(&path);
         if self.is_whiteboard() {
             let t = &mut self.tabs[self.active];
@@ -1339,12 +1379,137 @@ impl<S: Send> Workspace<S> {
         let t = &mut self.tabs[self.active];
         t.enc = enc;
         t.eol = eol;
+        t.encrypted = encrypted;
         t.forced_dirty = false;
         t.dirty = false;
         let len = sci::length(&self.sci).max(0) as usize;
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
         true
+    }
+
+    // ---- encryption ---------------------------------------------------------------------
+
+    /// Decrypt `env` for the file called `name`, setting up what is missing on the way: adopting
+    /// the Electron app's profile when it owns the file, then asking for the password.
+    fn decrypt_for(&mut self, ui: &dyn Ui, env: &crypto::Envelope, name: &str) -> Option<String> {
+        if self.vault.profile.is_none() {
+            self.vault = crypto::Vault::load();
+        }
+        match self.vault.fingerprint().map(str::to_string) {
+            None => {
+                let theirs = crypto::electron_profile_path()
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                    .and_then(|t| crypto::Profile::parse(&t))
+                    .filter(|p| p.fingerprint == env.profile);
+                match theirs {
+                    Some(p) => {
+                        let msg = format!(
+                            "\"{name}\" is protected by your Note++ encryption profile ({}).\n\nUse that profile here? It is copied; your password and recovery key stay the same.",
+                            p.fingerprint_display()
+                        );
+                        if !ui.ask_yes_no(&msg) {
+                            return None;
+                        }
+                        if let Err(e) = crypto::save_profile(&p) {
+                            ui.error(&format!("Cannot save the profile\n\n{e}"));
+                            return None;
+                        }
+                        self.vault.profile = Some(p);
+                    }
+                    None => {
+                        ui.error(&format!(
+                            "\"{name}\" was encrypted with profile {}, which is not set up here.\n\nRestore that profile (Settings > Encryption > Import profile...) and open the file again.",
+                            crypto::display_fingerprint(&env.profile)
+                        ));
+                        return None;
+                    }
+                }
+            }
+            Some(fp) if fp != env.profile => {
+                ui.error(&format!(
+                    "\"{name}\" belongs to a different encryption profile ({}).\n\nIt cannot be unlocked with the current profile ({}).",
+                    crypto::display_fingerprint(&env.profile),
+                    crypto::display_fingerprint(&fp)
+                ));
+                return None;
+            }
+            Some(_) => {}
+        }
+        if !self.vault.unlocked() && !ui.unlock(&mut self.vault, name) {
+            return None;
+        }
+        let dek = self.vault.dek.as_ref()?;
+        match crypto::decrypt_envelope(env, dek) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                ui.error(&format!("Cannot open \"{name}\"\n\n{e}"));
+                None
+            }
+        }
+    }
+
+    /// A file's text, decrypting it when it is an encrypted file. None when the user backed out
+    /// or it could not be decrypted. The last value tells whether the file was encrypted.
+    fn read_text(&mut self, ui: &dyn Ui, bytes: &[u8], name: &str) -> Option<(String, Enc, Eol, bool)> {
+        match crypto::parse_envelope(bytes) {
+            Some(env) => {
+                let plain = self.decrypt_for(ui, &env, name)?;
+                let (text, _, eol) = doc::decode(plain.as_bytes());
+                Some((text, Enc::Utf8, eol, true))
+            }
+            None => {
+                let (text, enc, eol) = doc::decode(bytes);
+                Some((text, enc, eol, false))
+            }
+        }
+    }
+
+    /// Protect the active file: from now on it is saved encrypted. Returns a message for the user.
+    pub fn encrypt_active(&mut self, ui: &dyn Ui) -> Option<String> {
+        if self.is_whiteboard() {
+            return Some("Whiteboards cannot be encrypted".into());
+        }
+        if self.tabs[self.active].encrypted {
+            return Some("This file is already encrypted".into());
+        }
+        let name = self.tabs[self.active].title.clone();
+        if self.vault.profile.is_none() {
+            self.vault = crypto::Vault::load();
+        }
+        if self.vault.profile.is_none() {
+            if !ui.setup_encryption(&mut self.vault) {
+                return None;
+            }
+        } else if !self.vault.unlocked() && !ui.unlock(&mut self.vault, &name) {
+            return None;
+        }
+        if !ui.ask_yes_no(&format!("Encrypt \"{name}\" with your Note++ encryption profile?\n\nIt is saved encrypted the next time you save.")) {
+            return None;
+        }
+        let t = &mut self.tabs[self.active];
+        t.encrypted = true;
+        t.forced_dirty = true;
+        Some(format!("\"{name}\" will be saved encrypted"))
+    }
+
+    /// Stop protecting the active file: the next save writes plain text.
+    pub fn decrypt_active(&mut self, ui: &dyn Ui) -> Option<String> {
+        if !self.tabs[self.active].encrypted {
+            return Some("This file is not encrypted".into());
+        }
+        let name = self.tabs[self.active].title.clone();
+        if !ui.ask_yes_no(&format!("Remove the encryption from \"{name}\"?\n\nThe next save writes it as plain, readable text.")) {
+            return None;
+        }
+        let t = &mut self.tabs[self.active];
+        t.encrypted = false;
+        t.forced_dirty = true;
+        Some(format!("\"{name}\" will be saved as plain text"))
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.tabs.get(self.active).is_some_and(|t| t.encrypted)
     }
 
     /// Notice files changed or deleted by other programs and ask what to do, as Notepad++ does.
@@ -1558,7 +1723,13 @@ impl<S: Send> Workspace<S> {
             .map(|i| TabInfo {
                 title: self.tabs[i].title.clone(),
                 dirty: self.is_dirty(i),
-                badge: (self.tabs[i].kind == TabKind::Whiteboard).then_some("wb"),
+                badge: if self.tabs[i].kind == TabKind::Whiteboard {
+                    Some("wb")
+                } else if self.tabs[i].encrypted {
+                    Some("enc")
+                } else {
+                    None
+                },
             })
             .collect()
     }
@@ -1719,7 +1890,9 @@ impl<S: Send> Workspace<S> {
             } else {
                 if t.dirty || t.forced_dirty || untitled {
                     self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
-                    text = Some(sci::get_text(&self.sci));
+                    let plain = sci::get_text(&self.sci);
+                    // Unsaved text of a protected file never reaches the session file as plain text.
+                    text = if t.encrypted { self.vault.dek.as_ref().and_then(|d| crypto::encrypt_text(&plain, d, "").ok()) } else { Some(plain) };
                 }
                 if untitled && text.as_deref() == Some("") && self.tabs.len() > 1 {
                     continue;
@@ -1728,6 +1901,7 @@ impl<S: Send> Workspace<S> {
             if i == cur {
                 active = tabs.len();
             }
+            let has_text = text.is_some();
             tabs.push(SessionTab {
                 title: t.title.clone(),
                 path: t.path.as_ref().map(|p| p.to_string_lossy().into_owned()),
@@ -1736,6 +1910,7 @@ impl<S: Send> Workspace<S> {
                 top: t.top,
                 enc: t.enc.key().into(),
                 eol: t.eol.key().into(),
+                encrypted: t.encrypted && has_text,
                 kind: if t.kind == TabKind::Whiteboard { "whiteboard".into() } else { "text".into() },
             });
         }
@@ -1755,7 +1930,7 @@ impl<S: Send> Workspace<S> {
     }
 
     /// Restore the whole saved state (startup): settings, workspace and tabs.
-    pub fn restore(&mut self, s: &Session) {
+    pub fn restore(&mut self, ui: &dyn Ui, s: &Session) {
         self.minimap = s.minimap;
         self.search_engine = s.search_engine;
         self.set_symbols(s.symbols);
@@ -1768,7 +1943,7 @@ impl<S: Send> Workspace<S> {
             self.set_theme(Theme::dark());
         }
         self.set_wrap(s.wrap);
-        self.restore_tabs(s);
+        self.restore_tabs(ui, s);
         if self.tabs.is_empty() {
             self.new_tab();
         } else {
@@ -1783,14 +1958,14 @@ impl<S: Send> Workspace<S> {
 
     /// "Load Session": add the session's tabs to the ones already open.
     /// Returns how many tabs were opened.
-    pub fn open_session(&mut self, s: &Session) -> usize {
+    pub fn open_session(&mut self, ui: &dyn Ui, s: &Session) -> usize {
         let start = self.tabs.len();
         let had_pristine_tab = self.tabs.len() == 1
             && self.tabs[0].kind == TabKind::Text
             && self.tabs[0].path.is_none()
             && !self.is_dirty(0)
             && sci::length(&self.sci) == 0;
-        self.restore_tabs(s);
+        self.restore_tabs(ui, s);
         let opened = self.tabs.len() - start;
         if opened > 0 {
             if had_pristine_tab {
@@ -1806,7 +1981,9 @@ impl<S: Send> Workspace<S> {
     }
 
     /// Open the tabs described by `s` (skipping files that are already open).
-    fn restore_tabs(&mut self, s: &Session) {
+    fn restore_tabs(&mut self, ui: &dyn Ui, s: &Session) {
+        // Once the user declines to unlock, the other protected tabs are skipped without asking again.
+        let mut declined = false;
         for st in &s.tabs {
             let path = st.path.as_ref().map(PathBuf::from);
             if let Some(p) = &path {
@@ -1826,29 +2003,61 @@ impl<S: Send> Workspace<S> {
                 continue;
             }
             let (enc, eol) = (Enc::from_key(&st.enc), Eol::from_key(&st.eol));
+            // Unsaved text of a protected tab comes back from its encrypted copy.
+            let mut saved_text = st.text.clone();
+            let mut encrypted = st.encrypted;
+            if st.encrypted {
+                saved_text = None;
+                if let Some(env) = st.text.as_deref().and_then(|t| crypto::parse_envelope(t.as_bytes())) {
+                    if declined {
+                        continue;
+                    }
+                    match self.decrypt_for(ui, &env, &st.title) {
+                        Some(t) => saved_text = Some(t),
+                        None => {
+                            declined = true;
+                            continue;
+                        }
+                    }
+                }
+            }
             let idx = match &path {
                 Some(path) => match std::fs::read(path) {
                     Ok(bytes) => {
+                        let is_env = crypto::parse_envelope(&bytes).is_some();
+                        if is_env && declined {
+                            continue;
+                        }
                         // A character set chosen with "Encode in" must survive a restart.
-                        let (text, enc, eol) = if matches!(enc, Enc::Cs(_)) {
+                        let (text, enc, eol) = if is_env {
+                            match self.read_text(ui, &bytes, &file_title(path)) {
+                                Some((t, e, l, _)) => (t, e, l),
+                                None => {
+                                    declined = true;
+                                    continue;
+                                }
+                            }
+                        } else if matches!(enc, Enc::Cs(_)) {
                             let (t, e) = doc::decode_with(&bytes, enc);
                             (t, enc, e)
                         } else {
                             doc::decode(&bytes)
                         };
+                        encrypted = is_env;
                         self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
                     }
                     // File vanished: keep the unsaved text if we have it, otherwise skip.
-                    Err(_) if st.text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
+                    Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
                     Err(_) => continue,
                 },
                 None => self.open_doc(st.title.clone(), None, "", enc, eol, "null"),
             };
-            if let Some(text) = &st.text {
+            if let Some(text) = &saved_text {
                 // Replacing content after the save point leaves the tab dirty, as it was.
                 sci::set_text(&self.sci, text);
             }
             let t = &mut self.tabs[idx];
+            t.encrypted = encrypted;
             t.caret = st.caret;
             t.top = st.top;
         }

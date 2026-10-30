@@ -37,6 +37,7 @@ use crate::core::hash::{ALGOS, Algo};
 use crate::core::settings::{self, Settings};
 use crate::core::shortcuts;
 use super::dialogs;
+use super::encdialogs;
 use crate::core::functions;
 use crate::core::mdformat;
 use crate::core::view;
@@ -357,6 +358,12 @@ const ID_SAVE_SESSION: usize = 1116;
 const ID_PRINT: usize = 1117;
 const ID_PRINT_NOW: usize = 1118;
 const ID_PAGE_SETUP: usize = 1125;
+const ID_ENCRYPT: usize = 1126;
+const ID_DECRYPT: usize = 1127;
+const ID_ENC_TOGGLE: usize = 1128; // the toolbar's lock button
+const ID_ENC_SETTINGS: usize = 3340;
+const ID_PASSWORDS: usize = 3341;
+const ID_HTTP_SEND: usize = 3342;
 const ID_RESTORE_CLOSED: usize = 1119;
 const ID_OPEN_ALL_RECENT: usize = 1120;
 const ID_WORKSPACE_TOGGLE: usize = 3007;
@@ -398,6 +405,11 @@ const PALETTE_COMMANDS: &[(&str, usize, &str)] = &[
     ("File: Print...", ID_PRINT, ""),
     ("File: Print Now", ID_PRINT_NOW, ""),
     ("File: Page Setup...", ID_PAGE_SETUP, ""),
+    ("File: Encrypt This File", ID_ENCRYPT, ""),
+    ("File: Remove Encryption From This File", ID_DECRYPT, ""),
+    ("Settings: Encryption...", ID_ENC_SETTINGS, ""),
+    ("Tools: Passwords (Bitwarden)...", ID_PASSWORDS, ""),
+    ("Tools: Send HTTP Request", ID_HTTP_SEND, "Ctrl+Enter"),
     ("File: Restore Recent Closed File", ID_RESTORE_CLOSED, "Ctrl+Shift+T"),
     ("File: Open All Recent Files", ID_OPEN_ALL_RECENT, ""),
     ("File: Empty Recent Files List", ID_RECENT_CLEAR, ""),
@@ -705,7 +717,7 @@ fn wb_allows(id: usize) -> bool {
             | ID_OPEN_FOLDER_WS | ID_OPEN_VIEWER | ID_OPEN_WORKSPACE | ID_RELOAD | ID_SAVE_COPY | ID_RENAME | ID_CLOSE_ALL
             | ID_CLOSE_OTHERS | ID_CLOSE_LEFT | ID_CLOSE_RIGHT | ID_CLOSE_UNCHANGED | ID_RECYCLE | ID_LOAD_SESSION
             | ID_SAVE_SESSION | ID_RESTORE_CLOSED | ID_OPEN_ALL_RECENT | ID_WORKSPACE_TOGGLE | ID_PREFS | ID_STYLE_CFG | ID_SHORTCUTS
-            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS
+            | ID_IMPORT_THEME | ID_EXPORT_THEME | ID_EDIT_CONTEXT | ID_WINDOWS | ID_ENC_SETTINGS | ID_PASSWORDS
     ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
         || (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id)
@@ -896,6 +908,14 @@ impl Ui for Win32Ui {
 
     fn error(&self, msg: &str) {
         dialogs::message(self.host, "Note++", msg, dialogs::Tone::Error, &[("OK", dialogs::BTN_OK)], dialogs::BTN_OK, dialogs::BTN_OK);
+    }
+
+    fn unlock(&self, vault: &mut crate::core::crypto::Vault, what: &str) -> bool {
+        encdialogs::unlock_vault(self.host, vault, what)
+    }
+
+    fn setup_encryption(&self, vault: &mut crate::core::crypto::Vault) -> bool {
+        encdialogs::setup(self.host, vault)
     }
 }
 
@@ -1527,7 +1547,7 @@ impl App {
                 if let Some(p) = ui.pick_session(false) {
                     match Session::load(&p) {
                         Some(s) => {
-                            let n = ws.open_session(&s);
+                            let n = ws.open_session(ui, &s);
                             self.flash = Some(format!("Opened {n} tab(s) from the session"));
                         }
                         None => ui.error("That file is not a valid Note++ session."),
@@ -1543,6 +1563,14 @@ impl App {
                 }
             }
             ID_PAGE_SETUP => drop(print::page_setup(ui.host)),
+            ID_ENCRYPT => self.flash = ws.encrypt_active(ui),
+            ID_DECRYPT => self.flash = ws.decrypt_active(ui),
+            ID_ENC_TOGGLE => self.flash = if ws.is_encrypted() { ws.decrypt_active(ui) } else { ws.encrypt_active(ui) },
+            ID_ENC_SETTINGS => {
+                let mut vault = ws.vault.clone();
+                encdialogs::settings(ui.host, &mut vault);
+                ws.vault = vault;
+            }
             ID_PRINT | ID_PRINT_NOW => {
                 let title = ws.tabs[ws.active].title.clone();
                 // "Print..." opens the preview first (it has its own Print button); "Print Now" goes straight to the default printer.
@@ -2626,6 +2654,7 @@ impl App {
         self.refresh_side();
         chrome::set_checked(&h.chrome, ID_WRAP, self.ws.wrap);
         chrome::set_checked(&h.chrome, ID_THEME, self.ws.theme.dark);
+        chrome::set_checked(&h.chrome, ID_ENC_TOGGLE, self.ws.is_encrypted());
         chrome::set_theme(&h.chrome, self.ws.theme.dark, self.ws.theme.bg, self.ws.theme.fg);
         findpanel::retheme();
         thread_local! {
@@ -3638,6 +3667,9 @@ fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::add(f, ID_PRINT_NOW, "Print No&w");
     B::add(f, ID_PAGE_SETUP, "Page Se&tup...");
     B::sep(f);
+    B::add(f, ID_ENCRYPT, "&Encrypt This File");
+    B::add(f, ID_DECRYPT, "Remove Encr&yption From This File");
+    B::sep(f);
     if !recent.is_empty() {
         for (i, p) in recent.iter().enumerate() {
             let mnemonic = if i < 9 { format!("&{}", i + 1) } else { "1&0".to_string() };
@@ -4005,6 +4037,7 @@ fn build_menus() -> (Vec<(String, HMENU)>, Menus) {
     B::add(import, ID_EXPORT_THEME, "Export style theme...");
     B::submenu(settings_menu, "Import", import);
     B::sep(settings_menu);
+    B::add(settings_menu, ID_ENC_SETTINGS, "Encryption...");
     B::add(settings_menu, ID_EDIT_CONTEXT, "Edit Popup ContextMenu");
 
     // Tools: one submenu per digest, then the text tools.
@@ -4078,6 +4111,7 @@ fn toolbar_items() -> Vec<ToolItem> {
         btn!(ID_SAVEALL, "saveall.svg", "Save All (Ctrl+Shift+S)"),
         btn!(ID_CLOSE, "close.svg", "Close (Ctrl+W)"),
         btn!(ID_PRINT, "print.svg", "Print"),
+        btn!(ID_ENC_TOGGLE, "lock.svg", "Encrypt this file (or remove its encryption)"),
         ToolItem::Sep,
         btn!(ID_CUT, "cut.svg", "Cut (Ctrl+X)"),
         btn!(ID_COPY, "copy.svg", "Copy (Ctrl+C)"),
@@ -4393,7 +4427,7 @@ pub fn run(hs: Handles, menus: Menus, files: Vec<PathBuf>) {
     ws.set_settings(prefs);
     if !crate::core::session::standalone() {
         if let Some(s) = Session::load(&session_path()) {
-            ws.restore(&s);
+            ws.restore(&ui, &s);
         }
     }
     for f in &files {

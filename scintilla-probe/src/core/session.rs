@@ -14,6 +14,9 @@ pub struct SessionTab {
     pub top: usize,
     pub enc: String,
     pub eol: String,
+    /// The tab is an encrypted file; `text` (if any) then holds the encrypted envelope, never plain text.
+    #[serde(default)]
+    pub encrypted: bool,
     /// "text" (default) or "whiteboard".
     #[serde(default = "text_kind")]
     pub kind: String,
@@ -107,6 +110,7 @@ mod tests {
                 top: 1,
                 enc: "utf8".into(),
                 eol: "lf".into(),
+                encrypted: false,
                 kind: "text".into(),
             }],
             active: 0,

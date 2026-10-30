@@ -15,6 +15,11 @@ use windows::core::{PCWSTR, w};
 
 use super::modern::{self, Ctl as Style};
 
+/// Be told when an edit box of the next form changes (cleared when that form closes).
+pub fn on_edit(hook: fn(&Form, usize)) {
+    EDIT_HOOK.with(|h| h.set(Some(hook)));
+}
+
 /// Which system icon a message dialog shows.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tone {
@@ -30,6 +35,8 @@ pub enum Kind {
     Badge(Tone),
     Label,
     Edit,
+    /// A single-line edit box that shows dots instead of the typed text.
+    Password,
     /// A multi-line edit box; `true` makes it read-only.
     MultiEdit(bool),
     Check,
@@ -60,6 +67,8 @@ pub fn ctl(id: usize, kind: Kind, text: &str, x: i32, y: i32, w: i32, h: i32) ->
 
 /// Live access to the controls while the form is open.
 thread_local! {
+    /// Called with the id of an edit box whenever its text changes (while the form is open).
+    static EDIT_HOOK: Cell<Option<fn(&Form, usize)>> = const { Cell::new(None) };
     /// (swatch window, the edit box it previews)
     static SWATCHES: RefCell<Vec<(isize, HWND)>> = const { RefCell::new(Vec::new()) };
 }
@@ -178,6 +187,15 @@ impl Form {
             }
         }
     }
+    /// Show typed text (`false`) or dots (`true`) in a single-line edit box.
+    pub fn set_masked(&self, id: usize, on: bool) {
+        if let Some(h) = self.controls.get(&id) {
+            unsafe {
+                SendMessageW(*h, 0x00CC, Some(WPARAM(if on { 0x2022 } else { 0 })), None); // EM_SETPASSWORDCHAR
+                let _ = InvalidateRect(Some(*h), None, true);
+            }
+        }
+    }
     pub fn focus(&self, id: usize) {
         if let Some(h) = self.controls.get(&id) {
             unsafe {
@@ -262,13 +280,22 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 1 => DONE.with(|d| d.set(Some(true))),
                 2 => DONE.with(|d| d.set(Some(false))),
                 // EN_CHANGE: a colour box was edited, so its swatch needs repainting.
-                _ if code == 0x300 => SWATCHES.with(|s| {
-                    for (sw, edit) in s.borrow().iter() {
-                        if edit.0 as usize == lp.0 as usize {
-                            unsafe { let _ = InvalidateRect(Some(HWND(*sw as *mut _)), None, false); }
+                _ if code == 0x300 => {
+                    SWATCHES.with(|s| {
+                        for (sw, edit) in s.borrow().iter() {
+                            if edit.0 as usize == lp.0 as usize {
+                                unsafe { let _ = InvalidateRect(Some(HWND(*sw as *mut _)), None, false); }
+                            }
                         }
+                    });
+                    if let Some(hook) = EDIT_HOOK.with(|h| h.get()) {
+                        LIVE.with(|l| {
+                            if let Some((f, _)) = l.borrow().as_ref() {
+                                hook(f, id)
+                            }
+                        });
                     }
-                }),
+                }
                 _ if code == 0 => {
                     // BN_CLICKED: let the form react (e.g. enable/disable groups).
                     let cb = LIVE.with(|l| l.borrow().as_ref().and_then(|(_, cb)| *cb));
@@ -486,6 +513,14 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
                     }
                     h
                 }
+                Kind::Password => {
+                    let h = make(w!("EDIT"), &c.text, TAB | 0x80 | 0x20, c.id, c.rect); // ES_AUTOHSCROLL | ES_PASSWORD
+                    sunken(h);
+                    modern::style_control(h, Style::Edit);
+                    SendMessageW(h, 0x00CC, Some(WPARAM(0x2022)), None); // EM_SETPASSWORDCHAR: round dots
+                    first_edit.get_or_insert(c.id);
+                    h
+                }
                 Kind::Edit => {
                     let h = make(w!("EDIT"), &c.text, TAB | 0x80, c.id, c.rect); // ES_AUTOHSCROLL
                     sunken(h);
@@ -558,7 +593,7 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
             let mut values = Values { text: HashMap::new(), checked: HashMap::new() };
             for c in &spec.ctls {
                 match c.kind {
-                    Kind::Edit | Kind::MultiEdit(_) => drop(values.text.insert(c.id, form.text(c.id))),
+                    Kind::Edit | Kind::Password | Kind::MultiEdit(_) => drop(values.text.insert(c.id, form.text(c.id))),
                     Kind::Check | Kind::Radio(_) => drop(values.checked.insert(c.id, form.checked(c.id))),
                     _ => {}
                 }
@@ -591,6 +626,7 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
             break ok;
         };
 
+        EDIT_HOOK.with(|h| h.set(None));
         let live = LIVE.with(|l| l.borrow_mut().take());
         let values = live.as_ref().map(|(f, _)| collect(f)).unwrap_or(Values { text: HashMap::new(), checked: HashMap::new() });
         let _ = EnableWindow(owner, true);

@@ -5,6 +5,7 @@ pub mod chrome;
 pub mod clip;
 #[cfg(target_os = "windows")]
 pub mod dialogs;
+pub mod encdialogs;
 #[cfg(target_os = "windows")]
 pub mod dwm;
 #[cfg(target_os = "windows")]

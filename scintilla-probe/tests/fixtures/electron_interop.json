@@ -1,0 +1,39 @@
+{
+  "password": "correct horse battery staple ünï",
+  "recoveryKey": "04AE-629G-WC5H-JC3N-MMCN-BV8G-C5YN-6SN4-9V1G-8Z5A-XVTV-1681-EV70",
+  "text": "Hello from the Electron app\r\nsecond line — ünïcödé ✓\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "profile": {
+    "_notepp_profile": true,
+    "version": 1,
+    "fingerprint": "d0f436ee",
+    "createdAt": "2026-10-30T21:02:01.178Z",
+    "wrappedKeys": [
+      {
+        "method": "password",
+        "kdf": "PBKDF2-SHA256",
+        "iter": 600000,
+        "salt": "wNoHsEUjJYzM7G3nLT9kqg==",
+        "wrappedDek": "XUx2HTB0EsHQVPSmenIMKVag2fLZ3SKP9yakv1P6mWtshQmbngghIFhf6H21UQqC",
+        "wrapIv": "XK4JmkIH5QQOywVV"
+      },
+      {
+        "method": "recovery",
+        "kdf": "HKDF-SHA256",
+        "salt": "R0/rMO7zgstglMX8IbMOEA==",
+        "wrappedDek": "WWfi7q93l9S8vgPg3B6yOzohGI/1C33XRXcuUFpH+XVzumBX2OPbbIlTggB+H05b",
+        "wrapIv": "SGhZ8IFJxTu1Y9TH"
+      }
+    ]
+  },
+  "envelope": {
+    "_notepp_encrypted": true,
+    "version": 1,
+    "alg": "AES-256-GCM",
+    "compression": "gzip",
+    "profile": "d0f436ee",
+    "iv": "YXkIjmqW/pXXIvtw",
+    "ct": "A7Lc7G/KadJ7DUFcYnC/WeDUETeolXlSL2I0x9yr1HuMsBoKkxlJ8SZ3NA673LoBHY5EVO5fx8hYPf+z60r63lXU7blVEIOvz2V8L1Wt70608Ft1FAgYulmMPY4a2isb0nen7SBr7A==",
+    "originalExt": "md",
+    "createdAt": "2026-10-30T21:02:01.186Z"
+  }
+}

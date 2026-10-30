@@ -2618,6 +2618,10 @@ impl App {
                 }
             } else if !on && self.ws.preview_kind() == Some(pcore::Kind::Mermaid) {
                 self.set_preview(true);
+            } else if on && self.ws.preview_kind().is_none() {
+                // A tab that cannot be previewed does not keep the pane open (the Markdown
+                // preference is unchanged, so it comes back with the next Markdown tab).
+                self.set_preview(false);
             }
         }
         let preview_on = PREVIEW_ON.with(|c| c.get());

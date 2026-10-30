@@ -719,7 +719,8 @@ pub fn smart_highlight<S: Send>(s: &S) {
     let word = selected_text(s);
     let is_word = !word.is_empty() && word.len() <= 100 && word.chars().all(|c| c.is_alphanumeric() || c == '_');
     if is_word {
-        let o = Opts { find: word, match_case: true, whole_word: true, ..Default::default() };
+        // Like Notepad++'s default: whole words, any case.
+        let o = Opts { find: word, match_case: false, whole_word: true, ..Default::default() };
         let _ = mark_all(s, &o, INDIC_SMART);
     }
 }

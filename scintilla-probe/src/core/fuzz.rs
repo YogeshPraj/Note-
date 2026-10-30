@@ -114,7 +114,7 @@ fn pure_functions_never_panic() {
                 if let Ok(re) = search::compile(&o) {
                     drop(search::all_matches(&text, &re));
                     drop(search::hits_in_text(&text, &re, None));
-                    drop(search::next_match(&text, &re, sel.0));
+                    let _ = search::next_match(&text, &re, sel.0);
                 }
                 drop(search::replacements(&text, &o));
             }
@@ -141,7 +141,7 @@ fn pure_functions_never_panic() {
         }
         check("preview", &mut || {
             drop(preview::markdown_to_html(&text));
-            drop(preview::is_bare_mermaid(&text));
+            let _ = preview::is_bare_mermaid(&text);
         });
         check("functions", &mut || {
             for lexer in ["python", "cpp", "rust", "markdown", "null", "sql"] {
@@ -154,7 +154,7 @@ fn pure_functions_never_panic() {
             drop(format_date_time(&text, &t));
         });
         check("complete", &mut || {
-            drop(super::complete::word_before(&text, sel.1));
+            let _ = super::complete::word_before(&text, sel.1);
             drop(super::complete::words_with_prefix(&text, "a", sel.0));
             drop(super::complete::function_names(&text, "", sel.0));
             drop(super::complete::signature_for(&text, "a"));

@@ -1619,18 +1619,41 @@ impl<S: Send> Workspace<S> {
         let pos = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
         let line = self.send(sci::SCI_LINEFROMPOSITION, pos as usize, 0) + 1;
         let col = self.send(sci::SCI_GETCOLUMN, pos as usize, 0) + 1;
-        let (a, b) = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0), self.send(sci::SCI_GETSELECTIONEND, 0, 0));
-        // Characters, not bytes: an accented letter or a CJK character counts once.
-        let sel = if b > a { self.send(sci::SCI_COUNTCHARACTERS, a as usize, b) } else { 0 };
-        let sel_lines = if sel > 0 {
-            self.send(sci::SCI_LINEFROMPOSITION, b as usize, 0) - self.send(sci::SCI_LINEFROMPOSITION, a as usize, 0) + 1
-        } else {
-            0
-        };
-        Status {
-            position: format!("Ln: {line}  Col: {col}  Sel: {sel} | {sel_lines}"),
-            lines: format!("lines: {}", sci::line_count(&self.sci)),
-            length: format!("length: {}", sci::length(&self.sci)),
+        // Same wording as Notepad++: the caret's position, or what is selected.
+        let tail = match self.send(sci::SCI_GETSELECTIONS, 0, 0).max(1) as usize {
+            1 if self.send(sci::SCI_GETSELECTIONEMPTY, 0, 0) != 0 => format!("Pos: {}", commafy(pos.max(0) as usize + 1)),
+            n => {
+                let ranges: Vec<(usize, usize)> = (0..n)
+                    .map(|i| (self.send(sci::SCI_GETSELECTIONNSTART, i, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONNEND, i, 0).max(0) as usize))
+                    .collect();
+                // Characters, not bytes: an accented letter or a CJK character counts once.
+                let counts: Vec<usize> = ranges.iter().map(|&(a, b)| self.send(sci::SCI_COUNTCHARACTERS, a, b as isize).max(0) as usize).collect();
+                let chars: usize = counts.iter().sum();
+                let line_of = |p: usize| self.send(sci::SCI_LINEFROMPOSITION, p, 0).max(0) as usize;
+                if n == 1 {
+                    format!("Sel: {} | {}", commafy(chars), commafy(line_of(ranges[0].1) - line_of(ranges[0].0) + 1))
+                } else if self.send(sci::SCI_SELECTIONISRECTANGLE, 0, 0) != 0 {
+                    let widest = counts.iter().copied().max().unwrap_or(0);
+                    let same = counts.iter().all(|&c| c == counts[0]);
+                    format!("Sel: {}x{}{}{}", commafy(n), commafy(widest), if same { " = " } else { " -> " }, commafy(chars))
+                } else {
+                    let mut lines: Vec<(usize, usize)> = ranges.iter().map(|&(a, b)| (line_of(a), line_of(b))).collect();
+                    lines.sort();
+                    let (mut total, mut last) = (0usize, -1isize);
+                    for (first, end) in lines {
+                        let first = if first as isize <= last { (last + 1) as usize } else { first };
+                        if end >= first {
+                            total += end - first + 1;
+                            last = end as isize;
+                        }
+                    }
+                    format!("Sel {} : {} | {}", commafy(n), commafy(chars), if n <= 99 { commafy(total) } else { "...".into() })
+                }
+            }
+        };        Status {
+            position: format!("Ln: {line}    Col: {col}    {tail}"),
+            lines: format!("lines: {}", commafy(sci::line_count(&self.sci).max(0) as usize)),
+            length: format!("length: {}", commafy(sci::length(&self.sci).max(0) as usize)),
             eol: t.eol.label().into(),
             enc: t.enc.label().into(),
             lang: t.lang_label.to_string(),
@@ -1808,6 +1831,19 @@ impl<S: Send> Workspace<S> {
     }
 }
 
+/// 1234567 -> "1,234,567" (as the Notepad++ status bar shows numbers).
+fn commafy(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn unmappable_warning(enc: Enc) -> String {
     format!(
         "Some characters cannot be represented in {} and would be saved as ?.\n\nContinue anyway?",
@@ -1825,6 +1861,11 @@ fn scene_element_count(content: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thousands_separators() {
+        assert_eq!((commafy(0), commafy(999), commafy(1000), commafy(22187160)), ("0".into(), "999".into(), "1,000".into(), "22,187,160".into()));
+    }
 
     #[test]
     fn sort_order_by_each_field() {

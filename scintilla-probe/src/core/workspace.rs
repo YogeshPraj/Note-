@@ -736,7 +736,7 @@ impl<S: Send> Workspace<S> {
             Eol::Lf => "\n",
             Eol::Cr => "\r",
         };
-        let lang = t.lang;
+        let (lang, label) = (t.lang, t.lang_label);
         let tab = self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1) as usize;
         let s = &self.sci;
         let has_selection = self.send(sci::SCI_GETSELECTIONSTART, 0, 0) != self.send(sci::SCI_GETSELECTIONEND, 0, 0);
@@ -764,25 +764,70 @@ impl<S: Send> Workspace<S> {
             LineOp::SpacesToTabsAll => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, false)),
             LineOp::SpacesToTabsLeading => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, true)),
             LineOp::ToggleComment | LineOp::Comment | LineOp::Uncomment => {
-                let Some(prefix) = edit::comment_prefix(lang) else {
-                    return Some("No line-comment syntax for this language".into());
+                let syn = edit::comment_syntax(label, lang);
+                let mode = match op {
+                    LineOp::ToggleComment => edit::CommentMode::Toggle,
+                    LineOp::Comment => edit::CommentMode::Comment,
+                    _ => edit::CommentMode::Uncomment,
                 };
-                lines(CurrentLine, &|x| match op {
-                    LineOp::ToggleComment => edit::toggle_comment(x, eol, prefix),
-                    LineOp::Comment => edit::comment_lines(x, eol, prefix),
-                    _ => edit::uncomment_lines(x, eol, prefix),
-                })
+                let column_zero = label == "Fortran (fixed form)";
+                if edit::comment_single("x", eol, syn, mode, column_zero).is_none() {
+                    return Some("This language has no comment syntax".into());
+                }
+                lines(CurrentLine, &|x| edit::comment_single(x, eol, syn, mode, column_zero).unwrap_or_else(|| x.to_string()))
             }
             LineOp::BlockComment | LineOp::BlockUncomment => {
-                let Some((open, close)) = edit::comment_block(lang) else {
-                    return Some("No block-comment syntax for this language".into());
-                };
-                edit::apply_range(s, true, &|x| {
-                    if op == LineOp::BlockComment { edit::block_comment(x, open, close) } else { edit::block_uncomment(x, open, close) }
-                })
+                let syn = edit::comment_syntax(label, lang);
+                if syn.start.is_empty() || syn.end.is_empty() {
+                    // Without stream-comment symbols Notepad++ falls back on single-line comments.
+                    if syn.line.is_empty() {
+                        return Some("This language has no comment syntax".into());
+                    }
+                    let mode = if op == LineOp::BlockComment { edit::CommentMode::Comment } else { edit::CommentMode::Uncomment };
+                    lines(CurrentLine, &|x| edit::comment_single(x, eol, syn, mode, false).unwrap_or_else(|| x.to_string()))
+                } else if op == LineOp::BlockComment {
+                    self.stream_comment(syn)
+                } else {
+                    self.stream_uncomment(syn)
+                }
             }
         };
         (!changed).then(|| "Nothing to change".into())
+    }
+
+    /// "Block Comment": wrap the selection (or, with none, the current line from its first
+    /// non-blank character) in the language's start and end symbols.
+    fn stream_comment(&mut self, syn: edit::Comments) -> bool {
+        let (mut a, mut b) = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize);
+        if a == b {
+            let line = self.send(sci::SCI_LINEFROMPOSITION, a, 0) as usize;
+            a = self.send(sci::SCI_GETLINEINDENTPOSITION, line, 0).max(0) as usize;
+            b = self.send(sci::SCI_GETLINEENDPOSITION, line, 0).max(0) as usize;
+            if b <= a {
+                return false;
+            }
+        }
+        let text = sci::get_text(&self.sci);
+        let wrapped = edit::stream_comment(&text[a..b], syn.start, syn.end);
+        self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+        self.send(sci::SCI_SETTARGETRANGE, a, b as isize);
+        self.send(sci::SCI_REPLACETARGET, wrapped.len(), wrapped.as_ptr() as isize);
+        self.send(sci::SCI_SETSEL, a + syn.start.len() + 1, (a + wrapped.len() - syn.end.len() - 1) as isize);
+        self.send(sci::SCI_ENDUNDOACTION, 0, 0);
+        true
+    }
+
+    /// "Block Uncomment": remove the comment around or inside the selection.
+    fn stream_uncomment(&mut self, syn: edit::Comments) -> bool {
+        let (a, b) = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize);
+        let text = sci::get_text(&self.sci);
+        let Some((s, e, inner)) = edit::undo_stream_comment(&text, (a, b), syn.start, syn.end) else { return false };
+        self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
+        self.send(sci::SCI_SETTARGETRANGE, s, e as isize);
+        self.send(sci::SCI_REPLACETARGET, inner.len(), inner.as_ptr() as isize);
+        self.send(sci::SCI_SETSEL, s, (s + inner.len()) as isize);
+        self.send(sci::SCI_ENDUNDOACTION, 0, 0);
+        true
     }
 
     /// Convert the selection (or the whole document) with a text tool.

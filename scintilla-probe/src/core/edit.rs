@@ -388,99 +388,194 @@ pub fn random_case(s: &str, seed: u64) -> String {
 
 // ── comments ─────────────────────────────────────────────────────────────────
 
-/// Line-comment prefix for a Lexilla lexer name.
-pub fn comment_prefix(lexer: &str) -> Option<&'static str> {
+/// The comment syntax of a language, from Notepad++'s `langs.model.xml`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Comments {
+    pub line: &'static str,
+    pub start: &'static str,
+    pub end: &'static str,
+}
+
+const fn cm(line: &'static str, start: &'static str, end: &'static str) -> Comments {
+    Comments { line, start, end }
+}
+
+/// Comment syntax by Language-menu label.
+const COMMENTS_BY_LABEL: &[(&str, Comments)] = &[
+    ("ActionScript", cm("//", "/*", "*/")),
+    ("Ada", cm("--", "", "")),
+    ("Assembly", cm(";", "", "")),
+    ("ASP", cm("'", "", "")),
+    ("AutoIt", cm(";", "#CS", "#CE")),
+    ("AviSynth", cm("#", "/*", "*/")),
+    ("Batch", cm("REM", "", "")),
+    ("C", cm("//", "/*", "*/")),
+    ("C#", cm("//", "/*", "*/")),
+    ("C++", cm("//", "/*", "*/")),
+    ("Caml", cm("", "(*", "*)")),
+    ("CMake", cm("#", "", "")),
+    ("COBOL", cm("*>", "", "")),
+    ("CoffeeScript", cm("#", "", "")),
+    ("Csound", cm(";", "", "")),
+    ("CSS", cm("", "/*", "*/")),
+    ("D", cm("//", "/*", "*/")),
+    ("ErrorList", cm("#", "", "")),
+    ("Erlang", cm("%", "", "")),
+    ("Forth", cm("\\", "(", ")")),
+    ("Fortran (free form)", cm("!", "", "")),
+    ("Fortran (fixed form)", cm("C", "", "")),
+    ("GDScript", cm("#", "", "")),
+    ("Go", cm("//", "/*", "*/")),
+    ("Gui4Cli", cm("//", "", "")),
+    ("Haskell", cm("--", "", "")),
+    ("Hollywood", cm(";", "/*", "*/")),
+    ("HTML", cm("", "<!--", "-->")),
+    ("ini file", cm(";", "", "")),
+    ("Inno Setup", cm(";", "", "")),
+    ("Java", cm("//", "/*", "*/")),
+    ("JavaScript", cm("//", "/*", "*/")),
+    ("JSP", cm("//", "/*", "*/")),
+    ("KIXtart", cm(";", "", "")),
+    ("LaTeX", cm("%", "", "")),
+    ("LISP", cm(";", "", "")),
+    ("Lua", cm("--", "", "")),
+    ("Makefile", cm("#", "", "")),
+    ("Markdown", cm("", "<!--", "-->")),
+    ("Matlab", cm("%", "", "")),
+    ("MMIXAL", cm("%", "", "")),
+    ("Nim", cm("#", "", "")),
+    ("NSIS", cm(";", "/*", "*/")),
+    ("Objective-C", cm("//", "/*", "*/")),
+    ("OScript", cm("//", "/*", "*/")),
+    ("Pascal", cm("", "{", "}")),
+    ("Perl", cm("#", "", "")),
+    ("PHP", cm("//", "/*", "*/")),
+    ("PostScript", cm("%", "", "")),
+    ("PowerShell", cm("#", "<#", "#>")),
+    ("Properties file", cm("#", "", "")),
+    ("Python", cm("#", "", "")),
+    ("R", cm("#", "", "")),
+    ("REBOL", cm(";", "", "")),
+    ("Registry", cm(";;", "", "")),
+    ("Resource file", cm("//", "/*", "*/")),
+    ("Ruby", cm("#", "", "")),
+    ("Rust", cm("//", "/*", "*/")),
+    ("Scheme", cm(";", "", "")),
+    ("Shell", cm("#", "", "")),
+    ("Smalltalk", cm("", "\"", "\"")),
+    ("Spice", cm("*", "", "")),
+    ("SQL", cm("--", "/*", "*/")),
+    ("Swift", cm("//", "/*", "*/")),
+    ("TCL", cm("#", "", "")),
+    ("TeX", cm("%", "", "")),
+    ("TOML", cm("#", "", "")),
+    ("TypeScript", cm("//", "/*", "*/")),
+    ("Verilog", cm("//", "/*", "*/")),
+    ("VHDL", cm("--", "/*", "*/")),
+    ("Visual Basic", cm("'", "", "")),
+    ("Visual Prolog", cm("%", "/*", "*/")),
+    ("XML", cm("", "<!--", "-->")),
+    ("YAML", cm("#", "", "")),
+];
+
+/// Languages Notepad++ has no entry for (or ours differ): fall back on the Lexilla lexer.
+fn comments_by_lexer(lexer: &str) -> Comments {
     match lexer {
-        "rust" | "cpp" | "json" | "dart" | "zig" | "phpscript" => Some("//"),
-        "python" | "yaml" | "toml" | "bash" | "props" | "powershell" | "ruby" | "perl" | "r" | "nim" => Some("#"),
-        "sql" | "lua" => Some("--"),
-        "batch" => Some("REM"),
-        "vb" => Some("'"),
-        "latex" => Some("%"),
-        "fortran" => Some("!"),
-        "asm" => Some(";"),
-        _ => None,
+        "julia" | "nix" | "raku" => cm("#", "", ""),
+        "zig" | "dart" => cm("//", "/*", "*/"),
+        "fsharp" => cm("//", "(*", "*)"),
+        "freebasic" | "blitzbasic" | "purebasic" => cm("'", "", ""),
+        _ => Comments::default(),
     }
 }
 
-/// Block-comment delimiters for a Lexilla lexer name.
-pub fn comment_block(lexer: &str) -> Option<(&'static str, &'static str)> {
-    match lexer {
-        "rust" | "cpp" | "css" | "sql" | "dart" | "zig" | "phpscript" => Some(("/*", "*/")),
-        "hypertext" | "xml" | "markdown" => Some(("<!--", "-->")),
-        "lua" => Some(("--[[", "]]")),
-        "pascal" => Some(("(*", "*)")),
-        "powershell" => Some(("<#", "#>")),
-        "ruby" => Some(("=begin", "=end")),
-        _ => None,
+/// The comment syntax for a Language-menu label (and its lexer).
+pub fn comment_syntax(label: &str, lexer: &str) -> Comments {
+    COMMENTS_BY_LABEL.iter().find(|(l, _)| *l == label).map(|(_, c)| *c).unwrap_or_else(|| comments_by_lexer(lexer))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CommentMode {
+    Toggle,
+    Comment,
+    Uncomment,
+}
+
+fn starts_with_ci(s: &str, prefix: &str) -> bool {
+    s.len() >= prefix.len() && s.is_char_boundary(prefix.len()) && s[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn ends_with_ci(s: &str, suffix: &str) -> bool {
+    s.len() >= suffix.len() && s.is_char_boundary(s.len() - suffix.len()) && s[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+}
+
+/// Single-line comment / uncomment / toggle over whole lines, the way Notepad++ does it: every
+/// line is handled on its own, at its own indentation, and blank lines are left alone. Languages
+/// without a line-comment symbol wrap each line in the start and end symbols instead.
+/// `column_zero` is for languages whose comments must start in the first column (Fortran 77).
+/// Returns `None` when the language has no comment syntax at all.
+pub fn comment_single(text: &str, eol: &str, syn: Comments, mode: CommentMode, column_zero: bool) -> Option<String> {
+    let advanced = syn.line.is_empty();
+    if advanced && (syn.start.is_empty() || syn.end.is_empty()) {
+        return None;
     }
+    let (open, close) = (format!("{} ", syn.start), format!(" {}", syn.end));
+    let sym = format!("{} ", syn.line);
+    Some(map_lines(text, eol, |lines| {
+        lines
+            .into_iter()
+            .map(|line| {
+                let at = if column_zero { 0 } else { line.len() - line.trim_start_matches(BLANKS).len() };
+                let (head, body) = line.split_at(at);
+                if line.trim_matches(BLANKS).is_empty() {
+                    return line.to_string();
+                }
+                if mode != CommentMode::Comment {
+                    if !advanced {
+                        if starts_with_ci(body, syn.line) {
+                            let rest = &body[syn.line.len()..];
+                            return format!("{head}{}", rest.strip_prefix(' ').unwrap_or(rest));
+                        }
+                    } else if starts_with_ci(body, syn.start) && ends_with_ci(body, syn.end) && body.len() >= syn.start.len() + syn.end.len() {
+                        let inner = &body[syn.start.len()..body.len() - syn.end.len()];
+                        let inner = inner.strip_prefix(' ').unwrap_or(inner);
+                        return format!("{head}{}", inner.strip_suffix(' ').unwrap_or(inner));
+                    }
+                }
+                if mode == CommentMode::Uncomment {
+                    return line.to_string();
+                }
+                if advanced { format!("{head}{open}{body}{close}") } else { format!("{head}{sym}{body}") }
+            })
+            .collect()
+    }))
 }
 
-/// Is every non-empty line already commented with `prefix`?
-fn all_commented(lines: &[&str], prefix: &str) -> bool {
-    let mut non_empty = lines.iter().filter(|l| !l.trim().is_empty()).peekable();
-    non_empty.peek().is_some() && non_empty.all(|l| l.trim_start().starts_with(prefix))
+/// "Block Comment": wrap `text` in the start and end symbols, with a blank inside each.
+pub fn stream_comment(text: &str, start: &str, end: &str) -> String {
+    format!("{start} {text} {end}")
 }
 
-fn comment_line(l: &str, prefix: &str, indent: usize) -> String {
-    if l.trim().is_empty() {
-        l.to_string()
-    } else {
-        format!("{}{} {}", &l[..indent.min(l.len())], prefix, &l[indent.min(l.len())..])
-    }
+/// "Block Uncomment": find the comment around (or inside) the selection `sel` and remove its
+/// delimiters and the one blank inside each. Returns the byte range to replace and its new text.
+pub fn undo_stream_comment(text: &str, sel: (usize, usize), start: &str, end: &str) -> Option<(usize, usize, String)> {
+    let around = |pos: usize| -> Option<(usize, usize)> {
+        let s = text[..(pos + start.len()).min(text.len())].rfind(start)?;
+        let e = pos + text[pos..].find(end)?;
+        let end_before = text[..pos].rfind(end);
+        let start_after = text[pos..].find(start).map(|i| pos + i);
+        (end_before.is_none_or(|x| s >= x) && start_after.is_none_or(|x| e <= x)).then_some((s, e))
+    };
+    let (s, e) = around(sel.0).or_else(|| around(sel.1)).or_else(|| {
+        let s = sel.0 + text[sel.0..].find(start)?;
+        let e = s + text[s..].find(end)?;
+        (s < sel.1 && e > sel.0).then_some((s, e))
+    })?;
+    let inner = &text[s + start.len()..e];
+    let inner = inner.strip_prefix(' ').unwrap_or(inner);
+    let inner = inner.strip_suffix(' ').unwrap_or(inner);
+    Some((s, e + end.len(), inner.to_string()))
 }
-
-fn uncomment_line(l: &str, prefix: &str) -> String {
-    let t = l.trim_start();
-    match t.strip_prefix(prefix) {
-        Some(rest) => format!("{}{}", &l[..l.len() - t.len()], rest.strip_prefix(' ').unwrap_or(rest)),
-        None => l.to_string(),
-    }
-}
-
-fn common_indent(lines: &[&str]) -> usize {
-    lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0)
-}
-
-/// Comment every non-empty line, or uncomment them if all already are.
-pub fn toggle_comment(text: &str, eol: &str, prefix: &str) -> String {
-    map_lines(text, eol, |lines| {
-        if all_commented(&lines, prefix) {
-            lines.iter().map(|l| uncomment_line(l, prefix)).collect()
-        } else {
-            let indent = common_indent(&lines);
-            lines.iter().map(|l| comment_line(l, prefix, indent)).collect()
-        }
-    })
-}
-
-pub fn comment_lines(text: &str, eol: &str, prefix: &str) -> String {
-    map_lines(text, eol, |lines| {
-        let indent = common_indent(&lines);
-        lines.iter().map(|l| comment_line(l, prefix, indent)).collect()
-    })
-}
-
-pub fn uncomment_lines(text: &str, eol: &str, prefix: &str) -> String {
-    map_lines(text, eol, |lines| lines.iter().map(|l| uncomment_line(l, prefix)).collect())
-}
-
-pub fn block_comment(text: &str, open: &str, close: &str) -> String {
-    format!("{open} {text} {close}")
-}
-
-/// Remove one pair of block delimiters if the (trimmed) text is wrapped in them.
-pub fn block_uncomment(text: &str, open: &str, close: &str) -> String {
-    let t = text.trim();
-    match t.strip_prefix(open).and_then(|r| r.strip_suffix(close)) {
-        Some(inner) => {
-            let inner = inner.strip_prefix(' ').unwrap_or(inner);
-            inner.strip_suffix(' ').unwrap_or(inner).to_string()
-        }
-        None => text.to_string(),
-    }
-}
-
 // ── column editor ────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -777,34 +872,54 @@ mod tests {
         assert_eq!(random_case("hello world", 7), r);
     }
 
-    #[test]
-    fn comment_toggle_round_trips() {
-        let src = "fn a() {\n    x();\n\n    y();\n}";
-        let commented = toggle_comment(src, "\n", "//");
-        assert_eq!(commented, "// fn a() {\n//     x();\n\n//     y();\n// }");
-        assert_eq!(toggle_comment(&commented, "\n", "//"), src);
+    fn syn(label: &str) -> Comments {
+        comment_syntax(label, "")
     }
 
     #[test]
-    fn comment_respects_common_indent() {
-        assert_eq!(toggle_comment("    a\n      b", "\n", "#"), "    # a\n    #   b");
+    fn toggle_works_line_by_line_at_each_indent() {
+        let py = syn("Python");
+        // Each line gets the symbol at its own indentation; blank lines are left alone.
+        assert_eq!(comment_single("    a\n      b\n\nc", "\n", py, CommentMode::Toggle, false).unwrap(), "    # a\n      # b\n\n# c");
+        // A mixed selection toggles per line: commented lines are uncommented, the rest commented.
+        assert_eq!(comment_single("# a\nb", "\n", py, CommentMode::Toggle, false).unwrap(), "a\n# b");
+        let src = "fn a() {\n    x();\n}";
+        let once = comment_single(src, "\n", syn("Rust"), CommentMode::Toggle, false).unwrap();
+        assert_eq!(once, "// fn a() {\n    // x();\n// }");
+        assert_eq!(comment_single(&once, "\n", syn("Rust"), CommentMode::Toggle, false).unwrap(), src);
     }
 
     #[test]
     fn forced_comment_and_uncomment() {
-        assert_eq!(comment_lines("# a\nb", "\n", "#"), "# # a\n# b");
-        assert_eq!(uncomment_lines("# a\nb", "\n", "#"), "a\nb");
+        let py = syn("Python");
+        assert_eq!(comment_single("# a\nb", "\n", py, CommentMode::Comment, false).unwrap(), "# # a\n# b");
+        assert_eq!(comment_single("# a\nb\n#c", "\n", py, CommentMode::Uncomment, false).unwrap(), "a\nb\nc");
+        // The batch symbol is matched in any case, and a blank after it goes too.
+        assert_eq!(comment_single("rem x\nREM y", "\n", syn("Batch"), CommentMode::Uncomment, false).unwrap(), "x\ny");
+    }
+
+    #[test]
+    fn languages_without_line_comments_wrap_each_line() {
+        let css = syn("CSS");
+        assert_eq!(comment_single("a {}\n  b {}", "\n", css, CommentMode::Comment, false).unwrap(), "/* a {} */\n  /* b {} */");
+        assert_eq!(comment_single("/* a {} */", "\n", css, CommentMode::Toggle, false).unwrap(), "a {}");
+        assert_eq!(comment_single("x", "\n", syn("Normal text"), CommentMode::Toggle, false), None);
+        assert_eq!(comment_single("x", "\n", syn("JSON"), CommentMode::Toggle, false), None);
+        // Fortran 77 comments start in column one.
+        assert_eq!(comment_single("   x = 1", "\n", syn("Fortran (fixed form)"), CommentMode::Comment, true).unwrap(), "C    x = 1");
     }
 
     #[test]
     fn block_comments() {
-        assert_eq!(block_comment("x = 1;", "/*", "*/"), "/* x = 1; */");
-        assert_eq!(block_uncomment("/* x = 1; */", "/*", "*/"), "x = 1;");
-        assert_eq!(block_uncomment("x = 1;", "/*", "*/"), "x = 1;");
-        assert_eq!(comment_block("python"), None);
-        assert_eq!(comment_block("cpp"), Some(("/*", "*/")));
+        assert_eq!(stream_comment("x = 1;", "/*", "*/"), "/* x = 1; */");
+        let doc = "a /* x = 1; */ b";
+        // Caret or selection inside the comment is enough.
+        assert_eq!(undo_stream_comment(doc, (7, 7), "/*", "*/"), Some((2, 14, "x = 1;".into())));
+        assert_eq!(undo_stream_comment(doc, (2, 14), "/*", "*/"), Some((2, 14, "x = 1;".into())));
+        assert_eq!(undo_stream_comment("a b", (1, 2), "/*", "*/"), None);
+        assert_eq!(comment_syntax("Python", "python").start, "");
+        assert_eq!(comment_syntax("C++", "cpp").start, "/*");
     }
-
     #[test]
     fn number_sequences() {
         let n = ColumnNumbers { initial: 1, step: 1, repeat: 1, format: NumFormat::Dec, leading_zeros: false };
@@ -850,13 +965,6 @@ mod tests {
     #[test]
     fn empty_input_is_untouched() {
         assert_eq!(sort_lines("", "\n", false), "");
-        assert_eq!(toggle_comment("", "\n", "//"), "");
     }
 
-    #[test]
-    fn prefixes() {
-        assert_eq!(comment_prefix("python"), Some("#"));
-        assert_eq!(comment_prefix("rust"), Some("//"));
-        assert_eq!(comment_prefix("null"), None);
-    }
 }

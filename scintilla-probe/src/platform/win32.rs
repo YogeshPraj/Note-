@@ -1267,6 +1267,11 @@ fn context_entries(text: &str) -> Vec<Option<(&'static str, usize, &'static str)
         .collect()
 }
 
+/// The menu file as command names, "-" for a separator.
+fn context_names(text: &str) -> Vec<String> {
+    context_entries(text).into_iter().map(|e| e.map_or("-".to_string(), |(n, _, _)| n.to_string())).collect()
+}
+
 /// The theme colours as JSON ({"light": {...}, "dark": {...}}) for export.
 fn theme_json(s: &Settings) -> String {
     let side = |base: crate::core::sci::Theme, over: &std::collections::BTreeMap<String, String>| {
@@ -2337,7 +2342,18 @@ impl App {
             }
             ID_EDIT_CONTEXT => {
                 let p = ensure_context_menu_file();
-                ws.open_path(ui, &p);
+                let current = context_names(&std::fs::read_to_string(&p).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.into()));
+                let all = PALETTE_COMMANDS.iter().map(|(n, _, _)| n.to_string()).collect();
+                if let Some((menu, as_text)) = dialogs::context_menu_editor(ui.host, all, current.clone(), context_names(DEFAULT_CONTEXT_MENU)) {
+                    if menu != current {
+                        let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");
+                        let _ = std::fs::write(&p, format!("{header}\n{}\n", menu.join("\n")));
+                        self.flash = Some("Right-click menu saved".into());
+                    }
+                    if as_text {
+                        ws.open_path(ui, &p);
+                    }
+                }
             }
             _ if (ID_HASH_BASE..ID_HASH_BASE + ALGOS.len() * 10).contains(&id) => {
                 let algo: Algo = ALGOS[(id - ID_HASH_BASE) / 10];

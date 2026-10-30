@@ -552,6 +552,165 @@ pub fn shortcut_mapper(host: HWND, rows: Vec<MapRow>) -> Option<Vec<MapRow>> {
     accepted.map(|_| ROWS.with(|r| r.borrow().clone()))
 }
 
+// ── Edit Popup ContextMenu ───────────────────────────────────────────────────
+
+#[derive(Default)]
+struct CtxState {
+    all: Vec<String>,
+    menu: Vec<String>,
+    default: Vec<String>,
+    /// Indices into `all` of the rows the left list shows.
+    shown: Vec<usize>,
+    as_text: bool,
+}
+
+thread_local! {
+    static CTX: RefCell<CtxState> = RefCell::new(CtxState::default());
+}
+
+const CTX_SEP: &str = "-";
+const CTX_AVAIL: usize = 100;
+const CTX_MENU: usize = 101;
+const CTX_FILTER: usize = 102;
+
+fn ctx_fill_avail(f: &Form) {
+    let q = f.text(CTX_FILTER).trim().to_lowercase();
+    let rows = CTX.with(|c| {
+        let mut c = c.borrow_mut();
+        let shown: Vec<usize> = (0..c.all.len()).filter(|&i| !c.menu.contains(&c.all[i]) && (q.is_empty() || c.all[i].to_lowercase().contains(&q))).collect();
+        let rows = shown.iter().map(|&i| vec![c.all[i].clone()]).collect::<Vec<_>>();
+        c.shown = shown;
+        rows
+    });
+    f.list_fill(CTX_AVAIL, &[("Available commands", 300)], &rows);
+}
+
+fn ctx_fill_menu(f: &Form, select: Option<usize>) {
+    let rows = CTX.with(|c| {
+        c.borrow().menu.iter().map(|n| vec![if n == CTX_SEP { "──────  separator  ──────".to_string() } else { n.clone() }]).collect::<Vec<_>>()
+    });
+    f.list_fill(CTX_MENU, &[("In the right-click menu", 300)], &rows);
+    if let Some(i) = select.filter(|i| *i < rows.len()) {
+        f.list_select(CTX_MENU, i);
+    }
+}
+
+fn ctx_click(f: &Form, id: usize) {
+    const ADD: usize = 103;
+    const REMOVE: usize = 104;
+    const UP: usize = 105;
+    const DOWN: usize = 106;
+    const SEP: usize = 107;
+    const RESET: usize = 108;
+    const TEXT: usize = 109;
+    let sel = f.list_selected(CTX_MENU);
+    match id {
+        ADD => {
+            let picked = f.list_selected_all(CTX_AVAIL);
+            if picked.is_empty() {
+                return;
+            }
+            let at = sel.map_or(usize::MAX, |s| s + 1);
+            let first = CTX.with(|c| {
+                let mut c = c.borrow_mut();
+                let names: Vec<String> = picked.iter().filter_map(|&r| c.shown.get(r).map(|&i| c.all[i].clone())).collect();
+                let at = at.min(c.menu.len());
+                for (k, n) in names.iter().enumerate() {
+                    c.menu.insert(at + k, n.clone());
+                }
+                at
+            });
+            ctx_fill_avail(f);
+            ctx_fill_menu(f, Some(first));
+        }
+        SEP => {
+            let at = CTX.with(|c| {
+                let mut c = c.borrow_mut();
+                let at = sel.map_or(c.menu.len(), |s| s + 1).min(c.menu.len());
+                c.menu.insert(at, CTX_SEP.into());
+                at
+            });
+            ctx_fill_menu(f, Some(at));
+        }
+        REMOVE => {
+            let Some(s) = sel else { return };
+            CTX.with(|c| {
+                c.borrow_mut().menu.remove(s);
+            });
+            ctx_fill_avail(f);
+            ctx_fill_menu(f, Some(s.min(CTX.with(|c| c.borrow().menu.len()).saturating_sub(1))));
+        }
+        UP | DOWN => {
+            let Some(s) = sel else { return };
+            let to = CTX.with(|c| {
+                let mut c = c.borrow_mut();
+                let to = if id == UP { s.checked_sub(1) } else { (s + 1 < c.menu.len()).then_some(s + 1) };
+                if let Some(t) = to {
+                    c.menu.swap(s, t);
+                }
+                to
+            });
+            if let Some(t) = to {
+                ctx_fill_menu(f, Some(t));
+            }
+        }
+        RESET => {
+            CTX.with(|c| {
+                let mut c = c.borrow_mut();
+                c.menu = c.default.clone();
+            });
+            ctx_fill_avail(f);
+            ctx_fill_menu(f, Some(0));
+        }
+        TEXT => {
+            CTX.with(|c| c.borrow_mut().as_text = true);
+            f.close(true);
+        }
+        _ => {}
+    }
+}
+
+/// Settings > Edit Popup ContextMenu. `all`: every command that can be offered;
+/// `current` / `default`: the menu as a list of command names with "-" for a separator.
+/// Returns the new menu and whether the user asked to edit the file as text instead.
+pub fn context_menu_editor(host: HWND, all: Vec<String>, current: Vec<String>, default: Vec<String>) -> Option<(Vec<String>, bool)> {
+    CTX.with(|c| *c.borrow_mut() = CtxState { all, menu: current, default, ..Default::default() });
+    form::on_edit(|f, id| {
+        if id == CTX_FILTER {
+            ctx_fill_avail(f);
+        }
+    });
+    let spec = Spec {
+        title: "Edit Popup ContextMenu",
+        size: (770, 520),
+        ctls: vec![
+            ctl(110, Kind::Label, "Find command:", 12, 15, 90, 18),
+            ctl(CTX_FILTER, Kind::Edit, "", 104, 12, 238, 22),
+            ctl(CTX_AVAIL, Kind::MultiList, "", 12, 42, 330, 370),
+            ctl(103, Kind::Button, "Add  >", 350, 150, 70, 28),
+            ctl(104, Kind::Button, "<  Remove", 350, 186, 70, 28),
+            ctl(CTX_MENU, Kind::List, "", 428, 42, 330, 370),
+            ctl(105, Kind::Button, "Move Up", 428, 420, 76, 26),
+            ctl(106, Kind::Button, "Move Down", 510, 420, 84, 26),
+            ctl(107, Kind::Button, "Add Separator", 600, 420, 100, 26),
+            ctl(108, Kind::Button, "Reset to default", 12, 420, 120, 26),
+            ctl(109, Kind::Button, "Edit as text...", 138, 420, 110, 26),
+            ctl(111, Kind::Label, "Select commands on the left and press Add; they go below the selected item on the right.", 12, 452, 600, 18),
+        ],
+        ok: "OK",
+        on_change: Some(ctx_click),
+        on_apply: None,
+    };
+    form::run(host, spec, |f| {
+        ctx_fill_avail(f);
+        ctx_fill_menu(f, Some(0));
+    })?;
+    CTX.with(|c| {
+        let c = c.borrow();
+        Some((c.menu.clone(), c.as_text))
+    })
+}
+
 // ── hashes ───────────────────────────────────────────────────────────────────
 
 /// Tools > <algorithm> > Generate...: hash some typed text.

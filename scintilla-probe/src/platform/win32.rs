@@ -809,12 +809,15 @@ impl Ui for Win32Ui {
             buf[i] = c;
         }
         let filter = wide_multi(&["All files (*.*)", "*.*", "Text (*.txt)", "*.txt"]);
+        // A name typed without an extension gets the suggested file's, or .txt, as in Notepad++.
+        let ext = wide(std::path::Path::new(suggested).extension().and_then(|e| e.to_str()).unwrap_or("txt"));
         let mut ofn = OPENFILENAMEW {
             lStructSize: size_of::<OPENFILENAMEW>() as u32,
             hwndOwner: self.host,
             lpstrFilter: PCWSTR(filter.as_ptr()),
             lpstrFile: PWSTR(buf.as_mut_ptr()),
             nMaxFile: buf.len() as u32,
+            lpstrDefExt: PCWSTR(ext.as_ptr()),
             Flags: OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST,
             ..Default::default()
         };

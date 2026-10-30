@@ -26,6 +26,16 @@ const NAMED: &[(&str, u16)] = &[
     ("Down", 0x28),
     ("Ins", 0x2D),
     ("Del", 0x2E),
+    ("Num 0", 0x60),
+    ("Num 1", 0x61),
+    ("Num 2", 0x62),
+    ("Num 3", 0x63),
+    ("Num 4", 0x64),
+    ("Num 5", 0x65),
+    ("Num 6", 0x66),
+    ("Num 7", 0x67),
+    ("Num 8", 0x68),
+    ("Num 9", 0x69),
     ("Num *", 0x6A),
     ("Num +", 0x6B),
     ("Num -", 0x6D),
@@ -114,7 +124,7 @@ mod tests {
 
     #[test]
     fn parses_and_formats() {
-        for s in ["Ctrl+S", "Ctrl+Alt+Shift+F3", "F11", "Alt+Shift+0", "Ctrl+Num +", "Ctrl+Shift+PgDn", "Ctrl+/", "Shift+Tab", "Del"] {
+        for s in ["Ctrl+S", "Ctrl+Num 3", "Ctrl+Alt+Shift+F3", "F11", "Alt+Shift+0", "Ctrl+Num +", "Ctrl+Shift+PgDn", "Ctrl+/", "Shift+Tab", "Del"] {
             let c = parse(s).unwrap_or_else(|| panic!("{s}"));
             assert_eq!(format(&c), s);
         }

@@ -2361,9 +2361,11 @@ impl App {
                 note = Some("Marks cleared".into());
             }
             findpanel::P_FINDALL => match search::find_all(&sci, &opts) {
-                Ok(hits) => {
+                Ok(mut hits) => {
+                    let total = hits.len();
+                    hits.truncate(search::MAX_LIST);
                     let lines: Vec<String> = hits.iter().map(|h| format!("Line {}:  {}", h.line, h.text)).collect();
-                    note = Some(format!("{} hits in the current document", hits.len()));
+                    note = Some(if total > hits.len() { format!("{total} hits (listing the first {})", hits.len()) } else { format!("{total} hits in the current document") });
                     self.hits = hits;
                     findpanel::set_results(&lines);
                 }

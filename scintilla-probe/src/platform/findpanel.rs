@@ -501,11 +501,16 @@ pub fn set_status(s: &str) {
 pub fn set_results(lines: &[String]) {
     let Some(p) = PANEL.with(|c| c.get()) else { return };
     unsafe {
+        // No repainting while thousands of rows go in, and room reserved up front: otherwise a big result set freezes the window.
+        SendMessageW(p.list, 0x000B, Some(WPARAM(0)), None); // WM_SETREDRAW off
         SendMessageW(p.list, 0x0184, None, None); // LB_RESETCONTENT
+        SendMessageW(p.list, 0x01A8, Some(WPARAM(lines.len())), Some(LPARAM(lines.len() as isize * 80))); // LB_INITSTORAGE
         for l in lines {
             let t = wide(l);
             SendMessageW(p.list, 0x0180, None, Some(LPARAM(t.as_ptr() as isize))); // LB_ADDSTRING
         }
+        SendMessageW(p.list, 0x000B, Some(WPARAM(1)), None); // WM_SETREDRAW on
+        let _ = RedrawWindow(Some(p.list), None, None, RDW_INVALIDATE | RDW_ERASE);
     }
     RESULTS.with(|c| c.set(!lines.is_empty()));
     post_host(p.hwnd, P_RELAYOUT, 0);

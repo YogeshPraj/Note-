@@ -97,7 +97,9 @@ pub fn marked_text<S: Send>(s: &S, eol: &str) -> String {
         .join(eol)
 }
 
-fn delete_line<S: Send>(s: &S, l: usize, total: usize) {
+fn delete_line<S: Send>(s: &S, l: usize) {
+    // Lines after this one may already be gone, so the count is read fresh.
+    let total = sci::line_count(s).max(0) as usize;
     let len = sci::length(s).max(0) as usize;
     let start = s.send(sci::SCI_POSITIONFROMLINE, l, 0) as usize;
     if l + 1 < total {
@@ -119,7 +121,7 @@ pub fn delete_lines<S: Send>(s: &S, marked: bool) -> usize {
     let doomed: Vec<usize> = (0..total).filter(|l| is_set(s, *l) == marked).collect();
     s.send(sci::SCI_BEGINUNDOACTION, 0, 0);
     for l in doomed.iter().rev() {
-        delete_line(s, *l, total);
+        delete_line(s, *l);
     }
     s.send(sci::SCI_ENDUNDOACTION, 0, 0);
     doomed.len()

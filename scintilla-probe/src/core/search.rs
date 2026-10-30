@@ -178,6 +178,8 @@ pub fn passes_filter(filters: &str, name: &str) -> bool {
 
 const SKIP_DIRS: [&str; 5] = ["node_modules", "target", ".git", ".svn", ".hg"];
 pub const MAX_HITS: usize = 5000;
+/// Most Find All results listed in the panel.
+pub const MAX_LIST: usize = 20_000;
 
 /// Search every file under `dir` whose name passes `filters`.
 pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, String> {

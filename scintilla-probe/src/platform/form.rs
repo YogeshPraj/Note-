@@ -43,6 +43,8 @@ pub enum Kind {
     List,
     /// Like `List`, but several rows can be selected.
     MultiList,
+    /// A small box showing the "#RRGGBB" typed in the edit box whose id is the control text.
+    Swatch,
 }
 
 pub struct Ctl {
@@ -57,6 +59,11 @@ pub fn ctl(id: usize, kind: Kind, text: &str, x: i32, y: i32, w: i32, h: i32) ->
 }
 
 /// Live access to the controls while the form is open.
+thread_local! {
+    /// (swatch window, the edit box it previews)
+    static SWATCHES: RefCell<Vec<(isize, HWND)>> = const { RefCell::new(Vec::new()) };
+}
+
 pub struct Form {
     controls: HashMap<usize, HWND>,
     hwnd: HWND,
@@ -250,6 +257,14 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             match id {
                 1 => DONE.with(|d| d.set(Some(true))),
                 2 => DONE.with(|d| d.set(Some(false))),
+                // EN_CHANGE: a colour box was edited, so its swatch needs repainting.
+                _ if code == 0x300 => SWATCHES.with(|s| {
+                    for (sw, edit) in s.borrow().iter() {
+                        if edit.0 as usize == lp.0 as usize {
+                            unsafe { let _ = InvalidateRect(Some(HWND(*sw as *mut _)), None, false); }
+                        }
+                    }
+                }),
                 _ if code == 0 => {
                     // BN_CLICKED: let the form react (e.g. enable/disable groups).
                     let cb = LIVE.with(|l| l.borrow().as_ref().and_then(|(_, cb)| *cb));
@@ -313,6 +328,37 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             }
             LRESULT(0)
         }
+        WM_DRAWITEM => {
+            let di = unsafe { &*(lp.0 as *const windows::Win32::UI::Controls::DRAWITEMSTRUCT) };
+            let edit = SWATCHES.with(|s| s.borrow().iter().find(|(sw, _)| *sw == di.hwndItem.0 as isize).map(|(_, e)| *e));
+            if let Some(edit) = edit {
+                let mut buf = [0u16; 16];
+                let n = unsafe { GetWindowTextW(edit, &mut buf) }.max(0) as usize;
+                let hex = String::from_utf16_lossy(&buf[..n]);
+                let p = modern::pal();
+                unsafe {
+                    FillRect(di.hDC, &di.rcItem, modern::brush(p.bg));
+                    let inner = RECT { left: di.rcItem.left + 1, top: di.rcItem.top + 1, right: di.rcItem.right - 1, bottom: di.rcItem.bottom - 1 };
+                    match crate::core::settings::parse_hex(&hex) {
+                        Some(c) => {
+                            FillRect(di.hDC, &inner, modern::brush(c));
+                        }
+                        None => {
+                            // Not a colour (yet): a grey box with a question mark.
+                            FillRect(di.hDC, &inner, modern::brush((0x80, 0x80, 0x80)));
+                            SetBkMode(di.hDC, TRANSPARENT);
+                            SetTextColor(di.hDC, modern::colorref((0xFF, 0xFF, 0xFF)));
+                            let mut q = [b'?' as u16];
+                            let mut r = inner;
+                            DrawTextW(di.hDC, &mut q, &mut r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                        }
+                    }
+                    FrameRect(di.hDC, &di.rcItem, modern::brush(if p.bg.0 < 0x80 { (0xA0, 0xA0, 0xA0) } else { (0x60, 0x60, 0x60) }));
+                }
+                return LRESULT(1);
+            }
+            LRESULT(0)
+        }
         WM_ERASEBKGND => modern::erase_background(hwnd, wp),
         // Labels are transparent over the window colour; edit boxes get the field colour.
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => modern::ctl_color(msg, wp, lp),
@@ -373,6 +419,7 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
 
         let font = super::chrome::ui_font_handle();
         let mut controls = HashMap::new();
+        SWATCHES.with(|s| s.borrow_mut().clear());
         let mut first_edit = None;
         let make = |class: PCWSTR, text: &str, style: u32, id: usize, r: (i32, i32, i32, i32)| {
             let t = wide(text);
@@ -414,6 +461,13 @@ pub fn run(owner: HWND, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> 
                     make(w!("STATIC"), &c.text, 0, c.id, (x, y, w, 18))
                 }
                 Kind::Label => make(w!("STATIC"), &c.text, 0, c.id, c.rect),
+                Kind::Swatch => {
+                    let h = make(w!("STATIC"), "", 0xD, c.id, c.rect); // SS_OWNERDRAW
+                    if let Some(edit) = c.text.parse::<usize>().ok().and_then(|id| controls.get(&id)) {
+                        SWATCHES.with(|s| s.borrow_mut().push((h.0 as isize, *edit)));
+                    }
+                    h
+                }
                 Kind::Badge(tone) => {
                     // SS_ICON with the system's own information / question / warning / error icon
                     let h = make(w!("STATIC"), "", 0x3, c.id, c.rect);

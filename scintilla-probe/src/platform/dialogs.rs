@@ -341,12 +341,13 @@ pub fn style_configurator(host: HWND, theme: &Theme) -> Option<StyleEdit> {
         let hex = settings::color_of(theme, key).map(settings::to_hex).unwrap_or_default();
         ctls.push(ctl(400 + i, Kind::Label, label, 16, y + 3, 170, 18));
         ctls.push(ctl(FIRST + i, Kind::Edit, &hex, 190, y, 84, 22));
-        ctls.push(ctl(PICK + i, Kind::Button, "...", 282, y - 1, 30, 24));
+        ctls.push(ctl(500 + i, Kind::Swatch, &(FIRST + i).to_string(), 282, y, 28, 22));
+        ctls.push(ctl(PICK + i, Kind::Button, "...", 316, y - 1, 30, 24));
     }
     ctls.push(ctl(RESET, Kind::Check, "Reset every colour to the default", 16, 40 + ROLES.len() as i32 * 26 + 6, 290, 20));
     let spec = Spec {
         title: "Style Configurator",
-        size: (336, 40 + ROLES.len() as i32 * 26 + 78),
+        size: (366, 40 + ROLES.len() as i32 * 26 + 78),
         ctls,
         ok: "OK",
         on_change: Some(on_click),

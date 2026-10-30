@@ -1979,6 +1979,7 @@ impl<S: Send> Workspace<S> {
                 pinned: t.pinned,
                 color: t.color,
                 kind: if t.kind == TabKind::Whiteboard { "whiteboard".into() } else { "text".into() },
+                lang: (t.path.is_none() && t.kind == TabKind::Text && t.lang != "null").then(|| t.lang_label.to_string()),
             });
         }
         self.send(sci::SCI_SETDOCPOINTER, 0, shown);
@@ -2119,7 +2120,14 @@ impl<S: Send> Workspace<S> {
                     Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
                     Err(_) => continue,
                 },
-                None => self.open_doc(st.title.clone(), None, "", enc, eol, "null"),
+                None => {
+                    let entry = st.lang.as_deref().and_then(|l| lang::LANGUAGES.iter().find(|(n, _)| *n == l));
+                    let idx = self.open_doc(st.title.clone(), None, "", enc, eol, entry.map_or("null", |e| e.1));
+                    if let Some(e) = entry {
+                        self.tabs[idx].lang_label = e.0;
+                    }
+                    idx
+                }
             };
             if let Some(text) = &saved_text {
                 // Replacing content after the save point leaves the tab dirty, as it was.

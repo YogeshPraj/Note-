@@ -97,7 +97,15 @@ impl Settings {
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
         }
-        super::files::atomic_write(&p, serde_json::to_string_pretty(self).map_err(std::io::Error::other)?.as_bytes())
+        // The file is shared with other settings (cloud folders, backup, ...): only our keys change.
+        let mut root = match std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
+            Some(serde_json::Value::Object(m)) => m,
+            _ => serde_json::Map::new(),
+        };
+        if let serde_json::Value::Object(mine) = serde_json::to_value(self).map_err(std::io::Error::other)? {
+            root.extend(mine);
+        }
+        super::files::atomic_write(&p, serde_json::to_string_pretty(&root).map_err(std::io::Error::other)?.as_bytes())
     }
 
     /// Keep values in a sane range after the user typed them.

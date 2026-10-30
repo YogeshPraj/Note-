@@ -50,6 +50,7 @@ fn main() -> windows::core::Result<()> {
         args.retain(|a| a != "--new-instance");
     }
     let files: Vec<std::path::PathBuf> = args.into_iter().map(std::path::PathBuf::from).collect();
+    core::session::migrate_legacy_native();
     // One Note++ per user: if one is already running, give it the files and stop.
     if !core::session::standalone() && platform::win32::hand_over_to_running(&files) {
         return Ok(());

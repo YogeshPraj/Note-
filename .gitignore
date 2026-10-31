@@ -28,3 +28,6 @@ Thumbs.db
 # Toolkit spikes that lost the evaluation (egui, iced), kept locally for reference.
 rust-port/
 rust-port-iced/
+
+# wxWidgets spike build output
+/wx-spike/target/

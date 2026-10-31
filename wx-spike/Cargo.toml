@@ -1,0 +1,15 @@
+[package]
+name = "wx-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+wxdragon = { version = "0.9", features = ["stc", "webview"] }
+wxdragon-sys = "0.9"
+
+# Our copy adds GetDirectFunction/GetDirectPointer (raw Scintilla access) to the STC glue.
+[patch.crates-io]
+wxdragon-sys = { path = "../vendor/wxdragon-sys" }

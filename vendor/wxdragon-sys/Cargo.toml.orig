@@ -1,0 +1,62 @@
+[package]
+name = "wxdragon-sys"
+# Inherit from workspace or specify explicitly
+version = "0.9.24" 
+edition = "2024"
+authors = ["Allen Dang <allengnr@gmail.com>"]
+description = "Raw FFI bindings to libwxdragon (which statically links wxWidgets)."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AllenDang/wxDragon"
+readme = "README.md" # Ensure this file exists
+keywords = ["ffi", "wxwidgets", "gui", "native", "bindings"]
+categories = ["external-ffi-bindings", "gui", "development-tools::ffi"]
+build = "build.rs"
+links = "wxdragon" # Crucial: Signals to Cargo this crate builds/links libwxdragon
+
+[features]
+# The "wx-" features are enabled by default and can be turned off to make
+# statically linked binaries smaller when the application does not need them.
+default = [
+    "wx-printing",
+    "wx-tiff",
+    "wx-jpeg",
+    "wx-asserts",
+    "wx-tango-icons",
+    "wx-extra-image-formats",
+    "wx-regex",
+    "appindicator",
+]
+wx-printing = []
+wx-xpm = []
+# The Tango icons built into wxArtProvider, not needed by the applications
+# providing their own icons.
+wx-tango-icons = []
+# The GIF, PCX, TGA, IFF, PNM and XPM image handlers.
+wx-extra-image-formats = ["wx-xpm"]
+# wxRegEx and the PCRE2 library it uses.
+wx-regex = []
+wx-tiff = []
+wx-jpeg = []
+wx-asserts = []
+aui = []
+media-ctrl = []
+webview = []
+stc = ["wx-xpm"]
+xrc = []
+richtext = []
+appindicator = []
+
+[dependencies]
+log = "0.4.34"
+# Sys crates typically have no runtime Rust dependencies
+
+[build-dependencies]
+bindgen = { version = "0.73.2", default-features = false, features = ["logging", "runtime"] } # For generating Rust bindings from C/C++ headers
+cmake = "0.1.58"
+flate2 = "1.1.10"
+pkg-config = "0.3.34"  # For finding libgtk and its dependencies (Linux only)
+rawzip = "0.5.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "native-tls"] }
+sha2 = "0.11.0"
+
+[workspace]

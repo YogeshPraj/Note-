@@ -1831,9 +1831,13 @@ impl<S: Send> Workspace<S> {
         if i == self.active {
             return sci::length(&self.sci).max(0) as usize;
         }
+        // Put back whatever document the view was showing. The active tab's own pointer is no
+        // use here: a whiteboard has none (0), and selecting 0 makes Scintilla create a stray
+        // document that corrupts the view later.
+        let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
         self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
         let n = sci::length(&self.sci).max(0) as usize;
-        self.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[self.active].doc);
+        self.send(sci::SCI_SETDOCPOINTER, 0, shown);
         n
     }
 
@@ -2173,6 +2177,49 @@ fn scene_element_count(content: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    /// A stand-in for Scintilla that tracks which document the view shows.
+    struct FakeSci {
+        shown: Cell<isize>,
+        next: Cell<isize>,
+        selected_zero: Cell<bool>,
+    }
+
+    impl sci::Send for FakeSci {
+        fn send(&self, msg: u32, _w: usize, l: isize) -> isize {
+            match msg {
+                sci::SCI_CREATEDOCUMENT => {
+                    self.next.set(self.next.get() + 1);
+                    self.next.get()
+                }
+                sci::SCI_SETDOCPOINTER => {
+                    // Selecting document 0 makes the real Scintilla create a stray document.
+                    if l == 0 {
+                        self.selected_zero.set(true);
+                    }
+                    self.shown.set(l);
+                    0
+                }
+                sci::SCI_GETDOCPOINTER => self.shown.get(),
+                _ => 0,
+            }
+        }
+    }
+
+    #[test]
+    fn measuring_a_text_tab_while_a_whiteboard_is_active_leaves_the_view_alone() {
+        // The session autosave measures every tab; with a whiteboard in front it used to put the
+        // view back on the whiteboard's "document" (0), which crashed Scintilla when the tab closed.
+        let mut ws = Workspace::new(FakeSci { shown: Cell::new(0), next: Cell::new(100), selected_zero: Cell::new(false) });
+        ws.new_tab();
+        ws.new_whiteboard();
+        let before = ws.sci.shown.get();
+        assert_ne!(before, 0);
+        ws.session_fingerprint();
+        assert!(!ws.sci.selected_zero.get(), "the view was pointed at document 0");
+        assert_eq!(ws.sci.shown.get(), before, "the view must keep showing the same document");
+    }
 
     #[test]
     fn thousands_separators() {

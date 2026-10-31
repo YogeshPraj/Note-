@@ -1,0 +1,38 @@
+[package]
+name = "notepp-wx"
+version = "2.0.1"
+edition = "2024"
+description = "Note++ with a wxWidgets shell (native widgets on Windows, macOS and Linux)"
+
+# A workspace of its own: this build needs the GCC 15.1 toolchain that wxWidgets' prebuilt libraries
+# were made with (see README.md), unlike the Win32 app at the repository root.
+[workspace]
+
+[[bin]]
+name = "notepp-wx"
+path = "src/main.rs"
+
+[dependencies]
+notepp-core = { path = "../crates/core" }
+wxdragon = { version = "0.9", features = ["stc", "webview", "aui"] }
+wxdragon-sys = "0.9"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.10"
+
+# Our copy adds GetDirectFunction/GetDirectPointer (raw Scintilla access) to the STC glue.
+[patch.crates-io]
+wxdragon-sys = { path = "../vendor/wxdragon-sys" }
+
+# Key derivation is slow unoptimised; keep the tests quick.
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.ghash]
+opt-level = 3

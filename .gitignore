@@ -31,3 +31,5 @@ rust-port-iced/
 
 # wxWidgets spike build output
 /wx-spike/target/
+
+/wx/target/

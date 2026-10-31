@@ -73,3 +73,23 @@ pub fn theme_json(s: &Settings) -> String {
     let v = serde_json::json!({ "light": side(notepp_core::sci::Theme::light(), &s.light_colors), "dark": side(notepp_core::sci::Theme::dark(), &s.dark_colors) });
     serde_json::to_string_pretty(&v).unwrap_or_default()
 }
+
+/// Read a theme file into colour overrides; returns how many colours were taken.
+pub fn import_theme(s: &mut Settings, json: &str) -> Result<usize, String> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let mut taken = 0;
+    for (name, dark) in [("light", false), ("dark", true)] {
+        let Some(obj) = v.get(name).and_then(|x| x.as_object()) else { continue };
+        let base = if dark { notepp_core::sci::Theme::dark() } else { notepp_core::sci::Theme::light() };
+        let entered: Vec<(&str, String)> =
+            settings::ROLES.iter().filter_map(|(_, k)| obj.get(*k).and_then(|x| x.as_str()).map(|h| (*k, h.to_string()))).collect();
+        let diff = settings::diff_from(&base, &entered);
+        taken += entered.iter().filter(|(_, h)| settings::parse_hex(h).is_some()).count();
+        if dark {
+            s.dark_colors = diff;
+        } else {
+            s.light_colors = diff;
+        }
+    }
+    if taken == 0 { Err("The file has no \"light\" or \"dark\" colours".into()) } else { Ok(taken) }
+}

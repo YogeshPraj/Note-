@@ -2,8 +2,10 @@
 
 mod app;
 mod dispatch;
+mod find;
 mod menus;
 mod sci;
+mod settings_ui;
 mod tables;
 mod ui;
 

@@ -359,7 +359,6 @@ pub fn command_core(ws: &mut Workspace<WxSci>, ui: &WxUi, flash: &mut Option<Str
                 *flash = ws.convert_to(ui, ENCODE_IN[id - ID_CONVERT_BASE]);
             }
             _ if (ID_LANG_BASE..ID_LANG_BASE + LANGUAGES.len()).contains(&id) => ws.set_language(LANGUAGES[id - ID_LANG_BASE].0),
-            _ => {}
         _ => return false,
     }
     true

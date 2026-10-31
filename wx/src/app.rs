@@ -5,14 +5,17 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
-use notepp_core::settings::Settings;
+use notepp_core::sci::Theme;
+use notepp_core::settings::{self, Settings};
 use notepp_core::shortcuts;
 use notepp_core::workspace::Workspace;
 use wxdragon::prelude::*;
 
 use crate::dispatch;
+use crate::settings_ui;
+use crate::tables;
 use crate::menus::{self, Menus};
 use crate::sci::WxSci;
 use crate::ui::WxUi;
@@ -21,7 +24,7 @@ pub struct App {
     pub ws: Workspace<WxSci>,
     pub ui: WxUi,
     pub flash: Option<String>,
-    frame: Frame,
+    pub frame: Frame,
     tabs: Notebook,
     status: StatusBar,
     menubar: MenuBar,
@@ -111,8 +114,19 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, tabs: &Notebook) {
     // Menu commands.
     let a = app.clone();
     frame.on_menu(move |e| {
+        let id = e.get_id() as usize;
+        // Modeless windows need the shared handle, so they are opened here, with nothing borrowed.
+        match id {
+            ID_FIND | ID_REPLACE => {
+                let initial = a.try_borrow().map(|x| notepp_core::search::selected_text(&x.ws.sci)).unwrap_or_default();
+                return crate::find::open(&a, id == ID_REPLACE, &initial);
+            }
+            ID_FINDNEXT | ID_FINDPREV => return crate::find::step(&a, id == ID_FINDNEXT),
+            ID_GOTO => return crate::find::goto_line(&a),
+            _ => {}
+        }
         if let Ok(mut app) = a.try_borrow_mut() {
-            app.command(e.get_id() as usize);
+            app.command(id);
         }
     });
 
@@ -178,6 +192,57 @@ impl App {
             ID_ABOUT => {
                 let text = format!("Note++\nVersion {} (wxWidgets build)\n\nExperience the native power.", notepp_core::update::VERSION);
                 MessageDialog::builder(&self.frame, &text, "About Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
+            }
+            ID_PREFS => {
+                if let Some(s) = settings_ui::preferences(&self.frame, &self.ws.settings) {
+                    settings_ui::apply_settings(&mut self.ws, s);
+                }
+            }
+            ID_STYLE_CFG => {
+                if let Some(e) = settings_ui::style_configurator(&self.frame, &self.ws.theme) {
+                    let dark = self.ws.theme.dark;
+                    let base = if dark { Theme::dark() } else { Theme::light() };
+                    let diff = if e.reset { Default::default() } else { settings::diff_from(&base, &e.entered) };
+                    let bad = e.entered.iter().filter(|(_, h)| settings::parse_hex(h).is_none()).count();
+                    let mut s = self.ws.settings.clone();
+                    if dark {
+                        s.dark_colors = diff;
+                    } else {
+                        s.light_colors = diff;
+                    }
+                    settings_ui::apply_settings(&mut self.ws, s);
+                    if bad > 0 {
+                        self.flash = Some(format!("{bad} colour(s) were not valid #RRGGBB and were ignored"));
+                    }
+                }
+            }
+            ID_IMPORT_THEME => {
+                if let Some(p) = notepp_core::workspace::Ui::pick_open(&self.ui).into_iter().next() {
+                    let imported = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| {
+                        let mut s = self.ws.settings.clone();
+                        tables::import_theme(&mut s, &t).map(|n| (s, n))
+                    });
+                    match imported {
+                        Ok((s, n)) => {
+                            settings_ui::apply_settings(&mut self.ws, s);
+                            self.flash = Some(format!("Imported {n} colour(s)"));
+                        }
+                        Err(e) => notepp_core::workspace::Ui::error(&self.ui, &format!("Cannot import the theme\n\n{e}")),
+                    }
+                }
+            }
+            _ if (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id) => {
+                let i = id - ID_PRESET_BASE;
+                let (dark, preset) = match i {
+                    0 => (false, None),
+                    1 => (true, None),
+                    _ => (settings::PRESETS[i - 2].dark, Some(&settings::PRESETS[i - 2])),
+                };
+                let mut s = self.ws.settings.clone();
+                s.apply_preset(dark, preset);
+                settings_ui::apply_settings(&mut self.ws, s);
+                self.ws.set_theme(if dark { Theme::dark() } else { Theme::light() });
+                self.flash = Some(format!("Theme: {}", preset.map_or(if dark { "Default (dark)" } else { "Default (light)" }, |p| p.name)));
             }
             _ => self.flash = Some("This command is not available in this build yet".into()),
         }

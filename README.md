@@ -98,7 +98,7 @@ powershell -File scripts\installer.ps1  # dist\release\NotePP-Setup-X.Y.Z.exe + 
 ## Project layout
 
 ```
-src/core/        portable logic: editor core, tabs, sessions, encodings, search, crypto, updater
+crates/core/     portable logic (its own crate): tabs, sessions, encodings, search, crypto, updater
 src/platform/    the Win32 shell: window, menus, tab strip, dialogs, WebView2 panes
 assets/          icons, preview pages, bundled Mermaid / jsoneditor / whiteboard
 installer/       the NSIS installer script and its sidebar image

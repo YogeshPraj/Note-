@@ -1370,6 +1370,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hkdf",
  "md-5",
+ "notepp-core",
  "pbkdf2",
  "pulldown-cmark",
  "raw-window-handle",
@@ -1383,6 +1384,30 @@ dependencies = [
  "windows",
  "windows-core",
  "wry",
+ "zeroize",
+ "zip",
+]
+
+[[package]]
+name = "notepp-core"
+version = "2.0.1"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "encoding_rs",
+ "fancy-regex",
+ "flate2",
+ "getrandom 0.3.4",
+ "hkdf",
+ "md-5",
+ "pbkdf2",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "similar",
+ "ureq",
  "zeroize",
  "zip",
 ]

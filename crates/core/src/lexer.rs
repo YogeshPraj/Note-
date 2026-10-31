@@ -3,28 +3,18 @@
 //! Statically linked, so there is no second DLL to ship. Portable: the lexer
 //! is handed to Scintilla through SCI_SETILEXER, which is platform-neutral.
 
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::c_void;
+use std::sync::OnceLock;
 
-#[link(name = "lexilla", kind = "static")]
-unsafe extern "C" {
-    fn CreateLexer(name: *const c_char) -> *mut c_void;
-    #[cfg(test)]
-    fn GetLexerCount() -> i32;
-    #[cfg(test)]
-    fn GetLexerName(index: u32, name: *mut c_char, buflength: i32);
-}
+/// Builds a Lexilla lexer by name (an `ILexer5*` for SCI_SETILEXER); null for an unknown name.
+/// Each shell registers its own: the Win32 app links Lexilla itself, the wxWidgets shell uses the
+/// copy inside wxWidgets. The core stays free of link-time dependencies.
+pub type Factory = fn(&str) -> *mut c_void;
 
-/// Names of every lexer this build has.
-#[cfg(test)]
-pub fn names() -> Vec<String> {
-    (0..unsafe { GetLexerCount() }.max(0) as u32)
-        .map(|i| {
-            let mut buf = [0 as c_char; 64];
-            unsafe { GetLexerName(i, buf.as_mut_ptr(), buf.len() as i32) };
-            let bytes: Vec<u8> = buf.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
-            String::from_utf8_lossy(&bytes).into_owned()
-        })
-        .collect()
+static FACTORY: OnceLock<Factory> = OnceLock::new();
+
+pub fn register(f: Factory) {
+    let _ = FACTORY.set(f);
 }
 
 /// Map a file extension to a Lexilla lexer name.
@@ -97,9 +87,5 @@ pub fn lexer_for_extension(ext: &str) -> &'static str {
 
 /// Create a lexer instance to hand to SCI_SETILEXER. Null means "plain text".
 pub fn create(name: &str) -> *mut c_void {
-    let c = match CString::new(name) {
-        Ok(c) => c,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    unsafe { CreateLexer(c.as_ptr()) }
+    FACTORY.get().map_or(std::ptr::null_mut(), |f| f(name))
 }

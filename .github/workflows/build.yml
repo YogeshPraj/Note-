@@ -81,7 +81,7 @@ jobs:
         run: ./scripts/setup.ps1
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --workspace --locked
 
       - name: Package
         run: ./scripts/package.ps1

@@ -1,9 +1,18 @@
+[workspace]
+members = ["crates/core"]
+# The wxWidgets shell and its spike are separate workspaces: they need a different compiler (see wx/README.md).
+exclude = ["wx-spike", "wx", "vendor"]
+
+[workspace.package]
+version = "2.0.1"
+
 [package]
 name = "notepp"
-version = "2.0.1"
+version.workspace = true
 edition = "2024"
 
 [dependencies]
+notepp-core = { path = "crates/core" }
 encoding_rs = "0.8.42"
 fancy-regex = "0.19.2"
 md-5 = "0.10"

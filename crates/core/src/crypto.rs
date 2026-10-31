@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn files_from_the_electron_app_open() {
-        let fx: serde_json::Value = serde_json::from_str(include_str!("../../tests/fixtures/electron_interop.json")).unwrap();
+        let fx: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/electron_interop.json")).unwrap();
         let profile = Profile::parse(&fx["profile"].to_string()).unwrap();
         let env_text = fx["envelope"].to_string();
         let env = parse_envelope(env_text.as_bytes()).unwrap();

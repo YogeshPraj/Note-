@@ -403,14 +403,6 @@ mod tests {
     }
 
     #[test]
-    fn every_menu_language_has_a_lexer_in_this_build() {
-        let have = lexer::names();
-        for (label, l) in LANGUAGES {
-            assert!(*l == "null" || have.iter().any(|n| n == l), "{label} -> {l}");
-        }
-    }
-
-    #[test]
     fn labels_are_unique_and_resolve() {
         let mut seen = std::collections::HashSet::new();
         for (label, lexer) in LANGUAGES {

@@ -5,15 +5,19 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
-use notepp_core::sci::Theme;
+use notepp_core::preview as pcore;
+use notepp_core::sci::{self, Theme};
 use notepp_core::settings::{self, Settings};
 use notepp_core::shortcuts;
 use notepp_core::workspace::Workspace;
 use wxdragon::prelude::*;
+use wxdragon::event::WebViewEvents;
+use wxdragon::widgets::webview::WebView;
 
 use crate::dispatch;
+use crate::preview;
 use crate::settings_ui;
 use crate::tables;
 use crate::menus::{self, Menus};
@@ -25,6 +29,14 @@ pub struct App {
     pub ui: WxUi,
     pub flash: Option<String>,
     pub frame: Frame,
+    splitter: SplitterWindow,
+    stc: StyledTextCtrl,
+    view: WebView,
+    preview_on: bool,
+    preview_loaded: bool,
+    preview_ready: bool,
+    preview_dark: bool,
+    preview_key: Option<(isize, usize, u64)>,
     tabs: Notebook,
     status: StatusBar,
     menubar: MenuBar,
@@ -62,11 +74,18 @@ pub fn start(files: Vec<PathBuf>) {
     // Tab strip (only its tab row is shown) above the editor.
     let tabs = Notebook::builder(&frame).build();
     tabs.set_min_size(Size::new(-1, 34));
-    let stc = StyledTextCtrl::builder(&frame).build();
+    // The editor, with the preview pane beside it when that is switched on.
+    let splitter = SplitterWindow::builder(&frame).build();
+    let stc = StyledTextCtrl::builder(&splitter).build();
+    let view = WebView::builder(&splitter).build();
+    view.add_script_message_handler("ipc");
+    view.show(false);
+    splitter.initialize(&stc);
+    splitter.set_minimum_pane_size(120);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add(&tabs, 0, SizerFlag::Expand, 0);
-    sizer.add(&stc, 1, SizerFlag::Expand, 0);
+    sizer.add(&splitter, 1, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
 
     let status = frame.create_status_bar(6, 0, -1, "status");
@@ -93,6 +112,14 @@ pub fn start(files: Vec<PathBuf>) {
         ui,
         flash: None,
         frame,
+        splitter,
+        stc,
+        view,
+        preview_on: false,
+        preview_loaded: false,
+        preview_ready: false,
+        preview_dark: false,
+        preview_key: None,
         tabs,
         status,
         menubar: frame.get_menu_bar().expect("menu bar"),
@@ -103,14 +130,45 @@ pub fn start(files: Vec<PathBuf>) {
         recent_key: (vec![PathBuf::from("\u{0}")], false),
     }));
 
-    wire(&app, frame, &stc, &tabs);
+    wire(&app, frame, &stc, &tabs, &view);
     app.borrow_mut().refresh();
     frame.show(true);
     frame.centre();
     stc.set_focus();
 }
 
-fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, tabs: &Notebook) {
+fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, tabs: &Notebook, view: &WebView) {
+    // The preview page finished loading: draw the current document in it.
+    let a = app.clone();
+    view.on_loaded(move |_| {
+        if let Ok(mut app) = a.try_borrow_mut() {
+            app.preview_ready = true;
+            app.preview_dark = !app.ws.theme.dark;
+            app.preview_update(true);
+        }
+    });
+    // Messages from the page (close, refresh, lazy-loading of Mermaid / the JSON editor).
+    let a = app.clone();
+    let pv = *view;
+    view.on_script_message_received(move |e| {
+        let msg = e.get_string().unwrap_or_default();
+        match msg.trim_matches('"') {
+            "need-mermaid" => preview::load_mermaid(&pv),
+            "need-jsoneditor" => preview::load_json_editor(&pv),
+            "close" => {
+                if let Ok(mut app) = a.try_borrow_mut() {
+                    app.set_preview(false);
+                    app.refresh();
+                }
+            }
+            "refresh" => {
+                if let Ok(mut app) = a.try_borrow_mut() {
+                    app.preview_update(true);
+                }
+            }
+            _ => {}
+        }
+    });
     // Menu commands.
     let a = app.clone();
     frame.on_menu(move |e| {
@@ -185,6 +243,10 @@ impl App {
                 }
             }
             ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
+            ID_PREVIEW => {
+                let on = !self.preview_on;
+                self.set_preview(on);
+            }
             ID_FULLSCREEN => {
                 let on = !self.frame.is_full_screen();
                 self.frame.show_full_screen(on);
@@ -265,6 +327,8 @@ impl App {
         self.menubar.check_item(ID_WRAP as i32, self.ws.wrap);
         self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
         self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
+        self.menubar.check_item(ID_PREVIEW as i32, self.preview_on);
+        self.preview_update(false);
         {
             use notepp_core::doc::Eol;
             let eol = self.ws.tabs[self.ws.active].eol;
@@ -275,6 +339,61 @@ impl App {
         self.sync_file_menu();
     }
 
+
+    /// Show or hide the preview pane beside the editor.
+    pub fn set_preview(&mut self, on: bool) {
+        if on == self.preview_on {
+            return;
+        }
+        self.preview_on = on;
+        if on {
+            if !self.preview_loaded {
+                self.preview_loaded = true;
+                self.view.set_page(&preview::page_html(self.ws.settings.preview_remote_images), "about:blank");
+            }
+            self.view.show(true);
+            let half = self.frame.get_size().width / 2;
+            self.splitter.split_vertically(&self.stc, &self.view, half);
+            self.preview_key = None;
+        } else {
+            self.splitter.unsplit(Some(&self.view));
+            self.view.show(false);
+        }
+    }
+
+    /// Re-render the preview when the document, its text or the theme changed.
+    pub fn preview_update(&mut self, force: bool) {
+        if !self.preview_on || !self.preview_ready {
+            return;
+        }
+        let dark = self.ws.theme.dark;
+        if self.preview_dark != dark {
+            self.preview_dark = dark;
+            preview::set_theme(&self.view, dark);
+            self.preview_key = None;
+        }
+        let key = self.ws.preview_key();
+        if !force && self.preview_key == Some(key) {
+            return;
+        }
+        self.preview_key = Some(key);
+        let view = self.view;
+        let Some(kind) = self.ws.preview_kind() else {
+            return preview::render(&view, "message", "Preview is available for Markdown, HTML, Mermaid and JSON files.");
+        };
+        let text = sci::get_text(&self.ws.sci);
+        match kind {
+            pcore::Kind::Markdown if pcore::is_bare_mermaid(&text) => preview::render(&view, "mermaid", &text),
+            pcore::Kind::Markdown => {
+                let base = self.ws.tabs[self.ws.active].path.as_deref().and_then(|p| p.parent());
+                preview::render(&view, "markdown", &pcore::markdown_to_html_in(&text, base));
+            }
+            pcore::Kind::Html => preview::render(&view, "html", &text),
+            pcore::Kind::Mermaid => preview::render(&view, "mermaid", &text),
+            pcore::Kind::Json => preview::render(&view, "json", &text),
+            pcore::Kind::Log | pcore::Kind::Http => preview::render(&view, "message", "This preview is not available in this build yet."),
+        }
+    }
     fn sync_tabs(&mut self) {
         let infos = self.ws.tab_infos();
         let key: Vec<(String, bool, bool)> = infos.iter().map(|t| (t.title.clone(), t.dirty, t.pinned)).collect();

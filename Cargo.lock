@@ -1359,6 +1359,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "notepp"
+version = "2.0.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "encoding_rs",
+ "fancy-regex",
+ "flate2",
+ "getrandom 0.3.4",
+ "hkdf",
+ "md-5",
+ "pbkdf2",
+ "pulldown-cmark",
+ "raw-window-handle",
+ "resvg",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "similar",
+ "ureq",
+ "windows",
+ "windows-core",
+ "wry",
+ "zeroize",
+ "zip",
+]
+
+[[package]]
 name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1946,35 +1975,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "sci_probe"
-version = "2.0.0"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "encoding_rs",
- "fancy-regex",
- "flate2",
- "getrandom 0.3.4",
- "hkdf",
- "md-5",
- "pbkdf2",
- "pulldown-cmark",
- "raw-window-handle",
- "resvg",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "similar",
- "ureq",
- "windows",
- "windows-core",
- "wry",
- "zeroize",
- "zip",
 ]
 
 [[package]]

@@ -49,6 +49,9 @@ jobs:
           g++ --version | Select-Object -First 1
 
       # Mermaid and the Excalidraw whiteboard are bundled from old-src/ by scripts/setup.ps1.
+      - name: Install NSIS (installer)
+        run: choco install nsis -y --no-progress
+
       - name: Install Node
         uses: actions/setup-node@v4
         with:
@@ -86,6 +89,9 @@ jobs:
       - name: Release files (zip + checksum)
         run: ./scripts/release.ps1
 
+      - name: Installer + update manifest (latest.yml)
+        run: ./scripts/installer.ps1
+
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
@@ -106,10 +112,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart('v')
+          # zip + checksum: the in-app updater of this version; installer + latest.yml: the updater of the 1.x app
+          $files = @('dist/release/NotePP-windows-x64.zip', 'dist/release/NotePP-windows-x64.zip.sha256', "dist/release/NotePP-Setup-$ver.exe", 'dist/release/latest.yml')
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "Note++ $($tag.TrimStart('v'))" --generate-notes dist/release/NotePP-windows-x64.zip dist/release/NotePP-windows-x64.zip.sha256
+            gh release create $tag --title "Note++ $($tag.TrimStart('v'))" --generate-notes $files
           } else {
-            gh release upload $tag dist/release/NotePP-windows-x64.zip dist/release/NotePP-windows-x64.zip.sha256 --clobber
+            gh release upload $tag $files --clobber
           }
           if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed' }

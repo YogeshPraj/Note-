@@ -53,9 +53,11 @@ Version 2.0 replaces the earlier 1.x line. It keeps the same data folder (`%APPD
 
 ## Install
 
-Download the latest `NotePP-windows-x64.zip` from [Releases](https://github.com/YogeshPraj/Note-/releases/latest), unzip it anywhere and run `sci_probe.exe`. Requires Windows 10 or 11 (64-bit) with the WebView2 runtime, which ships with Windows 11 and current Windows 10.
+Download **`NotePP-Setup-<version>.exe`** from [Releases](https://github.com/YogeshPraj/Note-/releases/latest) and run it. It installs for the current user (no administrator rights needed), adds Start-menu and desktop shortcuts, lists Note++ under *Open with* and adds *Edit with Note++* to the Explorer menu. An installed 1.x release is replaced automatically.
 
-Data is kept in `%APPDATA%\notepp`.
+Prefer no installer? `NotePP-windows-x64.zip` is the same app as a plain folder: unzip it anywhere and run `notepp.exe`.
+
+Requires Windows 10 or 11 (64-bit) with the WebView2 runtime, which ships with Windows 11 and current Windows 10. Data is kept in `%APPDATA%\notepp`.
 
 ## Build from source
 
@@ -77,14 +79,17 @@ cargo run                                                    # or: cargo test
 
 Every push and pull request is built and tested by GitHub Actions ([`build.yml`](.github/workflows/build.yml)); the packaged zip is attached to each run as an artifact. Pushing a tag `vX.Y.Z` that matches the version in `Cargo.toml` also publishes a GitHub release with:
 
-- `NotePP-windows-x64.zip`: the app folder (`sci_probe.exe`, `Scintilla.dll`, `WebView2Loader.dll`, `whiteboard/`)
-- `NotePP-windows-x64.zip.sha256`: its SHA-256, which the in-app updater checks
+- `NotePP-Setup-X.Y.Z.exe`: the installer (NSIS)
+- `latest.yml`: the manifest the 1.x updater reads, so existing 1.x installs are offered the update, which runs this installer silently
+- `NotePP-windows-x64.zip`: the app folder (`notepp.exe`, `Scintilla.dll`, `WebView2Loader.dll`, `whiteboard/`)
+- `NotePP-windows-x64.zip.sha256`: its SHA-256, which this version's in-app updater checks
 
 To build the same files locally:
 
 ```powershell
 powershell -File scripts\package.ps1    # builds dist\NotePP
 powershell -File scripts\release.ps1    # dist\release\NotePP-windows-x64.zip + .sha256
+powershell -File scripts\installer.ps1  # dist\release\NotePP-Setup-X.Y.Z.exe + latest.yml (needs NSIS: winget install NSIS.NSIS)
 ```
 
 ## Project layout
@@ -93,7 +98,8 @@ powershell -File scripts\release.ps1    # dist\release\NotePP-windows-x64.zip + 
 src/core/        portable logic: editor core, tabs, sessions, encodings, search, crypto, updater
 src/platform/    the Win32 shell: window, menus, tab strip, dialogs, WebView2 panes
 assets/          icons, preview pages, bundled Mermaid / jsoneditor / whiteboard
-scripts/         setup, package and release scripts
+installer/       the NSIS installer script and its sidebar image
+scripts/         setup, package, release and installer scripts
 tests/           fixtures
 old-src/         the previous 1.x project, kept for reference and as the source of the bundled web assets
 ```

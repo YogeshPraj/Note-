@@ -18,7 +18,7 @@ const RELEASES_API: &str = "https://api.github.com/repos/YogeshPraj/Note-/releas
 const TAG_PREFIX: &str = "v";
 pub const ASSET: &str = "NotePP-windows-x64.zip";
 /// The program inside the archive; an archive without it is refused.
-const EXE: &str = "sci_probe.exe";
+const EXE: &str = "notepp.exe";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
@@ -184,7 +184,7 @@ pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path) -> String {
          setlocal\r\n\
          set n=0\r\n\
          :wait\r\n\
-         (type nul >> \"{dst}\\sci_probe.exe\") 2>nul\r\n\
+         (type nul >> \"{dst}\\notepp.exe\") 2>nul\r\n\
          if not errorlevel 1 goto copy\r\n\
          set /a n+=1\r\n\
          if %n% GEQ 120 exit /b 1\r\n\
@@ -289,21 +289,21 @@ mod tests {
         std::fs::create_dir_all(&base).unwrap();
 
         let flat = base.join("flat.zip");
-        make_zip(&flat, &[("sci_probe.exe", b"MZ"), ("assets/a.txt", b"x")]);
+        make_zip(&flat, &[("notepp.exe", b"MZ"), ("assets/a.txt", b"x")]);
         let root = extract(&flat, &base.join("out_flat")).unwrap();
-        assert!(root.join("sci_probe.exe").is_file() && root.join("assets").join("a.txt").is_file());
+        assert!(root.join("notepp.exe").is_file() && root.join("assets").join("a.txt").is_file());
 
         let wrapped = base.join("wrapped.zip");
-        make_zip(&wrapped, &[("NotePP/sci_probe.exe", b"MZ"), ("NotePP/lib.dll", b"d")]);
+        make_zip(&wrapped, &[("NotePP/notepp.exe", b"MZ"), ("NotePP/lib.dll", b"d")]);
         let root = extract(&wrapped, &base.join("out_wrapped")).unwrap();
         assert!(root.ends_with("NotePP") && root.join("lib.dll").is_file());
 
         let no_exe = base.join("noexe.zip");
         make_zip(&no_exe, &[("readme.txt", b"hi")]);
-        assert!(extract(&no_exe, &base.join("out_noexe")).unwrap_err().contains("sci_probe.exe"));
+        assert!(extract(&no_exe, &base.join("out_noexe")).unwrap_err().contains("notepp.exe"));
 
         let evil = base.join("evil.zip");
-        make_zip(&evil, &[("../escape.txt", b"no"), ("sci_probe.exe", b"MZ")]);
+        make_zip(&evil, &[("../escape.txt", b"no"), ("notepp.exe", b"MZ")]);
         assert!(extract(&evil, &base.join("out_evil")).is_err());
         assert!(!base.join("escape.txt").exists());
         let _ = std::fs::remove_dir_all(&base);
@@ -312,9 +312,9 @@ mod tests {
     #[test]
     fn the_apply_script_waits_copies_restarts_and_cleans_up() {
         let s = apply_script(Path::new("C:\\u\\0.2.0"), Path::new("C:\\Apps\\Note PP"), Path::new("C:\\u\\update.log"));
-        assert!(s.contains("sci_probe.exe") && s.contains("GEQ 120"), "gives up after two minutes");
+        assert!(s.contains("notepp.exe") && s.contains("GEQ 120"), "gives up after two minutes");
         assert!(s.contains("xcopy \"C:\\u\\0.2.0\\*\" \"C:\\Apps\\Note PP\\\" /E /Y"));
-        assert!(s.contains("start \"\" \"C:\\Apps\\Note PP\\sci_probe.exe\""));
+        assert!(s.contains("start \"\" \"C:\\Apps\\Note PP\\notepp.exe\""));
         assert!(s.contains("del \"%~f0\""));
         assert!(apply_script(Path::new("C:\\100%"), Path::new("D:\\a"), Path::new("l")).contains("100%%"));
     }

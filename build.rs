@@ -11,20 +11,38 @@ fn require(path: &Path, what: &str) {
     }
 }
 
-/// Compile `app.rc` (the application manifest: visual styles, no elevation, long paths)
-/// with the MinGW resource compiler and link it into the exe.
+/// Compile `app.rc` (icon and application manifest: visual styles, no elevation, long paths)
+/// plus a version resource built from Cargo.toml (what Task Manager and "Open with" show),
+/// with the MinGW resource compiler, and link it into the exe.
 fn embed_manifest(manifest_dir: &Path) {
-    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("app_res.o");
-    let status = std::process::Command::new("windres")
-        .current_dir(manifest_dir)
-        .args(["app.rc", "-O", "coff", "-o"])
-        .arg(&out)
-        .status();
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let out = out_dir.join("app_res.o");
+    let v = |k: &str| std::env::var(k).unwrap_or_else(|_| "0".into());
+    let (major, minor, patch) = (v("CARGO_PKG_VERSION_MAJOR"), v("CARGO_PKG_VERSION_MINOR"), v("CARGO_PKG_VERSION_PATCH"));
+    let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+    let wrapper = out_dir.join("app_gen.rc");
+    let rc = format!(
+        "#include \"{include}\"\n\
+         1 VERSIONINFO\n FILEVERSION {major},{minor},{patch},0\n PRODUCTVERSION {major},{minor},{patch},0\n FILEOS 0x4\n FILETYPE 0x1\n\
+         BEGIN\n BLOCK \"StringFileInfo\"\n BEGIN\n BLOCK \"040904B0\"\n BEGIN\n\
+         VALUE \"CompanyName\", \"Yogesh Prajapati\"\n\
+         VALUE \"FileDescription\", \"Note++\"\n\
+         VALUE \"FileVersion\", \"{version}\"\n\
+         VALUE \"InternalName\", \"notepp\"\n\
+         VALUE \"OriginalFilename\", \"notepp.exe\"\n\
+         VALUE \"ProductName\", \"Note++\"\n\
+         VALUE \"ProductVersion\", \"{version}\"\n\
+         END\n END\n BLOCK \"VarFileInfo\"\n BEGIN\n VALUE \"Translation\", 0x0409, 0x04B0\n END\n END\n",
+        include = manifest_dir.join("app.rc").to_string_lossy().replace('\\', "/"),
+    );
+    std::fs::write(&wrapper, rc).expect("write the generated resource file");
+    let status = std::process::Command::new("windres").current_dir(manifest_dir).arg(&wrapper).args(["-O", "coff", "-o"]).arg(&out).status();
     match status {
         Ok(s) if s.success() => println!("cargo:rustc-link-arg-bins={}", out.display()),
         _ => panic!("\n\nwindres failed (it ships with the WinLibs MinGW package). The app manifest is required.\n"),
     }
     println!("cargo:rerun-if-changed=app.rc");
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets/app.ico");
     println!("cargo:rerun-if-changed=assets/app.manifest");
 }

@@ -12,7 +12,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $app = Join-Path $root 'dist\NotePP'
-if (-not (Test-Path (Join-Path $app 'sci_probe.exe'))) { throw 'Run scripts\package.ps1 first.' }
+if (-not (Test-Path (Join-Path $app 'notepp.exe'))) { throw 'Run scripts\package.ps1 first.' }
 $out = Join-Path $root 'dist\release'
 New-Item $out -ItemType Directory -Force | Out-Null
 $zip = Join-Path $out 'NotePP-windows-x64.zip'

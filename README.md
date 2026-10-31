@@ -8,6 +8,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/YogeshPraj/Note-?label=latest&color=2563eb)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/YogeshPraj/Note-/total?label=downloads&color=16a34a)](https://github.com/YogeshPraj/Note-/releases)
+[![Latest downloads](https://img.shields.io/github/downloads/YogeshPraj/Note-/latest/total?label=latest%20downloads&color=16a34a)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/YogeshPraj/Note-/build.yml?label=build)](https://github.com/YogeshPraj/Note-/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#license)
 

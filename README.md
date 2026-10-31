@@ -2,7 +2,7 @@
 
 # Note++
 
-### A fast, developer-focused text editor for Windows
+### A fast, developer-focused text editor
 
 *Written in Rust on the Scintilla editing engine. Familiar Notepad++ editing, with live previews, a whiteboard, encrypted files, an HTTP scratchpad and a Bitwarden-backed password inserter built in.*
 
@@ -19,7 +19,9 @@
 
 ## About
 
-**Note++ 2.0** is a native Windows editor: quick to start, light on memory, and comfortable for anyone who knows Notepad++. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers; the window, menus, tabs and dialogs are native Win32. Previews, the whiteboard and the compare view use the system's WebView2.
+**Note++ 2.0** is a native desktop editor: quick to start, light on memory, and comfortable for anyone who knows Notepad++. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`src/core` is portable; each OS gets its own shell in `src/platform`). The first shell is Windows: native Win32 windows, menus, tabs and dialogs, with previews, the whiteboard and the compare view in the system's WebView2.
+
+**Platforms:** Windows 10/11 (64-bit) today. macOS and Linux shells are the next step; the 1.x line already ran on all three.
 
 Version 2.0 replaces the earlier 1.x line. It keeps the same data folder (`%APPDATA%\notepp`), so open tabs, unsaved text, settings and the encryption profile carry over on the first start.
 

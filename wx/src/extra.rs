@@ -544,6 +544,11 @@ impl App {
             }
             c::ID_COLUMN_EDITOR => self.flash = column_editor(self),
             c::ID_SUMMARY => summary(self),
+            c::ID_ENC_SETTINGS => {
+                let mut vault = self.ws.vault.clone();
+                crate::encdialogs::settings(&self.frame, &mut vault);
+                self.ws.vault = vault;
+            }
             c::ID_WINDOWS => {
                 let mut sel = self.ws.active;
                 loop {

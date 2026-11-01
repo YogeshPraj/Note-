@@ -50,6 +50,8 @@ enum W {
     Button(Button),
     Swatch(Panel),
     List(ListCtrl),
+    /// A masked box with a plain twin at the same place; "masked" says which one shows.
+    Pw(TextCtrl, TextCtrl, Rc<std::cell::Cell<bool>>),
 }
 
 /// Live access to the controls while the form is open.
@@ -57,20 +59,38 @@ enum W {
 pub struct Form {
     dialog: Dialog,
     map: Rc<HashMap<usize, W>>,
+    ok: Rc<std::cell::Cell<Option<Button>>>,
 }
 
 impl Form {
     pub fn text(&self, id: usize) -> String {
         match self.map.get(&id) {
             Some(W::Edit(t)) => t.get_value(),
+            Some(W::Pw(m, p, on)) => if on.get() { m.get_value() } else { p.get_value() },
             Some(W::Label(l)) => l.get_label(),
             Some(W::Button(b)) => b.get_label(),
             _ => String::new(),
         }
     }
+
+    /// Show the password as dots (true) or as typed (false).
+    pub fn set_masked(&self, id: usize, masked: bool) {
+        if let Some(W::Pw(m, p, on)) = self.map.get(&id) {
+            let text = self.text(id);
+            on.set(masked);
+            m.set_value(&text);
+            p.set_value(&text);
+            m.show(masked);
+            p.show(!masked);
+        }
+    }
     pub fn set_text(&self, id: usize, s: &str) {
         match self.map.get(&id) {
             Some(W::Edit(t)) => t.set_value(s),
+            Some(W::Pw(m, p, _)) => {
+                m.set_value(s);
+                p.set_value(s);
+            }
             Some(W::Label(l)) => l.set_label(s),
             Some(W::Button(b)) => b.set_label(s),
             _ => {}
@@ -91,6 +111,12 @@ impl Form {
         }
     }
     pub fn enable(&self, id: usize, on: bool) {
+        if id == 1 {
+            if let Some(b) = self.ok.get() {
+                b.enable(on);
+            }
+            return;
+        }
         match self.map.get(&id) {
             Some(W::Edit(t)) => {
                 t.enable(on);
@@ -107,6 +133,10 @@ impl Form {
             Some(W::Label(l)) => {
                 l.enable(on);
             }
+            Some(W::Pw(m, p, _)) => {
+                m.enable(on);
+                p.enable(on);
+            }
             Some(W::Swatch(_)) | None => {}
             Some(W::List(l)) => {
                 l.enable(on);
@@ -114,8 +144,10 @@ impl Form {
         }
     }
     pub fn focus(&self, id: usize) {
-        if let Some(W::Edit(t)) = self.map.get(&id) {
-            t.set_focus();
+        match self.map.get(&id) {
+            Some(W::Edit(t)) => t.set_focus(),
+            Some(W::Pw(m, p, on)) => if on.get() { m.set_focus() } else { p.set_focus() },
+            _ => {}
         }
     }
     /// Replace the columns (once) and rows of a list.
@@ -266,10 +298,17 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                 let l = StaticText::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build();
                 map.insert(c.id, W::Label(l));
             }
-            Kind::Edit | Kind::Password | Kind::MultiEdit(_) => {
+            Kind::Password => {
+                let m = TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).with_style(TextCtrlStyle::Password).build();
+                let pl = TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).build();
+                pl.show(false);
+                first_edit.get_or_insert(c.id);
+                map.insert(c.id, W::Pw(m, pl, Rc::new(std::cell::Cell::new(true))));
+                kinds.push((c.id, c.kind));
+            }
+            Kind::Edit | Kind::MultiEdit(_) => {
                 let mut b = TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s);
                 b = match c.kind {
-                    Kind::Password => b.with_style(TextCtrlStyle::Password),
                     Kind::MultiEdit(true) => b.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly),
                     Kind::MultiEdit(false) => b.with_style(TextCtrlStyle::MultiLine),
                     _ => b,
@@ -318,7 +357,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     }
     let (bw, bh, by) = (80, 26, spec.size.1 - 36);
     let ((okx, oky), (cx, cy)) = spec.buttons.unwrap_or(((spec.size.0 - 2 * bw - 24, by), (spec.size.0 - bw - 12, by)));
-    let mut ok_btn = None;
+    let mut ok_btn: Option<Button> = None;
     if !spec.ok.is_empty() {
         let ok = Button::builder(&d).with_label(spec.ok).with_pos(Point::new(okx, oky)).with_size(Size::new(bw, bh)).build();
         ok.set_default();
@@ -328,7 +367,8 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     }
     d.set_escape_id(ID_CANCEL);
 
-    let form = Form { dialog: d, map: Rc::new(map) };
+    let ok_cell = Rc::new(std::cell::Cell::new(ok_btn));
+    let form = Form { dialog: d, map: Rc::new(map), ok: ok_cell };
     if let Some(on) = spec.on_change {
         for (id, b) in &click_ids {
             let (f, id) = (form.clone(), *id);
@@ -355,9 +395,18 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     }
     if let Some(hook) = EDIT_HOOK.with(|h| h.replace(None)) {
         for (id, w) in form.map.iter() {
-            if let W::Edit(t) = w {
-                let (f, id) = (form.clone(), *id);
-                t.on_text_updated(move |_| hook(&f, id));
+            match w {
+                W::Edit(t) => {
+                    let (f, id) = (form.clone(), *id);
+                    t.on_text_updated(move |_| hook(&f, id));
+                }
+                W::Pw(m, p, _) => {
+                    for t in [m, p] {
+                        let (f, id) = (form.clone(), *id);
+                        t.on_text_updated(move |_| hook(&f, id));
+                    }
+                }
+                _ => {}
             }
         }
     }

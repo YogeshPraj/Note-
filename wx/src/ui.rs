@@ -91,60 +91,10 @@ impl Ui for WxUi {
     }
 
     fn unlock(&self, vault: &mut Vault, what: &str) -> bool {
-        let Some(profile) = vault.profile.clone() else { return false };
-        let mut note = String::new();
-        loop {
-            let msg = format!("{note}Enter your encryption password to open \"{what}\".\n(Type your recovery key instead if you forgot the password.)");
-            let Some(typed) = self.password(&msg, "Unlock encryption") else { return false };
-            let key = crypto::recovery_key_from_file(&typed).unwrap_or_else(|| typed.clone());
-            match crypto::unlock_with_password(&profile, &typed) {
-                Ok(dek) => {
-                    vault.dek = Some(dek);
-                    return true;
-                }
-                Err(_) => match crypto::unlock_with_recovery(&profile, &key) {
-                    Ok(dek) => {
-                        vault.dek = Some(dek);
-                        return true;
-                    }
-                    Err(e) => note = format!("{e}\n\n"),
-                },
-            }
-        }
+        crate::encdialogs::unlock_vault(&self.frame, vault, what)
     }
 
     fn setup_encryption(&self, vault: &mut Vault) -> bool {
-        let Some(pw) = self.password(
-            "Choose a password for your encrypted files.\n\nIf you forget your password AND lose your recovery key, your encrypted notes are gone forever. Note++ has no backdoor.",
-            "Set up encryption",
-        ) else {
-            return false;
-        };
-        match self.password("Type the password again to confirm.", "Set up encryption") {
-            Some(again) if again == pw => {}
-            Some(_) => {
-                self.error("The passwords do not match.");
-                return false;
-            }
-            None => return false,
-        }
-        let (profile, dek, key) = match crypto::create_profile(&pw) {
-            Ok(r) => r,
-            Err(e) => {
-                self.error(&format!("Cannot set up encryption\n\n{e}"));
-                return false;
-            }
-        };
-        let shown = format!("Your recovery key (profile {}):\n\n{key}\n\nKeep it somewhere safe. It is the only way back in if you forget your password.\n\nHave you saved it?", profile.fingerprint);
-        if !self.ask_yes_no(&shown) {
-            return false;
-        }
-        if let Err(e) = crypto::save_profile(&profile) {
-            self.error(&format!("Cannot save the encryption profile\n\n{e}"));
-            return false;
-        }
-        vault.profile = Some(profile);
-        vault.dek = Some(dek);
-        true
+        crate::encdialogs::setup(&self.frame, vault)
     }
 }

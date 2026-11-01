@@ -3,6 +3,7 @@
 mod app;
 mod dispatch;
 mod dialogs;
+mod encdialogs;
 mod extra;
 mod find;
 mod findpanel;

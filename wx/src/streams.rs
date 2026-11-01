@@ -167,6 +167,38 @@ impl App {
         }
     }
 
+    /// Print the active document: its text as a page in a hidden web view, through the system's print dialog.
+    fn print_document(&mut self) {
+        if self.ws.is_whiteboard() {
+            self.flash = Some("Not available on a whiteboard".into());
+            return;
+        }
+        let title = self.ws.tabs[self.ws.active].title.clone();
+        let text = sci::get_text(&self.ws.sci);
+        let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let font = self.ws.settings.font.clone();
+        let html = format!(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>@page{{margin:15mm}}body{{margin:0}}pre{{font-family:'{}',Consolas,monospace;font-size:10pt;white-space:pre-wrap;word-break:break-all;tab-size:4}}</style></head><body><pre>{}</pre></body></html>",
+            esc(&title),
+            esc(&font),
+            esc(&text)
+        );
+        let f = Frame::builder().with_title(&format!("Print - {title}")).with_size(Size::new(820, 700)).build();
+        let view = WebView::builder(&f).build();
+        let sizer = BoxSizer::builder(Orientation::Vertical).build();
+        sizer.add(&view, 1, SizerFlag::Expand, 0);
+        f.set_sizer(sizer, true);
+        {
+            use wxdragon::event::WebViewEvents;
+            let (v, fr) = (view, f);
+            view.on_loaded(move |_| {
+                v.print();
+                fr.destroy();
+            });
+        }
+        view.set_page(&html, "about:blank");
+        f.show(true);
+    }
     /// Commands of these features; true when `id` was one of them.
     pub fn stream_cmd(&mut self, id: usize) -> bool {
         match id {
@@ -179,6 +211,8 @@ impl App {
                     self.set_preview(on);
                 }
             }
+            c::ID_PRINT | c::ID_PRINT_NOW => self.print_document(),
+            c::ID_PAGE_SETUP => self.flash = Some("Page margins are set in the print dialog".into()),
             c::ID_TAB_CMP_CLIP => self.compare_with_clipboard(),
             c::ID_TAB_CMP_FILE => self.compare_with_file(),
             _ => return false,

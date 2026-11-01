@@ -7,11 +7,8 @@ use crate::whiteboard::Pending;
 /// The Excalidraw page behind whiteboard tabs.
 #[derive(Default)]
 pub struct WhiteboardState {
-    pub loaded: bool,
-    pub ready: bool,
     /// Tab whose scene the page currently shows.
     pub shown: Option<u64>,
-    pub dark: bool,
     /// What to do once the page hands back its latest scene.
     pub pending: Option<Pending>,
 }
@@ -20,9 +17,6 @@ pub struct WhiteboardState {
 #[derive(Default)]
 pub struct PreviewState {
     pub on: bool,
-    pub loaded: bool,
-    pub ready: bool,
-    pub dark: bool,
     /// (document, revision, size) last rendered, to skip identical refreshes.
     pub key: Option<(isize, usize, u64)>,
 }

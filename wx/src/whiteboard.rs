@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use wxdragon::widgets::webview::WebView;
+use crate::widgets::web_pane::{WebPane, script};
 
 /// Forward the page's outgoing protocol messages to the shell.
 pub const BRIDGE: &str = r#"
@@ -59,23 +59,15 @@ pub fn parse(msg: &str) -> Option<Event> {
     })
 }
 
-fn js_string(s: &str) -> String {
-    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+pub fn load(pane: &WebPane, scene: &str) {
+    pane.eval(&format!("window.postMessage({{type:'wb-load',content:{}}},'*')", script::js_string(scene)));
 }
 
-fn eval(view: &WebView, js: &str) {
-    let _ = view.run_script(js);
+pub fn set_theme(pane: &WebPane, dark: bool) {
+    pane.eval(&format!("window.postMessage({{type:'wb-theme',dark:{dark}}},'*')"));
+    pane.eval(&format!("document.body.classList.toggle('dark',{dark})"));
 }
 
-pub fn load(view: &WebView, scene: &str) {
-    eval(view, &format!("window.postMessage({{type:'wb-load',content:{}}},'*')", js_string(scene)));
-}
-
-pub fn set_theme(view: &WebView, dark: bool) {
-    eval(view, &format!("window.postMessage({{type:'wb-theme',dark:{dark}}},'*')"));
-    eval(view, &format!("document.body.classList.toggle('dark',{dark})"));
-}
-
-pub fn request_data(view: &WebView) {
-    eval(view, "window.postMessage({type:'wb-get-data'},'*')");
+pub fn request_data(pane: &WebPane) {
+    pane.eval("window.postMessage({type:'wb-get-data'},'*')");
 }

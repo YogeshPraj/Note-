@@ -38,6 +38,7 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 - `menu_bar`, `tool_bar`, `status_bar` - the window's bars. Each has a tested layout function and reports typed events; `chrome.rs` only supplies their content and maps events to `Act`.
 - `controls` - our own `Button`, `TextBox`, `CheckBox`, `Label`, `ListBox`, `ListView`, `Dialog` ... over the stock widgets. Application code never creates a stock control directly; each wrapper derefs to the stock widget and is adopted by the theme, so styling or behaviour changes happen in one place.
 - `quick_pick` - type-to-filter list (Command Palette, Quick Open). Ranking and keyboard navigation are pure and tested.
+- `web_pane` - a scriptable web page (preview, whiteboard): holds scripts until the page is ready, remembers the theme it was told, and registers the `ipc` message handler. Script building and the ready-queue are pure and tested.
 - `dock` - a docked strip (themed background, height, window re-flow) used by the Find panel and the Markdown bar. The Find panel's placement of every control per mode and width is a pure `findpanel/layout.rs`.
 - `pointer` - the hover/press/release state machine the bars share.
 - `theme` - one `Theme` value and a hub; components subscribe, and a late subscriber is told the current theme at once.

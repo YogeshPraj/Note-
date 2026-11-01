@@ -14,7 +14,7 @@ use notepp_core::shortcuts;
 use notepp_core::workspace::Workspace;
 use wxdragon::prelude::*;
 use wxdragon::event::WebViewEvents;
-use wxdragon::widgets::webview::WebView;
+use crate::widgets::web_pane::WebPane;
 
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
@@ -42,7 +42,7 @@ pub struct App {
     pub frame: Frame,
     splitter: SplitterWindow,
     pub(crate) editor_pane: Panel,
-    wbv: WebView,
+    wbv: WebPane,
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
     pub(crate) mdbar: crate::widgets::dock::Dock,
@@ -50,7 +50,7 @@ pub struct App {
     menu_bar: isize,
     mini: StyledTextCtrl,
     pub(crate) stc: StyledTextCtrl,
-    pub(crate) view: WebView,
+    pub(crate) view: WebPane,
     pub(crate) chrome: Chrome,
     pub(crate) menubar: MenuBar,
     pub(crate) postit: bool,
@@ -117,15 +117,13 @@ pub fn start(files: Vec<PathBuf>) {
     row.add(&panels.tree_box, 0, SizerFlag::Expand, 0);
     row.add(&stc, 1, SizerFlag::Expand, 0);
     row.add(&mini, 0, SizerFlag::Expand, 0);
-    let wbv = WebView::builder(&editor_pane).build();
-    wbv.add_script_message_handler("ipc");
+    let wbv = WebPane::new(&editor_pane);
     wbv.add_user_script(wbm::BRIDGE, wxdragon::widgets::webview::WebViewUserScriptInjectionTime::AtDocumentStart);
     wbv.show(false);
     row.add(&wbv, 1, SizerFlag::Expand, 0);
     row.add(&panels.side, 0, SizerFlag::Expand, 0);
     editor_pane.set_sizer(row, true);
-    let view = WebView::builder(&splitter).build();
-    view.add_script_message_handler("ipc");
+    let view = WebPane::new(&splitter);
     view.show(false);
     splitter.initialize(&editor_pane);
     splitter.set_minimum_pane_size(120);
@@ -171,7 +169,7 @@ pub fn start(files: Vec<PathBuf>) {
         frame,
         splitter,
         editor_pane,
-        wbv,
+        wbv: wbv.clone(),
         menu_bar: 0,
         panels,
         side_key: None,
@@ -179,7 +177,7 @@ pub fn start(files: Vec<PathBuf>) {
         upd: Default::default(),
         mini,
         stc,
-        view,
+        view: view.clone(),
         chrome,
         postit: false,
         distraction: false,
@@ -305,7 +303,7 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
     }
 }
 /// Messages from the Excalidraw page: readiness, scene changes, save requests.
-fn wire_whiteboard(app: &Shared, wbv: WebView) {
+fn wire_whiteboard(app: &Shared, wbv: WebPane) {
     let a = app.clone();
     wbv.on_script_message_received(move |e| {
         let msg = e.get_string().unwrap_or_default();
@@ -316,19 +314,18 @@ fn wire_whiteboard(app: &Shared, wbv: WebView) {
     });
 }
 
-fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
+fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     // The preview page finished loading: draw the current document in it.
     let a = app.clone();
     view.on_loaded(move |_| {
         if let Ok(mut app) = a.try_borrow_mut() {
-            app.preview.ready = true;
-            app.preview.dark = !app.ws.theme.dark;
+            app.view.mark_ready();
             app.preview_update(true);
         }
     });
     // Messages from the page (close, refresh, lazy-loading of Mermaid / the JSON editor).
     let a = app.clone();
-    let pv = *view;
+    let pv = view.clone();
     view.on_script_message_received(move |e| {
         let msg = e.get_string().unwrap_or_default();
         match msg.trim_matches('"') {
@@ -473,7 +470,7 @@ pub(crate) fn trace(id: usize, how: &str) {
 impl App {
     pub fn command(&mut self, id: usize) {
         // A whiteboard is saved from the page's latest scene, so ask for it first.
-        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wb.ready {
+        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wbv.is_ready() {
             self.wb.pending = Some(match id {
                 ID_SAVE => Pending::Save,
                 ID_SAVEAS => Pending::SaveAs,
@@ -625,9 +622,8 @@ impl App {
 
     fn wb_event(&mut self, ev: wbm::Event) {        match ev {
             wbm::Event::Ready => {
-                self.wb.ready = true;
+                self.wbv.mark_ready();
                 self.wb.shown = None;
-                self.wb.dark = !self.ws.theme.dark;
             }
             wbm::Event::State(s) => self.wb_apply_scene(s),
             wbm::Event::Data(s) => {
@@ -690,12 +686,9 @@ impl App {
             relayout = true;
             if wb {
                 self.wb.shown = None;
-                if !self.wb.loaded {
+                if !self.wbv.is_loaded() {
                     match wbm::page_url() {
-                        Some(url) => {
-                            self.wb.loaded = true;
-                            self.wbv.load_url(&url);
-                        }
+                        Some(url) => self.wbv.load_url(&url),
                         None => self.flash = Some("Whiteboard unavailable: assets/whiteboard not found".into()),
                     }
                 }
@@ -704,10 +697,9 @@ impl App {
         if relayout {
             self.editor_pane.layout();
         }
-        if wb && self.wb.ready {
+        if wb && self.wbv.is_ready() {
             let dark = self.ws.theme.dark;
-            if self.wb.dark != dark {
-                self.wb.dark = dark;
+            if self.wbv.sync_dark(dark) {
                 wbm::set_theme(&self.wbv, dark);
             }
             let (id, content) = {
@@ -812,9 +804,8 @@ impl App {
         }
         self.preview.on = on;
         if on {
-            if !self.preview.loaded {
-                self.preview.loaded = true;
-                self.view.set_page(&preview::page_html(self.ws.settings.preview_remote_images), "about:blank");
+            if !self.view.is_loaded() {
+                self.view.load_html(&preview::page_html(self.ws.settings.preview_remote_images));
             }
             self.view.show(true);
             let half = self.frame.get_size().width / 2;
@@ -828,12 +819,11 @@ impl App {
 
     /// Re-render the preview when the document, its text or the theme changed.
     pub fn preview_update(&mut self, force: bool) {
-        if !self.preview.on || !self.preview.ready {
+        if !self.preview.on || !self.view.is_ready() {
             return;
         }
         let dark = self.ws.theme.dark;
-        if self.preview.dark != dark {
-            self.preview.dark = dark;
+        if self.view.sync_dark(dark) {
             preview::set_theme(&self.view, dark);
             self.preview.key = None;
         }
@@ -842,7 +832,7 @@ impl App {
             return;
         }
         self.preview.key = Some(key);
-        let view = self.view;
+        let view = self.view.clone();
         let Some(kind) = self.ws.preview_kind() else {
             return preview::render(&view, "message", "Preview is available for Markdown, HTML, Mermaid and JSON files.");
         };

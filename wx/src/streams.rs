@@ -19,7 +19,7 @@ static HTTP_RESULT: Mutex<Option<(isize, String)>> = Mutex::new(None);
 impl App {
     /// Show the log or the last HTTP response in the preview pane.
     pub fn stream_preview(&mut self, kind: pcore::Kind, force: bool) {
-        let view = self.view;
+        let view = self.view.clone();
         match kind {
             pcore::Kind::Log => {
                 let (id, path) = (self.ws.tabs[self.ws.active].id, self.ws.tabs[self.ws.active].path.clone());
@@ -43,7 +43,7 @@ impl App {
 
     /// Begin following `path` in the preview pane, showing the end of the file.
     fn log_start(&mut self, id: u64, path: Option<PathBuf>) {
-        let view = self.view;
+        let view = self.view.clone();
         self.streams.log = None;
         self.streams.log_shown = Some(id);
         let Some(p) = path else {
@@ -62,7 +62,7 @@ impl App {
 
     /// Timer: send what was added to the followed log, and show a finished HTTP response.
     pub fn stream_tick(&mut self) {
-        let view = self.view;
+        let view = self.view.clone();
         if let Some((doc, json)) = HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()).take() {
             self.streams.http_busy = false;
             self.streams.http_last = Some((doc, json.clone()));
@@ -112,7 +112,7 @@ impl App {
         }
         let doc = self.ws.tabs[self.ws.active].doc;
         let pending = http::pending_json(&req);
-        let view = self.view;
+        let view = self.view.clone();
         preview::render(&view, "http", &pending);
         self.streams.http_last = Some((doc, pending));
         self.streams.http_shown = Some(doc);

@@ -4,7 +4,7 @@
 use std::cell::Cell;
 
 use wxdragon::prelude::*;
-use wxdragon::widgets::webview::WebView;
+use crate::widgets::web_pane::{WebPane, script};
 
 const PAGE: &str = include_str!("../../assets/preview.html");
 const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
@@ -24,53 +24,34 @@ pub fn page_html(remote_images: bool) -> String {
     PAGE.replacen(OPEN, if remote_images { OPEN } else { "img-src data:;" }, 1)
 }
 
-fn js_string(s: &str) -> String {
-    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
-}
-
-pub fn eval(view: &WebView, js: &str) {
-    let _ = view.run_script(js);
-}
-
-/// Large libraries are handed over in pieces, then evaluated once in the page's global scope.
-fn eval_big(view: &WebView, js: &str) {
-    eval(view, "window.__big=[]");
-    let mut start = 0;
-    while start < js.len() {
-        let mut end = (start + 200_000).min(js.len());
-        while !js.is_char_boundary(end) {
-            end += 1;
-        }
-        eval(view, &format!("window.__big.push({})", js_string(&js[start..end])));
-        start = end;
-    }
-    eval(view, "(function(){var s=document.createElement('script');s.textContent=window.__big.join('');document.head.appendChild(s);window.__big=null})()");
+/// Run `js` in the page (kept until the page is ready).
+pub fn eval(pane: &WebPane, js: &str) {
+    pane.eval(js);
 }
 
 /// Push content to the page. `kind` is "markdown" | "html" | "mermaid" | "json" | "message".
-pub fn render(view: &WebView, kind: &str, payload: &str) {
-    eval(view, &format!("window.np.render({},{})", js_string(kind), js_string(payload)));
+pub fn render(pane: &WebPane, kind: &str, payload: &str) {
+    pane.call("window.np.render", &[kind, payload]);
 }
 
-pub fn call(view: &WebView, name: &str, payload: &str) {
-    eval(view, &format!("window.np.{name}({})", js_string(payload)));
+pub fn call(pane: &WebPane, name: &str, payload: &str) {
+    pane.call(&format!("window.np.{name}"), &[payload]);
 }
 
-pub fn set_theme(view: &WebView, dark: bool) {
-    eval(view, &format!("window.np.setTheme({dark})"));
+pub fn set_theme(pane: &WebPane, dark: bool) {
+    pane.eval(&format!("window.np.setTheme({dark})"));
 }
-
 /// Scroll the rendered Markdown so source line `line` (0-based, fractional) is at the top.
-pub fn scroll_to_line(view: &WebView, line: f64, total_lines: usize) {
-    eval(view, &format!("window.np.scrollToLine({line:.3},{total_lines})"));
+pub fn scroll_to_line(pane: &WebPane, line: f64, total_lines: usize) {
+    pane.eval(&format!("window.np.scrollToLine({line:.3},{total_lines})"));
 }
 
 /// Inject Mermaid (once), then tell the page to draw the diagrams it was waiting on.
-pub fn load_mermaid(view: &WebView) {
+pub fn load_mermaid(pane: &WebPane) {
     if !MERMAID.with(|c| c.replace(true)) {
-        eval_big(view, MERMAID_JS);
+        pane.eval_big(MERMAID_JS);
     }
-    eval(view, "window.np.mermaidLoaded()");
+    pane.eval("window.np.mermaidLoaded()");
 }
 
 /// The editor's stylesheet with its icon sprite inlined (the page has no files to load it from).
@@ -80,17 +61,15 @@ fn jsoneditor_css() -> String {
 }
 
 /// Inject the JSON editor (once), then tell the page to draw the document it was waiting on.
-pub fn load_json_editor(view: &WebView) {
+pub fn load_json_editor(pane: &WebPane) {
     if !JSON_EDITOR.with(|c| c.replace(true)) {
-        eval(
-            view,
-            &format!("(function(){{var s=document.createElement('style');s.textContent={};document.head.appendChild(s);}})();", js_string(&jsoneditor_css())),
-        );
-        eval_big(view, JSON5_JS);
-        eval_big(view, JSONEDITOR_JS);
+        pane.eval(&format!("(function(){{var s=document.createElement('style');s.textContent={};document.head.appendChild(s);}})();", script::js_string(&jsoneditor_css())));
+        pane.eval_big(JSON5_JS);
+        pane.eval_big(JSONEDITOR_JS);
     }
-    eval(view, "window.np.jsonLoaded()");
+    pane.eval("window.np.jsonLoaded()");
 }
+
 fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);

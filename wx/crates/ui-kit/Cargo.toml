@@ -1,0 +1,10 @@
+[package]
+name = "ui-kit"
+version.workspace = true
+edition = "2024"
+description = "Note++ UI kit: themed controls, custom-painted bars, tab strip and other reusable wxWidgets components. No editor or business logic."
+
+[dependencies]
+wxdragon = { version = "0.9", features = ["webview"] }
+wxdragon-sys = "0.9"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }

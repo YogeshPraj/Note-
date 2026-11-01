@@ -15,7 +15,8 @@ fn main() {
         return;
     }
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let root = manifest_dir.parent().unwrap().to_path_buf();
+    // crates/app -> crates -> wx -> repository root.
+    let root = manifest_dir.ancestors().nth(3).expect("repository root").to_path_buf();
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let version = root_version(&root);
     let parts: Vec<&str> = version.split('.').collect();
@@ -43,7 +44,7 @@ fn main() {
         Ok(s) if s.success() => println!("cargo:rustc-link-arg-bins={}", obj.display()),
         _ => panic!("windres failed (it ships with the WinLibs MinGW package)"),
     }
-    println!("cargo:rerun-if-changed=../app.rc");
-    println!("cargo:rerun-if-changed=../assets/app.ico");
-    println!("cargo:rerun-if-changed=../assets/app.manifest");
+    println!("cargo:rerun-if-changed=../../../app.rc");
+    println!("cargo:rerun-if-changed=../../../assets/app.ico");
+    println!("cargo:rerun-if-changed=../../../assets/app.manifest");
 }

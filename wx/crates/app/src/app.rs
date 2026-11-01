@@ -196,7 +196,7 @@ pub fn start(files: Vec<PathBuf>) {
     findpanel::wire(&app);
     crate::widgets::theme::subscribe(move |_| {
         // Popup menus, the title bar and native controls follow the theme.
-        crate::platform::current().set_app_dark(crate::widgets::theme::is_dark());
+        crate::widgets::native::current().set_app_dark(crate::widgets::theme::is_dark());
         crate::widgets::theme::style_native(&frame);
     });
     {
@@ -243,7 +243,7 @@ pub fn start(files: Vec<PathBuf>) {
         // attached so shortcuts and ticks keep working.
         let hwnd = frame.get_handle() as isize;
         let mut a = app.borrow_mut();
-        a.menu_bar = crate::platform::current().detach_menu_bar(hwnd);
+        a.menu_bar = crate::widgets::native::current().detach_menu_bar(hwnd);
         a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.replace('&', "")).collect());
     }
     frame.layout();
@@ -370,7 +370,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
                 Err(_) => return,
             };
             let _ = (x, y);
-            crate::platform::current().popup_menu(bar, frame.get_handle() as isize, i as i32, count, &*at);
+            crate::widgets::native::current().popup_menu(bar, frame.get_handle() as isize, i as i32, count, &*at);
             return;
         }
         // Popup menus are modal: nothing may be borrowed while they are open (their commands re-enter the app).

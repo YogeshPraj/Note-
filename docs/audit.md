@@ -1,0 +1,89 @@
+# Architecture audit (Phase 0)
+
+Read-only audit of `crates/core` (the portable core) and `wx/` (the wxWidgets shell). Measured on branch `wx-port`
+at `b9634dc`. Test code is excluded from the counts. No code was changed.
+
+## Decisions taken (from the project owner)
+
+| Topic | Decision |
+|---|---|
+| Scope | Adapt `ARCHITECTURE_SETUP.md` to the real layers rather than follow it literally. |
+| `syntax` crate | **Skipped.** Highlighting is done by Scintilla and Lexilla; the text lives in Scintilla. There is no `ropey` buffer and no token/span stream to extract. The language registry (`lang.rs`, `lexer.rs`, `functions.rs`, `complete.rs`) stays in `core`. |
+| `unsafe_code` | `forbid` in `core` and `ui-kit`; allowed (and listed) in the FFI / platform code. |
+
+## What the project is
+
+| Item | Reality |
+|---|---|
+| UI framework | wxWidgets through `wxdragon` 0.9.24 (+ a vendored patched `wxdragon-sys`), Scintilla 5.5 / Lexilla 5.5 for the editor. |
+| Crates today | `crates/core` (`notepp-core`, 30 files, 12.0k lines, no UI deps) and `wx` (`notepp-wx`, a **separate workspace**, 60 files, 11.9k lines). Root `Cargo.toml` is a workspace of `core` only. |
+| Build | `core` builds with plain cargo. `wx` needs MinGW GCC (UCRT), LLVM `libclang`, and the GNU Rust target; that is why it is its own workspace. |
+| Already in the target shape | `wx/src/widgets/` (generic controls, theme hub, tab strip, bars, dock, quick pick, web pane, data list), `command.rs` (command bus), `services/`, `side/`, pure layout modules with tests. 143 unit tests pass. |
+
+## Findings
+
+| # | Problem | Where | Proposed fix | Target |
+|---|---|---|---|---|
+| 1 | `ui-kit`-style widgets depend on `notepp_core` | `widgets/tab_strip/mod.rs` (`TabInfo`), `widgets/theme.rs` calls `crate::platform` | Give the kit its own `Tab` description type (app converts); split `platform` into native-window styling (kit) and OS actions (app). | ui-kit / app |
+| 2 | Generic pure logic sits in the shell crate | `services/schedule.rs`, `services/clipboard.rs` (`SecretGuard`, `Fingerprint`), `form/layout.rs`, `widgets/data_list.rs`, `widgets/web_pane/{queue,script}.rs`, `widgets/quick_pick/filter.rs` | Pure parts to `core` (schedule, secret guard) or `ui-kit` (UI-generic ones). Keep wx adapters in the app. | core / ui-kit |
+| 3 | Command execution split across three places | `wx/src/dispatch.rs:25` (`command_core`, 341 lines), `command.rs` bus, `extra.rs:404` (`handle`, 301 lines), `app.rs` | One `Command` registry (spec: id, label, shortcut, enabled) in the app; workspace-only commands execute in `core`. Menus, toolbar, palette and shortcuts generated from it. | app + core |
+| 4 | Menu content is imperative and huge | `menus.rs:189` `build_menus` (410 lines), `menus.rs` 600 lines | Generate menus from the command registry through `MenuSpec`. | app |
+| 5 | Files over 400 lines | core: `workspace.rs` 2279, `edit.rs` 1134, `search.rs` 951, `bitwarden.rs` 653, `crypto.rs` 552, `http.rs` 541, `mdformat.rs` 535, `commands.rs` 513, `session.rs` 453, `lang.rs` 428, `sci.rs` 406. wx: `app.rs` 891, `extra.rs` 706, `menus.rs` 600, `pwdialogs.rs` 487, `form/mod.rs` 469, `dialogs.rs` 464, `encdialogs.rs` 417, `widgets/tab_strip/mod.rs` 412 | Split by responsibility (e.g. `workspace` into tabs / files / edit ops / sessions). | core / app / ui-kit |
+| 6 | Functions over 60 lines | core: `workspace.rs:2056` `restore_tabs` 92, `:805` `line_op` 71, `:1942` `snapshot` 61, `edit.rs:81` `natural_cmp` 84, `lang.rs:13` `palette` 108, `lexer.rs:21` 66, `http.rs:316` `send` 62. wx: `menus.rs:189` 410, `dispatch.rs:25` 341, `extra.rs:404` 301, `form/mod.rs:286` `run` 183, `app.rs:82` `start` 170, `app.rs:320` `wire` 144, `settings_ui.rs:34` 139, `tab_strip/mod.rs:131` `wire` 119, `encdialogs.rs:311` 106, `findpanel/mod.rs:242` 98, `app.rs:499` 96, `quick_pick/mod.rs:33` 80, `dialogs.rs:297` 74, `extra.rs:224` 72, `extra.rs:154` 68, `findpanel/layout.rs:88` 61 | Extract steps into named functions or types. `fuzz.rs:42` is a test-style harness (125 lines) and moves under `#[cfg(test)]`. | all |
+| 7 | `app.rs` is a god object | `app.rs` `App` (about 45 fields), `start`, `wire`, `command` | Continue splitting into services and handlers; `start`/`wire` into per-area setup functions. | app |
+| 8 | Hard-coded colours outside a theme | core: `sci.rs` 34, `workspace.rs` 10, `bookmarks.rs` 6, `lang.rs` 5, `search.rs` 5. wx: `widgets/paint.rs` 9, `widgets/theme.rs` 7, `tab_strip/mod.rs` 4, `updates.rs` 3, `status_bar.rs`, `form/mod.rs` | Move to named tokens in the theme (UI colours) and to a palette table in `core` for the editor palette. `Look` (paint.rs) and `Theme` (theme.rs) merge into one token set. | ui-kit / core |
+| 9 | Two theming mechanisms | `Look` (custom-painted controls) and `Theme`/`Role` (native controls) | One `Theme` with tokens for both. | ui-kit |
+| 10 | No spacing / radius / font tokens | pixel literals throughout `widgets/*`, `chrome.rs`, `findpanel/layout.rs`, `form` | Add `Spacing`, `Radius`, `Fonts` to the theme; widgets use them. (Dialog layouts that must match Win32 pixel for pixel are exempt, and listed.) | ui-kit |
+| 11 | `unwrap`/`expect`/`panic` in production code | `core/complete.rs:77` (`base.unwrap()`), `core/crypto.rs:37` (`expect`, fixed key length), `core/search.rs` 1, `lang.rs` 1; wx: `app.rs` 1 `expect`, `pwdialogs.rs` 2, `preview.rs` 2, `whiteboard.rs` 1 (about 14 sites; no `panic!`, `todo!` or `dbg!`) | Replace with `?` / `let else` and typed errors. | core / app |
+| 12 | No typed errors | `core` returns `String` errors widely (e.g. `Result<_, String>`) | One `Error` enum per library crate (`thiserror`). New dependency, needs approval. | core |
+| 13 | `println!` / `eprintln!` | `wx/form/mod.rs` (debug layout check) | Route through the existing trace helper. | app |
+| 14 | `unsafe` in FFI / platform code | wx: `platform/windows.rs` 18, `platform/winmenu.rs` 11, `sci.rs` 6, `widgets/controls.rs` 2 (trait impl delegation), `pwdialogs.rs` 1 (`wxd_Note_SafeYield`); `core` has **none** (matches in `compare.rs`, `functions.rs`, `lang.rs`, `update.rs` are strings) | `forbid` in `core` and `ui-kit`. `controls.rs` unsafe moves out of the kit or is allowed per-module with a comment. | core / ui-kit / app |
+| 15 | Duplicated native-dialog code | `MessageDialog::builder` 8 sites, `FileDialog::builder` 4, `DirDialog::builder` 2, `info()` helper in `extra.rs` | One dialog helper set in the kit (message, confirm, pick file, pick folder). | ui-kit |
+| 16 | Global mutable state | 15 `thread_local!` statics in the shell (`findpanel`, `panels` ROOT, `incr`, `dialogs`, `encdialogs`, `pwdialogs`, `settings_ui`, `preview`, `menus` arena, `form` hook, theme hub) | Replace with owned state structs where practical; the theme hub and menu arena are deliberate and documented. | app / ui-kit |
+| 17 | Remaining raw widget use | `dialogs.rs` (`SingleChoiceDialog`), `settings_ui.rs` (`FontDialog`, `ColourDialog`), `ui.rs` (`TextEntryDialog`), `app.rs` | Wrap in the kit's dialog helpers. | ui-kit |
+| 18 | Long-running work on the UI thread | Find in Files (`app.rs` `panel_command`), file tree scan, Bitwarden calls (use a `wxYield` loop), log follow | Background worker with progress and cancel. (Behaviour change: out of scope until the structure is done; listed as UX debt.) | app |
+| 19 | No lint configuration | no `[workspace.lints]`, no `clippy.toml`, no `docs/ux.md`, no `docs/architecture.md`; `CLAUDE.md` exists but describes the old Electron project | Add per Phases 2 and 5. | repo |
+| 20 | Platform code mixed with UI | `platform/` contains both OS actions (reveal, terminal, recycle, local time) and window styling | Split (see 1). | app / ui-kit |
+
+## Proposed crate mapping (adapted)
+
+Two Cargo workspaces stay, because the wxWidgets build needs a different toolchain. This is the one structural
+deviation from `ARCHITECTURE_SETUP.md` and needs your decision at the STOP below.
+
+```
+<repo>/
+  Cargo.toml                       # workspace: crates/core   (builds with plain cargo)
+  crates/core/                     # notepp-core: unchanged role; gains the pure services below
+  wx/
+    Cargo.toml                     # workspace: crates/ui-kit, crates/app   (needs the MinGW/LLVM environment)
+    crates/ui-kit/                 # wx widgets + theme; depends on wxdragon only
+    crates/app/                    # notepp-wx binary
+  vendor/wxdragon-sys/             # unchanged
+```
+
+| Today | Goes to | Notes |
+|---|---|---|
+| `core/*` (30 modules) | `core` | Split the over-long files (finding 5). `commands.rs` ids become the registry's `Command` ids. |
+| `widgets/theme.rs`, `paint.rs`, `geom.rs`, `pointer.rs` | `ui-kit` | One token set (findings 8-10). |
+| `widgets/controls.rs`, `dock.rs`, `data_list.rs`, `menu_bar.rs`, `tool_bar.rs`, `status_bar.rs`, `tab_strip/*`, `quick_pick/*`, `web_pane/*` | `ui-kit` | `tab_strip` gets its own `Tab` type (finding 1). Native-dialog helpers added (15, 17). |
+| `form/*` | `ui-kit` (generic dialog builder, `layout.rs`) | App dialog definitions stay in `app`. |
+| `platform/windows.rs`, `winmenu.rs` (window styling, native menu loop) | `ui-kit` (native module) | The only `unsafe` the kit would keep; needs a per-module allowance or its own `ui-kit-native` crate. |
+| `platform/*` OS actions (reveal, terminal, recycle, time) | `app` | |
+| `services/schedule.rs`, `services/clipboard.rs` (pure guard) | `core` | wx adapter (`copy`, `paste`) stays in `app`. |
+| `dispatch.rs`, `tables.rs`, `whiteboard.rs` (protocol parse) | `core` | Workspace-only command execution and tables. |
+| `command.rs`, `handlers.rs`, `app.rs`, `extra.rs`, `menus.rs`, `menu_spec.rs`, `popups.rs`, `panels.rs`, `side/*`, `findpanel/*`, `mdbar.rs`, `incr.rs`, `streams.rs`, `updates.rs`, `settings_ui.rs`, `dialogs.rs`, `encdialogs.rs`, `pwdialogs.rs`, `palette.rs`, `preview.rs`, `whiteboard` glue, `chrome.rs`, `ui.rs`, `sci.rs` (wx Scintilla adapter), `state.rs`, `main.rs` | `app` | `menu_spec` stays app-side because it uses `notepp_core::shortcuts`. |
+
+## Lint debt (expected once Phase 2 lints are on)
+
+Not measured yet; to be filled in after Phase 2. Likely largest groups: `too_many_lines` (the 24 functions above),
+`pedantic` casts (`as i32` / `as usize` in layout code), `unwrap_used` (finding 11), `print_stdout` (13), and
+`missing_debug_implementations` on the wx wrapper types.
+
+## Risks to settle before Phase 1
+
+1. **Moving the widgets into a second crate** touches most of `wx/src` (imports) and the build scripts (`build.rs`,
+   `app.rc`, MinGW linker settings), and must keep the tests and the 264-command sweep green.
+2. **`ui-kit` without `core`** requires the tab and theme types listed in finding 1; menus and the status bar are
+   already free of `core` types.
+3. **Typed errors** add `thiserror` (a new dependency) and change many signatures in `core`.
+4. **Packaging and CI** for the wx build do not exist yet; the crate move should land before they are written.

@@ -204,7 +204,7 @@ pub fn own_background(panel: Panel) {
 
 /// Dark title bar and native control theme for a window and everything inside it.
 pub fn style_native(w: &dyn WxWidget) {
-    crate::platform::current().style_window(w.get_handle() as isize, is_dark());
+    crate::native::current().style_window(w.get_handle() as isize, is_dark());
 }
 
 #[cfg(test)]

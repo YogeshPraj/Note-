@@ -31,7 +31,7 @@ mod side;
 mod tables;
 mod ui;
 mod updates;
-mod widgets;
+pub use ui_kit as widgets;
 
 use wxdragon::prelude::*;
 

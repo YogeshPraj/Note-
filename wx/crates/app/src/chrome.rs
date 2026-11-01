@@ -65,7 +65,7 @@ pub struct Chrome {
 }
 macro_rules! btn {
     ($cmd:expr, $file:literal, $tip:literal) => {
-        (Some($cmd), include_bytes!(concat!("../../assets/", $file)) as &[u8], $tip)
+        (Some($cmd), include_bytes!(concat!("../../../../assets/", $file)) as &[u8], $tip)
     };
 }
 
@@ -157,7 +157,7 @@ impl Chrome {
     }
 
     pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {
-        self.strip.set_tabs(tabs, active);
+        self.strip.set_tabs(tabs.into_iter().map(|t| crate::widgets::tab_strip::Tab { title: t.title, dirty: t.dirty, badge: t.badge, pinned: t.pinned, color: t.color }).collect(), active);
     }
 
     pub fn set_status(&self, t: StatusText) {

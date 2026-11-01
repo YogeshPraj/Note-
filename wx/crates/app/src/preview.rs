@@ -6,12 +6,12 @@ use std::cell::Cell;
 use wxdragon::prelude::*;
 use crate::widgets::web_pane::{WebPane, script};
 
-const PAGE: &str = include_str!("../../assets/preview.html");
-const MERMAID_JS: &str = include_str!("../../assets/mermaid.min.js");
-const JSONEDITOR_JS: &str = include_str!("../../assets/jsoneditor.min.js");
-const JSONEDITOR_CSS: &str = include_str!("../../assets/jsoneditor.min.css");
-const JSONEDITOR_ICONS: &str = include_str!("../../assets/jsoneditor-icons.svg");
-const JSON5_JS: &str = include_str!("../../assets/json5.min.js");
+const PAGE: &str = include_str!("../../../../assets/preview.html");
+const MERMAID_JS: &str = include_str!("../../../../assets/mermaid.min.js");
+const JSONEDITOR_JS: &str = include_str!("../../../../assets/jsoneditor.min.js");
+const JSONEDITOR_CSS: &str = include_str!("../../../../assets/jsoneditor.min.css");
+const JSONEDITOR_ICONS: &str = include_str!("../../../../assets/jsoneditor-icons.svg");
+const JSON5_JS: &str = include_str!("../../../../assets/json5.min.js");
 
 thread_local! {
     static MERMAID: Cell<bool> = const { Cell::new(false) };

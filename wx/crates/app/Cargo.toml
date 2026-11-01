@@ -1,0 +1,19 @@
+[package]
+name = "notepp-wx"
+version.workspace = true
+edition = "2024"
+description = "Note++ with a wxWidgets shell (native widgets on Windows, macOS and Linux)"
+
+[[bin]]
+name = "notepp-wx"
+path = "src/main.rs"
+
+[dependencies]
+notepp-core = { path = "../../../crates/core" }
+ui-kit = { path = "../ui-kit" }
+wxdragon = { version = "0.9", features = ["stc", "webview", "aui"] }
+wxdragon-sys = "0.9"
+zeroize = "1"
+sha2 = "0.10"
+encoding_rs = "0.8.42"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }

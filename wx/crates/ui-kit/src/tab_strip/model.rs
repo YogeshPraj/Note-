@@ -5,7 +5,7 @@
 //! removes the pixel-clamping edge cases of an offset in pixels. An arrow exists only while there is
 //! something to scroll to on that side, and takes no room otherwise.
 
-use crate::widgets::geom::Rect;
+use crate::geom::Rect;
 
 /// Width of a scroll button.
 pub const ARROW_W: i32 = 24;

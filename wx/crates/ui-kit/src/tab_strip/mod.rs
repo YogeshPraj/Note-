@@ -11,7 +11,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use notepp_core::workspace::TabInfo;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
@@ -39,6 +38,18 @@ pub enum TabEvent {
     Context(usize, i32, i32),
 }
 
+/// One tab as the strip draws it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tab {
+    pub title: String,
+    pub dirty: bool,
+    /// Small pill shown before the title (e.g. "wb").
+    pub badge: Option<&'static str>,
+    pub pinned: bool,
+    /// The colour mark of the tab.
+    pub color: Option<(u8, u8, u8)>,
+}
+
 struct Drag {
     from: usize,
     x0: i32,
@@ -48,7 +59,7 @@ struct Drag {
 struct State {
     look: Look,
     font: Option<Font>,
-    tabs: Vec<TabInfo>,
+    tabs: Vec<Tab>,
     active: usize,
     scroll: Scroll,
     layout: Layout,
@@ -109,7 +120,7 @@ impl TabStrip {
         self.st.borrow_mut().font = font;
     }
 
-    pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {
+    pub fn set_tabs(&self, tabs: Vec<Tab>, active: usize) {
         {
             let mut s = self.st.borrow_mut();
             if s.active != active {
@@ -286,7 +297,7 @@ fn close_rect(r: &Rect) -> Rect {
     Rect::new(r.r - 24, r.t + 7, r.r - 8, r.b - 7)
 }
 
-fn tab_width(dc: &impl DeviceContext, info: &TabInfo) -> i32 {
+fn tab_width(dc: &impl DeviceContext, info: &Tab) -> i32 {
     let extra = if info.badge.is_some() { 30 } else { 0 } + if info.pinned { 16 } else { 0 };
     (text_w(dc, &info.title) + 56 + extra).clamp(96, 260)
 }
@@ -326,7 +337,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
     paint_button(&dc, s.layout.plus, lk, s.btn_hot == Some(Btn::Plus), s.btn_down == Some(Btn::Plus), Btn::Plus);
 }
 
-fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &TabInfo, r: Rect, h: i32) {
+fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect, h: i32) {
     let lk = s.look;
     let active = i == s.active;
     let hot = s.hot.map(|x| x.0) == Some(i);

@@ -5,6 +5,7 @@ pub mod data_list;
 pub mod dock;
 pub mod geom;
 pub mod menu_bar;
+pub mod native;
 pub mod paint;
 pub mod pointer;
 pub mod quick_pick;
@@ -13,3 +14,4 @@ pub mod tab_strip;
 pub mod theme;
 pub mod tool_bar;
 pub mod web_pane;
+

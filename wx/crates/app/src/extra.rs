@@ -359,7 +359,7 @@ impl App {
         self.menubar.check_item(c::ID_MD_TOOLBAR as i32, self.ws.settings.md_toolbar);
         let monitored = self.streams.monitoring.contains_key(&self.ws.tabs[self.ws.active].id);
         self.menubar.check_item(c::ID_MONITOR as i32, monitored);
-        self.menubar.check_item(c::ID_ON_TOP as i32, crate::platform::current().is_topmost(self.frame.get_handle() as isize));
+        self.menubar.check_item(c::ID_ON_TOP as i32, crate::widgets::native::current().is_topmost(self.frame.get_handle() as isize));
         self.menubar.check_item(c::ID_DISTRACTION as i32, self.distraction);
         self.menubar.check_item(c::ID_POSTIT as i32, self.postit);
         let side = self.side.mode;
@@ -522,12 +522,12 @@ impl CommandHandler<App> for ExtraCommands {
                 });
             }
             c::ID_RTL | c::ID_LTR => {
-                crate::platform::current().set_rtl(app.stc.get_handle() as isize, id == c::ID_RTL);
+                crate::widgets::native::current().set_rtl(app.stc.get_handle() as isize, id == c::ID_RTL);
                 // Scintilla's own bidirectional mode: 1 = right-to-left, 0 = off.
                 notepp_core::sci::Send::send(&app.ws.sci, 2709, (id == c::ID_RTL) as usize, 0);
             }
             c::ID_ON_TOP => {
-                let p = crate::platform::current();
+                let p = crate::widgets::native::current();
                 let h = app.frame.get_handle() as isize;
                 let on = !p.is_topmost(h);
                 p.set_topmost(h, on);

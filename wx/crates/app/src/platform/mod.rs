@@ -9,8 +9,6 @@ use notepp_core::edit::{self, DateTime};
 
 #[cfg(windows)]
 mod windows;
-#[cfg(windows)]
-mod winmenu;
 #[cfg(unix)]
 mod unix;
 
@@ -37,25 +35,6 @@ pub trait Platform: Sync {
     fn date_time_text(&self, long: bool) -> String {
         edit::format_date_time(if long { "HH:mm:ss dddd, MMMM dd, yyyy" } else { "HH:mm yyyy-MM-dd" }, &self.local_time())
     }
-
-    /// Right-to-left or left-to-right reading order for a native editor window.
-    fn set_rtl(&self, _window: isize, _rtl: bool) {}
-    fn is_topmost(&self, _window: isize) -> bool {
-        false
-    }
-    fn set_topmost(&self, _window: isize, _on: bool) {}
-
-    /// Make the OS-drawn parts that follow the application (popup menus) dark or light.
-    fn set_app_dark(&self, _dark: bool) {}
-    /// Dark or light title bar for a top-level window, and the matching native theme for all its controls.
-    fn style_window(&self, _window: isize, _dark: bool) {}
-
-    /// Take the native menu bar off `window` so a custom bar can draw in its place; returns the menu handle.
-    fn detach_menu_bar(&self, _window: isize) -> isize {
-        0
-    }
-    /// Pop up menu `index` of `count` from a detached bar, moving to its neighbours on Left/Right.
-    fn popup_menu(&self, _bar: isize, _window: isize, _index: i32, _count: i32, _anchor: &dyn Fn(i32) -> (i32, i32)) {}
 }
 
 /// The implementation for the OS this build targets.
@@ -114,8 +93,6 @@ mod tests {
             fn open_with(&self, _: &str, _: &Path) {}
         }
         let p = Bare;
-        assert!(!p.is_topmost(1));
-        assert_eq!(p.detach_menu_bar(1), 0);
         assert!(p.recycle(Path::new("x")).is_err());
     }
 }

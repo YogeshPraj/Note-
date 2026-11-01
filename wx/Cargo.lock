@@ -993,6 +993,7 @@ dependencies = [
  "notepp-core",
  "serde_json",
  "sha2 0.10.9",
+ "ui-kit",
  "wxdragon",
  "wxdragon-sys",
  "zeroize",
@@ -1657,6 +1658,15 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "ui-kit"
+version = "2.0.1"
+dependencies = [
+ "serde_json",
+ "wxdragon",
+ "wxdragon-sys",
+]
 
 [[package]]
 name = "unicase"

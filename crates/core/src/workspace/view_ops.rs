@@ -44,7 +44,8 @@ impl<S: Send> Workspace<S> {
             for margin in 0..3 {
                 v.send(sci::SCI_SETMARGINWIDTHN, margin, 0);
             }
-            v.send(sci::SCI_SETZOOM, crate::num::to_usize(-9i32), 0);
+            // wParam is a signed zoom (-9) carried as its two's-complement usize; `to_usize` would saturate it to 0.
+            v.send(sci::SCI_SETZOOM, usize::MAX - 8, 0);
             v.send(sci::SCI_SETWRAPMODE, sci::SC_WRAP_CHAR, 0);
             v.send(sci::SCI_SETCARETSTYLE, 0, 0);
             v.send(sci::SCI_SETCARETLINEVISIBLE, 0, 0);

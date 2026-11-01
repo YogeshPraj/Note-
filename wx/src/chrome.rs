@@ -39,8 +39,10 @@ pub enum Act {
     Close(usize),
     New,
     Move(usize, usize),
-    Context(usize),
-    Status(isize),
+    /// Right-click on tab i at (x, y) in the tab strip.
+    Context(usize, i32, i32),
+    /// A status segment was clicked; (x, y) is its top-left corner in the status bar.
+    Status(isize, i32, i32),
     /// Open menu i; (x, y) is where its popup goes, in the menu bar's coordinates.
     Menu(usize, i32, i32),
 }
@@ -765,7 +767,7 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
         let (x, y) = pos(&e);
         let hit = tab_at(&s.borrow(), x, y);
         if let Some(i) = hit {
-            emit(&s, Act::Context(i));
+            emit(&s, Act::Context(i, x, y));
         }
     });
 }
@@ -776,9 +778,9 @@ fn wire_status(st: &Rc<RefCell<St>>, p: Panel) {
     let s = st.clone();
     p.on_mouse_left_down(move |e| {
         let (x, y) = pos(&e);
-        let seg = s.borrow().status_hits.iter().find(|(r, _)| r.has(x, y)).map(|h| h.1);
-        if let Some(id) = seg {
-            emit(&s, Act::Status(id));
+        let seg = s.borrow().status_hits.iter().find(|(r, _)| r.has(x, y)).map(|h| (h.1, h.0));
+        if let Some((id, r)) = seg {
+            emit(&s, Act::Status(id, r.l, r.t));
         }
     });
 }

@@ -21,6 +21,10 @@ Edit: UPPERCASE\nEdit: lowercase\nEdit: Proper Case\n-\n\
 Search: Style All Occurrences of Token (1st)\nSearch: Clear all Styles\n-\n\
 View: Fold All\nView: Unfold All\n";
 
+pub fn default_context_menu() -> &'static str {
+    DEFAULT_CONTEXT_MENU
+}
+
 pub fn context_menu_path() -> PathBuf {
     notepp_core::session::config_dir().join("contextmenu.txt")
 }

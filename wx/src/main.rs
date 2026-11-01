@@ -10,6 +10,7 @@ mod menus;
 mod chrome;
 mod form;
 mod palette;
+mod popups;
 mod preview;
 mod whiteboard;
 mod winmenu;

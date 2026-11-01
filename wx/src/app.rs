@@ -19,6 +19,7 @@ use wxdragon::widgets::webview::WebView;
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
 use crate::dispatch;
+use crate::popups;
 use crate::findpanel::{self, Cmd, Mode};
 use crate::preview;
 use crate::settings_ui;
@@ -175,6 +176,19 @@ pub fn start(files: Vec<PathBuf>) {
     }));
 
     findpanel::wire(&app);
+    {
+        // The editor's own popup is replaced by the configurable one.
+        use notepp_core::sci::Send;
+        WxSci::of(&stc).send(2371, 0, 0); // SCI_USEPOPUP: never
+        let (a, s) = (app.clone(), stc);
+        stc.on_mouse_right_up(move |e| {
+            if let wxdragon::event::WindowEventData::MouseButton(m) = &e {
+                if let Some(p) = m.get_position() {
+                    popups::editor_menu(&a, s.client_to_screen(p));
+                }
+            }
+        });
+    }
     wire_mini(&app, mini, stc);
     wire_whiteboard(&app, wbv);
     wire(&app, frame, &stc, &view);
@@ -316,6 +330,26 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
             crate::winmenu::popup(bar, frame.get_handle() as isize, i as i32, count, &*at);
             return;
         }
+        // Popup menus are modal: nothing may be borrowed while they are open (their commands re-enter the app).
+        match act {
+            Act::Context(i, x, y) => {
+                let at = {
+                    let Ok(mut app) = a.try_borrow_mut() else { return };
+                    app.ws.activate(i);
+                    app.refresh();
+                    app.chrome.tabs.client_to_screen(Point::new(x, y))
+                };
+                return popups::tab_menu(&a, at);
+            }
+            Act::Status(seg, x, y) => {
+                let at = match a.try_borrow() {
+                    Ok(app) => app.chrome.status.client_to_screen(Point::new(x, y)),
+                    Err(_) => return,
+                };
+                return popups::status_menu(&a, seg, at);
+            }
+            _ => {}
+        }
         let a2 = a.clone();
         let Ok(mut app) = a.try_borrow_mut() else { return };
         match act {
@@ -332,9 +366,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
                 app.ws.new_tab();
             }
             Act::Move(from, to) => app.ws.move_tab_to(from, to),
-            Act::Context(i) => app.ws.activate(i),
-            Act::Status(_) => {}
-            Act::Menu(..) => {}
+            Act::Menu(..) | Act::Context(..) | Act::Status(..) => {}
         }
         app.refresh();
         app.stc.set_focus();

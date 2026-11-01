@@ -22,14 +22,14 @@ impl<T: Copy + PartialEq> Schedule<T> {
 
     /// Run `job` every `every_ms` milliseconds (at least every tick).
     pub fn every(mut self, job: T, every_ms: u32) -> Self {
-        let ticks = every_ms.div_ceil(self.base_ms).max(1) as u64;
+        let ticks = u64::from(every_ms.div_ceil(self.base_ms).max(1));
         self.jobs.push((job, ticks));
         self
     }
 
     /// The jobs to run on tick number `tick` (counting from 1), in the order they were added.
     pub fn due(&self, tick: u64) -> Vec<T> {
-        self.jobs.iter().filter(|(_, n)| tick > 0 && tick % n == 0).map(|(j, _)| *j).collect()
+        self.jobs.iter().filter(|(_, n)| tick > 0 && tick.is_multiple_of(*n)).map(|(j, _)| *j).collect()
     }
 
     /// Every ticks-per-run, for a given job.

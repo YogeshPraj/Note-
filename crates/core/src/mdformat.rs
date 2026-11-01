@@ -180,8 +180,8 @@ fn lines_edit(doc: &str, (s, e): (usize, usize), eol: &str, f: impl Fn(&[String]
     let text = new.join(eol);
     let sel = if s == e {
         // Keep the caret where it was, shifted by what changed at the start of its line.
-        let delta = new[0].len() as isize - old[0].len() as isize;
-        let caret = ((s as isize) + delta).clamp(ls as isize, (ls + text.len()) as isize) as usize;
+        let delta = crate::num::to_isize(new[0].len()) - crate::num::to_isize(old[0].len());
+        let caret = crate::num::to_usize((crate::num::to_isize(s) + delta).clamp(crate::num::to_isize(ls), crate::num::to_isize(ls + text.len())));
         (caret, caret)
     } else {
         (ls, ls + text.len())

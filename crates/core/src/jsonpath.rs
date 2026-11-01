@@ -15,7 +15,7 @@ pub fn parse_path(json: &str) -> Option<Vec<Seg>> {
         .iter()
         .map(|s| match s {
             serde_json::Value::String(k) => Some(Seg::Key(k.clone())),
-            serde_json::Value::Number(n) => n.as_u64().map(|i| Seg::Index(i as usize)),
+            serde_json::Value::Number(n) => n.as_u64().map(|i| Seg::Index(crate::num::to_usize(i))),
             _ => None,
         })
         .collect()

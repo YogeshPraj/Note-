@@ -1,12 +1,12 @@
 //! Lexilla — the same 125 language lexers Notepad++ ships (it bundles 128).
 //!
 //! Statically linked, so there is no second DLL to ship. Portable: the lexer
-//! is handed to Scintilla through SCI_SETILEXER, which is platform-neutral.
+//! is handed to Scintilla through `SCI_SETILEXER`, which is platform-neutral.
 
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-/// Builds a Lexilla lexer by name (an `ILexer5*` for SCI_SETILEXER); null for an unknown name.
+/// Builds a Lexilla lexer by name (an `ILexer5*` for `SCI_SETILEXER`); null for an unknown name.
 /// Each shell registers its own: the Win32 app links Lexilla itself, the wxWidgets shell uses the
 /// copy inside wxWidgets. The core stays free of link-time dependencies.
 pub type Factory = fn(&str) -> *mut c_void;
@@ -85,7 +85,7 @@ pub fn lexer_for_extension(ext: &str) -> &'static str {
     }
 }
 
-/// Create a lexer instance to hand to SCI_SETILEXER. Null means "plain text".
+/// Create a lexer instance to hand to `SCI_SETILEXER`. Null means "plain text".
 pub fn create(name: &str) -> *mut c_void {
     FACTORY.get().map_or(std::ptr::null_mut(), |f| f(name))
 }

@@ -16,17 +16,17 @@ pub fn empty_scene() -> String {
 pub fn is_empty_scene(content: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(content)
         .ok()
-        .and_then(|v| v.get("elements").and_then(|e| e.as_array()).map(|e| e.is_empty()))
+        .and_then(|v| v.get("elements").and_then(|e| e.as_array()).map(std::vec::Vec::is_empty))
         .unwrap_or(false)
 }
 
 /// Should this file open as a whiteboard rather than as text?
 pub fn is_whiteboard_file(text: &str, path: &Path) -> bool {
-    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
     match ext.as_deref() {
         Some("excalidraw" | "whiteboard") => true,
         Some("json") => serde_json::from_str::<serde_json::Value>(text).is_ok_and(|v| {
-            v.get("__wb__").and_then(|b| b.as_bool()) == Some(true) || v.get("type").and_then(|t| t.as_str()) == Some("excalidraw")
+            v.get("__wb__").and_then(serde_json::Value::as_bool) == Some(true) || v.get("type").and_then(|t| t.as_str()) == Some("excalidraw")
         }),
         _ => false,
     }
@@ -44,7 +44,7 @@ fn drawing_signature(content: &str) -> Option<Vec<serde_json::Value>> {
     let els = v.get("elements")?.as_array()?;
     Some(
         els.iter()
-            .filter(|e| e.get("isDeleted").and_then(|d| d.as_bool()) != Some(true))
+            .filter(|e| e.get("isDeleted").and_then(serde_json::Value::as_bool) != Some(true))
             .map(|e| {
                 let mut m = serde_json::Map::new();
                 for k in KEYS {
@@ -61,7 +61,7 @@ fn drawing_signature(content: &str) -> Option<Vec<serde_json::Value>> {
 /// Round floats so tiny serialisation differences do not count as edits.
 fn round_numbers(v: &serde_json::Value) -> serde_json::Value {
     match v {
-        serde_json::Value::Number(n) => n.as_f64().map(|f| serde_json::json!((f * 100.0).round() / 100.0)).unwrap_or_else(|| v.clone()),
+        serde_json::Value::Number(n) => n.as_f64().map_or_else(|| v.clone(), |f| serde_json::json!((f * 100.0).round() / 100.0)),
         serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(round_numbers).collect()),
         other => other.clone(),
     }

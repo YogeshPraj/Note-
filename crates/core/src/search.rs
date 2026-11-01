@@ -9,6 +9,7 @@
 //! The pure functions at the top are unit-tested; the Scintilla-facing ones
 //! below only fetch the text and apply the result.
 
+use crate::error::Error;
 use super::doc;
 use super::sci::{self, Send};
 use fancy_regex::{Captures, Regex, RegexBuilder};
@@ -96,12 +97,9 @@ pub fn unescape_ext(s: &str) -> String {
                     'b' => (2, 8),
                     _ => (16, 4),
                 };
-                match number(&mut it, radix, max) {
-                    Some(ch) => out.push(ch),
-                    None => {
-                        out.push('\\');
-                        out.push(k);
-                    }
+                if let Some(ch) = number(&mut it, radix, max) { out.push(ch) } else {
+                    out.push('\\');
+                    out.push(k);
                 }
             }
             _ => out.push('\\'),
@@ -110,7 +108,7 @@ pub fn unescape_ext(s: &str) -> String {
     out
 }
 
-pub fn compile(o: &Opts) -> Result<Regex, String> {
+pub fn compile(o: &Opts) -> Result<Regex, Error> {
     let literal = if o.extended { unescape_ext(&o.find) } else { o.find.clone() };
     let body = if o.regex { o.find.clone() } else { fancy_regex::escape(&literal).into_owned() };
     // Whole word: no word character may touch the match. An edge that is itself punctuation
@@ -127,7 +125,7 @@ pub fn compile(o: &Opts) -> Result<Regex, String> {
         .case_insensitive(!o.match_case)
         .dot_matches_new_line(o.regex && o.dot_all)
         .build()
-        .map_err(|e| e.to_string())
+        .map_err(|e| Error::Pattern(e.to_string()))
 }
 
 /// Turn matches into line-annotated hits.
@@ -140,7 +138,7 @@ pub fn hits_in_text(text: &str, re: &Regex, path: Option<&Path>) -> Vec<Hit> {
             line_start = scanned + nl + 1;
         }
         scanned = a;
-        let line_end = text[a..].find(['\r', '\n']).map(|i| a + i).unwrap_or(text.len());
+        let line_end = text[a..].find(['\r', '\n']).map_or(text.len(), |i| a + i);
         out.push(Hit {
             path: path.map(Path::to_path_buf),
             line,
@@ -182,14 +180,14 @@ pub const MAX_HITS: usize = 5000;
 pub const MAX_LIST: usize = 20_000;
 
 /// Search every file under `dir` whose name passes `filters`.
-pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, String> {
+pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, Error> {
     let re = compile(o)?;
     let mut hits = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&d) else { continue };
         let mut entries: Vec<_> = rd.flatten().collect();
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
         for e in entries {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
@@ -199,7 +197,7 @@ pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, St
                     stack.push(p);
                 }
             } else if passes_filter(filters, &name) {
-                if e.metadata().map(|m| m.len() > 8_000_000).unwrap_or(true) {
+                if e.metadata().map_or(true, |m| m.len() > 8_000_000) {
                     continue;
                 }
                 let Ok(bytes) = std::fs::read(&p) else { continue };
@@ -221,11 +219,11 @@ pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, St
 }
 
 /// Every match in the current document, for the "Find All" results list.
-pub fn find_all<S: Send>(s: &S, o: &Opts) -> Result<Vec<Hit>, String> {
+pub fn find_all<S: Send>(s: &S, o: &Opts) -> Result<Vec<Hit>, Error> {
     let range = limit(s, o);
     match prepare(s, o) {
         Ok((text, re)) => Ok(hits_in_text(&text, &re, None).into_iter().filter(|h| inside(range, (h.start, h.end))).collect()),
-        Err(e) if e.is_empty() => Ok(Vec::new()),
+        Err(Error::EmptyPattern) => Ok(Vec::new()),
         Err(e) => Err(e),
     }
 }
@@ -285,7 +283,7 @@ pub fn expand(rep: &str, caps: &Captures<'_, str>) -> String {
     }
     fn put(out: &mut String, s: &str, mode: Case, once: &mut Case) {
         for c in s.chars() {
-            let m = if *once != Case::Keep { std::mem::replace(once, Case::Keep) } else { mode };
+            let m = if *once == Case::Keep { mode } else { std::mem::replace(once, Case::Keep) };
             match m {
                 Case::Upper => out.extend(c.to_uppercase()),
                 Case::Lower => out.extend(c.to_lowercase()),
@@ -334,7 +332,7 @@ fn replacement_for(text: &str, re: &Regex, o: &Opts, span: Span) -> String {
 }
 
 /// (start, end, replacement) for every match, ready to apply back to front.
-pub fn replacements(text: &str, o: &Opts) -> Result<Vec<(usize, usize, String)>, String> {
+pub fn replacements(text: &str, o: &Opts) -> Result<Vec<(usize, usize, String)>, Error> {
     let re = compile(o)?;
     Ok(all_matches(text, &re).into_iter().map(|s| (s.0, s.1, replacement_for(text, &re, o, s))).collect())
 }
@@ -356,21 +354,21 @@ fn inside(range: Option<Span>, m: Span) -> bool {
 
 fn select<S: Send>(s: &S, a: usize, b: usize) {
     let line = s.send(sci::SCI_LINEFROMPOSITION, a, 0);
-    s.send(sci::SCI_ENSUREVISIBLE, line as usize, 0);
-    s.send(sci::SCI_SETSEL, a, b as isize);
+    s.send(sci::SCI_ENSUREVISIBLE, crate::num::to_usize(line), 0);
+    s.send(sci::SCI_SETSEL, a, crate::num::to_isize(b));
     s.send(sci::SCI_SCROLLCARET, 0, 0);
 }
 
 fn selection<S: Send>(s: &S) -> Span {
     (
-        s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize,
-        s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize,
+        crate::num::to_usize(s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)),
+        crate::num::to_usize(s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)),
     )
 }
 
-fn prepare<S: Send>(s: &S, o: &Opts) -> Result<(String, Regex), String> {
+fn prepare<S: Send>(s: &S, o: &Opts) -> Result<(String, Regex), Error> {
     if o.find.is_empty() {
-        return Err(String::new());
+        return Err(Error::EmptyPattern);
     }
     Ok((sci::get_text(s), compile(o)?))
 }
@@ -378,8 +376,8 @@ fn prepare<S: Send>(s: &S, o: &Opts) -> Result<(String, Regex), String> {
 pub fn find<S: Send>(s: &S, o: &Opts, forward: bool) -> Found {
     let (text, re) = match prepare(s, o) {
         Ok(v) => v,
-        Err(e) if e.is_empty() => return Found::NotFound,
-        Err(e) => return Found::BadPattern(e),
+        Err(Error::EmptyPattern) => return Found::NotFound,
+        Err(e) => return Found::BadPattern(e.to_string()),
     };
     let (sel_a, sel_b) = selection(s);
     // A zero-length match that is already the (empty) selection must not be found again.
@@ -419,13 +417,13 @@ pub fn replace_current<S: Send>(s: &S, o: &Opts) -> (bool, Found) {
         let with = replacement_for(&text, &re, o, (a, b));
         replace_range(s, a, b, &with);
         let end = a + with.len();
-        s.send(sci::SCI_SETSEL, end, end as isize);
+        s.send(sci::SCI_SETSEL, end, crate::num::to_isize(end));
         replaced = true;
     }
     (replaced, find(s, o, true))
 }
 
-pub fn replace_all<S: Send>(s: &S, o: &Opts) -> Result<usize, String> {
+pub fn replace_all<S: Send>(s: &S, o: &Opts) -> Result<usize, Error> {
     if o.find.is_empty() {
         return Ok(0);
     }
@@ -439,11 +437,11 @@ pub fn replace_all<S: Send>(s: &S, o: &Opts) -> Result<usize, String> {
     Ok(reps.len())
 }
 
-pub fn count<S: Send>(s: &S, o: &Opts) -> Result<usize, String> {
+pub fn count<S: Send>(s: &S, o: &Opts) -> Result<usize, Error> {
     let range = limit(s, o);
     match prepare(s, o) {
         Ok((text, re)) => Ok(all_matches(&text, &re).into_iter().filter(|m| inside(range, *m)).count()),
-        Err(e) if e.is_empty() => Ok(0),
+        Err(Error::EmptyPattern) => Ok(0),
         Err(e) => Err(e),
     }
 }
@@ -453,23 +451,23 @@ pub fn clear_marks<S: Send>(s: &S, indicator: usize) {
     s.send(sci::SCI_INDICATORCLEARRANGE, 0, sci::length(s).max(0));
 }
 
-pub fn mark_all<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, String> {
+pub fn mark_all<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, Error> {
     clear_marks(s, indicator);
     fill_marks(s, o, indicator)
 }
 
 /// Mark every match without clearing what is already marked.
-fn fill_marks<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, String> {
+fn fill_marks<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, Error> {
     let (text, re) = match prepare(s, o) {
         Ok(v) => v,
-        Err(e) if e.is_empty() => return Ok(0),
+        Err(Error::EmptyPattern) => return Ok(0),
         Err(e) => return Err(e),
     };
     let range = limit(s, o);
     let marks: Vec<Span> = all_matches(&text, &re).into_iter().filter(|m| inside(range, *m)).collect();
     s.send(sci::SCI_SETINDICATORCURRENT, indicator, 0);
     for (a, b) in &marks {
-        s.send(sci::SCI_INDICATORFILLRANGE, *a, (*b - *a) as isize);
+        s.send(sci::SCI_INDICATORFILLRANGE, *a, crate::num::to_isize(*b - *a));
     }
     Ok(marks.len())
 }
@@ -492,20 +490,19 @@ fn is_word_text(t: &str) -> bool {
 
 /// Byte range of the word under the caret.
 fn word_range_at_caret<S: Send>(s: &S) -> Option<Span> {
-    let pos = s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-    let a = s.send(sci::SCI_WORDSTARTPOSITION, pos, 1).max(0) as usize;
-    let b = s.send(sci::SCI_WORDENDPOSITION, pos, 1).max(0) as usize;
+    let pos = crate::num::to_usize(s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+    let a = crate::num::to_usize(s.send(sci::SCI_WORDSTARTPOSITION, pos, 1).max(0));
+    let b = crate::num::to_usize(s.send(sci::SCI_WORDENDPOSITION, pos, 1).max(0));
     (b > a && b - a <= 200).then_some((a, b))
 }
 
 /// Select the word under the caret when nothing is selected.
 pub fn select_word_at_caret<S: Send>(s: &S) {
     let (a, b) = selection(s);
-    if a == b {
-        if let Some((x, y)) = word_range_at_caret(s) {
+    if a == b
+        && let Some((x, y)) = word_range_at_caret(s) {
             select(s, x, y);
         }
-    }
 }
 
 /// The selection, or the word under the caret when nothing is selected.
@@ -515,8 +512,8 @@ pub fn token_at_caret<S: Send>(s: &S) -> String {
         return sel;
     }
     let Some((a, b)) = word_range_at_caret(s) else { return String::new() };
-    s.send(sci::SCI_SETTARGETRANGE, a, b as isize);
-    let n = s.send(sci::SCI_GETTARGETTEXT, 0, 0).max(0) as usize;
+    s.send(sci::SCI_SETTARGETRANGE, a, crate::num::to_isize(b));
+    let n = crate::num::to_usize(s.send(sci::SCI_GETTARGETTEXT, 0, 0).max(0));
     let mut buf = vec![0u8; n + 1];
     s.send(sci::SCI_GETTARGETTEXT, 0, buf.as_mut_ptr() as isize);
     buf.truncate(n);
@@ -536,7 +533,7 @@ pub fn style_selection<S: Send>(s: &S, slot: usize) -> bool {
         return false;
     }
     s.send(sci::SCI_SETINDICATORCURRENT, style_indicator(slot), 0);
-    s.send(sci::SCI_INDICATORFILLRANGE, a, (b - a) as isize);
+    s.send(sci::SCI_INDICATORFILLRANGE, a, crate::num::to_isize(b - a));
     true
 }
 
@@ -551,14 +548,14 @@ pub fn clear_style<S: Send>(s: &S, slot: Option<usize>) {
 /// The coloured ranges of one style slot, in order.
 pub fn style_ranges<S: Send>(s: &S, slot: usize) -> Vec<Span> {
     let ind = style_indicator(slot);
-    let len = sci::length(s).max(0) as usize;
+    let len = crate::num::to_usize(sci::length(s).max(0));
     let (mut out, mut p) = (Vec::new(), 0usize);
     while p < len {
-        let end = s.send(sci::SCI_INDICATOREND, ind, p as isize).max(0) as usize;
+        let end = crate::num::to_usize(s.send(sci::SCI_INDICATOREND, ind, crate::num::to_isize(p)).max(0));
         if end <= p {
             break;
         }
-        if s.send(sci::SCI_INDICATORVALUEAT, ind, p as isize) != 0 {
+        if s.send(sci::SCI_INDICATORVALUEAT, ind, crate::num::to_isize(p)) != 0 {
             out.push((p, end));
         }
         p = end;
@@ -591,7 +588,7 @@ pub fn jump<S: Send>(s: &S, slot: usize, forward: bool) -> bool {
 /// The text under the given style slots, one piece per line, in document order.
 pub fn styled_text<S: Send>(s: &S, slots: &[usize]) -> String {
     let mut ranges: Vec<Span> = slots.iter().flat_map(|i| style_ranges(s, *i)).collect();
-    ranges.sort();
+    ranges.sort_unstable();
     ranges.dedup();
     let text = sci::get_text(s);
     ranges.iter().filter_map(|(a, b)| text.get(*a..*b)).collect::<Vec<_>>().join("\r\n")
@@ -602,16 +599,16 @@ pub fn styled_text<S: Send>(s: &S, slots: &[usize]) -> String {
 /// The bracket next to the caret: the one before it, else the one after, like Notepad++.
 /// Only `()[]{}` count (Scintilla would also pair `<` and `>`).
 fn brace_at_caret<S: Send>(s: &S) -> Option<usize> {
-    let pos = s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-    let is_brace = |p: usize| matches!(s.send(sci::SCI_GETCHARAT, p, 0) as u8, b'(' | b')' | b'[' | b']' | b'{' | b'}');
-    [pos.checked_sub(1), Some(pos)].into_iter().flatten().find(|&p| p < sci::length(s).max(0) as usize && is_brace(p))
+    let pos = crate::num::to_usize(s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+    let is_brace = |p: usize| matches!(crate::num::to_u8(s.send(sci::SCI_GETCHARAT, p, 0)), b'(' | b')' | b'[' | b']' | b'{' | b'}');
+    [pos.checked_sub(1), Some(pos)].into_iter().flatten().find(|&p| p < crate::num::to_usize(sci::length(s).max(0)) && is_brace(p))
 }
 
 /// The brace at the caret and its partner.
 pub fn matching_brace<S: Send>(s: &S) -> Option<Span> {
     let p = brace_at_caret(s)?;
     let m = s.send(sci::SCI_BRACEMATCH, p, 0);
-    (m >= 0).then_some((p, m as usize))
+    (m >= 0).then_some((p, crate::num::to_usize(m)))
 }
 
 /// Mark the pair next to the caret (or the lone bracket that has no partner).
@@ -646,7 +643,7 @@ pub fn goto_matching_brace<S: Send>(s: &S) -> bool {
 pub fn select_between_braces<S: Send>(s: &S) -> bool {
     match matching_brace(s) {
         Some((p, m)) => {
-            s.send(sci::SCI_SETSEL, p.min(m) + 1, p.max(m) as isize);
+            s.send(sci::SCI_SETSEL, p.min(m) + 1, crate::num::to_isize(p.max(m)));
             true
         }
         None => false,
@@ -698,8 +695,8 @@ pub fn selected_text<S: Send>(s: &S) -> String {
     if b <= a || b - a > 1_000_000 {
         return String::new();
     }
-    s.send(sci::SCI_SETTARGETRANGE, a, b as isize);
-    let n = s.send(sci::SCI_GETTARGETTEXT, 0, 0).max(0) as usize;
+    s.send(sci::SCI_SETTARGETRANGE, a, crate::num::to_isize(b));
+    let n = crate::num::to_usize(s.send(sci::SCI_GETTARGETTEXT, 0, 0).max(0));
     if n == 0 {
         return String::new();
     }
@@ -727,7 +724,7 @@ pub fn smart_highlight<S: Send>(s: &S) {
 
 /// Move to 1-based `line`, clamped to the document. Returns the line used.
 pub fn goto_line<S: Send>(s: &S, line: usize) -> usize {
-    let total = sci::line_count(s).max(1) as usize;
+    let total = crate::num::to_usize(sci::line_count(s).max(1));
     let l = line.clamp(1, total);
     s.send(sci::SCI_ENSUREVISIBLE, l - 1, 0);
     s.send(sci::SCI_GOTOLINE, l - 1, 0);

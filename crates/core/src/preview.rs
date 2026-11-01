@@ -23,7 +23,7 @@ pub enum Kind {
 
 /// What kind of preview (if any) a document supports.
 pub fn kind_for(lexer: &str, path: Option<&Path>) -> Option<Kind> {
-    let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+    let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
     match ext.as_deref() {
         Some("mmd" | "mermaid") => return Some(Kind::Mermaid),
         Some("http" | "rest") => return Some(Kind::Http),

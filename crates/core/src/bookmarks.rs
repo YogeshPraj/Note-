@@ -8,7 +8,7 @@ const MASK: usize = 1 << MARKER;
 /// Left-most margin (0) holds the bookmark glyph; clicking it toggles a bookmark.
 pub fn setup<S: Send>(s: &S, theme: &Theme) {
     s.send(sci::SCI_SETMARGINTYPEN, 0, sci::SC_MARGIN_SYMBOL);
-    s.send(sci::SCI_SETMARGINMASKN, 0, (MASK | 1 << super::view::MARKER_HIDDEN) as isize);
+    s.send(sci::SCI_SETMARGINMASKN, 0, crate::num::to_isize(MASK | 1 << super::view::MARKER_HIDDEN));
     s.send(sci::SCI_SETMARGINWIDTHN, 0, 16);
     s.send(sci::SCI_SETMARGINSENSITIVEN, 0, 1);
     s.send(sci::SCI_MARKERDEFINE, MARKER, sci::SC_MARK_BOOKMARK);
@@ -22,38 +22,38 @@ pub fn setup<S: Send>(s: &S, theme: &Theme) {
 }
 
 pub fn current_line<S: Send>(s: &S) -> usize {
-    let pos = s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-    s.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0) as usize
+    let pos = crate::num::to_usize(s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+    crate::num::to_usize(s.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0))
 }
 
 pub fn is_set<S: Send>(s: &S, line: usize) -> bool {
-    s.send(sci::SCI_MARKERGET, line, 0) as usize & MASK != 0
+    crate::num::to_usize(s.send(sci::SCI_MARKERGET, line, 0)) & MASK != 0
 }
 
 pub fn toggle<S: Send>(s: &S, line: usize) {
     if is_set(s, line) {
-        s.send(sci::SCI_MARKERDELETE, line, MARKER as isize);
+        s.send(sci::SCI_MARKERDELETE, line, crate::num::to_isize(MARKER));
     } else {
-        s.send(sci::SCI_MARKERADD, line, MARKER as isize);
+        s.send(sci::SCI_MARKERADD, line, crate::num::to_isize(MARKER));
     }
 }
 
 /// Jump to the next/previous bookmark, wrapping around. Returns false if none.
 pub fn goto<S: Send>(s: &S, forward: bool) -> bool {
     let line = current_line(s);
-    let total = sci::line_count(s).max(1) as usize;
+    let total = crate::num::to_usize(sci::line_count(s).max(1));
     let found = if forward {
-        let n = s.send(sci::SCI_MARKERNEXT, line + 1, MASK as isize);
-        if n >= 0 { n } else { s.send(sci::SCI_MARKERNEXT, 0, MASK as isize) }
+        let n = s.send(sci::SCI_MARKERNEXT, line + 1, crate::num::to_isize(MASK));
+        if n >= 0 { n } else { s.send(sci::SCI_MARKERNEXT, 0, crate::num::to_isize(MASK)) }
     } else {
-        let p = if line == 0 { -1 } else { s.send(sci::SCI_MARKERPREVIOUS, line - 1, MASK as isize) };
-        if p >= 0 { p } else { s.send(sci::SCI_MARKERPREVIOUS, total - 1, MASK as isize) }
+        let p = if line == 0 { -1 } else { s.send(sci::SCI_MARKERPREVIOUS, line - 1, crate::num::to_isize(MASK)) };
+        if p >= 0 { p } else { s.send(sci::SCI_MARKERPREVIOUS, total - 1, crate::num::to_isize(MASK)) }
     };
     if found < 0 {
         return false;
     }
-    s.send(sci::SCI_ENSUREVISIBLE, found as usize, 0);
-    s.send(sci::SCI_GOTOLINE, found as usize, 0);
+    s.send(sci::SCI_ENSUREVISIBLE, crate::num::to_usize(found), 0);
+    s.send(sci::SCI_GOTOLINE, crate::num::to_usize(found), 0);
     s.send(sci::SCI_SCROLLCARET, 0, 0);
     true
 }
@@ -67,18 +67,18 @@ pub fn lines<S: Send>(s: &S) -> Vec<usize> {
     let mut out = Vec::new();
     let mut line = 0usize;
     loop {
-        let n = s.send(sci::SCI_MARKERNEXT, line, MASK as isize);
+        let n = s.send(sci::SCI_MARKERNEXT, line, crate::num::to_isize(MASK));
         if n < 0 {
             return out;
         }
-        out.push(n as usize);
-        line = n as usize + 1;
+        out.push(crate::num::to_usize(n));
+        line = crate::num::to_usize(n) + 1;
     }
 }
 
 /// Flip every line: bookmarked ones lose it, the others gain it.
 pub fn invert<S: Send>(s: &S) {
-    for l in 0..sci::line_count(s).max(0) as usize {
+    for l in 0..crate::num::to_usize(sci::line_count(s).max(0)) {
         toggle(s, l);
     }
 }
@@ -89,8 +89,8 @@ pub fn marked_text<S: Send>(s: &S, eol: &str) -> String {
     lines(s)
         .into_iter()
         .filter_map(|l| {
-            let a = s.send(sci::SCI_POSITIONFROMLINE, l, 0) as usize;
-            let b = s.send(sci::SCI_GETLINEENDPOSITION, l, 0) as usize;
+            let a = crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, l, 0));
+            let b = crate::num::to_usize(s.send(sci::SCI_GETLINEENDPOSITION, l, 0));
             text.get(a..b)
         })
         .collect::<Vec<_>>()
@@ -99,25 +99,25 @@ pub fn marked_text<S: Send>(s: &S, eol: &str) -> String {
 
 fn delete_line<S: Send>(s: &S, l: usize) {
     // Lines after this one may already be gone, so the count is read fresh.
-    let total = sci::line_count(s).max(0) as usize;
-    let len = sci::length(s).max(0) as usize;
-    let start = s.send(sci::SCI_POSITIONFROMLINE, l, 0) as usize;
+    let total = crate::num::to_usize(sci::line_count(s).max(0));
+    let len = crate::num::to_usize(sci::length(s).max(0));
+    let start = crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, l, 0));
     if l + 1 < total {
-        let next = s.send(sci::SCI_POSITIONFROMLINE, l + 1, 0) as usize;
-        s.send(sci::SCI_DELETERANGE, start, (next - start) as isize);
+        let next = crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, l + 1, 0));
+        s.send(sci::SCI_DELETERANGE, start, crate::num::to_isize(next - start));
     } else if l > 0 {
         // The last line has no break of its own: take the previous one's.
-        let prev_end = s.send(sci::SCI_GETLINEENDPOSITION, l - 1, 0) as usize;
-        s.send(sci::SCI_DELETERANGE, prev_end, (len - prev_end) as isize);
+        let prev_end = crate::num::to_usize(s.send(sci::SCI_GETLINEENDPOSITION, l - 1, 0));
+        s.send(sci::SCI_DELETERANGE, prev_end, crate::num::to_isize(len - prev_end));
     } else {
-        s.send(sci::SCI_DELETERANGE, 0, len as isize);
+        s.send(sci::SCI_DELETERANGE, 0, crate::num::to_isize(len));
     }
 }
 
 /// Delete the bookmarked lines (or, with `marked` false, all the others).
 /// Returns how many lines went.
 pub fn delete_lines<S: Send>(s: &S, marked: bool) -> usize {
-    let total = sci::line_count(s).max(0) as usize;
+    let total = crate::num::to_usize(sci::line_count(s).max(0));
     let doomed: Vec<usize> = (0..total).filter(|l| is_set(s, *l) == marked).collect();
     s.send(sci::SCI_BEGINUNDOACTION, 0, 0);
     for l in doomed.iter().rev() {
@@ -132,8 +132,8 @@ pub fn replace_lines<S: Send>(s: &S, with: &str) -> usize {
     let marked = lines(s);
     s.send(sci::SCI_BEGINUNDOACTION, 0, 0);
     for l in marked.iter().rev() {
-        let a = s.send(sci::SCI_POSITIONFROMLINE, *l, 0) as usize;
-        let b = s.send(sci::SCI_GETLINEENDPOSITION, *l, 0) as usize;
+        let a = crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, *l, 0));
+        let b = crate::num::to_usize(s.send(sci::SCI_GETLINEENDPOSITION, *l, 0));
         s.send(sci::SCI_SETTARGETSTART, a, 0);
         s.send(sci::SCI_SETTARGETEND, b, 0);
         s.send(sci::SCI_REPLACETARGET, with.len(), with.as_ptr() as isize);

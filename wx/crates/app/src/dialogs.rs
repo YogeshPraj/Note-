@@ -144,17 +144,17 @@ fn mapper_click(f: &Form, id: usize) {
         SET | CLEAR => {
             let Some(i) = sel else { return f.set_text(STATUS, "Select a command first") };
             let text = if id == CLEAR { String::new() } else { f.text(EDIT).trim().to_string() };
-            let result: Result<String, String> = if text.is_empty() {
+            let result: Result<String, notepp_core::error::Error> = if text.is_empty() {
                 Ok(String::new())
             } else {
                 match shortcuts::parse(&text) {
-                    None => Err("That is not a valid shortcut (try Ctrl+Shift+K, F9, Alt+Left)".into()),
+                    None => Err(notepp_core::error::Error::InvalidShortcut),
                     Some(chord) => {
                         let canon = shortcuts::format(&chord);
                         ROWS.with(|r| {
                             let rows = r.borrow();
                             match rows.iter().enumerate().find(|(j, row)| *j != i && shortcuts::parse(&row.current).is_some_and(|c| c == chord)) {
-                                Some((_, other)) => Err(format!("Already used by \"{}\"", other.name)),
+                                Some((_, other)) => Err(notepp_core::error::Error::ShortcutInUse(other.name.clone())),
                                 None => Ok(canon),
                             }
                         })
@@ -168,7 +168,7 @@ fn mapper_click(f: &Form, id: usize) {
                     refresh_row(f, i);
                     f.set_text(STATUS, if canon.is_empty() { "Shortcut removed" } else { "Shortcut set" });
                 }
-                Err(e) => f.set_text(STATUS, &e),
+                Err(e) => f.set_text(STATUS, &e.to_string()),
             }
         }
         RESET => {

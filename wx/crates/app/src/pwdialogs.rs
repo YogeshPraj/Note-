@@ -103,7 +103,7 @@ fn install_click(f: &Form, id: usize) {
     });
     match result {
         Ok(()) => f.close(true),
-        Err(e) => f.set_text(I_STATUS, &e),
+        Err(e) => f.set_text(I_STATUS, &e.to_string()),
     }
 }
 
@@ -170,7 +170,7 @@ fn unlock_screen(host: &Frame, auth: &bw::Auth) -> bool {
         match r {
             Ok(()) => false,
             Err(e) => {
-                f.set_text(U_STATUS, &e);
+                f.set_text(U_STATUS, &e.to_string());
                 f.set_text(U_PW, "");
                 f.focus(U_PW);
                 true
@@ -278,11 +278,11 @@ fn vault_click(f: &Form, id: usize) {
                     ACT.with(|a| a.set(if id == V_INSERT { Act::Insert } else { Act::Copy }));
                     f.close(true);
                 }
-                Err(e) if e == "locked" => {
+                Err(notepp_core::error::Error::Locked) => {
                     ACT.with(|a| a.set(Act::Relock));
                     f.close(true);
                 }
-                Err(e) => f.set_text(V_STATUS, &e),
+                Err(e) => f.set_text(V_STATUS, &e.to_string()),
             }
         }
         V_ADD => {
@@ -296,11 +296,11 @@ fn vault_click(f: &Form, id: usize) {
                     ITEMS.with(|i| *i.borrow_mut() = items);
                     fill_list(f);
                 }
-                Err(e) if e == "locked" => {
+                Err(notepp_core::error::Error::Locked) => {
                     ACT.with(|a| a.set(Act::Relock));
                     f.close(true);
                 }
-                Err(e) => f.set_text(V_STATUS, &e),
+                Err(e) => f.set_text(V_STATUS, &e.to_string()),
             }
         }
         V_LOCK => {
@@ -317,7 +317,7 @@ fn vault_screen(host: &Frame, can_insert: bool) -> Act {
     // Item titles and usernames only; secrets are fetched one at a time when you use them.
     match bw::list("") {
         Ok(items) => ITEMS.with(|i| *i.borrow_mut() = items),
-        Err(e) if e == "locked" => return Act::Relock,
+        Err(notepp_core::error::Error::Locked) => return Act::Relock,
         Err(e) => {
             show_error(host, &format!("Cannot read the vault\n\n{e}"));
             return Act::Close;
@@ -385,7 +385,7 @@ fn add_click(f: &Form, id: usize) {
                     f.set_masked(A_PW, false);
                     f.set_text(A_STATUS, "A new password was generated.");
                 }
-                Err(e) => f.set_text(A_STATUS, &e),
+                Err(e) => f.set_text(A_STATUS, &e.to_string()),
             }
         }
         _ => {}
@@ -416,7 +416,7 @@ fn add_screen(host: &Frame) -> bool {
                 false
             }
             Err(e) => {
-                f.set_text(A_STATUS, &e);
+                f.set_text(A_STATUS, &e.to_string());
                 true
             }
         }

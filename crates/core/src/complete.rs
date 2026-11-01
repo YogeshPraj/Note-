@@ -10,7 +10,7 @@ fn is_word(c: char) -> bool {
 /// The identifier ending at byte offset `pos`, with the offset it starts at.
 pub fn word_before(text: &str, pos: usize) -> (usize, &str) {
     let head = &text[..pos.min(text.len())];
-    let start = head.char_indices().rev().take_while(|(_, c)| is_word(*c)).last().map(|(i, _)| i).unwrap_or(head.len());
+    let start = head.char_indices().rev().take_while(|(_, c)| is_word(*c)).last().map_or(head.len(), |(i, _)| i);
     (start, &head[start..])
 }
 
@@ -57,14 +57,14 @@ pub fn function_names(text: &str, prefix: &str, typing_at: usize) -> Vec<String>
 
 /// The path-like text just before the caret on its line.
 pub fn path_fragment(line_before_caret: &str) -> &str {
-    let start = line_before_caret.rfind(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '|' | '*' | '?' | '(' | ')' | '=')).map(|i| i + line_before_caret[i..].chars().next().map_or(1, char::len_utf8)).unwrap_or(0);
+    let start = line_before_caret.rfind(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '|' | '*' | '?' | '(' | ')' | '=')).map_or(0, |i| i + line_before_caret[i..].chars().next().map_or(1, char::len_utf8));
     &line_before_caret[start..]
 }
 
 /// Entries of the directory named by `fragment` that continue its last component.
 /// Returns the length (in bytes) of the typed component and the candidates.
 pub fn path_candidates(fragment: &str, base: Option<&Path>) -> (usize, Vec<String>) {
-    let cut = fragment.rfind(['/', '\\']).map(|i| i + 1).unwrap_or(0);
+    let cut = fragment.rfind(['/', '\\']).map_or(0, |i| i + 1);
     let (dir_part, name) = fragment.split_at(cut);
     let dir = if dir_part.is_empty() {
         match base {
@@ -87,7 +87,7 @@ pub fn path_candidates(fragment: &str, base: Option<&Path>) -> (usize, Vec<Strin
             if !n.to_lowercase().starts_with(&lower) {
                 return None;
             }
-            let dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let dir = e.file_type().is_ok_and(|t| t.is_dir());
             Some(if dir { format!("{n}{MAIN_SEPARATOR}") } else { n })
         })
         .collect();

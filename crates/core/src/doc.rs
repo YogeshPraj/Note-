@@ -89,7 +89,7 @@ impl Enc {
             "utf16le" => Enc::Utf16Le,
             "utf16be" => Enc::Utf16Be,
             "ansi" => Enc::Ansi,
-            _ => CHARSETS.iter().position(|c| c.key == k).map(|i| Enc::Cs(i as u8)).unwrap_or(Enc::Utf8),
+            _ => CHARSETS.iter().position(|c| c.key == k).map_or(Enc::Utf8, |i| Enc::Cs(crate::num::to_u8(i))),
         }
     }
 }
@@ -123,7 +123,7 @@ impl Eol {
             _ => Eol::Crlf,
         }
     }
-    /// Value for SCI_SETEOLMODE / SCI_CONVERTEOLS.
+    /// Value for `SCI_SETEOLMODE` / `SCI_CONVERTEOLS`.
     pub fn sci_mode(self) -> usize {
         match self {
             Eol::Crlf => 0,
@@ -172,7 +172,7 @@ fn utf16_without_bom(bytes: &[u8]) -> Option<bool> {
     }
     let pairs = sample.len() / 2;
     let (mut little, mut big) = (0usize, 0usize);
-    for p in sample.chunks_exact(2) {
+    for p in sample.as_chunks::<2>().0 {
         match (p[0], p[1]) {
             (a, 0) if a != 0 => little += 1,
             (0, b) if b != 0 => big += 1,
@@ -217,12 +217,12 @@ pub fn encode(text: &str, enc: Enc) -> Vec<u8> {
         Enc::Utf8Bom => [&[0xEF, 0xBB, 0xBF][..], text.as_bytes()].concat(),
         Enc::Utf16Le => {
             let mut out = vec![0xFF, 0xFE];
-            out.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
+            out.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
             out
         }
         Enc::Utf16Be => {
             let mut out = vec![0xFE, 0xFF];
-            out.extend(text.encode_utf16().flat_map(|u| u.to_be_bytes()));
+            out.extend(text.encode_utf16().flat_map(u16::to_be_bytes));
             out
         }
         Enc::Ansi => encode_legacy(encoding_rs::WINDOWS_1252, text),
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn keys_round_trip() {
         let mut all = vec![Enc::Utf8, Enc::Utf8Bom, Enc::Utf16Le, Enc::Utf16Be, Enc::Ansi];
-        all.extend((0..CHARSETS.len()).map(|i| Enc::Cs(i as u8)));
+        all.extend((0..CHARSETS.len()).map(|i| Enc::Cs(crate::num::to_u8(i))));
         for e in all {
             assert_eq!(Enc::from_key(e.key()), e);
         }

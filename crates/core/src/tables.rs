@@ -1,7 +1,8 @@
 //! Small tables and helpers shared by the generated code (copied from the Win32 shell).
 
 #![allow(dead_code)]
-use crate::commands::*;
+use crate::error::Error;
+use crate::commands::{ID_MD_BOLD, ID_MD_ITALIC, ID_MD_STRIKE, ID_MD_CODE, ID_MD_H1, ID_MD_H2, ID_MD_H3, ID_MD_H4, ID_MD_H5, ID_MD_H6, ID_MD_QUOTE, ID_MD_BULLET, ID_MD_NUMBERED, ID_MD_TASK, ID_MD_LINK, ID_MD_IMAGE, ID_MD_TABLE, ID_MD_CODEBLOCK, ID_MD_RULE, ID_NEW, ID_NEW_WB, ID_OPEN, ID_SAVE, ID_SAVEAS, ID_SAVEALL, ID_CLOSE, ID_EXIT, ID_THEME, ID_NEXT_TAB, ID_PREV_TAB, ID_ABOUT, ID_PALETTE, ID_QUICKOPEN, ID_RECENT_CLEAR, ID_OPEN_FOLDER_EXPLORER, ID_OPEN_FOLDER_CMD, ID_OPEN_FOLDER_WS, ID_OPEN_VIEWER, ID_OPEN_WORKSPACE, ID_RELOAD, ID_SAVE_COPY, ID_RENAME, ID_CLOSE_ALL, ID_CLOSE_OTHERS, ID_CLOSE_LEFT, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_RECYCLE, ID_LOAD_SESSION, ID_SAVE_SESSION, ID_RESTORE_CLOSED, ID_OPEN_ALL_RECENT, ID_WORKSPACE_TOGGLE, ID_PREFS, ID_STYLE_CFG, ID_SHORTCUTS, ID_IMPORT_THEME, ID_EXPORT_THEME, ID_EDIT_CONTEXT, ID_WINDOWS, ID_ENC_SETTINGS, ID_PASSWORDS, ID_PW_TOOLBAR, ID_PW_LOCK, ID_ENC_LOCK, ID_TAB_PIN, ID_TAB_COLOR_NONE, ID_TAB_REVEAL, ID_UPDATE_PILL, ID_UPDATE_CHECK, ID_UPDATE_AUTO, ID_RECENT_BASE, ID_WINDOW_DOC_BASE, ID_PRESET_BASE, ID_WINDOW_SORT_BASE};
 use crate::doc::Enc;
 use crate::settings::Settings;
 use crate::{mdformat, settings};
@@ -75,8 +76,8 @@ pub fn theme_json(s: &Settings) -> String {
 }
 
 /// Read a theme file into colour overrides; returns how many colours were taken.
-pub fn import_theme(s: &mut Settings, json: &str) -> Result<usize, String> {
-    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+pub fn import_theme(s: &mut Settings, json: &str) -> Result<usize, Error> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| Error::Json(e.to_string()))?;
     let mut taken = 0;
     for (name, dark) in [("light", false), ("dark", true)] {
         let Some(obj) = v.get(name).and_then(|x| x.as_object()) else { continue };
@@ -91,5 +92,5 @@ pub fn import_theme(s: &mut Settings, json: &str) -> Result<usize, String> {
             s.light_colors = diff;
         }
     }
-    if taken == 0 { Err("The file has no \"light\" or \"dark\" colours".into()) } else { Ok(taken) }
+    if taken == 0 { Err(Error::ThemeNoColours) } else { Ok(taken) }
 }

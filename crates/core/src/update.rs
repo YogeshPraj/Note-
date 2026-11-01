@@ -7,6 +7,7 @@
 //! The download is only unpacked when its SHA-256 matches. That catches damaged or swapped
 //! files; it is not a code signature, because the app is not signed.
 
+use crate::error::Error;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -40,9 +41,9 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
 }
 
 /// The newest published native release that is newer than `current` and has both assets.
-pub fn pick_release(json: &str, current: &str) -> Result<Option<Release>, String> {
-    let v: Value = serde_json::from_str(json).map_err(|_| "GitHub sent an answer that could not be read".to_string())?;
-    let list = v.as_array().ok_or_else(|| v.get("message").and_then(Value::as_str).unwrap_or("unexpected answer from GitHub").to_string())?;
+pub fn pick_release(json: &str, current: &str) -> Result<Option<Release>, Error> {
+    let v: Value = serde_json::from_str(json).map_err(|_| Error::UpdateAnswerUnreadable)?;
+    let list = v.as_array().ok_or_else(|| Error::Github(v.get("message").and_then(Value::as_str).unwrap_or("unexpected answer from GitHub").to_string()))?;
     let mut best: Option<((u32, u32, u32), Release)> = None;
     for r in list {
         if r["draft"].as_bool() == Some(true) || r["prerelease"].as_bool() == Some(true) {
@@ -72,14 +73,14 @@ fn api_url() -> String {
 }
 
 /// Ask GitHub for a newer release. Ok(None) = you are up to date.
-pub fn check(current: &str) -> Result<Option<Release>, String> {
+pub fn check(current: &str) -> Result<Option<Release>, Error> {
     let mut res = agent()
         .get(&api_url())
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "NotePP-native-updater")
         .call()
-        .map_err(|e| format!("Could not reach GitHub: {e}"))?;
-    let body = res.body_mut().read_to_string().map_err(|e| format!("Could not read GitHub's answer: {e}"))?;
+        .map_err(|e| Error::GithubUnreachable(e.to_string()))?;
+    let body = res.body_mut().read_to_string().map_err(|e| Error::GithubRead(e.to_string()))?;
     pick_release(&body, current)
 }
 
@@ -95,59 +96,59 @@ pub fn parse_digest(text: &str) -> Option<String> {
 
 /// Unpack `zip_path` into `dest`. Entries cannot escape `dest`. Returns the folder holding the
 /// program (the archive may have one top-level folder or none).
-pub fn extract(zip_path: &Path, dest: &Path) -> Result<PathBuf, String> {
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(zip_path).map_err(|e| e.to_string())?).map_err(|e| format!("The download is not a valid archive: {e}"))?;
+pub fn extract(zip_path: &Path, dest: &Path) -> Result<PathBuf, Error> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(zip_path).map_err(|e| Error::Io(e.to_string()))?).map_err(|e| Error::BadArchive(e.to_string()))?;
     let _ = std::fs::remove_dir_all(dest);
-    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dest).map_err(|e| Error::Io(e.to_string()))?;
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        let mut entry = zip.by_index(i).map_err(|e| Error::BadArchive(e.to_string()))?;
         // enclosed_name rejects absolute paths and "..", so nothing lands outside `dest`.
-        let Some(rel) = entry.enclosed_name() else { return Err("The archive contains an unsafe path".into()) };
+        let Some(rel) = entry.enclosed_name() else { return Err(Error::UnsafeArchivePath) };
         let out = dest.join(rel);
         if entry.is_dir() {
-            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&out).map_err(|e| Error::Io(e.to_string()))?;
             continue;
         }
         if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(parent).map_err(|e| Error::Io(e.to_string()))?;
         }
-        let mut f = std::fs::File::create(&out).map_err(|e| e.to_string())?;
-        std::io::copy(&mut entry, &mut f).map_err(|e| e.to_string())?;
+        let mut f = std::fs::File::create(&out).map_err(|e| Error::Io(e.to_string()))?;
+        std::io::copy(&mut entry, &mut f).map_err(|e| Error::Io(e.to_string()))?;
     }
     if dest.join(EXE).is_file() {
         return Ok(dest.to_path_buf());
     }
     // One wrapping folder, e.g. "NotePP/".
-    let inner = std::fs::read_dir(dest).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).find(|p| p.join(EXE).is_file());
-    inner.ok_or_else(|| format!("The download does not contain {EXE}"))
+    let inner = std::fs::read_dir(dest).map_err(|e| Error::Io(e.to_string()))?.flatten().map(|e| e.path()).find(|p| p.join(EXE).is_file());
+    inner.ok_or_else(|| Error::MissingExe(EXE.to_string()))
 }
 
 /// Download `rel`, check its digest, unpack it, and remember it as ready to install.
 /// `progress` gets 0..=100. Returns the folder with the new version.
-pub fn download(rel: &Release, progress: &mut dyn FnMut(u32)) -> Result<PathBuf, String> {
+pub fn download(rel: &Release, progress: &mut dyn FnMut(u32)) -> Result<PathBuf, Error> {
     let agent = agent();
-    let get = |url: &str| agent.get(url).header("User-Agent", "NotePP-native-updater").call().map_err(|e| format!("Download failed: {e}"));
+    let get = |url: &str| agent.get(url).header("User-Agent", "NotePP-native-updater").call().map_err(|e| Error::Download(e.to_string()));
     let mut sha_res = get(&rel.sha_url)?;
-    let sha_text = sha_res.body_mut().read_to_string().map_err(|e| e.to_string())?;
-    let expected = parse_digest(&sha_text).ok_or("The release has no valid checksum file")?;
+    let sha_text = sha_res.body_mut().read_to_string().map_err(|e| Error::Io(e.to_string()))?;
+    let expected = parse_digest(&sha_text).ok_or(Error::NoChecksum)?;
 
     let dir = updates_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| Error::Io(e.to_string()))?;
     let zip_path = dir.join(format!("{}.zip.part", rel.version));
     let mut res = get(&rel.zip_url)?;
     let total: u64 = res.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(0);
     let mut reader = res.body_mut().as_reader();
-    let mut file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::create(&zip_path).map_err(|e| Error::Io(e.to_string()))?;
     let (mut hash, mut buf, mut done, mut last) = (Sha256::new(), vec![0u8; 64 * 1024], 0u64, u32::MAX);
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("Download failed: {e}"))?;
+        let n = reader.read(&mut buf).map_err(|e| Error::Download(e.to_string()))?;
         if n == 0 {
             break;
         }
         hash.update(&buf[..n]);
-        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        file.write_all(&buf[..n]).map_err(|e| Error::Io(e.to_string()))?;
         done += n as u64;
-        let pct = if total > 0 { (done * 95 / total) as u32 } else { 0 };
+        let pct = if total > 0 { crate::num::to_u32(done * 95 / total) } else { 0 };
         if pct != last {
             last = pct;
             progress(pct);
@@ -157,7 +158,7 @@ pub fn download(rel: &Release, progress: &mut dyn FnMut(u32)) -> Result<PathBuf,
     let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if digest != expected {
         let _ = std::fs::remove_file(&zip_path);
-        return Err("The download does not match its checksum - it was not installed.".into());
+        return Err(Error::UpdateChecksumMismatch);
     }
     let staged = dir.join(&rel.version);
     let result = extract(&zip_path, &staged);
@@ -203,13 +204,13 @@ pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path) -> String {
 }
 
 /// Write the script and start it detached. The caller then closes the app.
-pub fn launch_apply(staged: &Path) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let app_dir = exe.parent().ok_or("cannot find the app folder")?.to_path_buf();
+pub fn launch_apply(staged: &Path) -> Result<(), Error> {
+    let exe = std::env::current_exe().map_err(|e| Error::Io(e.to_string()))?;
+    let app_dir = exe.parent().ok_or(Error::NoAppFolder)?.to_path_buf();
     let dir = updates_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| Error::Io(e.to_string()))?;
     let script = dir.join("apply-update.cmd");
-    std::fs::write(&script, apply_script(staged, &app_dir, &dir.join("update.log"))).map_err(|e| e.to_string())?;
+    std::fs::write(&script, apply_script(staged, &app_dir, &dir.join("update.log"))).map_err(|e| Error::Io(e.to_string()))?;
     let mut cmd = std::process::Command::new("cmd");
     cmd.arg("/c").arg(&script).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     #[cfg(windows)]
@@ -217,7 +218,7 @@ pub fn launch_apply(staged: &Path) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000 | 0x0000_0008); // CREATE_NO_WINDOW | DETACHED_PROCESS
     }
-    cmd.spawn().map(|_| ()).map_err(|e| format!("Cannot start the updater: {e}"))
+    cmd.spawn().map(|_| ()).map_err(|e| Error::LaunchUpdater(e.to_string()))
 }
 
 #[cfg(test)]
@@ -260,7 +261,7 @@ mod tests {
         assert!(pick_release(&list, "0.2.0").unwrap().is_none(), "drafts, prereleases and incomplete releases are skipped");
         assert!(pick_release(&list, "0.9.0").unwrap().is_none());
         assert!(pick_release("[]", "0.1.0").unwrap().is_none());
-        assert!(pick_release("{\"message\":\"API rate limit exceeded\"}", "0.1.0").unwrap_err().contains("rate limit"));
+        assert!(pick_release("{\"message\":\"API rate limit exceeded\"}", "0.1.0").unwrap_err().to_string().contains("rate limit"));
         assert!(pick_release("not json", "0.1.0").is_err());
     }
 
@@ -300,7 +301,7 @@ mod tests {
 
         let no_exe = base.join("noexe.zip");
         make_zip(&no_exe, &[("readme.txt", b"hi")]);
-        assert!(extract(&no_exe, &base.join("out_noexe")).unwrap_err().contains("notepp.exe"));
+        assert!(extract(&no_exe, &base.join("out_noexe")).unwrap_err().to_string().contains("notepp.exe"));
 
         let evil = base.join("evil.zip");
         make_zip(&evil, &[("../escape.txt", b"no"), ("notepp.exe", b"MZ")]);

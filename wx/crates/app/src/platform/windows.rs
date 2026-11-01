@@ -54,14 +54,14 @@ impl Platform for Windows {
         let _ = std::process::Command::new("cmd").raw_arg(format!("/C start \"\" {program} \"{}\"", path.display())).creation_flags(0x0800_0000).spawn();
     }
 
-    fn recycle(&self, path: &Path) -> Result<(), String> {
+    fn recycle(&self, path: &Path) -> std::io::Result<()> {
         // The shell's own "send to Recycle Bin", through the .NET file-system helper.
         let script = format!(
             "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin')",
             path.display().to_string().replace('\'', "''")
         );
-        let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).output().map_err(|e| e.to_string())?;
-        if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+        let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).output()?;
+        if out.status.success() { Ok(()) } else { Err(std::io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string())) }
     }
 
     fn local_time(&self) -> DateTime {

@@ -121,7 +121,7 @@ impl App {
             // {{vault:...}} is looked up here, at send time, and never leaves this thread.
             let json = match http::send(&req, &mut |r| notepp_core::bitwarden::resolve_reference(r).ok()) {
                 Ok(res) => http::response_json(&req, &res),
-                Err(e) => http::error_json(&req, &e),
+                Err(e) => http::error_json(&req, &e.to_string()),
             };
             *HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()) = Some((doc, json));
         });

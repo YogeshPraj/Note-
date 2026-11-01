@@ -33,6 +33,94 @@ pub enum Error {
     NoPassword,
     #[error("This profile has no recovery key")]
     NoRecoveryKey,
+    #[error("locked")]
+    Locked,
+    #[error("field not allowed")]
+    FieldNotAllowed,
+    #[error("{0}")]
+    Cli(String),
+    #[error("Bitwarden does not publish a command-line client for this system")]
+    NoBitwardenClient,
+    #[error("Download failed: {0}")]
+    Download(String),
+    #[error("Checksum mismatch - refusing to install.\nexpected {expected}\ngot      {got}")]
+    ChecksumMismatch { expected: String, got: String },
+    #[error("The download is not a valid archive: {0}")]
+    BadArchive(String),
+    #[error("{0} was not in the download")]
+    MissingInArchive(String),
+    #[error("No session token supplied")]
+    NoSessionToken,
+    #[error("That session token was not accepted by bw")]
+    SessionRejected,
+    #[error("Not signed in - use \"Sign in\" first")]
+    NotSignedIn,
+    #[error("Incorrect master password")]
+    WrongMasterPassword,
+    #[error("Unlock failed")]
+    UnlockFailed,
+    #[error("This account needs two-step login. Run `bw login` in a terminal once, then use \"I have a session token\".")]
+    TwoStepLogin,
+    #[error("Sign in failed")]
+    SignInFailed,
+    #[error("could not list items")]
+    ItemListUnreadable,
+    #[error("This item has no {0}")]
+    MissingField(String),
+    #[error("No vault item matches \"{0}\"")]
+    NoMatchingItem(String),
+    #[error("Title is required")]
+    TitleRequired,
+    #[error("bw generate returned nothing")]
+    GenerateEmpty,
+    #[error("{0}")]
+    Pattern(String),
+    #[error("")]
+    EmptyPattern,
+    #[error("{0}")]
+    Json(String),
+    #[error("an XML tag is not closed")]
+    XmlUnclosedTag,
+    #[error("'{0}' is not a Base64 character")]
+    BadBase64Char(char),
+    #[error("The first line cannot be hidden")]
+    FirstLineHidden,
+    #[error("The file has no \"light\" or \"dark\" colours")]
+    ThemeNoColours,
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
+    #[error("Request timed out after {0}s")]
+    Timeout(u64),
+    #[error("{0}")]
+    Request(String),
+    #[error("Could not resolve {0} - unlock the Passwords vault, or check the item name.")]
+    UnresolvedVariables(String),
+    #[error("Unsupported or invalid URL: {0}")]
+    UnsupportedUrl(String),
+    #[error("GitHub sent an answer that could not be read")]
+    UpdateAnswerUnreadable,
+    #[error("{0}")]
+    Github(String),
+    #[error("Could not reach GitHub: {0}")]
+    GithubUnreachable(String),
+    #[error("Could not read GitHub's answer: {0}")]
+    GithubRead(String),
+    #[error("The archive contains an unsafe path")]
+    UnsafeArchivePath,
+    #[error("The download does not contain {0}")]
+    MissingExe(String),
+    #[error("The release has no valid checksum file")]
+    NoChecksum,
+    #[error("The download does not match its checksum - it was not installed.")]
+    UpdateChecksumMismatch,
+    #[error("cannot find the app folder")]
+    NoAppFolder,
+    #[error("Cannot start the updater: {0}")]
+    LaunchUpdater(String),
+    #[error("That is not a valid shortcut (try Ctrl+Shift+K, F9, Alt+Left)")]
+    InvalidShortcut,
+    #[error("Already used by \"{0}\"")]
+    ShortcutInUse(String),
     #[error("{0}")]
     Cipher(String),
     #[error("{0}")]

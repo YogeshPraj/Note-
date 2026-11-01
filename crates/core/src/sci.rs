@@ -198,7 +198,7 @@ pub const STYLE_BRACELIGHT: usize = 34;
 pub const STYLE_BRACEBAD: usize = 35;
 pub const SC_MARGIN_NUMBER: isize = 1;
 pub const SC_MARGIN_SYMBOL: isize = 0;
-pub const SC_MASK_FOLDERS: isize = 0xFE00_0000_u32 as i32 as isize;
+pub const SC_MASK_FOLDERS: isize = -0x0200_0000;
 pub const SC_WRAP_WORD: isize = 1;
 pub const SC_WRAP_NONE: isize = 0;
 pub const SC_CP_UTF8: isize = 65001;
@@ -323,10 +323,10 @@ pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
     sci.send(SCI_STYLESETFORE, STYLE_BRACEBAD, rgb(0xFF, 0xFF, 0xFF));
     sci.send(SCI_STYLESETBACK, STYLE_BRACEBAD, rgb(0xE0, 0x30, 0x30));
 
-    sci.send(SCI_SETCARETFORE, rgb(theme.fg.0, theme.fg.1, theme.fg.2) as usize, 0);
+    sci.send(SCI_SETCARETFORE, crate::num::to_usize(rgb(theme.fg.0, theme.fg.1, theme.fg.2)), 0);
     sci.send(SCI_SETSELBACK, 1, rgb(theme.sel_bg.0, theme.sel_bg.1, theme.sel_bg.2));
     sci.send(SCI_SETCARETLINEVISIBLE, 1, 0);
-    sci.send(SCI_SETCARETLINEBACK, rgb(theme.caret_line.0, theme.caret_line.1, theme.caret_line.2) as usize, 0);
+    sci.send(SCI_SETCARETLINEBACK, crate::num::to_usize(rgb(theme.caret_line.0, theme.caret_line.1, theme.caret_line.2)), 0);
 
     sci.send(SCI_SETTABWIDTH, 4, 0);
     sci.send(SCI_SETUSETABS, 0, 0);
@@ -389,7 +389,7 @@ pub fn add_text<S: Send>(sci: &S, text: &str) {
 }
 
 pub fn get_text<S: Send>(sci: &S) -> String {
-    let len = length(sci).max(0) as usize;
+    let len = crate::num::to_usize(length(sci).max(0));
     let mut buf = vec![0u8; len + 1];
     sci.send(SCI_GETTEXT, len + 1, buf.as_mut_ptr() as isize);
     buf.truncate(len);

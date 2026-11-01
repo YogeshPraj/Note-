@@ -61,17 +61,16 @@ fn key_vk(name: &str) -> Option<u16> {
             return Some(c as u16);
         }
     }
-    if let Some(num) = n.strip_prefix(['F', 'f']).and_then(|d| d.parse::<u16>().ok()) {
-        if (1..=24).contains(&num) {
+    if let Some(num) = n.strip_prefix(['F', 'f']).and_then(|d| d.parse::<u16>().ok())
+        && (1..=24).contains(&num) {
             return Some(0x6F + num);
         }
-    }
     NAMED.iter().find(|(k, _)| k.eq_ignore_ascii_case(n)).map(|(_, v)| *v)
 }
 
 fn vk_key(vk: u16) -> Option<String> {
     match vk {
-        0x30..=0x39 | 0x41..=0x5A => Some((vk as u8 as char).to_string()),
+        0x30..=0x39 | 0x41..=0x5A => Some((crate::num::to_u8(vk) as char).to_string()),
         0x70..=0x87 => Some(format!("F{}", vk - 0x6F)),
         _ => NAMED.iter().find(|(_, v)| *v == vk).map(|(k, _)| k.to_string()),
     }
@@ -129,7 +128,7 @@ mod tests {
             assert_eq!(format(&c), s);
         }
         let c = parse("ctrl + shift + k").unwrap();
-        assert_eq!((c.ctrl, c.shift, c.alt, c.vk), (true, true, false, b'K' as u16));
+        assert_eq!((c.ctrl, c.shift, c.alt, c.vk), (true, true, false, u16::from(b'K')));
         assert_eq!(accel_flags(&c), 1 | 4 | 8);
     }
 

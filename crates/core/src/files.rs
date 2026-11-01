@@ -59,7 +59,7 @@ pub fn scan_files(root: &Path, limit: usize) -> Vec<PathBuf> {
     while let Some(dir) = queue.pop_front() {
         let Ok(rd) = std::fs::read_dir(&dir) else { continue };
         let mut entries: Vec<_> = rd.flatten().collect();
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
         for e in entries {
             let Ok(ft) = e.file_type() else { continue };
             let name = e.file_name().to_string_lossy().into_owned();

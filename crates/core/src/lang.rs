@@ -371,17 +371,16 @@ const EXTENSION_LABELS: &[(&str, &str)] = &[
 
 /// Lexer name for a menu label.
 pub fn lexer_of_label(label: &str) -> &'static str {
-    LANGUAGES.iter().find(|(l, _)| *l == label).map(|(_, x)| *x).unwrap_or("null")
+    LANGUAGES.iter().find(|(l, _)| *l == label).map_or("null", |(_, x)| *x)
 }
 
 /// The menu label a file gets for its lexer and extension.
 pub fn label_for(lexer: &str, path: Option<&std::path::Path>) -> &'static str {
     let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
-    if let Some((_, l)) = EXTENSION_LABELS.iter().find(|(e, _)| *e == ext) {
-        if lexer_of_label(l) == lexer {
+    if let Some((_, l)) = EXTENSION_LABELS.iter().find(|(e, _)| *e == ext)
+        && lexer_of_label(l) == lexer {
             return l;
         }
-    }
     DEFAULT_LABELS
         .iter()
         .find(|(x, _)| *x == lexer)

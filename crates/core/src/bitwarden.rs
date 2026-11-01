@@ -7,6 +7,7 @@
 //!
 //! Only one write is supported: adding an item. Editing and deleting stay in Bitwarden itself.
 
+use crate::error::Error;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -81,10 +82,10 @@ struct Session {
     auto_lock: Option<Duration>,
 }
 
-static SESSION: Mutex<Session> = Mutex::new(Session { token: None, touched: None, auto_lock: Some(Duration::from_secs(15 * 60)) });
+static SESSION: Mutex<Session> = Mutex::new(Session { token: None, touched: None, auto_lock: Some(Duration::from_mins(15)) });
 
 fn session() -> std::sync::MutexGuard<'static, Session> {
-    SESSION.lock().unwrap_or_else(|e| e.into_inner())
+    SESSION.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub fn is_unlocked() -> bool {
@@ -105,7 +106,7 @@ pub fn lock() {
 
 /// Lock after `minutes` without use (0 = never).
 pub fn set_auto_lock_minutes(minutes: u32) {
-    session().auto_lock = (minutes > 0).then(|| Duration::from_secs(minutes as u64 * 60));
+    session().auto_lock = (minutes > 0).then(|| Duration::from_secs(u64::from(minutes) * 60));
 }
 
 /// Called on a timer: locks when idle for too long. True if it just locked.
@@ -179,12 +180,9 @@ fn run(args: &[&str], env: &[(&str, &str)], stdin: Option<&str>, timeout: Durati
     };
     let stdout = out_t.and_then(|t| t.join().ok()).unwrap_or_default();
     let mut stderr = err_t.and_then(|t| t.join().ok()).unwrap_or_default();
-    match status {
-        Some(s) => Out { ok: s.success(), stdout, stderr },
-        None => {
-            stderr = format!("bw did not answer in {} seconds", timeout.as_secs());
-            Out { ok: false, stdout, stderr }
-        }
+    if let Some(s) = status { Out { ok: s.success(), stdout, stderr } } else {
+        stderr = format!("bw did not answer in {} seconds", timeout.as_secs());
+        Out { ok: false, stdout, stderr }
     }
 }
 
@@ -204,8 +202,8 @@ pub fn install_info() -> InstallInfo {
 }
 
 /// Download, verify and unpack the official CLI. `progress` gets (percent, what is happening).
-pub fn download(progress: &mut dyn FnMut(u32, &str)) -> Result<(), String> {
-    let a = asset().ok_or("Bitwarden does not publish a command-line client for this system")?;
+pub fn download(progress: &mut dyn FnMut(u32, &str)) -> Result<(), Error> {
+    let a = asset().ok_or(Error::NoBitwardenClient)?;
     let url = format!("{RELEASE_BASE}{}", a.file);
     let tmp = std::env::temp_dir().join(format!("bw-{BW_VERSION}-{}.zip", std::process::id()));
     let result = download_to(&url, &tmp, a, progress);
@@ -213,25 +211,25 @@ pub fn download(progress: &mut dyn FnMut(u32, &str)) -> Result<(), String> {
     result
 }
 
-fn download_to(url: &str, tmp: &std::path::Path, a: &Asset, progress: &mut dyn FnMut(u32, &str)) -> Result<(), String> {
+fn download_to(url: &str, tmp: &std::path::Path, a: &Asset, progress: &mut dyn FnMut(u32, &str)) -> Result<(), Error> {
     progress(0, "Downloading the Bitwarden CLI");
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(600))).build().into();
-    let mut res = agent.get(url).call().map_err(|e| format!("Download failed: {e}"))?;
+    let mut res = agent.get(url).call().map_err(|e| Error::Download(e.to_string()))?;
     let total: u64 = res.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(0);
     let mut reader = res.body_mut().as_reader();
-    let mut file = std::fs::File::create(tmp).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::create(tmp).map_err(|e| Error::Io(e.to_string()))?;
     let mut hash = Sha256::new();
     let (mut buf, mut done, mut last) = (vec![0u8; 64 * 1024], 0u64, 0u32);
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("Download failed: {e}"))?;
+        let n = reader.read(&mut buf).map_err(|e| Error::Download(e.to_string()))?;
         if n == 0 {
             break;
         }
         hash.update(&buf[..n]);
-        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        file.write_all(&buf[..n]).map_err(|e| Error::Io(e.to_string()))?;
         done += n as u64;
         if total > 0 {
-            let pct = (done * 90 / total) as u32;
+            let pct = crate::num::to_u32(done * 90 / total);
             if pct != last {
                 last = pct;
                 progress(pct, "Downloading the Bitwarden CLI");
@@ -242,7 +240,7 @@ fn download_to(url: &str, tmp: &std::path::Path, a: &Asset, progress: &mut dyn F
     // Verify BEFORE anything is extracted or executed.
     let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if digest != a.sha256 {
-        return Err(format!("Checksum mismatch - refusing to install.\nexpected {}\ngot      {digest}", a.sha256));
+        return Err(Error::ChecksumMismatch { expected: a.sha256.to_string(), got: digest });
     }
     progress(92, "Unpacking");
     install_zip(tmp, a, &digest)?;
@@ -251,13 +249,13 @@ fn download_to(url: &str, tmp: &std::path::Path, a: &Asset, progress: &mut dyn F
 }
 
 /// Unpack `zip_path` and put the `bw` binary in the bundle folder.
-fn install_zip(zip_path: &std::path::Path, a: &Asset, digest: &str) -> Result<(), String> {
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(zip_path).map_err(|e| e.to_string())?).map_err(|e| format!("The download is not a valid archive: {e}"))?;
+fn install_zip(zip_path: &std::path::Path, a: &Asset, digest: &str) -> Result<(), Error> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(zip_path).map_err(|e| Error::Io(e.to_string()))?).map_err(|e| Error::BadArchive(e.to_string()))?;
     let dir = bundle_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| Error::Io(e.to_string()))?;
     let mut found = false;
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        let mut entry = zip.by_index(i).map_err(|e| Error::BadArchive(e.to_string()))?;
         // Only the binary is wanted, and never under a path the archive chooses.
         let name = entry.name().rsplit(['/', '\\']).next().unwrap_or("").to_string();
         if name != a.bin || entry.is_dir() {
@@ -265,8 +263,8 @@ fn install_zip(zip_path: &std::path::Path, a: &Asset, digest: &str) -> Result<()
         }
         let dest = dir.join(a.bin);
         let part = dir.join(format!("{}.part", a.bin));
-        let mut out = std::fs::File::create(&part).map_err(|e| e.to_string())?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+        let mut out = std::fs::File::create(&part).map_err(|e| Error::Io(e.to_string()))?;
+        std::io::copy(&mut entry, &mut out).map_err(|e| Error::Io(e.to_string()))?;
         drop(out);
         #[cfg(unix)]
         {
@@ -274,12 +272,12 @@ fn install_zip(zip_path: &std::path::Path, a: &Asset, digest: &str) -> Result<()
             let _ = std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755));
         }
         let _ = std::fs::remove_file(&dest);
-        std::fs::rename(&part, &dest).map_err(|e| e.to_string())?;
+        std::fs::rename(&part, &dest).map_err(|e| Error::Io(e.to_string()))?;
         found = true;
         break;
     }
     if !found {
-        return Err(format!("{} was not in the download", a.bin));
+        return Err(Error::MissingInArchive(a.bin.to_string()));
     }
     let meta = serde_json::json!({ "version": BW_VERSION, "sha256": digest });
     let _ = std::fs::write(dir.join("meta.json"), meta.to_string());
@@ -333,7 +331,7 @@ fn set_token(t: String) {
     s.touched = Some(Instant::now());
 }
 
-/// Use a session the user already has (BW_SESSION in the environment). No prompts.
+/// Use a session the user already has (`BW_SESSION` in the environment). No prompts.
 pub fn adopt_env_session() -> bool {
     let Ok(tok) = std::env::var("BW_SESSION") else { return false };
     if tok.trim().is_empty() {
@@ -344,10 +342,10 @@ pub fn adopt_env_session() -> bool {
 
 /// Accept a token the user got themselves (e.g. `bw unlock --raw` in a terminal), so the master
 /// password never goes through this app.
-pub fn use_session_token(token: &str) -> Result<(), String> {
+pub fn use_session_token(token: &str) -> Result<(), Error> {
     let token = token.trim();
     if token.is_empty() {
-        return Err("No session token supplied".into());
+        return Err(Error::NoSessionToken);
     }
     let previous = session().token.take();
     set_token(token.to_string());
@@ -355,50 +353,50 @@ pub fn use_session_token(token: &str) -> Result<(), String> {
         Ok(())
     } else {
         session().token = previous;
-        Err("That session token was not accepted by bw".into())
+        Err(Error::SessionRejected)
     }
 }
 
 /// Unlock with the master password. It goes to `bw` in an environment variable of that one process.
-pub fn unlock(master_password: &str) -> Result<(), String> {
+pub fn unlock(master_password: &str) -> Result<(), Error> {
     let r = run(&["unlock", "--raw", "--passwordenv", "BW_UNLOCK_PW"], &[("BW_UNLOCK_PW", master_password)], None, Duration::from_secs(60));
     if !r.ok || r.stdout.trim().is_empty() {
         let msg = r.stderr.trim();
         return Err(if msg.to_lowercase().contains("not logged in") || msg.to_lowercase().contains("unauthenticated") {
-            "Not signed in - use \"Sign in\" first".into()
+            Error::NotSignedIn
         } else if msg.to_lowercase().contains("invalid") {
-            "Incorrect master password".into()
+            Error::WrongMasterPassword
         } else if msg.is_empty() {
-            "Unlock failed".into()
+            Error::UnlockFailed
         } else {
-            msg.to_string()
+            Error::Cli(msg.to_string())
         });
     }
     set_token(r.stdout.trim().to_string());
     Ok(())
 }
 
-pub fn login(email: &str, master_password: &str) -> Result<(), String> {
+pub fn login(email: &str, master_password: &str) -> Result<(), Error> {
     let r = run(&["login", email, "--raw", "--passwordenv", "BW_LOGIN_PW"], &[("BW_LOGIN_PW", master_password)], None, Duration::from_secs(90));
     if !r.ok || r.stdout.trim().is_empty() {
         let msg = r.stderr.trim();
         let low = msg.to_lowercase();
         return Err(if low.contains("two-step") || low.contains("two factor") || low.contains("2fa") {
-            "This account needs two-step login. Run `bw login` in a terminal once, then use \"I have a session token\".".into()
+            Error::TwoStepLogin
         } else if msg.is_empty() {
-            "Sign in failed".into()
+            Error::SignInFailed
         } else {
-            msg.to_string()
+            Error::Cli(msg.to_string())
         });
     }
     set_token(r.stdout.trim().to_string());
     Ok(())
 }
 
-pub fn sync() -> Result<(), String> {
+pub fn sync() -> Result<(), Error> {
     touch();
     let r = run(&["sync"], &[], None, Duration::from_secs(60));
-    if r.ok { Ok(()) } else { Err(nonempty(r.stderr, "sync failed")) }
+    if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(r.stderr, "sync failed"))) }
 }
 
 fn nonempty(s: String, fallback: &str) -> String {
@@ -419,9 +417,9 @@ pub struct Item {
     pub has_totp: bool,
 }
 
-pub fn parse_items(json: &str) -> Result<Vec<Item>, String> {
-    let v: Value = serde_json::from_str(json).map_err(|_| "could not list items".to_string())?;
-    let arr = v.as_array().ok_or("could not list items")?;
+pub fn parse_items(json: &str) -> Result<Vec<Item>, Error> {
+    let v: Value = serde_json::from_str(json).map_err(|_| Error::ItemListUnreadable)?;
+    let arr = v.as_array().ok_or(Error::ItemListUnreadable)?;
     Ok(arr
         .iter()
         .filter_map(|it| {
@@ -440,9 +438,9 @@ pub fn parse_items(json: &str) -> Result<Vec<Item>, String> {
         .collect())
 }
 
-pub fn list(query: &str) -> Result<Vec<Item>, String> {
+pub fn list(query: &str) -> Result<Vec<Item>, Error> {
     if !is_unlocked() {
-        return Err("locked".into());
+        return Err(Error::Locked);
     }
     touch();
     let mut args = vec!["list", "items"];
@@ -450,34 +448,34 @@ pub fn list(query: &str) -> Result<Vec<Item>, String> {
         args.extend(["--search", query]);
     }
     let r = run(&args, &[], None, QUICK);
-    parse_items(&r.stdout).map_err(|_| nonempty(r.stderr, "could not list items"))
+    parse_items(&r.stdout).map_err(|_| Error::Cli(nonempty(r.stderr, "could not list items")))
 }
 
 pub const FIELDS: [&str; 5] = ["password", "username", "totp", "uri", "notes"];
 
 /// One field of one item, fetched fresh and never cached.
-pub fn get_field(id: &str, field: &str) -> Result<String, String> {
+pub fn get_field(id: &str, field: &str) -> Result<String, Error> {
     if !is_unlocked() {
-        return Err("locked".into());
+        return Err(Error::Locked);
     }
     if !FIELDS.contains(&field) {
-        return Err("field not allowed".into());
+        return Err(Error::FieldNotAllowed);
     }
     touch();
     let r = run(&["get", field, id], &[], None, QUICK);
     if !r.ok {
-        return Err(nonempty(r.stderr, &format!("bw get {field} failed")));
+        return Err(Error::Cli(nonempty(r.stderr, &format!("bw get {field} failed"))));
     }
     let v = r.stdout.trim_end_matches(['\r', '\n']).to_string();
-    if v.is_empty() { Err(format!("This item has no {field}")) } else { Ok(v) }
+    if v.is_empty() { Err(Error::MissingField(field.to_string())) } else { Ok(v) }
 }
 
 /// "Item name" or "Item name.field" (field: password, username, totp, uri, notes) -> its value.
 /// An item is found by exact (case-insensitive) title, else the first search hit.
-pub fn resolve_reference(reference: &str) -> Result<String, String> {
+pub fn resolve_reference(reference: &str) -> Result<String, Error> {
     let (title, field) = split_reference(reference);
     let items = list(&title)?;
-    let item = items.iter().find(|i| i.title.eq_ignore_ascii_case(&title)).or_else(|| items.first()).ok_or_else(|| format!("No vault item matches \"{title}\""))?;
+    let item = items.iter().find(|i| i.title.eq_ignore_ascii_case(&title)).or_else(|| items.first()).ok_or_else(|| Error::NoMatchingItem(title.clone()))?;
     get_field(&item.id, field)
 }
 
@@ -485,11 +483,10 @@ pub fn split_reference(reference: &str) -> (String, &'static str) {
     let r = reference.trim();
     if let Some(dot) = r.rfind('.') {
         let tail = &r[dot + 1..];
-        if dot > 0 {
-            if let Some(f) = FIELDS.iter().find(|f| **f == tail) {
+        if dot > 0
+            && let Some(f) = FIELDS.iter().find(|f| **f == tail) {
                 return (r[..dot].to_string(), f);
             }
-        }
     }
     (r.to_string(), "password")
 }
@@ -505,10 +502,10 @@ pub struct NewItem {
     pub notes: String,
 }
 
-pub fn create_payload(item: &NewItem) -> Result<String, String> {
+pub fn create_payload(item: &NewItem) -> Result<String, Error> {
     let title = item.title.trim();
     if title.is_empty() {
-        return Err("Title is required".into());
+        return Err(Error::TitleRequired);
     }
     let opt = |s: &str| if s.is_empty() { Value::Null } else { Value::String(s.to_string()) };
     let uris = if item.url.trim().is_empty() { Value::Null } else { serde_json::json!([{ "match": null, "uri": item.url.trim() }]) };
@@ -524,14 +521,14 @@ pub fn create_payload(item: &NewItem) -> Result<String, String> {
 
 /// Add a login to the vault. The item goes to `bw` on stdin, not on the command line, where any
 /// other program could read it.
-pub fn create_item(item: &NewItem) -> Result<(), String> {
+pub fn create_item(item: &NewItem) -> Result<(), Error> {
     if !is_unlocked() {
-        return Err("locked".into());
+        return Err(Error::Locked);
     }
     touch();
     let b64 = create_payload(item)?;
     let r = run(&["create", "item"], &[], Some(&b64), Duration::from_secs(45));
-    if r.ok { Ok(()) } else { Err(nonempty(r.stderr, "bw create item failed")) }
+    if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(r.stderr, "bw create item failed"))) }
 }
 
 pub struct GenOpts {
@@ -559,15 +556,15 @@ pub fn generate_args(o: &GenOpts) -> Vec<String> {
 }
 
 /// A password from Bitwarden's own generator (no generator of our own to get wrong).
-pub fn generate(o: &GenOpts) -> Result<String, String> {
+pub fn generate(o: &GenOpts) -> Result<String, Error> {
     let args = generate_args(o);
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let r = run(&refs, &[], None, QUICK);
     if !r.ok {
-        return Err(nonempty(r.stderr, "bw generate failed"));
+        return Err(Error::Cli(nonempty(r.stderr, "bw generate failed")));
     }
     let v = r.stdout.trim_end_matches(['\r', '\n']).to_string();
-    if v.is_empty() { Err("bw generate returned nothing".into()) } else { Ok(v) }
+    if v.is_empty() { Err(Error::GenerateEmpty) } else { Ok(v) }
 }
 
 #[cfg(test)]

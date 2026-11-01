@@ -1,6 +1,6 @@
 //! Keeping a copied password from lingering on the clipboard.
 //!
-//! A password copied from the vault is remembered only as a fingerprint (a digest), cleared after [SECRET_TTL] if the
+//! A password copied from the vault is remembered only as a fingerprint (a digest), cleared after [`SECRET_TTL`] if the
 //! clipboard still holds it, and kept out of the clipboard history. No toolkit in here; the shell talks to the real clipboard.
 
 use std::time::{Duration, Instant};

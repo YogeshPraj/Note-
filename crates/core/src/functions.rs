@@ -60,12 +60,11 @@ pub fn extract(text: &str, lexer: &str) -> Vec<Entry> {
             }
         }
         for (re, prefix) in &compiled {
-            if let Ok(Some(c)) = re.captures(line) {
-                if let Some(m) = c.get(1) {
+            if let Ok(Some(c)) = re.captures(line)
+                && let Some(m) = c.get(1) {
                     out.push(Entry { line: i, name: format!("{prefix}{}", m.as_str().trim()) });
                     break;
                 }
-            }
         }
     }
     out

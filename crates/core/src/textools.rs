@@ -1,11 +1,13 @@
 //! Text tools: Base64, URL encoding, and JSON / XML formatting.
 
+use crate::error::Error;
+
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 pub fn base64_encode(data: &[u8]) -> String {
     let mut out = String::new();
     for chunk in data.chunks(3) {
-        let n = (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | *chunk.get(2).unwrap_or(&0) as u32;
+        let n = u32::from(chunk[0]) << 16 | u32::from(*chunk.get(1).unwrap_or(&0)) << 8 | u32::from(*chunk.get(2).unwrap_or(&0));
         out.push(B64[(n >> 18) as usize & 63] as char);
         out.push(B64[(n >> 12) as usize & 63] as char);
         out.push(if chunk.len() > 1 { B64[(n >> 6) as usize & 63] as char } else { '=' });
@@ -14,7 +16,7 @@ pub fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-pub fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+pub fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
     let mut out = Vec::new();
     let (mut acc, mut bits) = (0u32, 0);
     for c in text.chars().filter(|c| !c.is_whitespace()) {
@@ -27,12 +29,12 @@ pub fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
             '_' => '/',
             c => c,
         };
-        let v = B64.iter().position(|b| *b as char == c).ok_or_else(|| format!("'{c}' is not a Base64 character"))? as u32;
+        let v = crate::num::to_u32(B64.iter().position(|b| *b as char == c).ok_or(Error::BadBase64Char(c))?);
         acc = acc << 6 | v;
         bits += 6;
         if bits >= 8 {
             bits -= 8;
-            out.push((acc >> bits) as u8);
+            out.push(crate::num::to_u8(acc >> bits));
             acc &= (1 << bits) - 1;
         }
     }
@@ -71,18 +73,18 @@ pub fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-pub fn json_pretty(text: &str) -> Result<String, String> {
+pub fn json_pretty(text: &str) -> Result<String, Error> {
     use serde::Serialize;
-    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| Error::Json(e.to_string()))?;
     let mut out = Vec::new();
     let mut ser = serde_json::Serializer::with_formatter(&mut out, serde_json::ser::PrettyFormatter::with_indent(b"    "));
-    v.serialize(&mut ser).map_err(|e| e.to_string())?;
-    String::from_utf8(out).map_err(|e| e.to_string())
+    v.serialize(&mut ser).map_err(|e| Error::Json(e.to_string()))?;
+    String::from_utf8(out).map_err(|_| Error::NotUtf8)
 }
 
-pub fn json_minify(text: &str) -> Result<String, String> {
-    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    serde_json::to_string(&v).map_err(|e| e.to_string())
+pub fn json_minify(text: &str) -> Result<String, Error> {
+    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| Error::Json(e.to_string()))?;
+    serde_json::to_string(&v).map_err(|e| Error::Json(e.to_string()))
 }
 
 #[derive(Debug, PartialEq)]
@@ -94,7 +96,7 @@ enum Tok<'a> {
     Text(&'a str),
 }
 
-fn tokens(xml: &str) -> Result<Vec<Tok<'_>>, String> {
+fn tokens(xml: &str) -> Result<Vec<Tok<'_>>, Error> {
     let mut out = Vec::new();
     let mut rest = xml;
     while !rest.is_empty() {
@@ -108,8 +110,8 @@ fn tokens(xml: &str) -> Result<Vec<Tok<'_>>, String> {
             } else {
                 ">"
             };
-            let end = r.find(end_marker).ok_or("an XML tag is not closed")? + end_marker.len();
-            let tag = &rest[..end + 1];
+            let end = r.find(end_marker).ok_or(Error::XmlUnclosedTag)? + end_marker.len();
+            let tag = &rest[..=end];
             rest = &rest[end + 1..];
             out.push(if tag.starts_with("</") {
                 Tok::Close(tag)
@@ -127,7 +129,7 @@ fn tokens(xml: &str) -> Result<Vec<Tok<'_>>, String> {
     Ok(out)
 }
 
-pub fn xml_pretty(text: &str) -> Result<String, String> {
+pub fn xml_pretty(text: &str) -> Result<String, Error> {
     let toks: Vec<Tok> = tokens(text)?.into_iter().filter(|t| !matches!(t, Tok::Text(s) if s.trim().is_empty())).collect();
     let (mut out, mut depth, mut i) = (Vec::<String>::new(), 0usize, 0usize);
     let pad = |d: usize| "    ".repeat(d);
@@ -155,7 +157,7 @@ pub fn xml_pretty(text: &str) -> Result<String, String> {
     Ok(out.join("\n"))
 }
 
-pub fn xml_minify(text: &str) -> Result<String, String> {
+pub fn xml_minify(text: &str) -> Result<String, Error> {
     Ok(tokens(text)?
         .into_iter()
         .filter(|t| !matches!(t, Tok::Text(s) if s.trim().is_empty()))

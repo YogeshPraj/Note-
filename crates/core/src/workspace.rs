@@ -3,7 +3,7 @@
 //! Portable: it only talks to Scintilla through `sci::Send` and to the user
 //! through the `Ui` trait, so the same logic drives the Win32, GTK and Cocoa
 //! shells. One Scintilla view is shared by all tabs; each tab owns a Scintilla
-//! *document* that is swapped in with SCI_SETDOCPOINTER (this is how
+//! *document* that is swapped in with `SCI_SETDOCPOINTER` (this is how
 //! Notepad++ does it too), which keeps undo history and lexer state per tab.
 
 use super::bookmarks;
@@ -39,7 +39,7 @@ pub trait Ui {
     fn confirm_save(&self, name: &str) -> Confirm;
     fn ask_yes_no(&self, msg: &str) -> bool;
     /// Move a file to the Recycle Bin.
-    fn recycle(&self, path: &Path) -> Result<(), String>;
+    fn recycle(&self, path: &Path) -> Result<(), crate::error::Error>;
     fn error(&self, msg: &str);
     /// Ask for the profile's password (or recovery key). On success `vault.dek` is set.
     fn unlock(&self, vault: &mut crypto::Vault, what: &str) -> bool;
@@ -319,8 +319,7 @@ fn lang_for(path: &Path) -> &'static str {
     }
     path.extension()
         .and_then(|e| e.to_str())
-        .map(lexer::lexer_for_extension)
-        .unwrap_or("null")
+        .map_or("null", lexer::lexer_for_extension)
 }
 
 fn file_title(path: &Path) -> String {
@@ -432,13 +431,13 @@ impl<S: Send> Workspace<S> {
 
     /// Move the active tab one place (negative = left), keeping it active.
     pub fn move_tab(&mut self, delta: isize) -> bool {
-        let to = self.active as isize + delta;
-        if to < 0 || to as usize >= self.tabs.len() {
+        let to = crate::num::to_isize(self.active) + delta;
+        if to < 0 || crate::num::to_usize(to) >= self.tabs.len() {
             return false;
         }
         let tab = self.tabs.remove(self.active);
-        self.tabs.insert(to as usize, tab);
-        self.active = to as usize;
+        self.tabs.insert(crate::num::to_usize(to), tab);
+        self.active = crate::num::to_usize(to);
         true
     }
 
@@ -447,14 +446,14 @@ impl<S: Send> Workspace<S> {
     fn style_view(&self, v: &S, mini: bool) {
         let theme = &self.theme;
         sci::configure(v, &self.settings.font, self.settings.font_size as isize, theme);
-        v.send(sci::SCI_SETTABWIDTH, self.settings.tab_width as usize, 0);
-        v.send(sci::SCI_SETUSETABS, !self.settings.use_spaces as usize, 0);
-        v.send(sci::SCI_SETCARETLINEVISIBLE, self.settings.caret_line as usize, 0);
+        v.send(sci::SCI_SETTABWIDTH, crate::num::to_usize(self.settings.tab_width), 0);
+        v.send(sci::SCI_SETUSETABS, usize::from(!self.settings.use_spaces), 0);
+        v.send(sci::SCI_SETCARETLINEVISIBLE, usize::from(self.settings.caret_line), 0);
         if mini {
             for margin in 0..3 {
                 v.send(sci::SCI_SETMARGINWIDTHN, margin, 0);
             }
-            v.send(sci::SCI_SETZOOM, (-9i32) as usize, 0);
+            v.send(sci::SCI_SETZOOM, crate::num::to_usize(-9i32), 0);
             v.send(sci::SCI_SETWRAPMODE, sci::SC_WRAP_CHAR, 0);
             v.send(sci::SCI_SETCARETSTYLE, 0, 0);
             v.send(sci::SCI_SETCARETLINEVISIBLE, 0, 0);
@@ -468,16 +467,16 @@ impl<S: Send> Workspace<S> {
                 v.send(sci::SCI_SETMARGINWIDTHN, margin, width);
             }
             // Vertical guide line at the chosen column.
-            v.send(sci::SCI_SETEDGEMODE, (self.settings.edge_column > 0) as usize, 0);
-            v.send(sci::SCI_SETEDGECOLUMN, self.settings.edge_column.max(0) as usize, 0);
-            v.send(sci::SCI_SETEDGECOLOUR, sci::rgb(theme.line_no_fg.0, theme.line_no_fg.1, theme.line_no_fg.2) as usize, 0);
+            v.send(sci::SCI_SETEDGEMODE, usize::from(self.settings.edge_column > 0), 0);
+            v.send(sci::SCI_SETEDGECOLUMN, crate::num::to_usize(self.settings.edge_column.max(0)), 0);
+            v.send(sci::SCI_SETEDGECOLOUR, crate::num::to_usize(sci::rgb(theme.line_no_fg.0, theme.line_no_fg.1, theme.line_no_fg.2)), 0);
         }
         // Find marks: amber box. Smart highlight: green box (Notepad++ style).
         for (ind, rgb, alpha) in [(search::INDIC_FIND, (0xFF, 0xB0, 0x00), 110), (search::INDIC_SMART, (0x4C, 0xC9, 0x5A), 90)]
             .into_iter()
             .chain((0..search::STYLE_SLOTS).map(|i| (search::style_indicator(i), search::STYLE_COLOURS[i], 100)))
         {
-            v.send(sci::SCI_INDICSETSTYLE, ind, sci::INDIC_STRAIGHTBOX as isize);
+            v.send(sci::SCI_INDICSETSTYLE, ind, crate::num::to_isize(sci::INDIC_STRAIGHTBOX));
             v.send(sci::SCI_INDICSETFORE, ind, sci::rgb(rgb.0, rgb.1, rgb.2));
             v.send(sci::SCI_INDICSETALPHA, ind, alpha);
             v.send(sci::SCI_INDICSETOUTLINEALPHA, ind, 200);
@@ -522,7 +521,7 @@ impl<S: Send> Workspace<S> {
         let main_vis = self.send(sci::SCI_LINESONSCREEN, 0, 0).max(1);
         let mini_vis = m.send(sci::SCI_LINESONSCREEN, 0, 0).max(1);
         let first = if total <= mini_vis { 0 } else { main_first * (total - mini_vis) / (total - main_vis).max(1) };
-        m.send(sci::SCI_SETFIRSTVISIBLELINE, first.max(0) as usize, 0);
+        m.send(sci::SCI_SETFIRSTVISIBLELINE, crate::num::to_usize(first.max(0)), 0);
     }
 
     /// Is the active tab a Markdown document (so the Markdown toolbar applies)?
@@ -540,7 +539,7 @@ impl<S: Send> Workspace<S> {
             return Some("Select a single block of text first".into());
         }
         let text = sci::get_text(&self.sci);
-        let sel = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize);
+        let sel = (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
         let eol = match self.tabs[self.active].eol {
             Eol::Crlf => "\r\n",
             Eol::Lf => "\n",
@@ -551,40 +550,40 @@ impl<S: Send> Workspace<S> {
         self.send(sci::SCI_SETTARGETSTART, edit.start, 0);
         self.send(sci::SCI_SETTARGETEND, edit.end, 0);
         self.send(sci::SCI_REPLACETARGET, edit.text.len(), edit.text.as_ptr() as isize);
-        self.send(sci::SCI_SETSEL, edit.sel.0, edit.sel.1 as isize);
+        self.send(sci::SCI_SETSEL, edit.sel.0, crate::num::to_isize(edit.sel.1));
         self.send(sci::SCI_ENDUNDOACTION, 0, 0);
         None
     }
 
     /// The document line at the top of the editor (wrapped lines count once).
     pub fn top_doc_line(&self) -> usize {
-        let visible = self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize;
-        self.send(sci::SCI_DOCLINEFROMVISIBLE, visible, 0).max(0) as usize
+        let visible = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
+        crate::num::to_usize(self.send(sci::SCI_DOCLINEFROMVISIBLE, visible, 0).max(0))
     }
 
     /// Scroll the editor so document line `line` is at the top.
     pub fn set_top_doc_line(&self, line: usize) {
-        let visible = self.send(sci::SCI_VISIBLEFROMDOCLINE, line, 0).max(0) as usize;
+        let visible = crate::num::to_usize(self.send(sci::SCI_VISIBLEFROMDOCLINE, line, 0).max(0));
         self.send(sci::SCI_SETFIRSTVISIBLELINE, visible, 0);
         self.sync_minimap();
     }
 
     pub fn line_total(&self) -> usize {
-        sci::line_count(&self.sci).max(1) as usize
+        crate::num::to_usize(sci::line_count(&self.sci).max(1))
     }
 
     /// Scroll the main view so document line `line` (0-based) is centred.
     pub fn scroll_to_line(&self, line: usize) {
-        let vis = self.send(sci::SCI_LINESONSCREEN, 0, 0).max(1) as usize;
+        let vis = crate::num::to_usize(self.send(sci::SCI_LINESONSCREEN, 0, 0).max(1));
         self.send(sci::SCI_SETFIRSTVISIBLELINE, line.saturating_sub(vis / 2), 0);
         self.sync_minimap();
     }
 
     /// Update the smart highlight if the selection or document size changed.
     pub fn update_smart(&mut self) {
-        let a = self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize;
-        let b = self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize;
-        let key = (a, b, sci::length(&self.sci).max(0) as usize);
+        let a = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0));
+        let b = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0));
+        let key = (a, b, crate::num::to_usize(sci::length(&self.sci).max(0)));
         if !self.is_whiteboard() {
             search::highlight_braces(&self.sci);
         }
@@ -623,8 +622,8 @@ impl<S: Send> Workspace<S> {
             return;
         }
         let dirty = self.send(sci::SCI_GETMODIFY, 0, 0) != 0;
-        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-        let top = self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize;
+        let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+        let top = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
         let t = &mut self.tabs[self.active];
         t.dirty = dirty;
         t.caret = caret;
@@ -768,7 +767,7 @@ impl<S: Send> Workspace<S> {
         };
         let (text, eol) = doc::decode_with(&bytes, enc);
         let had_path = t.path.is_some();
-        let (caret, top) = (t.caret, self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize);
+        let (caret, top) = (t.caret, crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0)));
         let was_read_only = self.is_read_only();
         self.set_read_only(false);
         self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
@@ -785,7 +784,7 @@ impl<S: Send> Workspace<S> {
         if let Some(p) = t.path.clone() {
             t.disk = stamp_of(&p);
         }
-        let len = sci::length(&self.sci).max(0) as usize;
+        let len = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
         true
@@ -811,8 +810,8 @@ impl<S: Send> Workspace<S> {
             Eol::Cr => "\r",
         };
         let (lang, label) = (t.lang, t.lang_label);
-        let tab = self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1) as usize;
-        let edge = self.settings.edge_column.max(0) as usize;
+        let tab = crate::num::to_usize(self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1));
+        let edge = crate::num::to_usize(self.settings.edge_column.max(0));
         let s = &self.sci;
         let has_selection = self.send(sci::SCI_GETSELECTIONSTART, 0, 0) != self.send(sci::SCI_GETSELECTIONEND, 0, 0);
         let lines = |scope, f: &dyn Fn(&str) -> String| edit::apply_lines(s, scope, f);
@@ -877,11 +876,11 @@ impl<S: Send> Workspace<S> {
     /// "Block Comment": wrap the selection (or, with none, the current line from its first
     /// non-blank character) in the language's start and end symbols.
     fn stream_comment(&mut self, syn: edit::Comments) -> bool {
-        let (mut a, mut b) = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize);
+        let (mut a, mut b) = (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
         if a == b {
-            let line = self.send(sci::SCI_LINEFROMPOSITION, a, 0) as usize;
-            a = self.send(sci::SCI_GETLINEINDENTPOSITION, line, 0).max(0) as usize;
-            b = self.send(sci::SCI_GETLINEENDPOSITION, line, 0).max(0) as usize;
+            let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, a, 0));
+            a = crate::num::to_usize(self.send(sci::SCI_GETLINEINDENTPOSITION, line, 0).max(0));
+            b = crate::num::to_usize(self.send(sci::SCI_GETLINEENDPOSITION, line, 0).max(0));
             if b <= a {
                 return false;
             }
@@ -889,22 +888,22 @@ impl<S: Send> Workspace<S> {
         let text = sci::get_text(&self.sci);
         let wrapped = edit::stream_comment(&text[a..b], syn.start, syn.end);
         self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
-        self.send(sci::SCI_SETTARGETRANGE, a, b as isize);
+        self.send(sci::SCI_SETTARGETRANGE, a, crate::num::to_isize(b));
         self.send(sci::SCI_REPLACETARGET, wrapped.len(), wrapped.as_ptr() as isize);
-        self.send(sci::SCI_SETSEL, a + syn.start.len() + 1, (a + wrapped.len() - syn.end.len() - 1) as isize);
+        self.send(sci::SCI_SETSEL, a + syn.start.len() + 1, crate::num::to_isize(a + wrapped.len() - syn.end.len() - 1));
         self.send(sci::SCI_ENDUNDOACTION, 0, 0);
         true
     }
 
     /// "Block Uncomment": remove the comment around or inside the selection.
     fn stream_uncomment(&mut self, syn: edit::Comments) -> bool {
-        let (a, b) = (self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize);
+        let (a, b) = (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
         let text = sci::get_text(&self.sci);
         let Some((s, e, inner)) = edit::undo_stream_comment(&text, (a, b), syn.start, syn.end) else { return false };
         self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
-        self.send(sci::SCI_SETTARGETRANGE, s, e as isize);
+        self.send(sci::SCI_SETTARGETRANGE, s, crate::num::to_isize(e));
         self.send(sci::SCI_REPLACETARGET, inner.len(), inner.as_ptr() as isize);
-        self.send(sci::SCI_SETSEL, s, (s + inner.len()) as isize);
+        self.send(sci::SCI_SETSEL, s, crate::num::to_isize(s + inner.len()));
         self.send(sci::SCI_ENDUNDOACTION, 0, 0);
         true
     }
@@ -923,7 +922,7 @@ impl<S: Send> Workspace<S> {
             Eol::Lf => "\n",
             Eol::Cr => "\r",
         };
-        let result: Result<String, String> = match op {
+        let result: Result<String, crate::error::Error> = match op {
             TextTool::Base64Encode => Ok(textools::base64_encode(input.as_bytes())),
             TextTool::Base64Decode => textools::base64_decode(&input).map(|b| String::from_utf8_lossy(&b).into_owned()),
             TextTool::UrlEncode => Ok(textools::url_encode(&input)),
@@ -938,9 +937,9 @@ impl<S: Send> Workspace<S> {
             Err(e) => return Some(format!("Cannot convert: {e}")),
         };
         let (start, end) = if whole {
-            (0, sci::length(&self.sci).max(0) as usize)
+            (0, crate::num::to_usize(sci::length(&self.sci).max(0)))
         } else {
-            (self.send(sci::SCI_GETSELECTIONSTART, 0, 0) as usize, self.send(sci::SCI_GETSELECTIONEND, 0, 0) as usize)
+            (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0)))
         };
         self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
         self.send(sci::SCI_SETTARGETSTART, start, 0);
@@ -971,14 +970,14 @@ impl<S: Send> Workspace<S> {
     /// caret as a stream or (for `column`) a rectangle.
     pub fn begin_end_select(&mut self, column: bool) -> Option<String> {
         let doc = self.tabs[self.active].doc;
-        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+        let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
         match self.select_anchor.take() {
             Some((d, anchor)) if d == doc => {
                 if column {
                     self.send(sci::SCI_SETRECTANGULARSELECTIONANCHOR, anchor, 0);
                     self.send(sci::SCI_SETRECTANGULARSELECTIONCARET, caret, 0);
                 } else {
-                    self.send(sci::SCI_SETSEL, anchor, caret as isize);
+                    self.send(sci::SCI_SETSEL, anchor, crate::num::to_isize(caret));
                 }
                 None
             }
@@ -992,14 +991,14 @@ impl<S: Send> Workspace<S> {
     /// The lines the column editor works on, and the character column it inserts at.
     fn column_target(&self) -> (usize, usize, usize) {
         let text = sci::get_text(&self.sci);
-        let a = self.send(sci::SCI_GETANCHOR, 0, 0).max(0) as usize;
-        let c = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
+        let a = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
+        let c = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
         let col_of = |pos: usize| {
-            let line = self.send(sci::SCI_LINEFROMPOSITION, pos, 0) as usize;
-            let start = self.send(sci::SCI_POSITIONFROMLINE, line, 0) as usize;
+            let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, pos, 0));
+            let start = crate::num::to_usize(self.send(sci::SCI_POSITIONFROMLINE, line, 0));
             text.get(start..pos).map_or(0, |s| s.chars().count())
         };
-        let (la, lc) = (self.send(sci::SCI_LINEFROMPOSITION, a, 0) as usize, self.send(sci::SCI_LINEFROMPOSITION, c, 0) as usize);
+        let (la, lc) = (crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, a, 0)), crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, c, 0)));
         (la.min(lc), la.max(lc), col_of(a).min(col_of(c)))
     }
 
@@ -1013,8 +1012,8 @@ impl<S: Send> Workspace<S> {
             (None, None) => return Some("Nothing to insert".into()),
         };
         let doc = sci::get_text(&self.sci);
-        let start = self.send(sci::SCI_POSITIONFROMLINE, first, 0) as usize;
-        let end = self.send(sci::SCI_GETLINEENDPOSITION, last, 0) as usize;
+        let start = crate::num::to_usize(self.send(sci::SCI_POSITIONFROMLINE, first, 0));
+        let end = crate::num::to_usize(self.send(sci::SCI_GETLINEENDPOSITION, last, 0));
         let old = &doc[start..end];
         let eol = match self.tabs[self.active].eol {
             Eol::Crlf => "\r\n",
@@ -1031,7 +1030,7 @@ impl<S: Send> Workspace<S> {
         self.send(sci::SCI_SETTARGETEND, end, 0);
         self.send(sci::SCI_REPLACETARGET, new.len(), new.as_ptr() as isize);
         self.send(sci::SCI_ENDUNDOACTION, 0, 0);
-        self.send(sci::SCI_SETSEL, start, (start + new.len()) as isize);
+        self.send(sci::SCI_SETSEL, start, crate::num::to_isize(start + new.len()));
         None
     }
 
@@ -1058,25 +1057,25 @@ impl<S: Send> Workspace<S> {
             Eol::Lf => "\n",
             Eol::Cr => "\r",
         };
-        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-        let line = self.send(sci::SCI_LINEFROMPOSITION, caret, 0) as usize;
-        let at = if above {
+        let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+        let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, caret, 0));
+        let at = crate::num::to_usize(if above {
             self.send(sci::SCI_POSITIONFROMLINE, line, 0)
         } else {
             self.send(sci::SCI_GETLINEENDPOSITION, line, 0)
-        } as usize;
+        });
         let text = std::ffi::CString::new(eol).unwrap_or_default();
         self.send(sci::SCI_INSERTTEXT, at, text.as_ptr() as isize);
         // The caret lands on the new blank line either way (as in Notepad++).
-        let target = if above { at as isize } else { self.send(sci::SCI_POSITIONFROMLINE, line + 1, 0) };
-        self.send(sci::SCI_GOTOPOS, target.max(0) as usize, 0);
+        let target = if above { crate::num::to_isize(at) } else { self.send(sci::SCI_POSITIONFROMLINE, line + 1, 0) };
+        self.send(sci::SCI_GOTOPOS, crate::num::to_usize(target.max(0)), 0);
     }
 
     /// Indent or dedent by one level: the selected lines, or the caret's line.
     pub fn indent(&mut self, increase: bool) {
         let multi = {
-            let a = self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize;
-            let b = self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize;
+            let a = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0));
+            let b = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0));
             self.send(sci::SCI_LINEFROMPOSITION, a, 0) != self.send(sci::SCI_LINEFROMPOSITION, b, 0)
         };
         if !increase {
@@ -1084,8 +1083,8 @@ impl<S: Send> Workspace<S> {
         } else if multi {
             self.send(sci::SCI_TAB, 0, 0);
         } else {
-            let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-            let line = self.send(sci::SCI_LINEFROMPOSITION, caret, 0) as usize;
+            let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+            let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, caret, 0));
             let width = self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1);
             let current = self.send(sci::SCI_GETLINEINDENTATION, line, 0);
             self.send(sci::SCI_SETLINEINDENTATION, line, current + width);
@@ -1097,16 +1096,16 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn set_read_only(&mut self, on: bool) {
-        self.send(sci::SCI_SETREADONLY, on as usize, 0);
+        self.send(sci::SCI_SETREADONLY, usize::from(on), 0);
     }
 
     /// Show an auto-completion list or call tip at the caret. Returns a message
     /// when there is nothing to offer.
     pub fn complete(&mut self, kind: Completion) -> Option<String> {
         let text = sci::get_text(&self.sci);
-        let caret = (self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize).min(text.len());
-        let line = self.send(sci::SCI_LINEFROMPOSITION, caret, 0) as usize;
-        let line_start = self.send(sci::SCI_POSITIONFROMLINE, line, 0) as usize;
+        let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0)).min(text.len());
+        let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, caret, 0));
+        let line_start = crate::num::to_usize(self.send(sci::SCI_POSITIONFROMLINE, line, 0));
         let before_on_line = text.get(line_start..caret).unwrap_or("");
         let show = |sci: &S, entered: usize, items: &[String]| {
             let list = std::ffi::CString::new(items.join(" ")).unwrap_or_default();
@@ -1147,7 +1146,7 @@ impl<S: Send> Workspace<S> {
                     }
                     false
                 });
-                let name = open.map(|(i, _)| complete::word_before(before_on_line, i).1).unwrap_or("");
+                let name = open.map_or("", |(i, _)| complete::word_before(before_on_line, i).1);
                 let Some(sig) = (!name.is_empty()).then(|| complete::signature_for(&text, name)).flatten() else {
                     return Some("No signature found".into());
                 };
@@ -1158,7 +1157,7 @@ impl<S: Send> Workspace<S> {
         None
     }
     pub fn path_text(&self, kind: PathText) -> Option<String> {
-        let one = |t: &Tab, f: &dyn Fn(&Path) -> String| Some(t.path.as_deref().map(f).unwrap_or_else(|| t.title.clone()));
+        let one = |t: &Tab, f: &dyn Fn(&Path) -> String| Some(t.path.as_deref().map_or_else(|| t.title.clone(), f));
         let t = &self.tabs[self.active];
         match kind {
             PathText::FullPath => t.path.as_ref().map(|p| p.display().to_string()),
@@ -1168,7 +1167,7 @@ impl<S: Send> Workspace<S> {
             PathText::AllPaths => Some(
                 self.tabs
                     .iter()
-                    .map(|t| t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| t.title.clone()))
+                    .map(|t| t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.display().to_string()))
                     .collect::<Vec<_>>()
                     .join("\r\n"),
             ),
@@ -1186,22 +1185,22 @@ impl<S: Send> Workspace<S> {
         let text = sci::get_text(&self.sci);
         let mut h: u64 = 0xcbf29ce484222325; // FNV-1a
         for b in text.bytes() {
-            h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+            h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
         }
-        (self.tabs.get(self.active).map(|t| t.doc).unwrap_or(0), text.len(), h)
+        (self.tabs.get(self.active).map_or(0, |t| t.doc), text.len(), h)
     }
 
     /// The JSON preview edited the document: take its text, as one undo step.
     pub fn replace_text(&self, text: &str) {
-        let top = self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize;
+        let top = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
         edit::replace_whole(&self.sci, text);
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
     }
 
     /// The 0-based line the caret is on.
     pub fn caret_line(&self) -> usize {
-        let pos = self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0) as usize;
-        self.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0) as usize
+        let pos = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
+        crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0))
     }
 
     /// Put the caret on 0-based `line` and select it, scrolling it into view.
@@ -1209,9 +1208,9 @@ impl<S: Send> Workspace<S> {
         let total = self.line_total();
         let line = line.min(total.saturating_sub(1));
         self.send(sci::SCI_ENSUREVISIBLE, line, 0);
-        let start = self.send(sci::SCI_POSITIONFROMLINE, line, 0).max(0) as usize;
-        let end = self.send(sci::SCI_GETLINEENDPOSITION, line, 0).max(0) as usize;
-        self.send(sci::SCI_SETSEL, start, end as isize);
+        let start = crate::num::to_usize(self.send(sci::SCI_POSITIONFROMLINE, line, 0).max(0));
+        let end = crate::num::to_usize(self.send(sci::SCI_GETLINEENDPOSITION, line, 0).max(0));
+        self.send(sci::SCI_SETSEL, start, crate::num::to_isize(end));
         self.send(sci::SCI_SCROLLCARET, 0, 0);
     }
 
@@ -1229,7 +1228,7 @@ impl<S: Send> Workspace<S> {
 
     /// Toggle the bookmark on the line containing byte position `pos` (margin click).
     pub fn toggle_bookmark_at(&self, pos: usize) {
-        let line = self.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0) as usize;
+        let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, pos, 0).max(0));
         bookmarks::toggle(&self.sci, line);
     }
 
@@ -1306,9 +1305,9 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn next_tab(&mut self, delta: isize) {
-        let n = self.tabs.len() as isize;
+        let n = crate::num::to_isize(self.tabs.len());
         if n > 1 {
-            self.activate((self.active as isize + delta).rem_euclid(n) as usize);
+            self.activate((crate::num::to_isize(self.active) + delta).rem_euclid(n) as usize);
         }
     }
 
@@ -1430,7 +1429,7 @@ impl<S: Send> Workspace<S> {
             t.dirty = false;
             return true;
         }
-        let (caret, top) = (self.tabs[self.active].caret, self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0) as usize);
+        let (caret, top) = (self.tabs[self.active].caret, crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0)));
         self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
         let was_read_only = self.is_read_only();
         self.set_read_only(false);
@@ -1444,7 +1443,7 @@ impl<S: Send> Workspace<S> {
         t.encrypted = encrypted;
         t.forced_dirty = false;
         t.dirty = false;
-        let len = sci::length(&self.sci).max(0) as usize;
+        let len = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
         self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
         true
@@ -1464,28 +1463,25 @@ impl<S: Send> Workspace<S> {
                     .and_then(|p| std::fs::read_to_string(p).ok())
                     .and_then(|t| crypto::Profile::parse(&t))
                     .filter(|p| p.fingerprint == env.profile);
-                match theirs {
-                    Some(p) => {
-                        let msg = format!(
-                            "\"{name}\" is protected by your Note++ encryption profile ({}).\n\nUse that profile here? It is copied; your password and recovery key stay the same.",
-                            p.fingerprint_display()
-                        );
-                        if !ui.ask_yes_no(&msg) {
-                            return None;
-                        }
-                        if let Err(e) = crypto::save_profile(&p) {
-                            ui.error(&format!("Cannot save the profile\n\n{e}"));
-                            return None;
-                        }
-                        self.vault.profile = Some(p);
-                    }
-                    None => {
-                        ui.error(&format!(
-                            "\"{name}\" was encrypted with profile {}, which is not set up here.\n\nRestore that profile (Settings > Encryption > Import profile...) and open the file again.",
-                            crypto::display_fingerprint(&env.profile)
-                        ));
+                if let Some(p) = theirs {
+                    let msg = format!(
+                        "\"{name}\" is protected by your Note++ encryption profile ({}).\n\nUse that profile here? It is copied; your password and recovery key stay the same.",
+                        p.fingerprint_display()
+                    );
+                    if !ui.ask_yes_no(&msg) {
                         return None;
                     }
+                    if let Err(e) = crypto::save_profile(&p) {
+                        ui.error(&format!("Cannot save the profile\n\n{e}"));
+                        return None;
+                    }
+                    self.vault.profile = Some(p);
+                } else {
+                    ui.error(&format!(
+                        "\"{name}\" was encrypted with profile {}, which is not set up here.\n\nRestore that profile (Settings > Encryption > Import profile...) and open the file again.",
+                        crypto::display_fingerprint(&env.profile)
+                    ));
+                    return None;
                 }
             }
             Some(fp) if fp != env.profile => {
@@ -1514,16 +1510,13 @@ impl<S: Send> Workspace<S> {
     /// A file's text, decrypting it when it is an encrypted file. None when the user backed out
     /// or it could not be decrypted. The last value tells whether the file was encrypted.
     fn read_text(&mut self, ui: &dyn Ui, bytes: &[u8], name: &str) -> Option<(String, Enc, Eol, bool)> {
-        match crypto::parse_envelope(bytes) {
-            Some(env) => {
-                let plain = self.decrypt_for(ui, &env, name)?;
-                let (text, _, eol) = doc::decode(plain.as_bytes());
-                Some((text, Enc::Utf8, eol, true))
-            }
-            None => {
-                let (text, enc, eol) = doc::decode(bytes);
-                Some((text, enc, eol, false))
-            }
+        if let Some(env) = crypto::parse_envelope(bytes) {
+            let plain = self.decrypt_for(ui, &env, name)?;
+            let (text, _, eol) = doc::decode(plain.as_bytes());
+            Some((text, Enc::Utf8, eol, true))
+        } else {
+            let (text, enc, eol) = doc::decode(bytes);
+            Some((text, enc, eol, false))
         }
     }
 
@@ -1722,11 +1715,10 @@ impl<S: Send> Workspace<S> {
     fn remove_tab(&mut self, i: usize, remember: bool) {
         self.activate(i);
         let (doc, is_text) = (self.tabs[i].doc, self.tabs[i].kind == TabKind::Text);
-        if remember {
-            if let Some(p) = self.tabs[i].path.clone() {
+        if remember
+            && let Some(p) = self.tabs[i].path.clone() {
                 push_recent(&mut self.closed, &p, MAX_CLOSED);
             }
-        }
         if self.tabs.len() == 1 {
             self.new_tab();
             self.tabs.remove(0);
@@ -1829,14 +1821,14 @@ impl<S: Send> Workspace<S> {
             return t.content.len();
         }
         if i == self.active {
-            return sci::length(&self.sci).max(0) as usize;
+            return crate::num::to_usize(sci::length(&self.sci).max(0));
         }
         // Put back whatever document the view was showing. The active tab's own pointer is no
         // use here: a whiteboard has none (0), and selecting 0 makes Scintilla create a stray
         // document that corrupts the view later.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
         self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
-        let n = sci::length(&self.sci).max(0) as usize;
+        let n = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_SETDOCPOINTER, 0, shown);
         n
     }
@@ -1864,7 +1856,7 @@ impl<S: Send> Workspace<S> {
 
     pub fn window_title(&self) -> String {
         let t = &self.tabs[self.active];
-        let name = t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| t.title.clone());
+        let name = t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.display().to_string());
         format!("{}{} - Note++", if self.is_dirty(self.active) { "* " } else { "" }, name)
     }
 
@@ -1881,19 +1873,19 @@ impl<S: Send> Workspace<S> {
             };
         }
         let pos = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
-        let line = self.send(sci::SCI_LINEFROMPOSITION, pos as usize, 0) + 1;
-        let col = self.send(sci::SCI_GETCOLUMN, pos as usize, 0) + 1;
+        let line = self.send(sci::SCI_LINEFROMPOSITION, crate::num::to_usize(pos), 0) + 1;
+        let col = self.send(sci::SCI_GETCOLUMN, crate::num::to_usize(pos), 0) + 1;
         // Same wording as Notepad++: the caret's position, or what is selected.
-        let tail = match self.send(sci::SCI_GETSELECTIONS, 0, 0).max(1) as usize {
-            1 if self.send(sci::SCI_GETSELECTIONEMPTY, 0, 0) != 0 => format!("Pos: {}", commafy(pos.max(0) as usize + 1)),
+        let tail = match crate::num::to_usize(self.send(sci::SCI_GETSELECTIONS, 0, 0).max(1)) {
+            1 if self.send(sci::SCI_GETSELECTIONEMPTY, 0, 0) != 0 => format!("Pos: {}", commafy(crate::num::to_usize(pos.max(0)) + 1)),
             n => {
                 let ranges: Vec<(usize, usize)> = (0..n)
-                    .map(|i| (self.send(sci::SCI_GETSELECTIONNSTART, i, 0).max(0) as usize, self.send(sci::SCI_GETSELECTIONNEND, i, 0).max(0) as usize))
+                    .map(|i| (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONNSTART, i, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONNEND, i, 0).max(0))))
                     .collect();
                 // Characters, not bytes: an accented letter or a CJK character counts once.
-                let counts: Vec<usize> = ranges.iter().map(|&(a, b)| self.send(sci::SCI_COUNTCHARACTERS, a, b as isize).max(0) as usize).collect();
+                let counts: Vec<usize> = ranges.iter().map(|&(a, b)| crate::num::to_usize(self.send(sci::SCI_COUNTCHARACTERS, a, crate::num::to_isize(b)).max(0))).collect();
                 let chars: usize = counts.iter().sum();
-                let line_of = |p: usize| self.send(sci::SCI_LINEFROMPOSITION, p, 0).max(0) as usize;
+                let line_of = |p: usize| crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, p, 0).max(0));
                 if n == 1 {
                     format!("Sel: {} | {}", commafy(chars), commafy(line_of(ranges[0].1) - line_of(ranges[0].0) + 1))
                 } else if self.send(sci::SCI_SELECTIONISRECTANGLE, 0, 0) != 0 {
@@ -1902,13 +1894,13 @@ impl<S: Send> Workspace<S> {
                     format!("Sel: {}x{}{}{}", commafy(n), commafy(widest), if same { " = " } else { " -> " }, commafy(chars))
                 } else {
                     let mut lines: Vec<(usize, usize)> = ranges.iter().map(|&(a, b)| (line_of(a), line_of(b))).collect();
-                    lines.sort();
+                    lines.sort_unstable();
                     let (mut total, mut last) = (0usize, -1isize);
                     for (first, end) in lines {
-                        let first = if first as isize <= last { (last + 1) as usize } else { first };
+                        let first = if crate::num::to_isize(first) <= last { crate::num::to_usize(last + 1) } else { first };
                         if end >= first {
                             total += end - first + 1;
-                            last = end as isize;
+                            last = crate::num::to_isize(end);
                         }
                     }
                     format!("Sel {} : {} | {}", commafy(n), commafy(chars), if n <= 99 { commafy(total) } else { "...".into() })
@@ -1916,8 +1908,8 @@ impl<S: Send> Workspace<S> {
             }
         };        Status {
             position: format!("Ln: {line}    Col: {col}    {tail}"),
-            lines: format!("lines: {}", commafy(sci::line_count(&self.sci).max(0) as usize)),
-            length: format!("length: {}", commafy(sci::length(&self.sci).max(0) as usize)),
+            lines: format!("lines: {}", commafy(crate::num::to_usize(sci::line_count(&self.sci).max(0)))),
+            length: format!("length: {}", commafy(crate::num::to_usize(sci::length(&self.sci).max(0)))),
             eol: t.eol.label().into(),
             enc: t.enc.label().into(),
             lang: t.lang_label.to_string(),
@@ -2058,11 +2050,10 @@ impl<S: Send> Workspace<S> {
         let mut declined = false;
         for st in &s.tabs {
             let path = st.path.as_ref().map(PathBuf::from);
-            if let Some(p) = &path {
-                if self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, p))) {
+            if let Some(p) = &path
+                && self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, p))) {
                     continue;
                 }
-            }
             if st.kind == "whiteboard" {
                 let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).map(|b| doc::decode(&b).0);
                 let (content, dirty) = match (&st.text, disk) {
@@ -2086,52 +2077,43 @@ impl<S: Send> Workspace<S> {
                     if declined {
                         continue;
                     }
-                    match self.decrypt_for(ui, &env, &st.title) {
-                        Some(t) => saved_text = Some(t),
-                        None => {
-                            declined = true;
-                            continue;
-                        }
+                    if let Some(t) = self.decrypt_for(ui, &env, &st.title) { saved_text = Some(t) } else {
+                        declined = true;
+                        continue;
                     }
                 }
             }
-            let idx = match &path {
-                Some(path) => match std::fs::read(path) {
-                    Ok(bytes) => {
-                        let is_env = crypto::parse_envelope(&bytes).is_some();
-                        if is_env && declined {
+            let idx = if let Some(path) = &path { match std::fs::read(path) {
+                Ok(bytes) => {
+                    let is_env = crypto::parse_envelope(&bytes).is_some();
+                    if is_env && declined {
+                        continue;
+                    }
+                    // A character set chosen with "Encode in" must survive a restart.
+                    let (text, enc, eol) = if is_env {
+                        if let Some((t, e, l, _)) = self.read_text(ui, &bytes, &file_title(path)) { (t, e, l) } else {
+                            declined = true;
                             continue;
                         }
-                        // A character set chosen with "Encode in" must survive a restart.
-                        let (text, enc, eol) = if is_env {
-                            match self.read_text(ui, &bytes, &file_title(path)) {
-                                Some((t, e, l, _)) => (t, e, l),
-                                None => {
-                                    declined = true;
-                                    continue;
-                                }
-                            }
-                        } else if matches!(enc, Enc::Cs(_)) {
-                            let (t, e) = doc::decode_with(&bytes, enc);
-                            (t, enc, e)
-                        } else {
-                            doc::decode(&bytes)
-                        };
-                        encrypted = is_env;
-                        self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
-                    }
-                    // File vanished: keep the unsaved text if we have it, otherwise skip.
-                    Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
-                    Err(_) => continue,
-                },
-                None => {
-                    let entry = st.lang.as_deref().and_then(|l| lang::LANGUAGES.iter().find(|(n, _)| *n == l));
-                    let idx = self.open_doc(st.title.clone(), None, "", enc, eol, entry.map_or("null", |e| e.1));
-                    if let Some(e) = entry {
-                        self.tabs[idx].lang_label = e.0;
-                    }
-                    idx
+                    } else if matches!(enc, Enc::Cs(_)) {
+                        let (t, e) = doc::decode_with(&bytes, enc);
+                        (t, enc, e)
+                    } else {
+                        doc::decode(&bytes)
+                    };
+                    encrypted = is_env;
+                    self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
                 }
+                // File vanished: keep the unsaved text if we have it, otherwise skip.
+                Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
+                Err(_) => continue,
+            } } else {
+                let entry = st.lang.as_deref().and_then(|l| lang::LANGUAGES.iter().find(|(n, _)| *n == l));
+                let idx = self.open_doc(st.title.clone(), None, "", enc, eol, entry.map_or("null", |e| e.1));
+                if let Some(e) = entry {
+                    self.tabs[idx].lang_label = e.0;
+                }
+                idx
             };
             if let Some(text) = &saved_text {
                 // Replacing content after the save point leaves the tab dirty, as it was.
@@ -2152,7 +2134,7 @@ fn commafy(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -2170,7 +2152,7 @@ fn unmappable_warning(enc: Enc) -> String {
 fn scene_element_count(content: &str) -> usize {
     serde_json::from_str::<serde_json::Value>(content)
         .ok()
-        .and_then(|v| v.get("elements").and_then(|e| e.as_array()).map(|e| e.iter().filter(|x| x.get("isDeleted").and_then(|d| d.as_bool()) != Some(true)).count()))
+        .and_then(|v| v.get("elements").and_then(|e| e.as_array()).map(|e| e.iter().filter(|x| x.get("isDeleted").and_then(serde_json::Value::as_bool) != Some(true)).count()))
         .unwrap_or(0)
 }
 

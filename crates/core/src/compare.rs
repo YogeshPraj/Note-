@@ -39,7 +39,7 @@ fn inline(a: &str, b: &str) -> (String, String) {
     let (mut l, mut r) = (String::new(), String::new());
     // Runs of changed characters share one <b>.
     let (mut in_l, mut in_r) = (false, false);
-    let mut open = |s: &mut String, state: &mut bool, want: bool| {
+    let open = |s: &mut String, state: &mut bool, want: bool| {
         if *state != want {
             s.push_str(if want { "<b>" } else { "</b>" });
             *state = want;

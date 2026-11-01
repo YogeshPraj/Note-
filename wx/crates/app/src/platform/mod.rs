@@ -23,9 +23,9 @@ pub trait Platform: Sync {
     /// Open `path` with a named program (a browser).
     fn open_with(&self, program: &str, path: &Path);
     /// Move a file to the trash / Recycle Bin.
-    fn recycle(&self, path: &Path) -> Result<(), String> {
+    fn recycle(&self, path: &Path) -> std::io::Result<()> {
         let _ = path;
-        Err("Moving files to the trash is not available here yet".into())
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Moving files to the trash is not available here yet"))
     }
 
     fn local_time(&self) -> DateTime {

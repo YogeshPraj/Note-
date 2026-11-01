@@ -509,7 +509,7 @@ impl App {
             Found::NotFound => "Not found".to_string(),
             Found::BadPattern(e) => format!("Invalid regular expression: {e}"),
         };
-        let outcome = |r: Result<usize, String>, what: &str| match r {
+        let outcome = |r: Result<usize, notepp_core::error::Error>, what: &str| match r {
             Ok(n) => format!("{n} {what}"),
             Err(e) => format!("Invalid regular expression: {e}"),
         };

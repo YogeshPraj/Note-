@@ -14,9 +14,9 @@ use crate::app::App;
 /// What the update threads hand to the window.
 #[derive(Default)]
 struct Shared {
-    check: Option<(bool, Result<Option<Release>, String>)>,
+    check: Option<(bool, Result<Option<Release>, notepp_core::error::Error>)>,
     pct: Option<u32>,
-    done: Option<Result<(String, PathBuf), String>>,
+    done: Option<Result<(String, PathBuf), notepp_core::error::Error>>,
 }
 
 static UPD: Mutex<Shared> = Mutex::new(Shared { check: None, pct: None, done: None });

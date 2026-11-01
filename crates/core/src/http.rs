@@ -16,6 +16,7 @@
 //! the moment the request is sent, so the editor text (and the displayed request) never holds the
 //! secret.
 
+use crate::error::Error;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::Read;
@@ -141,7 +142,7 @@ fn parse_block(lines: &[&str], b: &Block, vars: &HashMap<String, String>) -> Opt
     let mut parts = first.splitn(2, char::is_whitespace);
     let word = parts.next().unwrap_or("");
     let (method, url) = if METHODS.iter().any(|m| m.eq_ignore_ascii_case(word)) {
-        let url = parts.next().unwrap_or("").trim().split_whitespace().next().unwrap_or("");
+        let url = parts.next().unwrap_or("").split_whitespace().next().unwrap_or("");
         if url.is_empty() {
             return None;
         }
@@ -211,19 +212,16 @@ pub fn resolve_vault_refs(text: &str, cache: &mut HashMap<String, Option<String>
         }
         let reference = name[6..].trim().to_string();
         let value = cache.entry(reference.clone()).or_insert_with(|| lookup(&reference)).clone();
-        match value {
-            Some(v) => {
-                if !used.contains(&reference) {
-                    used.push(reference);
-                }
-                Some(v)
+        if let Some(v) = value {
+            if !used.contains(&reference) {
+                used.push(reference);
             }
-            None => {
-                if !missing.contains(&reference) {
-                    missing.push(reference);
-                }
-                None
+            Some(v)
+        } else {
+            if !missing.contains(&reference) {
+                missing.push(reference);
             }
+            None
         }
     })
 }
@@ -260,8 +258,8 @@ pub fn resolve_location(base: &str, loc: &str) -> String {
     if lower.starts_with("http://") || lower.starts_with("https://") {
         return loc.to_string();
     }
-    let scheme_end = base.find("://").map(|i| i + 3).unwrap_or(0);
-    let host_end = base[scheme_end..].find(['/', '?', '#']).map(|i| scheme_end + i).unwrap_or(base.len());
+    let scheme_end = base.find("://").map_or(0, |i| i + 3);
+    let host_end = base[scheme_end..].find(['/', '?', '#']).map_or(base.len(), |i| scheme_end + i);
     let origin = &base[..host_end];
     if let Some(rest) = loc.strip_prefix("//") {
         return format!("{}//{rest}", &base[..base.find("//").unwrap_or(0)]);
@@ -271,12 +269,12 @@ pub fn resolve_location(base: &str, loc: &str) -> String {
     }
     let path = &base[host_end..];
     let dir = path.split(['?', '#']).next().unwrap_or("");
-    let dir = &dir[..dir.rfind('/').map(|i| i + 1).unwrap_or(0)];
+    let dir = &dir[..dir.rfind('/').map_or(0, |i| i + 1)];
     format!("{origin}{}{loc}", if dir.is_empty() { "/" } else { dir })
 }
 
 fn host_of(url: &str) -> &str {
-    let s = url.find("://").map(|i| i + 3).unwrap_or(0);
+    let s = url.find("://").map_or(0, |i| i + 3);
     let rest = &url[s..];
     &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())]
 }
@@ -290,16 +288,16 @@ struct Raw {
     truncated: bool,
 }
 
-fn perform(method: &str, url: &str, headers: &[(String, String)], body: Option<&[u8]>) -> Result<Raw, String> {
+fn perform(method: &str, url: &str, headers: &[(String, String)], body: Option<&[u8]>) -> Result<Raw, Error> {
     let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).max_redirects(0).timeout_global(Some(TIMEOUT)).build().into();
     let mut b = ureq::http::Request::builder().method(method).uri(url);
     for (k, v) in headers {
         b = b.header(k.as_str(), v.as_str());
     }
-    let req = b.body(body.unwrap_or_default().to_vec()).map_err(|e| format!("Invalid request: {e}"))?;
+    let req = b.body(body.unwrap_or_default().to_vec()).map_err(|e| Error::InvalidRequest(e.to_string()))?;
     let mut res = agent.run(req).map_err(|e| match e {
-        ureq::Error::Timeout(_) => format!("Request timed out after {}s", TIMEOUT.as_secs()),
-        other => other.to_string(),
+        ureq::Error::Timeout(_) => Error::Timeout(TIMEOUT.as_secs()),
+        other => Error::Request(other.to_string()),
     })?;
     let status = res.status();
     let hdrs = res.headers().iter().map(|(k, v)| (k.as_str().to_string(), String::from_utf8_lossy(v.as_bytes()).into_owned())).collect();
@@ -313,7 +311,7 @@ fn perform(method: &str, url: &str, headers: &[(String, String)], body: Option<&
 }
 
 /// Run `req`. `vault(reference)` supplies `{{vault:...}}` values.
-pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Result<Response, String> {
+pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Result<Response, Error> {
     let started = Instant::now();
     let (mut cache, mut used, mut missing) = (HashMap::new(), Vec::new(), Vec::new());
     let mut res_ = |t: &str| resolve_vault_refs(t, &mut cache, &mut *vault, &mut used, &mut missing);
@@ -322,11 +320,11 @@ pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Res
     let body = req.body.as_ref().map(|b| res_(b));
     if !missing.is_empty() {
         let list: Vec<String> = missing.iter().map(|r| format!("{{{{vault:{r}}}}}")).collect();
-        return Err(format!("Could not resolve {} - unlock the Passwords vault, or check the item name.", list.join(", ")));
+        return Err(Error::UnresolvedVariables(list.join(", ")));
     }
     let lower = url.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-        return Err(format!("Unsupported or invalid URL: {}", req.url));
+        return Err(Error::UnsupportedUrl(req.url.clone()));
     }
     let has = |h: &[(String, String)], n: &str| h.iter().any(|(k, _)| k.eq_ignore_ascii_case(n));
     if !has(&headers, "user-agent") {
@@ -340,8 +338,8 @@ pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Res
     loop {
         let raw = perform(&method, &url, &headers, payload.as_deref())?;
         let location = raw.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.clone());
-        if let (Some(loc), 300..=399) = (location, raw.status) {
-            if redirects < MAX_REDIRECTS {
+        if let (Some(loc), 300..=399) = (location, raw.status)
+            && redirects < MAX_REDIRECTS {
                 redirects += 1;
                 let next = resolve_location(&url, &loc);
                 // 303, and 301/302 in practice, turn into a GET without a body.
@@ -357,7 +355,6 @@ pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Res
                 url = next;
                 continue;
             }
-        }
         let content_type = raw.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("content-type")).map(|(_, v)| v.clone()).unwrap_or_default();
         let text = is_text_type(&content_type);
         return Ok(Response {
@@ -391,7 +388,7 @@ pub fn response_json(req: &Request, res: &Response) -> String {
         "state": "done", "method": req.method, "url": req.url,
         "status": res.status, "statusText": res.status_text, "contentType": res.content_type,
         "headers": res.headers, "body": res.body, "binary": res.binary, "bytes": res.bytes,
-        "timeMs": res.time_ms as u64, "redirects": res.redirects, "truncated": res.truncated,
+        "timeMs": crate::num::to_u64(res.time_ms), "redirects": res.redirects, "truncated": res.truncated,
         "vault": res.vault_used,
     })
     .to_string()
@@ -533,7 +530,7 @@ mod tests {
     fn missing_vault_item_and_bad_urls_are_reported() {
         let req = Request { method: "GET".into(), url: "https://x.y/{{vault:Nope}}".into(), headers: vec![], body: None, name: None };
         let e = send(&req, &mut |_| None).err().unwrap();
-        assert!(e.contains("{{vault:Nope}}"), "{e}");
+        assert!(e.to_string().contains("{{vault:Nope}}"), "{e}");
         let bad = Request { method: "GET".into(), url: "ftp://x".into(), headers: vec![], body: None, name: None };
         assert!(send(&bad, &mut |_| None).is_err());
     }

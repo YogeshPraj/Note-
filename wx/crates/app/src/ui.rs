@@ -68,8 +68,8 @@ impl Ui for WxUi {
         self.message(msg, "Note++", MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion) == ID_YES
     }
 
-    fn recycle(&self, path: &Path) -> Result<(), String> {
-        crate::platform::current().recycle(path)
+    fn recycle(&self, path: &Path) -> Result<(), notepp_core::error::Error> {
+        crate::platform::current().recycle(path).map_err(|e| notepp_core::error::Error::Io(e.to_string()))
     }
 
     fn error(&self, msg: &str) {

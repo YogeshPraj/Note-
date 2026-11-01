@@ -109,9 +109,7 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
             ai += 1;
             bi += 1;
         } else if a_num {
-            if a_sign != b_sign {
-                cmp = if a_sign == 1 { 1 } else { -1 };
-            } else {
+            if a_sign == b_sign {
                 if a_sign == -1 {
                     ai += 1;
                     bi += 1;
@@ -128,9 +126,7 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                     bi += 1;
                 }
                 let (a_len, b_len) = (a_end.saturating_sub(ai), b_end.saturating_sub(bi));
-                if a_len != b_len {
-                    cmp = if a_len > b_len { a_sign } else { -a_sign };
-                } else {
+                if a_len == b_len {
                     while cmp == 0 && ai < a.len() && digit(a[ai]) && bi < b.len() && digit(b[bi]) {
                         cmp = (a[ai] as i64 - b[bi] as i64) * a_sign;
                         ai += 1;
@@ -139,7 +135,11 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                     if cmp == 0 {
                         cmp = b_zeros - a_zeros;
                     }
+                } else {
+                    cmp = if a_len > b_len { a_sign } else { -a_sign };
                 }
+            } else {
+                cmp = if a_sign == 1 { 1 } else { -1 };
             }
         } else {
             // Both are text: up to the next digit or minus sign.
@@ -199,8 +199,7 @@ fn sort_lines(text: &str, eol: &str, descending: bool) -> String {
 pub fn seed_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0x9E37_79B9_7F4A_7C15)
+        .map_or(0x9E37_79B9_7F4A_7C15, |d| crate::num::to_u64(d.as_nanos()))
         | 1
 }
 
@@ -217,7 +216,7 @@ pub fn randomize_lines(text: &str, eol: &str, seed: u64) -> String {
     map_lines(text, eol, |mut l| {
         let mut st = seed | 1;
         for i in (1..l.len()).rev() {
-            let j = (next_rand(&mut st) % (i as u64 + 1)) as usize;
+            let j = crate::num::to_usize(next_rand(&mut st) % (i as u64 + 1));
             l.swap(i, j);
         }
         l.into_iter().map(String::from).collect()
@@ -301,15 +300,12 @@ pub fn split_lines(text: &str, eol: &str, width: usize) -> String {
             let mut rest: Vec<char> = line.chars().collect();
             while rest.len() > width {
                 let cut = rest[..=width].iter().rposition(|c| *c == ' ' || *c == '\t').filter(|&p| p > 0);
-                match cut {
-                    Some(p) => {
-                        out.push(rest[..p].iter().collect());
-                        rest.drain(..=p);
-                    }
-                    None => {
-                        out.push(rest[..width].iter().collect());
-                        rest.drain(..width);
-                    }
+                if let Some(p) = cut {
+                    out.push(rest[..p].iter().collect());
+                    rest.drain(..=p);
+                } else {
+                    out.push(rest[..width].iter().collect());
+                    rest.drain(..width);
                 }
             }
             out.push(rest.into_iter().collect());
@@ -623,7 +619,7 @@ fn comments_by_lexer(lexer: &str) -> Comments {
 
 /// The comment syntax for a Language-menu label (and its lexer).
 pub fn comment_syntax(label: &str, lexer: &str) -> Comments {
-    COMMENTS_BY_LABEL.iter().find(|(l, _)| *l == label).map(|(_, c)| *c).unwrap_or_else(|| comments_by_lexer(lexer))
+    COMMENTS_BY_LABEL.iter().find(|(l, _)| *l == label).map_or_else(|| comments_by_lexer(lexer), |(_, c)| *c)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -740,12 +736,12 @@ pub fn number_sequence(n: &ColumnNumbers, count: usize) -> Vec<String> {
     let repeat = n.repeat.max(1);
     let raw: Vec<String> = (0..count)
         .map(|i| {
-            let v = n.initial.wrapping_add(n.step.wrapping_mul((i / repeat) as i64));
+            let v = n.initial.wrapping_add(n.step.wrapping_mul(crate::num::to_i64(i / repeat)));
             match n.format {
                 NumFormat::Dec => v.to_string(),
-                NumFormat::Hex => format!("{:X}", v as u64),
-                NumFormat::Oct => format!("{:o}", v as u64),
-                NumFormat::Bin => format!("{:b}", v as u64),
+                NumFormat::Hex => format!("{:X}", crate::num::to_u64(v)),
+                NumFormat::Oct => format!("{:o}", crate::num::to_u64(v)),
+                NumFormat::Bin => format!("{:b}", crate::num::to_u64(v)),
             }
         })
         .collect();
@@ -768,7 +764,7 @@ pub fn insert_at_column(lines: &[&str], col: usize, insert: &[String]) -> Vec<St
         .enumerate()
         .map(|(i, l)| {
             let chars: Vec<char> = l.chars().collect();
-            let ins = insert.get(i).map(String::as_str).unwrap_or("");
+            let ins = insert.get(i).map_or("", String::as_str);
             let head: String = chars.iter().take(col).collect();
             let pad = col.saturating_sub(chars.len());
             let tail: String = chars.iter().skip(col).collect();
@@ -815,7 +811,7 @@ pub fn format_date_time(fmt: &str, t: &DateTime) -> String {
         while i + n < chars.len() && chars[i + n] == c {
             n += 1;
         }
-        let h12 = if t.hour % 12 == 0 { 12 } else { t.hour % 12 };
+        let h12 = if t.hour.is_multiple_of(12) { 12 } else { t.hour % 12 };
         let piece = match (c, n) {
             ('y', 1..=2) => format!("{:02}", t.year.rem_euclid(100)),
             ('y', _) => format!("{:04}", t.year),
@@ -888,32 +884,32 @@ fn replace_range<S: Send>(s: &S, start: usize, end: usize, new: &str, select: bo
     s.send(sci::SCI_REPLACETARGET, new.len(), new.as_ptr() as isize);
     s.send(sci::SCI_ENDUNDOACTION, 0, 0);
     if select {
-        s.send(sci::SCI_SETSEL, start, (start + new.len()) as isize);
+        s.send(sci::SCI_SETSEL, start, crate::num::to_isize(start + new.len()));
     }
 }
 
 /// Replace the whole document as one undo step (the JSON preview writes its edits back this way).
 pub fn replace_whole<S: Send>(s: &S, new: &str) {
-    let len = sci::length(s).max(0) as usize;
+    let len = crate::num::to_usize(sci::length(s).max(0));
     replace_range(s, 0, len, new, false);
 }
 
 /// Run `f` over the selected whole lines. With no selection it covers the whole
 /// document or the caret's line, per `scope`. Returns true if the text changed.
 pub fn apply_lines<S: Send>(s: &S, scope: Scope, f: &dyn Fn(&str) -> String) -> bool {
-    let a = s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize;
-    let b = s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize;
+    let a = crate::num::to_usize(s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0));
+    let b = crate::num::to_usize(s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0));
     let empty = a == b;
     let (start, end) = if empty && scope == Scope::WholeDocument {
-        (0, sci::length(s).max(0) as usize)
+        (0, crate::num::to_usize(sci::length(s).max(0)))
     } else {
-        let la = s.send(sci::SCI_LINEFROMPOSITION, a, 0) as usize;
-        let mut lb = s.send(sci::SCI_LINEFROMPOSITION, b, 0) as usize;
+        let la = crate::num::to_usize(s.send(sci::SCI_LINEFROMPOSITION, a, 0));
+        let mut lb = crate::num::to_usize(s.send(sci::SCI_LINEFROMPOSITION, b, 0));
         // A selection that ends at column 0 does not include that line.
-        if lb > la && s.send(sci::SCI_POSITIONFROMLINE, lb, 0) as usize == b {
+        if lb > la && crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, lb, 0)) == b {
             lb -= 1;
         }
-        (s.send(sci::SCI_POSITIONFROMLINE, la, 0) as usize, s.send(sci::SCI_GETLINEENDPOSITION, lb, 0) as usize)
+        (crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, la, 0)), crate::num::to_usize(s.send(sci::SCI_GETLINEENDPOSITION, lb, 0)))
     };
     let text = sci::get_text(s);
     let old = &text[start..end];
@@ -931,13 +927,13 @@ pub fn apply_lines<S: Send>(s: &S, scope: Scope, f: &dyn Fn(&str) -> String) -> 
 /// Run `f` over exactly the selected text. With no selection it does nothing,
 /// unless `line_if_empty` asks for the caret's line instead.
 pub fn apply_range<S: Send>(s: &S, line_if_empty: bool, f: &dyn Fn(&str) -> String) -> bool {
-    let a = s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0) as usize;
-    let b = s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0) as usize;
+    let a = crate::num::to_usize(s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0));
+    let b = crate::num::to_usize(s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0));
     let (start, end) = if a != b {
         (a, b)
     } else if line_if_empty {
-        let l = s.send(sci::SCI_LINEFROMPOSITION, a, 0) as usize;
-        (s.send(sci::SCI_POSITIONFROMLINE, l, 0) as usize, s.send(sci::SCI_GETLINEENDPOSITION, l, 0) as usize)
+        let l = crate::num::to_usize(s.send(sci::SCI_LINEFROMPOSITION, a, 0));
+        (crate::num::to_usize(s.send(sci::SCI_POSITIONFROMLINE, l, 0)), crate::num::to_usize(s.send(sci::SCI_GETLINEENDPOSITION, l, 0)))
     } else {
         return false;
     };

@@ -294,12 +294,12 @@ fn tab_from_json(v: &serde_json::Value) -> Option<SessionTab> {
         title,
         path,
         text,
-        caret: v["caret"].as_u64().unwrap_or(0) as usize,
-        top: v["top"].as_u64().unwrap_or(0) as usize,
+        caret: crate::num::to_usize(v["caret"].as_u64().unwrap_or(0)),
+        top: crate::num::to_usize(v["top"].as_u64().unwrap_or(0)),
         enc: enc_key(v["encoding"].as_str().unwrap_or("UTF-8")),
         eol: eol_key(v["eol"].as_str().unwrap_or("")).into(),
         pinned: v["pinned"].as_bool().unwrap_or(false),
-        color: v["color"].as_str().and_then(|c| TAB_HEX.iter().position(|h| h.eq_ignore_ascii_case(c))).map(|i| i as u8),
+        color: v["color"].as_str().and_then(|c| TAB_HEX.iter().position(|h| h.eq_ignore_ascii_case(c))).map(crate::num::to_u8),
         encrypted,
         kind: if whiteboard { "whiteboard".into() } else { "text".into() },
         lang,
@@ -321,11 +321,10 @@ pub fn migrate_legacy_native() {
         let _ = std::fs::copy(&menu, dir.join("contextmenu.txt"));
     }
     let has_own = std::fs::read_to_string(super::settings::settings_path()).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_some_and(|v| v.get("font").is_some());
-    if !has_own {
-        if let Some(old) = std::fs::read_to_string(legacy.join("settings.json")).ok().and_then(|t| serde_json::from_str::<super::settings::Settings>(&t).ok()) {
+    if !has_own
+        && let Some(old) = std::fs::read_to_string(legacy.join("settings.json")).ok().and_then(|t| serde_json::from_str::<super::settings::Settings>(&t).ok()) {
             let _ = old.save();
         }
-    }
     let _ = std::fs::write(&marker, "");
 }
 

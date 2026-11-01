@@ -188,7 +188,7 @@ pub fn parse_hex(s: &str) -> Option<Rgb> {
         return None;
     }
     let v = u32::from_str_radix(h, 16).ok()?;
-    Some(((v >> 16) as u8, (v >> 8) as u8, v as u8))
+    Some((crate::num::to_u8(v >> 16), crate::num::to_u8((v >> 8) & 0xFF), crate::num::to_u8(v & 0xFF)))
 }
 
 pub fn to_hex(c: Rgb) -> String {

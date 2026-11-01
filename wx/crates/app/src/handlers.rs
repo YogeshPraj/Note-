@@ -64,7 +64,7 @@ impl AppearanceCommands {
 
     fn import_theme(app: &mut App) {
         let Some(p) = notepp_core::workspace::Ui::pick_open(&app.ui).into_iter().next() else { return };
-        let imported = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| {
+        let imported = std::fs::read_to_string(&p).map_err(|e| notepp_core::error::Error::Io(e.to_string())).and_then(|t| {
             let mut s = app.ws.settings.clone();
             notepp_core::tables::import_theme(&mut s, &t).map(|n| (s, n))
         });

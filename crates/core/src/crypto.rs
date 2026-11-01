@@ -137,7 +137,7 @@ fn b64d(s: &str) -> Result<Vec<u8>, Error> {
 
 /// ISO-8601 UTC timestamp, like JavaScript's `toISOString()` without the milliseconds.
 pub fn iso_now() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+    let secs = crate::num::to_i64(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()));
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     // Civil-from-days (Howard Hinnant)
     let z = days + 719_468;
@@ -158,7 +158,7 @@ pub fn iso_now() -> String {
 pub fn base32_encode(bytes: &[u8]) -> String {
     let (mut bits, mut value, mut out) = (0u32, 0u32, String::new());
     for b in bytes {
-        value = (value << 8) | *b as u32;
+        value = (value << 8) | u32::from(*b);
         bits += 8;
         while bits >= 5 {
             out.push(C32[((value >> (bits - 5)) & 31) as usize] as char);
@@ -191,7 +191,7 @@ pub fn base32_decode(text: &str) -> Result<Vec<u8>, Error> {
     let (mut bits, mut value, mut out) = (0u32, 0u32, Vec::new());
     for c in clean.chars() {
         let idx = C32.iter().position(|x| *x as char == c).ok_or(Error::BadKeyChar(c))?;
-        value = (value << 5) | idx as u32;
+        value = (value << 5) | crate::num::to_u32(idx);
         bits += 5;
         if bits >= 8 {
             out.push(((value >> (bits - 8)) & 0xFF) as u8);
@@ -290,7 +290,7 @@ pub fn unlock_with_password(p: &Profile, password: &str) -> Result<Dek, Error> {
     let e = p.wrapped_keys.iter().find(|k| k.method == "password").ok_or(Error::NoPassword)?;
     let salt = b64d(&e.salt)?;
     let kek = kek_from_password(password, &salt, e.iter.unwrap_or(ITERATIONS));
-    unwrap_dek(e, &kek).map_err(|_| Error::WrongPassword)
+    unwrap_dek(e, &kek).map_err(|()| Error::WrongPassword)
 }
 
 pub fn unlock_with_recovery(p: &Profile, key_text: &str) -> Result<Dek, Error> {
@@ -300,7 +300,7 @@ pub fn unlock_with_recovery(p: &Profile, key_text: &str) -> Result<Dek, Error> {
         return Err(Error::RecoveryKeyTooShort);
     }
     let kek = kek_from_recovery(&raw[..RECOVERY_BYTES], &b64d(&e.salt)?)?;
-    unwrap_dek(e, &kek).map_err(|_| Error::RecoveryKeyMismatch)
+    unwrap_dek(e, &kek).map_err(|()| Error::RecoveryKeyMismatch)
 }
 
 /// Replace the password. Files are not touched: the DEK is unchanged.
@@ -405,15 +405,15 @@ pub fn strength(password: &str) -> (u8, &'static str) {
         return (0, "Too short - use at least 8 characters");
     }
     let classes = [
-        password.chars().any(|c| c.is_lowercase()),
-        password.chars().any(|c| c.is_uppercase()),
+        password.chars().any(char::is_lowercase),
+        password.chars().any(char::is_uppercase),
         password.chars().any(|c| c.is_ascii_digit()),
         password.chars().any(|c| !c.is_alphanumeric()),
     ]
     .iter()
     .filter(|b| **b)
     .count();
-    let score = classes + (n >= 12) as usize + (n >= 16) as usize;
+    let score = classes + usize::from(n >= 12) + usize::from(n >= 16);
     match score {
         0..=2 => (1, "Weak - add length, capitals, digits or symbols"),
         3 => (2, "Fair"),

@@ -15,7 +15,7 @@ impl Rng {
         self.0
     }
     fn below(&mut self, n: usize) -> usize {
-        (self.next() % n.max(1) as u64) as usize
+        crate::num::to_usize((self.next() % n.max(1) as u64))
     }
 }
 
@@ -166,7 +166,7 @@ fn pure_functions_never_panic() {
 }
 
 fn r_i64(round: usize) -> i64 {
-    (round as i64 % 2000) - 1000
+    (crate::num::to_i64(round) % 2000) - 1000
 }
 
 #[test]

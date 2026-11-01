@@ -775,6 +775,9 @@ impl App {
         });
         let th = &self.ws.theme;
         self.chrome.set_theme(th.dark, th.bg, th.fg);
+        if crate::theme::set_dark(self.ws.theme.dark) {
+            self.restyle();
+        }
         self.chrome.set_checked(ID_WRAP, self.ws.wrap);
         self.chrome.set_checked(ID_THEME, self.ws.theme.dark);
         self.chrome.set_checked(ID_PREVIEW, self.preview.on);
@@ -854,6 +857,16 @@ impl App {
             pcore::Kind::Log | pcore::Kind::Http => self.stream_preview(kind, force),
         }
     }
+    /// Apply the light or dark theme to the parts wx draws and to the OS-drawn frame, menus and controls.
+    fn restyle(&mut self) {
+        use crate::theme::{self, Role};
+        crate::platform::current().set_app_dark(theme::is_dark());
+        theme::paint(&self.mdbar, Role::Surface);
+        theme::style_native(&self.mdbar);
+        crate::findpanel::restyle();
+        theme::style_native(&self.frame);
+    }
+
     fn sync_tabs(&mut self) {
         let infos = self.ws.tab_infos();
         self.chrome.set_tabs(infos, self.ws.active);

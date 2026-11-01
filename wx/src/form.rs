@@ -442,6 +442,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             t.on_text_updated(move |_| paint(&t2.get_value()));
         }
     }
+    style_dialog(&d, &form);
     init(&form);
     if let Some(id) = first_edit {
         form.focus(id);
@@ -450,4 +451,26 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     d.show_modal();
     let out = result.borrow_mut().take();
     out
+}
+
+/// Colour the dialog and its controls for the current theme (a no-op change in the light theme).
+fn style_dialog(d: &Dialog, form: &Form) {
+    use crate::theme::{self, Role};
+    theme::paint(d, Role::Surface);
+    for w in form.map.values() {
+        match w {
+            W::Label(l) => theme::paint(l, Role::Surface),
+            W::Check(c) => theme::paint(c, Role::Surface),
+            W::Radio(r) => theme::paint(r, Role::Surface),
+            W::Button(b) => theme::paint(b, Role::Surface),
+            W::Edit(t) => theme::paint(t, Role::Input),
+            W::Pw(m, p, _) => {
+                theme::paint(m, Role::Input);
+                theme::paint(p, Role::Input);
+            }
+            W::List(l) => theme::paint(l, Role::Input),
+            W::Swatch(_) => {}
+        }
+    }
+    theme::style_native(d);
 }

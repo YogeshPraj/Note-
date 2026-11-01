@@ -26,6 +26,7 @@ mod sci;
 mod state;
 mod settings_ui;
 mod tables;
+mod theme;
 mod ui;
 mod updates;
 

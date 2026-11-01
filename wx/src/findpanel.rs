@@ -87,6 +87,29 @@ fn results_visible() -> bool {
     RESULTS.with(|c| c.get()) && mode() != Mode::Mark
 }
 
+/// Recolour the panel for the current theme.
+pub fn restyle() {
+    use crate::theme::{self, Role};
+    let Some(p) = p() else { return };
+    theme::paint(&p.panel, Role::Surface);
+    let surface: [&dyn WxWidget; 22] = [
+        &p.find_lbl, &p.repl_lbl, &p.dir_lbl, &p.filt_lbl, &p.browse, &p.case, &p.word, &p.wrap, &p.regex, &p.dot, &p.ext, &p.insel, &p.next, &p.prev,
+        &p.findall, &p.count, &p.replace, &p.repl_all, &p.fif, &p.mark, &p.clear, &p.close,
+    ];
+    for w in surface {
+        theme::paint(w, Role::Surface);
+    }
+    for w in p.tab.iter() {
+        theme::paint(w, Role::Surface);
+    }
+    theme::paint(&p.status, Role::Surface);
+    theme::paint(&p.closex, Role::Surface);
+    let input: [&dyn WxWidget; 5] = [&p.find, &p.repl, &p.dir, &p.filt, &p.list];
+    for w in input {
+        theme::paint(w, Role::Input);
+    }
+    theme::style_native(&p.panel);
+}
 /// Height the panel needs in the current mode.
 pub fn height() -> i32 {
     if !visible() {

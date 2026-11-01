@@ -45,6 +45,11 @@ pub trait Platform: Sync {
     }
     fn set_topmost(&self, _window: isize, _on: bool) {}
 
+    /// Make the OS-drawn parts that follow the application (popup menus) dark or light.
+    fn set_app_dark(&self, _dark: bool) {}
+    /// Dark or light title bar for a top-level window, and the matching native theme for all its controls.
+    fn style_window(&self, _window: isize, _dark: bool) {}
+
     /// Take the native menu bar off `window` so a custom bar can draw in its place; returns the menu handle.
     fn detach_menu_bar(&self, _window: isize) -> isize {
         0

@@ -8,6 +8,7 @@ mod findpanel;
 mod menus;
 mod chrome;
 mod form;
+mod palette;
 mod preview;
 mod whiteboard;
 mod winmenu;

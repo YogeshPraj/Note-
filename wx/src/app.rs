@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
 use notepp_core::preview as pcore;
 use notepp_core::sci::{self, Theme};
@@ -230,11 +230,13 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
 
 /// One entry for menu items and toolbar buttons. Modeless windows need the shared handle, so they
 /// are opened here, with nothing borrowed.
-fn run_command(a: &Shared, id: usize) {
+pub(crate) fn run_command(a: &Shared, id: usize) {
     trace(id, "event");
     match id {
         ID_FIND => return crate::find::open_panel(a, Mode::Find),
         ID_REPLACE => return crate::find::open_panel(a, Mode::Replace),
+        ID_PALETTE => return crate::palette::open_commands(a),
+        ID_QUICKOPEN => return crate::palette::open_files(a),
         ID_FIF => return crate::find::open_panel(a, Mode::InFiles),
         ID_MARK => return crate::find::open_panel(a, Mode::Mark),
         ID_FINDNEXT | ID_FINDPREV => return crate::find::step(a, id == ID_FINDNEXT),

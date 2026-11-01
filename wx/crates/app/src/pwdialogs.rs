@@ -15,7 +15,7 @@ use notepp_core::bitwarden::{self as bw, AuthState, GenOpts, Item, NewItem};
 use wxdragon::prelude::*;
 use zeroize::Zeroizing;
 
-use crate::form::{self, ctl, Form, Kind, Spec, Values};
+use crate::widgets::form::{self, ctl, Form, Kind, Spec, Values};
 
 /// What the user chose.
 pub enum Outcome {

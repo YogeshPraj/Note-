@@ -32,7 +32,7 @@ fn pick_font(owner: &Frame, family: &str, size: i32) -> Option<(String, i32)> {
 
 /// Settings > Preferences. Returns the edited settings on OK. Laid out exactly like the Win32 shell's.
 pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
-    use crate::form::{ctl, run, Kind, Spec};
+    use crate::widgets::form::{ctl, run, Kind, Spec};
     const FONT: usize = 101;
     const SIZE: usize = 102;
     const TAB: usize = 103;
@@ -59,7 +59,7 @@ pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
         static OWNER: std::cell::RefCell<Option<Frame>> = const { std::cell::RefCell::new(None) };
     }
     OWNER.with(|o| *o.borrow_mut() = Some(*frame));
-    fn on_click(f: &crate::form::Form, id: usize) {
+    fn on_click(f: &crate::widgets::form::Form, id: usize) {
         if id == FONT_PICK {
             let size = f.text(SIZE).trim().parse().unwrap_or(11);
             let owner = OWNER.with(|o| *o.borrow());
@@ -177,7 +177,7 @@ pub struct StyleEdit {
 
 /// Settings > Style Configurator: the colours of the theme in use, as #RRGGBB. Laid out like the Win32 shell's.
 pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
-    use crate::form::{ctl, run, Kind, Spec};
+    use crate::widgets::form::{ctl, run, Kind, Spec};
     const FIRST: usize = 100; // edit i is FIRST + i
     const PICK: usize = 200; // button i is PICK + i
     const RESET: usize = 300;
@@ -185,7 +185,7 @@ pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
         static OWNER: std::cell::RefCell<Option<Frame>> = const { std::cell::RefCell::new(None) };
     }
     OWNER.with(|o| *o.borrow_mut() = Some(*frame));
-    fn on_click(f: &crate::form::Form, id: usize) {
+    fn on_click(f: &crate::widgets::form::Form, id: usize) {
         if (PICK..PICK + settings::ROLES.len()).contains(&id) {
             let edit = FIRST + (id - PICK);
             let start = settings::parse_hex(&f.text(edit)).unwrap_or((0, 0, 0));

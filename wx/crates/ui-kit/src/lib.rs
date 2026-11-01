@@ -3,6 +3,7 @@
 pub mod controls;
 pub mod data_list;
 pub mod dock;
+pub mod form;
 pub mod geom;
 pub mod menu_bar;
 pub mod native;

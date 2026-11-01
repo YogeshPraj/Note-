@@ -2,27 +2,25 @@
 //! Commands that touch windows, dialogs or panes are handled in app.rs.
 
 #![allow(unused_imports, unused_variables, unused_mut)]
-use notepp_core::bookmarks;
-use notepp_core::commands::*;
-use notepp_core::doc::{CHARSETS, Enc, Eol};
-use notepp_core::edit::{self, ColumnNumbers, NumFormat, SortKind};
-use notepp_core::files;
-use notepp_core::functions;
-use notepp_core::hash::{ALGOS, Algo};
-use notepp_core::lang::LANGUAGES;
-use notepp_core::sci::{self, Send as _, Theme};
-use notepp_core::search::{self, Hit};
-use notepp_core::session::{Session, config_dir, session_path};
-use notepp_core::settings::{self, Settings};
-use notepp_core::workspace::{CaseOp, CloseOp, Completion, Confirm, LineOp, PathText, TextTool, Ui, Workspace};
-use notepp_core::{jsonpath, mdformat, shortcuts, textools, update, view, whiteboard};
+use crate::bookmarks;
+use crate::commands::*;
+use crate::doc::{CHARSETS, Enc, Eol};
+use crate::edit::{self, ColumnNumbers, NumFormat, SortKind};
+use crate::files;
+use crate::functions;
+use crate::hash::{ALGOS, Algo};
+use crate::lang::LANGUAGES;
+use crate::sci::{self, Send as _, Theme};
+use crate::search::{self, Hit};
+use crate::session::{Session, config_dir, session_path};
+use crate::settings::{self, Settings};
+use crate::workspace::{CaseOp, CloseOp, Completion, Confirm, LineOp, PathText, TextTool, Ui, Workspace};
+use crate::{jsonpath, mdformat, shortcuts, textools, update, view, whiteboard};
 
-use crate::sci::WxSci;
 use crate::tables::*;
-use crate::ui::WxUi;
 
 /// Run command `id` if it needs nothing but the workspace. False when the shell must handle it.
-pub fn command_core(ws: &mut Workspace<WxSci>, ui: &WxUi, flash: &mut Option<String>, id: usize) -> bool {
+pub fn command_core<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash: &mut Option<String>, id: usize) -> bool {
     let sci = ws.sci;
     match id {
             ID_NEW_WB => {
@@ -86,12 +84,12 @@ pub fn command_core(ws: &mut Workspace<WxSci>, ui: &WxUi, flash: &mut Option<Str
                 let i = ws.active;
                 ws.set_tab_color(i, None);
             }
-            _ if (ID_TAB_COLOR_BASE..ID_TAB_COLOR_BASE + notepp_core::workspace::TAB_COLORS.len()).contains(&id) => {
+            _ if (ID_TAB_COLOR_BASE..ID_TAB_COLOR_BASE + crate::workspace::TAB_COLORS.len()).contains(&id) => {
                 let i = ws.active;
                 ws.set_tab_color(i, Some((id - ID_TAB_COLOR_BASE) as u8));
             }
             ID_PW_LOCK => {
-                notepp_core::bitwarden::lock();
+                crate::bitwarden::lock();
                 *flash = Some("Passwords locked".into());
             }
             ID_ENC_LOCK => {

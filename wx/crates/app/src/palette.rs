@@ -8,7 +8,7 @@ use notepp_core::files;
 use notepp_core::lang::LANGUAGES;
 
 use crate::app::Shared;
-use crate::tables::ENCODE_IN;
+use notepp_core::tables::ENCODE_IN;
 use wxdragon::prelude::WxWidget;
 use crate::widgets::quick_pick::{Item, pick};
 

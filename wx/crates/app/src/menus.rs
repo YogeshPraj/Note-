@@ -14,7 +14,7 @@ use wxdragon::prelude::Menu;
 
 use crate::menu_spec::{Entry as MenuEntry, MenuSpec};
 
-use crate::tables::*;
+use notepp_core::tables::*;
 
 /// A handle to a menu under construction (like an HMENU: cheap to copy and reuse).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

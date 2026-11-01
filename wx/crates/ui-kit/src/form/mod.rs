@@ -10,7 +10,7 @@ use wxdragon::prelude::*;
 
 mod layout;
 
-use crate::widgets::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
+use crate::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -288,7 +288,9 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
         for p in problems(&spec) {
             let line = format!("dialog '{}': {p}", spec.title);
             eprintln!("{line}");
-            crate::app::trace(0, &line);
+            if let Some(sink) = PROBLEM_SINK.get() {
+                sink(&line);
+            }
         }
     }
     let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(owner, spec.title).build());
@@ -446,7 +448,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     }
     for (sw, edit) in swatches {
         let paint = move |hex: &str| {
-            if let Some(c) = notepp_core::settings::parse_hex(hex) {
+            if let Some(c) = parse_hex(hex) {
                 sw.set_background_color(Colour::rgb(c.0, c.1, c.2));
                 sw.refresh(true, None);
             }
@@ -465,4 +467,17 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     d.show_modal();
     let out = result.borrow_mut().take();
     out
+}
+
+
+/// Where layout problems found in debug builds are reported besides stderr (the application sets this once).
+pub static PROBLEM_SINK: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+fn parse_hex(s: &str) -> Option<(u8, u8, u8)> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some(((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }

@@ -1,10 +1,10 @@
 //! Small tables and helpers shared by the generated code (copied from the Win32 shell).
 
 #![allow(dead_code)]
-use notepp_core::commands::*;
-use notepp_core::doc::Enc;
-use notepp_core::settings::Settings;
-use notepp_core::{mdformat, settings};
+use crate::commands::*;
+use crate::doc::Enc;
+use crate::settings::Settings;
+use crate::{mdformat, settings};
 
 pub const SLOT_NAMES: [&str; 5] = ["1st", "2nd", "3rd", "4th", "5th"];
 
@@ -64,13 +64,13 @@ pub const BINARY_FORMAT: &str = "Note++ Binary Text";
 
 /// The theme colours as JSON ({"light": {...}, "dark": {...}}) for export.
 pub fn theme_json(s: &Settings) -> String {
-    let side = |base: notepp_core::sci::Theme, over: &std::collections::BTreeMap<String, String>| {
+    let side = |base: crate::sci::Theme, over: &std::collections::BTreeMap<String, String>| {
         let t = settings::themed(base, over);
         let map: serde_json::Map<String, serde_json::Value> =
             settings::ROLES.iter().filter_map(|(_, k)| Some((k.to_string(), serde_json::Value::String(settings::to_hex(settings::color_of(&t, k)?))))).collect();
         serde_json::Value::Object(map)
     };
-    let v = serde_json::json!({ "light": side(notepp_core::sci::Theme::light(), &s.light_colors), "dark": side(notepp_core::sci::Theme::dark(), &s.dark_colors) });
+    let v = serde_json::json!({ "light": side(crate::sci::Theme::light(), &s.light_colors), "dark": side(crate::sci::Theme::dark(), &s.dark_colors) });
     serde_json::to_string_pretty(&v).unwrap_or_default()
 }
 
@@ -80,7 +80,7 @@ pub fn import_theme(s: &mut Settings, json: &str) -> Result<usize, String> {
     let mut taken = 0;
     for (name, dark) in [("light", false), ("dark", true)] {
         let Some(obj) = v.get(name).and_then(|x| x.as_object()) else { continue };
-        let base = if dark { notepp_core::sci::Theme::dark() } else { notepp_core::sci::Theme::light() };
+        let base = if dark { crate::sci::Theme::dark() } else { crate::sci::Theme::light() };
         let entered: Vec<(&str, String)> =
             settings::ROLES.iter().filter_map(|(_, k)| obj.get(*k).and_then(|x| x.as_str()).map(|h| (*k, h.to_string()))).collect();
         let diff = settings::diff_from(&base, &entered);

@@ -7,7 +7,7 @@ use wxdragon::prelude::*;
 
 use crate::app::App;
 use crate::command::CommandHandler;
-use crate::{settings_ui, tables};
+use crate::settings_ui;
 
 /// Exit, reload, minimap, preview and full screen.
 pub struct ViewCommands;
@@ -66,7 +66,7 @@ impl AppearanceCommands {
         let Some(p) = notepp_core::workspace::Ui::pick_open(&app.ui).into_iter().next() else { return };
         let imported = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| {
             let mut s = app.ws.settings.clone();
-            tables::import_theme(&mut s, &t).map(|n| (s, n))
+            notepp_core::tables::import_theme(&mut s, &t).map(|n| (s, n))
         });
         match imported {
             Ok((s, n)) => {

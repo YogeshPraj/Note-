@@ -41,7 +41,7 @@ pub fn goto_line(app: &Shared) {
         let Ok(a) = app.try_borrow() else { return };
         (a.frame, notepp_core::sci::line_count(&a.ws.sci).max(1) as usize)
     };
-    use crate::form::{ctl, run, Kind, Spec};
+    use crate::widgets::form::{ctl, run, Kind, Spec};
     let spec = Spec {
         title: "Go To Line",
         size: (300, 118),

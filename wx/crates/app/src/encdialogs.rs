@@ -8,7 +8,7 @@ use std::rc::Rc;
 use notepp_core::crypto::{self, Dek, Profile, Vault};
 use wxdragon::prelude::*;
 
-use crate::form::{self, ctl, Form, Kind, Spec};
+use crate::widgets::form::{self, ctl, Form, Kind, Spec};
 
 fn ask(frame: &Frame, text: &str) -> bool {
     MessageDialog::builder(frame, text, "Note++").with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion | MessageDialogStyle::NoDefault).build().show_modal() == ID_YES

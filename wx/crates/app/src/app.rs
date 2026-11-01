@@ -19,9 +19,8 @@ use crate::widgets::web_pane::WebPane;
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
 use crate::command::CommandBus;
-use crate::services::schedule::Schedule;
+use notepp_core::schedule::Schedule;
 use crate::state::{PreviewState, SearchResults, StreamState, WhiteboardState};
-use crate::dispatch;
 use crate::panels::{self, Panels};
 use crate::popups;
 use crate::findpanel::{self, Cmd, Mode};
@@ -481,7 +480,7 @@ impl App {
                 _ => Pending::SaveCopy,
             });
             return wbm::request_data(&self.wbv);
-        }        if dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
+        }        if notepp_core::dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
             trace(id, "core");
             return self.refresh();
         }

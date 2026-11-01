@@ -7,7 +7,7 @@ use notepp_core::shortcuts;
 use notepp_core::workspace::SortField;
 use wxdragon::prelude::*;
 
-use crate::form::{self, ctl, Form, Kind, Spec};
+use crate::widgets::form::{self, ctl, Form, Kind, Spec};
 
 
 // ── Windows ──────────────────────────────────────────────────────────────────

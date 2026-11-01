@@ -1,4 +1,3 @@
-//! Background services shared by the application.
+//! Application services with a toolkit-free core.
 
 pub mod clipboard;
-pub mod schedule;

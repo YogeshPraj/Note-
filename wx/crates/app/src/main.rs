@@ -1,7 +1,6 @@
 //! Note++ with a wxWidgets shell.
 
 mod app;
-mod dispatch;
 mod dialogs;
 mod encdialogs;
 mod extra;
@@ -14,7 +13,6 @@ mod menus;
 mod chrome;
 mod command;
 mod handlers;
-mod form;
 mod palette;
 mod platform;
 mod panels;
@@ -28,7 +26,6 @@ mod state;
 mod services;
 mod settings_ui;
 mod side;
-mod tables;
 mod ui;
 mod updates;
 pub use ui_kit as widgets;
@@ -39,6 +36,7 @@ fn main() {
     // Our resources carry the visual-styles manifest; the check is for programs that forgot it.
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
     sci::register_lexilla();
+    let _ = widgets::form::PROBLEM_SINK.set(|line| app::trace(0, line));
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     if args.iter().any(|a| a == "--new-instance") {
         notepp_core::session::set_standalone();

@@ -11,7 +11,7 @@ use wxdragon::prelude::*;
 use crate::command::CommandHandler;
 use crate::app::App;
 use crate::dialogs::{self, WinAction};
-use crate::form::{ctl, run, Kind, Spec};
+use crate::widgets::form::{ctl, run, Kind, Spec};
 
 const DEFAULT_CONTEXT_MENU: &str = "# Right-click menu of the editor. One command per line, as named in the Command Palette;\n\
 # a line with just - makes a separator. Save the file and the next right-click uses it.\n\
@@ -163,7 +163,7 @@ fn column_editor(app: &mut App) -> Option<String> {
     const HEX: usize = 112;
     const OCT: usize = 113;
     const BIN: usize = 114;
-    fn react(f: &crate::form::Form, _id: usize) {
+    fn react(f: &crate::widgets::form::Form, _id: usize) {
         let text = f.checked(TEXT_R);
         f.enable(TEXT, text);
         for id in [103, INIT, 105, STEP, 107, REPEAT, ZEROS, DEC, HEX, OCT, BIN] {
@@ -231,7 +231,7 @@ fn find_chars_dialog(app: &App) {
     const DOWN: usize = 122;
     const WRAP: usize = 123;
     const STATUS: usize = 130;
-    fn react(f: &crate::form::Form, _id: usize) {
+    fn react(f: &crate::widgets::form::Form, _id: usize) {
         let mine = f.checked(MY_RANGE);
         f.enable(FROM, mine);
         f.enable(TO, mine);
@@ -245,7 +245,7 @@ fn find_chars_dialog(app: &App) {
         }
     }
     let sci = app.ws.sci;
-    let apply = std::rc::Rc::new(move |v: &crate::form::Values, f: &crate::form::Form| {
+    let apply = std::rc::Rc::new(move |v: &crate::widgets::form::Values, f: &crate::widgets::form::Form| {
         let (lo, hi) = if v.checked(NON_ASCII) {
             (0x80, u32::MAX)
         } else if v.checked(ASCII) {
@@ -567,8 +567,8 @@ impl CommandHandler<App> for ExtraCommands {
                     crate::findpanel::open(mode, "", &last, &dir);
                 }
             }
-            _ if (c::ID_BROWSER_BASE..c::ID_BROWSER_BASE + crate::tables::BROWSERS.len()).contains(&id) => match app.ws.tabs[app.ws.active].path.clone() {
-                Some(p) => crate::platform::current().open_with(crate::tables::BROWSERS[id - c::ID_BROWSER_BASE].1, &p),
+            _ if (c::ID_BROWSER_BASE..c::ID_BROWSER_BASE + notepp_core::tables::BROWSERS.len()).contains(&id) => match app.ws.tabs[app.ws.active].path.clone() {
+                Some(p) => crate::platform::current().open_with(notepp_core::tables::BROWSERS[id - c::ID_BROWSER_BASE].1, &p),
                 None => app.flash = Some("Save the file first".into()),
             },
             c::ID_MONITOR => {

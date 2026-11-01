@@ -8,6 +8,8 @@ use std::rc::Rc;
 use wxdragon::event::WxEvtHandler;
 use wxdragon::prelude::*;
 
+mod layout;
+
 use crate::widgets::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -260,7 +262,35 @@ fn collect(kinds: &[(usize, Kind)], form: &Form) -> Values {
     v
 }
 
+const BTN_W: i32 = 80;
+const BTN_H: i32 = 26;
+
+/// Where OK and Cancel go: the spec's own positions, else the bottom right.
+fn button_positions(spec: &Spec) -> ((i32, i32), (i32, i32)) {
+    let by = spec.size.1 - 36;
+    spec.buttons.unwrap_or(((spec.size.0 - 2 * BTN_W - 24, by), (spec.size.0 - BTN_W - 12, by)))
+}
+
+/// Layout mistakes in spec, as text (checked in debug builds when a dialog opens).
+fn problems(spec: &Spec) -> Vec<String> {
+    let placed: Vec<layout::Placed> = spec.ctls.iter().map(|c| layout::Placed { id: c.id, rect: c.rect }).collect();
+    let buttons: Vec<(i32, i32, i32, i32)> = if spec.ok.is_empty() {
+        Vec::new()
+    } else {
+        let ((ox, oy), (cx, cy)) = button_positions(spec);
+        vec![(ox, oy, BTN_W, BTN_H), (cx, cy, BTN_W, BTN_H)]
+    };
+    layout::check(spec.size, &placed, &buttons).iter().map(|p| p.to_string()).collect()
+}
+
 pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> {
+    if cfg!(debug_assertions) {
+        for p in problems(&spec) {
+            let line = format!("dialog '{}': {p}", spec.title);
+            eprintln!("{line}");
+            crate::app::trace(0, &line);
+        }
+    }
     let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(owner, spec.title).build());
     d.set_client_size(Size::new(spec.size.0, spec.size.1));
     let pos = |r: (i32, i32, i32, i32)| (Point::new(r.0, r.1), Size::new(r.2, r.3));
@@ -341,8 +371,8 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             }
         }
     }
-    let (bw, bh, by) = (80, 26, spec.size.1 - 36);
-    let ((okx, oky), (cx, cy)) = spec.buttons.unwrap_or(((spec.size.0 - 2 * bw - 24, by), (spec.size.0 - bw - 12, by)));
+    let (bw, bh) = (BTN_W, BTN_H);
+    let ((okx, oky), (cx, cy)) = button_positions(&spec);
     let mut ok_btn: Option<Button> = None;
     let mut cancel_btn: Option<Button> = None;
     if !spec.ok.is_empty() {

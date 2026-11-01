@@ -34,6 +34,10 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 
 `side/` is the right-hand list as a strategy: each of the Character table, Clipboard history, Document list and Function list is a `Content` (columns, rows, what activating a row does), and `Side` only tracks which one is shown. It is toolkit-free and tested; `panels.rs` fills the list control from it.
 
+## Dialogs
+
+`form/` builds dialogs from a declarative `Spec` at fixed pixel positions (to match the Win32 build). `form/layout.rs` is pure: `check` finds layout mistakes (duplicate ids, controls off the edge or under OK/Cancel) and runs on every dialog in debug builds; `Flow` places rows of controls for new dialogs.
+
 ## Widgets
 
 `widgets/` holds reusable controls. Each is a thin wx panel over a toolkit-free model that is unit tested.

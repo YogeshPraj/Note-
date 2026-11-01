@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use wxdragon::event::WxEvtHandler;
 use wxdragon::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -248,6 +249,9 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             match w {
                 W::Check(c) => {
                     c.on_toggled(move |_| on(&f, id));
+                }
+                W::Radio(r) => {
+                    r.bind_internal(EventType::COMMAND_RADIOBUTTON_SELECTED, move |_| on(&f, id));
                 }
                 _ => {}
             }

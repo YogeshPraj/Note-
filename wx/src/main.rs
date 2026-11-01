@@ -2,6 +2,7 @@
 
 mod app;
 mod dispatch;
+mod extra;
 mod find;
 mod findpanel;
 mod menus;

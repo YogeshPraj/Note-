@@ -45,15 +45,18 @@ pub struct App {
     wb_dark: bool,
     wb_pending: Option<Pending>,
     mini: StyledTextCtrl,
-    stc: StyledTextCtrl,
+    pub(crate) stc: StyledTextCtrl,
     view: WebView,
     preview_on: bool,
     preview_loaded: bool,
     preview_ready: bool,
     preview_dark: bool,
     preview_key: Option<(isize, usize, u64)>,
-    chrome: Chrome,
-    menubar: MenuBar,
+    pub(crate) chrome: Chrome,
+    pub(crate) menubar: MenuBar,
+    pub(crate) postit: bool,
+    pub(crate) distraction: bool,
+    pub(crate) chrome_vis: [bool; 4],
     menus: Menus,
     /// (title, modified) of the tabs as last shown, to rebuild the strip only when it changed.
     tab_key: Vec<(String, bool, bool)>,
@@ -160,6 +163,9 @@ pub fn start(files: Vec<PathBuf>) {
         preview_dark: false,
         preview_key: None,
         chrome,
+        postit: false,
+        distraction: false,
+        chrome_vis: [true; 4],
         menubar: frame.get_menu_bar().expect("menu bar"),
         menus: menu_set,
         tab_key: Vec::new(),
@@ -386,6 +392,7 @@ impl App {
             }
             ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
             ID_NEXT_RESULT | ID_PREV_RESULT => return self.step_result(id == ID_NEXT_RESULT),
+            _ if self.extra_command(id) => {}
             ID_PREVIEW => {
                 let on = !self.preview_on;
                 self.set_preview(on);
@@ -715,6 +722,8 @@ impl App {
         self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
         self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
         self.wb_sync();
+        self.sync_chrome();
+        self.extra_ticks();
         self.menubar.check_item(ID_PREVIEW as i32, self.preview_on);
         self.preview_update(false);
         {

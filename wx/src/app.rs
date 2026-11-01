@@ -87,7 +87,24 @@ fn shortcut_overrides(s: &Settings) -> HashMap<usize, String> {
 }
 
 /// Build the window and run. Files named on the command line open as tabs.
+/// Where a second launch leaves the files it was asked to open for the running one.
+fn inbox() -> PathBuf {
+    session::config_dir().join("inbox")
+}
+
 pub fn start(files: Vec<PathBuf>) {
+    // A second launch hands its files to the running Note++ and exits.
+    let checker = if session::standalone() { None } else { SingleInstanceChecker::new(&format!("Notepp-{}", std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default()), None) };
+    if checker.as_ref().is_some_and(|c| c.is_another_running()) {
+        let dir = inbox();
+        let _ = std::fs::create_dir_all(&dir);
+        let list: Vec<String> = files.iter().map(|f| std::fs::canonicalize(f).unwrap_or_else(|_| f.clone()).display().to_string().trim_start_matches("\\\\?\\").to_string()).collect();
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let _ = std::fs::write(dir.join(format!("{stamp}.txt")), list.join("\n"));
+        // No window is created here, so the toolkit would wait forever.
+        std::process::exit(0);
+    }
+    std::mem::forget(checker);
     let settings = Settings::load();
     menus::set_shortcut_overrides(shortcut_overrides(&settings));
 
@@ -205,33 +222,19 @@ pub fn start(files: Vec<PathBuf>) {
     }));
 
     findpanel::wire(&app);
-    panels::wire(&app);
-    crate::mdbar::wire(&app);
-    app.borrow_mut().update_startup();
     {
-        // First look 8 seconds after start; then every 6 hours.
-        let first = Timer::new(&frame);
-        let a = app.clone();
-        first.on_tick(move |_| {
-            if let Ok(mut app) = a.try_borrow_mut() {
-                if app.ws.settings.auto_update {
-                    app.update_check(false);
+        // Files dropped on the window or the editor open as tabs; folders become the workspace.
+        let drop = |a: Shared| {
+            move |files: Vec<String>, _: i32, _: i32| {
+                let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
+                if let Ok(mut app) = a.try_borrow_mut() {
+                    app.open_from_outside(&paths);
                 }
+                true
             }
-        });
-        first.start(8_000, true);
-        std::mem::forget(first);
-        let again = Timer::new(&frame);
-        let a = app.clone();
-        again.on_tick(move |_| {
-            if let Ok(mut app) = a.try_borrow_mut() {
-                if app.ws.settings.auto_update {
-                    app.update_check(false);
-                }
-            }
-        });
-        again.start(6 * 60 * 60 * 1000, false);
-        std::mem::forget(again);
+        };
+        std::mem::forget(FileDropTarget::builder(&frame).with_on_drop_files(drop(app.clone())).build());
+        std::mem::forget(FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build());
     }
     {
         let mut a = app.borrow_mut();
@@ -464,6 +467,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     stream.on_tick(move |_| {
         if let Ok(mut app) = a.try_borrow_mut() {
             app.update_poll();
+            app.check_inbox();
             app.monitor_tick();
             app.stream_tick();
         }
@@ -816,6 +820,41 @@ impl App {
                 wbm::load(&self.wbv, &content);
                 self.wbv.set_focus();
             }
+        }
+    }
+
+    /// Open files handed to this window: from a second launch or dropped onto it. Folders become the workspace.
+    pub fn open_from_outside(&mut self, paths: &[PathBuf]) {
+        for p in paths {
+            if p.is_dir() {
+                self.open_workspace(p.clone());
+            } else {
+                let App { ws, ui, .. } = self;
+                ws.open_path(ui, p);
+            }
+        }
+        self.refresh();
+        self.stc.set_focus();
+        if self.frame.is_iconized() {
+            self.frame.iconize(false);
+        }
+        self.frame.raise();
+    }
+
+    /// Files a second launch left behind.
+    pub fn check_inbox(&mut self) {
+        let Ok(rd) = std::fs::read_dir(inbox()) else { return };
+        let mut paths: Vec<PathBuf> = Vec::new();
+        let mut any = false;
+        for e in rd.flatten() {
+            if let Ok(text) = std::fs::read_to_string(e.path()) {
+                any = true;
+                paths.extend(text.lines().filter(|l| !l.is_empty()).map(PathBuf::from));
+            }
+            let _ = std::fs::remove_file(e.path());
+        }
+        if any {
+            self.open_from_outside(&paths);
         }
     }
 

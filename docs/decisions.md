@@ -20,3 +20,5 @@ One line per decision made without asking, following the "Standing decisions" in
 | 2026-11-01 | tests/design_tokens.rs fails the build when a colour triple, hex colour string or font name appears outside theme.rs and native/. Component layout constants (heights, widths) stay as named constants in their component. | Enforces the rule; pixel metrics of a component are its own design, not shared spacing. |
 | 2026-11-01 | ui-kit/src/components/ holds one component per file; the old controls.rs is split into 11 files sharing the internal themed! macro. ui_kit::controls and the old module paths are re-exported. | Phase 4 component rules. |
 | 2026-11-01 | The gallery's WebPane renders blank in PrintWindow captures (WebView2 draws on its own surface). | Screenshot limitation only. |
+
+- Allowed `clippy::wildcard_imports` workspace-wide: child modules split out of a large file use `use super::*;` to share the parent's items.

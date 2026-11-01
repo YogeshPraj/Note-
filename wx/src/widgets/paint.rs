@@ -75,3 +75,14 @@ pub fn pos(e: &WindowEventData) -> (i32, i32) {
     };
     p.map_or((-1, -1), |p| (p.x, p.y))
 }
+
+/// A flat highlight behind a hovered or pressed control; rounded when `radius` is above zero.
+pub fn wash(dc: &impl DeviceContext, r: Rect, c: Rgb, radius: f64) {
+    if radius > 0.0 {
+        dc.set_pen(colour(c), 1, PenStyle::Solid);
+        dc.set_brush(colour(c), BrushStyle::Solid);
+        dc.draw_rounded_rectangle(r.l, r.t, r.w(), r.h(), radius);
+    } else {
+        fill(dc, r, c);
+    }
+}

@@ -17,7 +17,7 @@ use wxdragon::prelude::*;
 
 use self::model::{Btn, Layout, Rows, Scroll};
 use super::geom::Rect;
-use super::paint::{ACCENT, Look, Rgb, WHITE, colour, fill, mix, pos, text_at, text_w};
+use super::paint::{ACCENT, Look, Rgb, WHITE, colour, fill, mix, pos, text_at, text_w, wash};
 
 pub const HEIGHT: i32 = 32;
 
@@ -393,10 +393,7 @@ fn dp(x: i32, y: i32) -> wxdragon::dc::Point {
 
 fn paint_button(dc: &impl DeviceContext, r: Rect, lk: Look, hot: bool, down: bool, glyph: Btn) {
     if hot || down {
-        let wash = mix(lk.base(), lk.ink(), if down { 0x40 } else { 0x24 });
-        dc.set_pen(colour(wash), 1, PenStyle::Solid);
-        dc.set_brush(colour(wash), BrushStyle::Solid);
-        dc.draw_rounded_rectangle(r.l, r.t, r.w(), r.h(), 4.0);
+        wash(dc, r, mix(lk.base(), lk.ink(), if down { 0x40 } else { 0x24 }), 4.0);
     }
     let c = lk.fg();
     dc.set_pen(colour(c), 1, PenStyle::Solid);

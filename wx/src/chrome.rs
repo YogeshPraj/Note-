@@ -156,6 +156,10 @@ struct St {
     arrows: Option<(R, R)>,
     btn_hot: Option<Btn>,
     btn_down: Option<Btn>,
+    /// Width the tabs may use, left inset (room for a visible left arrow) and whether tabs are cut off on the right.
+    full: i32,
+    pad_l: i32,
+    more_right: bool,
     area: i32,
     offset: i32,
     follow: bool,
@@ -259,7 +263,8 @@ fn outline(dc: &impl DeviceContext, r: R, c: Rgb) {
     dc.draw_rectangle(r.l, r.t, r.w(), r.h());
 }
 
-/// Where `s` would be laid out: tab rectangles, scroll offset and the "+" button.
+/// Where `s` would be laid out: tab rectangles, scroll offset and the "+" button. An arrow takes room only while
+/// it has something to scroll to.
 fn layout_tabs(dc: &impl DeviceContext, width: i32, s: &mut St) {
     let mut x = 4;
     s.layout.clear();
@@ -270,37 +275,44 @@ fn layout_tabs(dc: &impl DeviceContext, width: i32, s: &mut St) {
         x += wd + 2;
     }
     let total = x;
-    let overflow = total > width - 34;
-    let avail = if overflow { width - 34 - 2 * ARROW_W } else { width - 34 };
-    let pad = if overflow { ARROW_W + 2 } else { 0 };
-    s.area = pad + avail + 4;
-    if !overflow {
+    let full = width - 34;
+    let slot = ARROW_W + 2;
+    s.full = full;
+    let (pad_l, avail);
+    if total <= full {
         s.offset = 0;
         s.arrows = None;
+        s.more_right = false;
+        (pad_l, avail) = (0, full);
     } else {
         if s.follow {
             if let Some(a) = s.layout.get(s.active) {
-                if a.r - s.offset > avail {
-                    s.offset = a.r - avail;
+                let room = full - 2 * slot;
+                if a.r - s.offset > room {
+                    s.offset = a.r - room;
                 }
                 if a.l - s.offset < 0 {
                     s.offset = a.l;
                 }
             }
         }
-        s.offset = s.offset.clamp(0, (total - avail).max(0));
+        s.offset = s.offset.clamp(0, (total - (full - slot)).max(0));
         s.follow = false;
+        pad_l = if s.offset > 0 { slot } else { 0 };
+        s.more_right = total - s.offset > full - pad_l;
+        avail = full - pad_l - if s.more_right { slot } else { 0 };
         s.arrows = Some((R::new(2, 6, 2 + ARROW_W, TAB_H - 2), R::new(width - ARROW_W - 2, 6, width - 2, TAB_H - 2)));
     }
-    let shift = pad - s.offset;
+    s.pad_l = pad_l;
+    s.area = pad_l + avail + 4;
+    let shift = pad_l - s.offset;
     for r in &mut s.layout {
         r.l += shift;
         r.r += shift;
     }
-    let plus_x = pad + (total - s.offset).min(avail) + 4;
+    let plus_x = pad_l + (total - s.offset).min(avail) + 4;
     s.plus = R::new(plus_x, 6, plus_x + 26, TAB_H - 4);
 }
-
 fn paint_tools(st: &Rc<RefCell<St>>, panel: &Panel) {
     let dc = AutoBufferedPaintDC::new(panel);
     let mut s = st.borrow_mut();
@@ -338,15 +350,15 @@ impl St {
     fn can_scroll(&self, b: Btn) -> bool {
         match b {
             Btn::Left => self.offset > 0,
-            Btn::Right => self.layout.last().is_some_and(|t| t.r > self.area),
+            Btn::Right => self.more_right,
             Btn::Plus => true,
         }
     }
 
     fn btn_at(&self, x: i32, y: i32) -> Option<Btn> {
         match self.arrows {
-            Some((l, _)) if l.has(x, y) => Some(Btn::Left),
-            Some((_, r)) if r.has(x, y) => Some(Btn::Right),
+            Some((l, _)) if self.offset > 0 && l.has(x, y) => Some(Btn::Left),
+            Some((_, r)) if self.more_right && r.has(x, y) => Some(Btn::Right),
             _ if self.plus.has(x, y) => Some(Btn::Plus),
             _ => None,
         }
@@ -354,21 +366,18 @@ impl St {
 
     /// Scroll so the next tab that is cut off on that side comes fully into view.
     fn scroll_tabs(&mut self, b: Btn) {
-        let Some(_) = self.arrows else { return };
-        let pad = ARROW_W + 2;
-        let avail = self.area - pad - 4;
-        // Tab edges without the scroll shift.
-        let edges: Vec<(i32, i32)> = self.layout.iter().map(|r| (r.l - pad + self.offset, r.r - pad + self.offset)).collect();
+        if self.arrows.is_none() {
+            return;
+        }
+        let slot = ARROW_W + 2;
+        // Tab edges without the scroll shift; the target is worked out for both arrows showing, so the tab fits.
+        let avail = self.full - 2 * slot;
+        let edges: Vec<(i32, i32)> = self.layout.iter().map(|r| (r.l - self.pad_l + self.offset, r.r - self.pad_l + self.offset)).collect();
         match b {
-            Btn::Left => {
-                if let Some((l, _)) = edges.iter().rev().find(|(l, _)| *l < self.offset) {
-                    self.offset = *l;
-                } else {
-                    self.offset = 0;
-                }
-            }
+            Btn::Left => self.offset = edges.iter().rev().find(|(l, _)| *l < self.offset).map_or(0, |(l, _)| *l),
             Btn::Right => {
-                if let Some((_, r)) = edges.iter().find(|(_, r)| *r > self.offset + avail) {
+                let shown = self.full - self.pad_l - if self.more_right { slot } else { 0 };
+                if let Some((_, r)) = edges.iter().find(|(_, r)| *r > self.offset + shown) {
                     self.offset = *r - avail;
                 }
             }
@@ -376,7 +385,6 @@ impl St {
         }
     }
 }
-
 fn dp(x: i32, y: i32) -> wxdragon::dc::Point {
     wxdragon::dc::Point::new(x, y)
 }
@@ -413,7 +421,7 @@ fn paint_tabs(st: &Rc<RefCell<St>>, panel: &Panel) {
     fill(&dc, R::new(0, 0, w, h), lk.base());
     layout_tabs(&dc, w, &mut s);
     fill(&dc, R::new(0, h - 1, w, h), mix(lk.base(), lk.ink(), 0x30));
-    let (clip_l, clip_r) = if let Some((l, _)) = s.arrows { (l.r, s.area) } else { (0, w) };
+    let (clip_l, clip_r) = if s.arrows.is_some() { (s.pad_l, s.area) } else { (0, w) };
     dc.set_clipping_region(clip_l, 0, (clip_r - clip_l).max(0), h);
     for (i, info) in s.tabs.iter().enumerate() {
         let r = s.layout[i];
@@ -556,6 +564,9 @@ impl Chrome {
             plus: R::default(),
             btn_hot: None,
             btn_down: None,
+            full: 0,
+            pad_l: 0,
+            more_right: false,
             arrows: None,
             area: 0,
             offset: 0,
@@ -755,7 +766,7 @@ fn wire_tools(st: &Rc<RefCell<St>>, p: Panel) {
 }
 
 fn tab_at(m: &St, x: i32, y: i32) -> Option<usize> {
-    m.layout.iter().position(|r| r.has(x, y) && m.arrows.is_none_or(|(l, _)| x >= l.r && x < m.area))
+    m.layout.iter().position(|r| r.has(x, y) && (m.arrows.is_none() || (x >= m.pad_l && x < m.area)))
 }
 
 fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
@@ -770,8 +781,8 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
             if let Some(d) = &m.drag {
                 let (from, x0, moving) = (d.from, d.x0, d.moving);
                 if moving || (x - x0).abs() > 6 {
-                    if let Some((l, _)) = m.arrows {
-                        if x < l.r + 16 {
+                    if m.arrows.is_some() {
+                        if x < m.pad_l + 16 {
                             m.offset -= 30;
                         } else if x > m.area - 16 {
                             m.offset += 30;

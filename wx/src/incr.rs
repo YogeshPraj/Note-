@@ -8,12 +8,13 @@ use notepp_core::search;
 use wxdragon::prelude::*;
 
 use crate::app::Shared;
+use crate::widgets::controls::{Button, Dialog, Label, TextBox};
 
 #[derive(Clone, Copy)]
 struct Win {
     dialog: Dialog,
-    edit: TextCtrl,
-    status: StaticText,
+    edit: TextBox,
+    status: Label,
 }
 
 thread_local! {
@@ -68,21 +69,25 @@ pub fn open(app: &Shared) {
     let w = match existing {
         Some(w) => w,
         None => {
-            let d = Dialog::builder(&frame, "Incremental Search").build();
+            let d = Dialog::new(&frame, "Incremental Search");
             d.set_client_size(Size::new(360, 136));
             let fp = frame.get_position();
             let fs = frame.get_size();
             d.move_window(fp.x + fs.width - 400, fp.y + 110);
             let at = |x, y, w, h| (Point::new(x, y), Size::new(w, h));
             let (p, s) = at(14, 12, 332, 18);
-            StaticText::builder(&d).with_label("Search for:").with_pos(p).with_size(s).build();
+            Label::new(&d, "Search for:").set_size_with_pos(p.x, p.y, s.width, s.height);
             let (p, s) = at(14, 34, 332, 26);
-            let edit = TextCtrl::builder(&d).with_pos(p).with_size(s).with_style(TextCtrlStyle::ProcessEnter).build();
+            let edit = TextBox::new(&d, "", true);
+            edit.set_size_with_pos(p.x, p.y, s.width, s.height);
             let (p, s) = at(14, 68, 332, 18);
-            let status = StaticText::builder(&d).with_label("").with_pos(p).with_size(s).build();
+            let status = Label::new(&d, "");
+            status.set_size_with_pos(p.x, p.y, s.width, s.height);
             let button = |label: &str, x: i32| {
                 let (p, s) = at(x, 96, 80, 26);
-                Button::builder(&d).with_label(label).with_pos(p).with_size(s).build()
+                let b = Button::new(&d, label);
+                b.set_size_with_pos(p.x, p.y, s.width, s.height);
+                b
             };
             let prev = button("&Prev", 14);
             let next = button("&Next", 102);

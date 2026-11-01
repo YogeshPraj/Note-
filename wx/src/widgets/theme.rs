@@ -50,13 +50,15 @@ impl Theme {
     }
 }
 
-type Listener = Rc<dyn Fn(&Theme)>;
+/// Called with each new theme; returns false once its owner is gone, which removes it.
+type Listener = Rc<dyn Fn(&Theme) -> bool>;
 
 /// The current theme and who wants to hear about changes.
 #[derive(Default)]
 pub struct Hub {
     current: Option<Theme>,
-    listeners: Vec<Listener>,
+    listeners: Vec<(u64, Listener)>,
+    next_id: u64,
 }
 
 impl Hub {
@@ -65,14 +67,21 @@ impl Hub {
     }
 
     /// Add a listener; the theme it must be applied to now, if one has been set already.
-    pub fn subscribe(&mut self, f: Listener) -> Option<Theme> {
-        self.listeners.push(f);
-        self.current
+    pub fn subscribe(&mut self, f: Listener) -> (u64, Option<Theme>) {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.listeners.push((id, f));
+        (id, self.current)
+    }
+
+    /// Forget listeners whose owners are gone.
+    pub fn remove(&mut self, ids: &[u64]) {
+        self.listeners.retain(|(id, _)| !ids.contains(id));
     }
 
     /// Record `theme`. Returns the listeners to call: all of them when the theme changed (or was never set, so the
     /// start-up theme is applied explicitly instead of following the system), none when it is the same.
-    pub fn set(&mut self, theme: Theme) -> Vec<Listener> {
+    pub fn set(&mut self, theme: Theme) -> Vec<(u64, Listener)> {
         if self.current == Some(theme) {
             return Vec::new();
         }
@@ -96,18 +105,41 @@ pub fn is_dark() -> bool {
 /// Set the theme and tell every subscriber if it changed.
 pub fn set(theme: Theme) {
     let listeners = HUB.with(|h| h.borrow_mut().set(theme));
-    for l in listeners {
-        l(&theme);
+    let dead: Vec<u64> = listeners.iter().filter(|(_, l)| !l(&theme)).map(|(id, _)| *id).collect();
+    if !dead.is_empty() {
+        HUB.with(|h| h.borrow_mut().remove(&dead));
     }
 }
 
-/// Call `f` now (if a theme is set) and on every change.
-pub fn subscribe(f: impl Fn(&Theme) + 'static) {
+/// Call `f` now (if a theme is set) and on every change, until it returns false.
+pub fn subscribe_while(f: impl Fn(&Theme) -> bool + 'static) {
     let f: Listener = Rc::new(f);
-    let now = HUB.with(|h| h.borrow_mut().subscribe(f.clone()));
+    let (id, now) = HUB.with(|h| h.borrow_mut().subscribe(f.clone()));
     if let Some(t) = now {
-        f(&t);
+        if !f(&t) {
+            HUB.with(|h| h.borrow_mut().remove(&[id]));
+        }
     }
+}
+
+/// Call `f` now (if a theme is set) and on every change, for the life of the program.
+pub fn subscribe(f: impl Fn(&Theme) + 'static) {
+    subscribe_while(move |t| {
+        f(t);
+        true
+    });
+}
+
+/// Keep `w` coloured for the theme (and styled natively) from now on; stops when the widget is destroyed.
+pub fn adopt<W: WxWidget + Copy + 'static>(w: W, role: Role) {
+    subscribe_while(move |_| {
+        if !w.is_valid() {
+            return false;
+        }
+        paint(&w, role);
+        style_native(&w);
+        true
+    });
 }
 
 /// What a widget is for, which decides its background.
@@ -171,15 +203,21 @@ mod tests {
     fn counter() -> (Listener, Rc<Cell<u32>>) {
         let n = Rc::new(Cell::new(0));
         let n2 = n.clone();
-        (Rc::new(move |_| n2.set(n2.get() + 1)), n)
+        (
+            Rc::new(move |_| {
+                n2.set(n2.get() + 1);
+                true
+            }),
+            n,
+        )
     }
 
     #[test]
     fn the_first_set_notifies_even_when_it_is_the_default() {
         let mut h = Hub::default();
         let (l, n) = counter();
-        assert_eq!(h.subscribe(l), None);
-        for l in h.set(Theme::default()) {
+        assert_eq!(h.subscribe(l).1, None);
+        for (_, l) in h.set(Theme::default()) {
             l(&Theme::default());
         }
         assert_eq!(n.get(), 1);
@@ -200,7 +238,7 @@ mod tests {
         h.subscribe(a);
         h.subscribe(b);
         h.set(Theme::default());
-        for l in h.set(dark()) {
+        for (_, l) in h.set(dark()) {
             l(&dark());
         }
         assert_eq!((na.get(), nb.get()), (1, 1));
@@ -211,7 +249,7 @@ mod tests {
         let mut h = Hub::default();
         h.set(dark());
         let (l, _) = counter();
-        assert_eq!(h.subscribe(l), Some(dark()));
+        assert_eq!(h.subscribe(l).1, Some(dark()));
     }
 
     #[test]
@@ -223,6 +261,17 @@ mod tests {
         let other = Theme { editor_bg: (1, 2, 3), ..dark() };
         assert_eq!(h.set(other).len(), 1);
         assert!(h.set(other).is_empty());
+    }
+
+    #[test]
+    fn removed_listeners_are_no_longer_called() {
+        let mut h = Hub::default();
+        let (a, _) = counter();
+        let (b, _) = counter();
+        let (ida, _) = h.subscribe(a);
+        h.subscribe(b);
+        h.remove(&[ida]);
+        assert_eq!(h.set(dark()).len(), 1);
     }
 
     #[test]

@@ -8,6 +8,8 @@ use std::rc::Rc;
 use wxdragon::event::WxEvtHandler;
 use wxdragon::prelude::*;
 
+use crate::widgets::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
     Label,
@@ -43,15 +45,15 @@ pub fn ctl(id: usize, kind: Kind, text: &str, x: i32, y: i32, w: i32, h: i32) ->
 
 #[derive(Clone)]
 enum W {
-    Label(StaticText),
-    Edit(TextCtrl),
+    Label(Label),
+    Edit(TextBox),
     Check(CheckBox),
     Radio(RadioButton),
     Button(Button),
     Swatch(Panel),
-    List(ListCtrl),
+    List(ListView),
     /// A masked box with a plain twin at the same place; "masked" says which one shows.
-    Pw(TextCtrl, TextCtrl, Rc<std::cell::Cell<bool>>),
+    Pw(TextBox, TextBox, Rc<std::cell::Cell<bool>>),
 }
 
 /// Live access to the controls while the form is open.
@@ -276,7 +278,7 @@ fn collect(kinds: &[(usize, Kind)], form: &Form) -> Values {
 }
 
 pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> {
-    let d = Dialog::builder(owner, spec.title).build();
+    let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(owner, spec.title).build());
     d.set_client_size(Size::new(spec.size.0, spec.size.1));
     let pos = |r: (i32, i32, i32, i32)| (Point::new(r.0, r.1), Size::new(r.2, r.3));
     let mut map: HashMap<usize, W> = HashMap::new();
@@ -284,7 +286,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let mut first_edit = None;
     let mut click_ids: Vec<(usize, Button)> = Vec::new();
     let mut swatches: Vec<(Panel, usize)> = Vec::new();
-    let mut lists: Vec<(usize, ListCtrl)> = Vec::new();
+    let mut lists: Vec<(usize, ListView)> = Vec::new();
     for c in &spec.ctls {
         let (p, s) = pos(c.rect);
         match c.kind {
@@ -292,16 +294,16 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                 // A section heading with an etched line under it.
                 let (x, y, w, _) = c.rect;
                 let _line = StaticLine::builder(&d).with_pos(Point::new(x, y + 18)).with_size(Size::new(w, 2)).build();
-                let l = StaticText::builder(&d).with_label(&c.text).with_pos(Point::new(x, y)).with_size(Size::new(w, 18)).build();
+                let l = Label::adopt(StaticText::builder(&d).with_label(&c.text).with_pos(Point::new(x, y)).with_size(Size::new(w, 18)).build());
                 map.insert(c.id, W::Label(l));
             }
             Kind::Label => {
-                let l = StaticText::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build();
+                let l = Label::adopt(StaticText::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build());
                 map.insert(c.id, W::Label(l));
             }
             Kind::Password => {
-                let m = TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).with_style(TextCtrlStyle::Password).build();
-                let pl = TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).build();
+                let m = TextBox::adopt(TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).with_style(TextCtrlStyle::Password).build());
+                let pl = TextBox::adopt(TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).build());
                 pl.show(false);
                 first_edit.get_or_insert(c.id);
                 map.insert(c.id, W::Pw(m, pl, Rc::new(std::cell::Cell::new(true))));
@@ -314,22 +316,22 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                     Kind::MultiEdit(false) => b.with_style(TextCtrlStyle::MultiLine),
                     _ => b,
                 };
-                let t = b.build();
+                let t = TextBox::adopt(b.build());
                 first_edit.get_or_insert(c.id);
                 map.insert(c.id, W::Edit(t));
                 kinds.push((c.id, c.kind));
             }
             Kind::Check => {
-                let ch = CheckBox::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build();
+                let ch = CheckBox::adopt(wxdragon::prelude::CheckBox::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build());
                 map.insert(c.id, W::Check(ch));
                 kinds.push((c.id, c.kind));
             }
             Kind::Radio(group) => {
-                let mut b = RadioButton::builder(&d).with_label(&c.text).with_pos(p).with_size(s);
+                let mut b = wxdragon::prelude::RadioButton::builder(&d).with_label(&c.text).with_pos(p).with_size(s);
                 if group {
                     b = b.with_style(RadioButtonStyle::GroupStart);
                 }
-                let r = b.build();
+                let r = RadioButton::adopt(b.build());
                 map.insert(c.id, W::Radio(r));
                 kinds.push((c.id, c.kind));
             }
@@ -342,12 +344,12 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             }
             Kind::List | Kind::MultiList => {
                 let style = if c.kind == Kind::List { ListCtrlStyle::Report | ListCtrlStyle::SingleSel } else { ListCtrlStyle::Report };
-                let l = ListCtrl::builder(&d).with_pos(p).with_size(s).with_style(style).build();
+                let l = ListView::adopt(ListCtrl::builder(&d).with_pos(p).with_size(s).with_style(style).build());
                 lists.push((c.id, l));
                 map.insert(c.id, W::List(l));
             }
             Kind::Button | Kind::DefButton => {
-                let b = Button::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build();
+                let b = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build());
                 if c.kind == Kind::DefButton {
                     b.set_default();
                 }
@@ -361,9 +363,9 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let mut ok_btn: Option<Button> = None;
     let mut cancel_btn: Option<Button> = None;
     if !spec.ok.is_empty() {
-        let ok = Button::builder(&d).with_label(spec.ok).with_pos(Point::new(okx, oky)).with_size(Size::new(bw, bh)).build();
+        let ok = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label(spec.ok).with_pos(Point::new(okx, oky)).with_size(Size::new(bw, bh)).build());
         ok.set_default();
-        let cancel = Button::builder(&d).with_label("Cancel").with_pos(Point::new(cx, cy)).with_size(Size::new(bw, bh)).build();
+        let cancel = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label("Cancel").with_pos(Point::new(cx, cy)).with_size(Size::new(bw, bh)).build());
         cancel.on_click(move |_| d.end_modal(ID_CANCEL));
         ok_btn = Some(ok);
         cancel_btn = Some(cancel);
@@ -442,7 +444,6 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             t.on_text_updated(move |_| paint(&t2.get_value()));
         }
     }
-    style_dialog(&d, &form);
     init(&form);
     if let Some(id) = first_edit {
         form.focus(id);
@@ -451,26 +452,4 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     d.show_modal();
     let out = result.borrow_mut().take();
     out
-}
-
-/// Colour the dialog and its controls for the current theme (a no-op change in the light theme).
-fn style_dialog(d: &Dialog, form: &Form) {
-    use crate::widgets::theme::{self, Role};
-    theme::paint(d, Role::Surface);
-    for w in form.map.values() {
-        match w {
-            W::Label(l) => theme::paint(l, Role::Surface),
-            W::Check(c) => theme::paint(c, Role::Surface),
-            W::Radio(r) => theme::paint(r, Role::Surface),
-            W::Button(b) => theme::paint(b, Role::Surface),
-            W::Edit(t) => theme::paint(t, Role::Input),
-            W::Pw(m, p, _) => {
-                theme::paint(m, Role::Input);
-                theme::paint(p, Role::Input);
-            }
-            W::List(l) => theme::paint(l, Role::Input),
-            W::Swatch(_) => {}
-        }
-    }
-    theme::style_native(d);
 }

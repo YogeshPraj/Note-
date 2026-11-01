@@ -7,6 +7,7 @@ use notepp_core::search::Opts;
 use wxdragon::prelude::*;
 
 use crate::app::Shared;
+use crate::widgets::controls::{Button, CheckBox, Label, ListBox, TextBox, ToggleButton};
 use crate::widgets::dock::Dock;
 
 mod layout;
@@ -19,15 +20,15 @@ struct P {
     panel: Panel,
     tab: [ToggleButton; 4],
     closex: Button,
-    status: StaticText,
-    find_lbl: StaticText,
-    find: TextCtrl,
-    repl_lbl: StaticText,
-    repl: TextCtrl,
-    dir_lbl: StaticText,
-    dir: TextCtrl,
-    filt_lbl: StaticText,
-    filt: TextCtrl,
+    status: Label,
+    find_lbl: Label,
+    find: TextBox,
+    repl_lbl: Label,
+    repl: TextBox,
+    dir_lbl: Label,
+    dir: TextBox,
+    filt_lbl: Label,
+    filt: TextBox,
     browse: Button,
     case: CheckBox,
     word: CheckBox,
@@ -80,29 +81,6 @@ fn results_visible() -> bool {
     RESULTS.with(|c| c.get()) && mode() != Mode::Mark
 }
 
-/// Recolour the panel for the current theme.
-pub fn restyle() {
-    use crate::widgets::theme::{self, Role};
-    let Some(p) = p() else { return };
-    theme::paint(&p.panel, Role::Surface);
-    let surface: [&dyn WxWidget; 22] = [
-        &p.find_lbl, &p.repl_lbl, &p.dir_lbl, &p.filt_lbl, &p.browse, &p.case, &p.word, &p.wrap, &p.regex, &p.dot, &p.ext, &p.insel, &p.next, &p.prev,
-        &p.findall, &p.count, &p.replace, &p.repl_all, &p.fif, &p.mark, &p.clear, &p.close,
-    ];
-    for w in surface {
-        theme::paint(w, Role::Surface);
-    }
-    for w in p.tab.iter() {
-        theme::paint(w, Role::Surface);
-    }
-    theme::paint(&p.status, Role::Surface);
-    theme::paint(&p.closex, Role::Surface);
-    let input: [&dyn WxWidget; 5] = [&p.find, &p.repl, &p.dir, &p.filt, &p.list];
-    for w in input {
-        theme::paint(w, Role::Input);
-    }
-    theme::style_native(&p.panel);
-}
 /// Height the panel needs in the current mode (0 while it is closed).
 pub fn height() -> i32 {
     if visible() { layout::height(mode(), results_visible()) } else { 0 }
@@ -158,8 +136,6 @@ fn all_controls(p: &P) -> Vec<&dyn WxWidget> {
 /// Position the controls for the current mode and width.
 pub fn arrange() {
     let Some(p) = p() else { return };
-    // Colours set while the panel was hidden at start-up are not reliably kept, so set them whenever it is laid out.
-    restyle();
     let mode = mode();
     let l = layout::layout(mode, p.panel.get_client_size().width, results_visible());
     for w in all_controls(&p) {
@@ -265,11 +241,11 @@ pub enum Cmd {
 /// Build the controls and hook them to the application.
 pub fn wire(app: &Shared) {
     let Some(host) = DOCK.with(|d| d.borrow().map(|d| d.panel())) else { return };
-    let label = |t: &str| StaticText::builder(&host).with_label(t).build();
-    let edit = || TextCtrl::builder(&host).with_style(TextCtrlStyle::ProcessEnter).build();
-    let button = |t: &str| Button::builder(&host).with_label(t).build();
-    let check = |t: &str| CheckBox::builder(&host).with_label(t).build();
-    let tab = |t: &str| ToggleButton::builder(&host).with_label(t).build();
+    let label = |t: &str| Label::new(&host, t);
+    let edit = || TextBox::new(&host, "", true);
+    let button = |t: &str| Button::new(&host, t);
+    let check = |t: &str| CheckBox::new(&host, t);
+    let tab = |t: &str| ToggleButton::new(&host, t);
     let panel = P {
         panel: host,
         tab: [tab("Find"), tab("Replace"), tab("Find in Files"), tab("Mark")],
@@ -301,14 +277,12 @@ pub fn wire(app: &Shared) {
         mark: button("Mark All"),
         clear: button("Clear all marks"),
         close: button("Close"),
-        list: ListBox::builder(&host).build(),
+        list: ListBox::new(&host),
     };
     panel.wrap.set_value(true);
     panel.filt.set_value("*.*");
     panel.next.set_default();
     PANEL.with(|c| *c.borrow_mut() = Some(panel));
-    // Recolour whenever the theme changes, and now if one is already set.
-    crate::widgets::theme::subscribe(|_| restyle());
 
     let fire = |app: &Shared, cmd: Cmd| {
         if let Ok(mut a) = app.try_borrow_mut() {

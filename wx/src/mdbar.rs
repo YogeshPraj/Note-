@@ -5,6 +5,7 @@ use notepp_core::commands as c;
 use wxdragon::prelude::*;
 
 use crate::app::Shared;
+use crate::widgets::controls::Button;
 use crate::widgets::dock::Dock;
 
 pub const HEIGHT: i32 = 38;
@@ -52,18 +53,13 @@ pub fn create(frame: &Frame) -> Dock {
 
 pub fn wire(app: &Shared) {
     let bar = app.borrow().mdbar.panel();
-    // Coloured for the theme now and whenever it changes (its buttons are added below, so re-apply then too).
-    let style = move || {
-        crate::widgets::theme::paint(&bar, crate::widgets::theme::Role::Surface);
-        crate::widgets::theme::style_native(&bar);
-    };
-    crate::widgets::theme::subscribe(move |_| style());
     let (mut x, y, gap) = (8, 5, 8);
     for slot in layout() {
         match slot {
             None => x += gap,
             Some((id, label, tip, w, style)) => {
-                let b = Button::builder(&bar).with_label(label).with_pos(Point::new(x, y)).with_size(Size::new(w, 28)).build();
+                let b = Button::new(&bar, label);
+                b.set_size_with_pos(x, y, w, 28);
                 let size = 9;
                 let font = match style {
                     Style::Plain => None,
@@ -81,5 +77,4 @@ pub fn wire(app: &Shared) {
             }
         }
     }
-    crate::widgets::theme::style_native(&bar);
 }

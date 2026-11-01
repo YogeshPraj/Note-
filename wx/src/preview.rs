@@ -52,6 +52,10 @@ pub fn render(view: &WebView, kind: &str, payload: &str) {
     eval(view, &format!("window.np.render({},{})", js_string(kind), js_string(payload)));
 }
 
+pub fn call(view: &WebView, name: &str, payload: &str) {
+    eval(view, &format!("window.np.{name}({})", js_string(payload)));
+}
+
 pub fn set_theme(view: &WebView, dark: bool) {
     eval(view, &format!("window.np.setTheme({dark})"));
 }

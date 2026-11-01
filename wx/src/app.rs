@@ -39,6 +39,11 @@ pub struct App {
     wbv: WebView,
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
+    pub(crate) log: Option<(u64, notepp_core::logfollow::Follower)>,
+    pub(crate) log_shown: Option<u64>,
+    pub(crate) http_last: Option<(isize, String)>,
+    pub(crate) http_shown: Option<isize>,
+    pub(crate) http_busy: bool,
     menu_bar: isize,
     pub hits: Vec<notepp_core::search::Hit>,
     pub hit_cursor: usize,
@@ -50,8 +55,8 @@ pub struct App {
     wb_pending: Option<Pending>,
     mini: StyledTextCtrl,
     pub(crate) stc: StyledTextCtrl,
-    view: WebView,
-    preview_on: bool,
+    pub(crate) view: WebView,
+    pub(crate) preview_on: bool,
     preview_loaded: bool,
     preview_ready: bool,
     preview_dark: bool,
@@ -155,6 +160,11 @@ pub fn start(files: Vec<PathBuf>) {
         menu_bar: 0,
         panels,
         side_key: None,
+        log: None,
+        log_shown: None,
+        http_last: None,
+        http_shown: None,
+        http_busy: false,
         hits: Vec::new(),
         hit_cursor: 0,
         hits_root: PathBuf::new(),
@@ -408,6 +418,16 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     });
     clip.start(1000, false);
     std::mem::forget(clip);
+    // Followed logs and HTTP responses.
+    let stream = Timer::new(&frame);
+    let a = app.clone();
+    stream.on_tick(move |_| {
+        if let Ok(mut app) = a.try_borrow_mut() {
+            app.stream_tick();
+        }
+    });
+    stream.start(500, false);
+    std::mem::forget(stream);
 
     // Closing the window saves the session; unsaved text comes back next time.
     let a = app.clone();
@@ -452,6 +472,7 @@ impl App {
             ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
             ID_NEXT_RESULT | ID_PREV_RESULT => return self.step_result(id == ID_NEXT_RESULT),
             _ if self.panel_cmd(id) => {}
+            _ if self.stream_cmd(id) => {}
             _ if self.extra_command(id) => {}
             ID_PREVIEW => {
                 let on = !self.preview_on;
@@ -854,7 +875,7 @@ impl App {
             pcore::Kind::Html => preview::render(&view, "html", &text),
             pcore::Kind::Mermaid => preview::render(&view, "mermaid", &text),
             pcore::Kind::Json => preview::render(&view, "json", &text),
-            pcore::Kind::Log | pcore::Kind::Http => preview::render(&view, "message", "This preview is not available in this build yet."),
+            pcore::Kind::Log | pcore::Kind::Http => self.stream_preview(kind, force),
         }
     }
     fn sync_tabs(&mut self) {

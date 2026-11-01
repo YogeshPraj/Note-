@@ -13,6 +13,7 @@ mod palette;
 mod panels;
 mod popups;
 mod preview;
+mod streams;
 mod whiteboard;
 mod winmenu;
 mod sci;

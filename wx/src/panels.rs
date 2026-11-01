@@ -10,6 +10,8 @@ use wxdragon::prelude::*;
 
 use crate::command::CommandHandler;
 use crate::app::{App, Shared};
+use crate::widgets::controls::{Button, Label, ListView, Panel, TreeView};
+use crate::widgets::theme::Role;
 
 pub const TREE_W: i32 = 260;
 pub const SIDE_W: i32 = 250;
@@ -31,9 +33,9 @@ pub enum Mode {
 #[derive(Clone, Copy)]
 pub struct Panels {
     pub tree_box: Panel,
-    pub tree: TreeCtrl,
-    title: StaticText,
-    pub side: ListCtrl,
+    pub tree: TreeView,
+    title: Label,
+    pub side: ListView,
 }
 
 thread_local! {
@@ -97,11 +99,12 @@ fn list_dir(dir: &Path) -> Vec<(PathBuf, bool)> {
 }
 
 /// Build the (initially hidden) panels inside `parent`; the caller places them in its layout.
-pub fn create(parent: &Panel) -> Panels {
-    let tree_box = Panel::builder(parent).build();
-    let title = StaticText::builder(&tree_box).with_label("").build();
-    let close = Button::builder(&tree_box).with_label("\u{2715}").build();
-    let tree = TreeCtrl::builder(&tree_box).with_style(TreeCtrlStyle::HasButtons | TreeCtrlStyle::LinesAtRoot).build();
+pub fn create(parent: &wxdragon::prelude::Panel) -> Panels {
+    // These look like the editor, so they take its colours from the theme.
+    let tree_box = Panel::adopt_as(wxdragon::prelude::Panel::builder(parent).build(), Role::Editor);
+    let title = Label::adopt_as(StaticText::builder(&tree_box).with_label("").build(), Role::Editor);
+    let close = Button::adopt_as(wxdragon::prelude::Button::builder(&tree_box).with_label("\u{2715}").build(), Role::Editor);
+    let tree = TreeView::adopt_as(TreeCtrl::builder(&tree_box).with_style(TreeCtrlStyle::HasButtons | TreeCtrlStyle::LinesAtRoot).build(), Role::Editor);
     let head = BoxSizer::builder(Orientation::Horizontal).build();
     head.add(&title, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
     head.add(&close, 0, SizerFlag::All, 2);
@@ -113,7 +116,7 @@ pub fn create(parent: &Panel) -> Panels {
     tree_box.show(false);
     close.set_min_size(Size::new(24, HEADER_H - 4));
 
-    let side = ListCtrl::builder(parent).with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel).build();
+    let side = ListView::adopt_as(ListCtrl::builder(parent).with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel).build(), Role::Editor);
     side.set_min_size(Size::new(SIDE_W, -1));
     side.show(false);
     Panels { tree_box, tree, title, side }
@@ -233,21 +236,6 @@ fn reveal(tree: &TreeCtrl, root: &Path, file: &Path) -> bool {
     true
 }
 
-fn side_columns(side: &ListCtrl, cols: &[(&str, i32)]) {
-    while side.get_column_count() > 0 {
-        // No delete_column in the binding: rebuild the control's columns by clearing everything.
-        side.clear_all();
-        break;
-    }
-    for (i, (name, w)) in cols.iter().enumerate() {
-        if (i as i32) < side.get_column_count() {
-            side.set_column_width(i as i64, *w);
-        } else {
-            side.insert_column(i as i64, name, ListColumnFormat::Left, *w);
-        }
-    }
-}
-
 impl App {
     pub fn tree_visible(&self) -> bool {
         self.panels.tree_box.is_shown()
@@ -354,40 +342,26 @@ impl App {
 
     pub fn fill_side(&self) {
         let l = self.panels.side;
-        l.delete_all_items();
         match mode() {
             Some(Mode::Characters) => {
-                side_columns(&l, &[("Value", 60), ("Hex", 60), ("Char", 100)]);
-                for n in 0..=255u8 {
-                    l.insert_item(n as i64, &n.to_string(), None);
-                    l.set_item_text_by_column(n as i64, 1, &format!("{n:02X}"));
-                    l.set_item_text_by_column(n as i64, 2, &label_for(n));
-                }
+                l.set_columns(&[("Value", 60), ("Hex", 60), ("Char", 100)]);
+                let rows: Vec<Vec<String>> = (0..=255u8).map(|n| vec![n.to_string(), format!("{n:02X}"), label_for(n)]).collect();
+                l.fill(&rows);
             }
             Some(Mode::Clipboard) => {
-                side_columns(&l, &[("Clipboard History", SIDE_W - 24)]);
-                HISTORY.with(|h| {
-                    for (i, s) in h.borrow().iter().enumerate() {
-                        l.insert_item(i as i64, &preview(s), None);
-                    }
-                });
+                l.set_columns(&[("Clipboard History", SIDE_W - 24)]);
+                let rows: Vec<Vec<String>> = HISTORY.with(|h| h.borrow().iter().map(|s| vec![preview(s)]).collect());
+                l.fill(&rows);
             }
             Some(m) => {
                 let cols: &[(&str, i32)] = if m == Mode::Documents { &[("Name", 100), ("Path", SIDE_W - 124)] } else { &[("Function", SIDE_W - 74), ("Line", 50)] };
-                side_columns(&l, cols);
-                ROWS.with(|r| {
-                    for (i, (cells, _)) in r.borrow().iter().enumerate() {
-                        l.insert_item(i as i64, cells.first().map_or("", String::as_str), None);
-                        for (cidx, text) in cells.iter().enumerate().skip(1) {
-                            l.set_item_text_by_column(i as i64, cidx as i32, text);
-                        }
-                    }
-                });
+                l.set_columns(cols);
+                let rows: Vec<Vec<String>> = ROWS.with(|r| r.borrow().iter().map(|(cells, _)| cells.clone()).collect());
+                l.fill(&rows);
             }
-            None => {}
+            None => l.fill(&[]),
         }
     }
-
     /// Replace the rows of the Documents / Functions views. Does nothing if unchanged.
     fn set_side_rows(&self, rows: Vec<(Vec<String>, usize)>) {
         if ROWS.with(|r| *r.borrow() != rows) {
@@ -431,18 +405,6 @@ impl App {
             }
             _ => {}
         }
-    }
-
-    /// Theme the tree and the list like the editor.
-    pub fn style_panels(&self) {
-        let th = &self.ws.theme;
-        let (bg, fg) = (Colour::rgb(th.bg.0, th.bg.1, th.bg.2), Colour::rgb(th.fg.0, th.fg.1, th.fg.2));
-        for w in [&self.panels.tree as &dyn WxWidget, &self.panels.side] {
-            w.set_background_color(bg);
-            w.set_foreground_color(fg);
-        }
-        self.panels.tree_box.set_background_color(bg);
-        self.panels.title.set_foreground_color(fg);
     }
 
     /// What a double-click in the side list does.

@@ -781,7 +781,6 @@ impl App {
         self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
         self.wb_sync();
         self.refresh_side();
-        self.style_panels();
         self.sync_chrome();
         self.extra_ticks();
         self.menubar.check_item(ID_PREVIEW as i32, self.preview.on);

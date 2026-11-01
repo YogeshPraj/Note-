@@ -48,6 +48,23 @@ impl Theme {
     pub fn ink(self) -> Rgb {
         if self.dark { (0xE6, 0xE6, 0xE6) } else { (0x1A, 0x1A, 0x1A) }
     }
+
+    /// Background for a widget with `role`.
+    pub fn background(self, role: Role) -> Rgb {
+        match role {
+            Role::Surface => self.surface(),
+            Role::Input => self.input(),
+            Role::Editor => self.editor_bg,
+        }
+    }
+
+    /// Text colour for a widget with `role`.
+    pub fn foreground(self, role: Role) -> Rgb {
+        match role {
+            Role::Editor => self.editor_fg,
+            _ => self.ink(),
+        }
+    }
 }
 
 /// Called with each new theme; returns false once its owner is gone, which removes it.
@@ -136,8 +153,9 @@ pub fn adopt<W: WxWidget + Copy + 'static>(w: W, role: Role) {
         if !w.is_valid() {
             return false;
         }
-        paint(&w, role);
+        // Native theme first: it can reset colours, so ours go on last.
         style_native(&w);
+        paint(&w, role);
         true
     });
 }
@@ -149,24 +167,22 @@ pub enum Role {
     Surface,
     /// Text boxes and lists.
     Input,
+    /// Panels that look like the editor itself: the workspace tree and the side lists.
+    Editor,
 }
 
 pub fn background(role: Role) -> Colour {
-    let t = current();
-    colour(match role {
-        Role::Surface => t.surface(),
-        Role::Input => t.input(),
-    })
+    colour(current().background(role))
 }
 
-pub fn ink() -> Colour {
-    colour(current().ink())
+pub fn foreground(role: Role) -> Colour {
+    colour(current().foreground(role))
 }
 
 /// Colour one widget for the current theme.
 pub fn paint(w: &dyn WxWidget, role: Role) {
     w.set_background_color(background(role));
-    w.set_foreground_color(ink());
+    w.set_foreground_color(foreground(role));
     w.refresh(true, None);
 }
 
@@ -272,6 +288,15 @@ mod tests {
         h.subscribe(b);
         h.remove(&[ida]);
         assert_eq!(h.set(dark()).len(), 1);
+    }
+
+    #[test]
+    fn editor_widgets_take_the_editors_colours() {
+        let t = Theme { dark: true, editor_bg: (10, 20, 30), editor_fg: (200, 210, 220) };
+        assert_eq!(t.background(Role::Editor), (10, 20, 30));
+        assert_eq!(t.foreground(Role::Editor), (200, 210, 220));
+        assert_eq!(t.background(Role::Surface), t.surface());
+        assert_eq!(t.foreground(Role::Input), t.ink());
     }
 
     #[test]

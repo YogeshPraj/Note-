@@ -153,21 +153,13 @@ impl Form {
             _ => {}
         }
     }
-    /// Replace the columns (once) and rows of a list.
+    /// Set the columns (once) and replace the rows of a list.
     pub fn list_fill(&self, id: usize, columns: &[(&str, i32)], rows: &[Vec<String>]) {
         let Some(W::List(l)) = self.map.get(&id) else { return };
         if l.get_column_count() == 0 {
-            for (i, (name, w)) in columns.iter().enumerate() {
-                l.insert_column(i as i64, name, ListColumnFormat::Left, *w);
-            }
+            l.set_columns(columns);
         }
-        l.delete_all_items();
-        for (r, row) in rows.iter().enumerate() {
-            l.insert_item(r as i64, row.first().map_or("", String::as_str), None);
-            for (c, cell) in row.iter().enumerate().skip(1) {
-                l.set_item_text_by_column(r as i64, c as i32, cell);
-            }
-        }
+        l.fill(rows);
     }
     pub fn list_set_cell(&self, id: usize, row: usize, col: usize, text: &str) {
         if let Some(W::List(l)) = self.map.get(&id) {
@@ -175,23 +167,14 @@ impl Form {
         }
     }
     pub fn list_selected_all(&self, id: usize) -> Vec<usize> {
-        let mut out = Vec::new();
-        if let Some(W::List(l)) = self.map.get(&id) {
-            let mut i = -1i64;
-            loop {
-                let n = l.get_next_item(i, ListNextItemFlag::All, ListItemState::Selected);
-                if n < 0 {
-                    break;
-                }
-                out.push(n as usize);
-                i = n as i64;
-            }
+        match self.map.get(&id) {
+            Some(W::List(l)) => l.selected_all(),
+            _ => Vec::new(),
         }
-        out
     }
     pub fn list_selected(&self, id: usize) -> Option<usize> {
         match self.map.get(&id) {
-            Some(W::List(l)) => usize::try_from(l.get_first_selected_item()).ok(),
+            Some(W::List(l)) => l.selected(),
             _ => None,
         }
     }

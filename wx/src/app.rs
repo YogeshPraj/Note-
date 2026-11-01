@@ -39,6 +39,7 @@ pub struct App {
     wbv: WebView,
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
+    pub(crate) upd: crate::updates::State,
     /// Digest of a password put on the clipboard, and when: it is cleared after 30 seconds and kept out of the history.
     pub(crate) clip_secret: Option<(Vec<u8>, std::time::Instant)>,
     pub(crate) log: Option<(u64, notepp_core::logfollow::Follower)>,
@@ -162,6 +163,7 @@ pub fn start(files: Vec<PathBuf>) {
         menu_bar: 0,
         panels,
         side_key: None,
+        upd: Default::default(),
         clip_secret: None,
         log: None,
         log_shown: None,
@@ -198,6 +200,32 @@ pub fn start(files: Vec<PathBuf>) {
 
     findpanel::wire(&app);
     panels::wire(&app);
+    app.borrow_mut().update_startup();
+    {
+        // First look 8 seconds after start; then every 6 hours.
+        let first = Timer::new(&frame);
+        let a = app.clone();
+        first.on_tick(move |_| {
+            if let Ok(mut app) = a.try_borrow_mut() {
+                if app.ws.settings.auto_update {
+                    app.update_check(false);
+                }
+            }
+        });
+        first.start(8_000, true);
+        std::mem::forget(first);
+        let again = Timer::new(&frame);
+        let a = app.clone();
+        again.on_tick(move |_| {
+            if let Ok(mut app) = a.try_borrow_mut() {
+                if app.ws.settings.auto_update {
+                    app.update_check(false);
+                }
+            }
+        });
+        again.start(6 * 60 * 60 * 1000, false);
+        std::mem::forget(again);
+    }
     {
         let mut a = app.borrow_mut();
         if let Some(dir) = a.ws.workspace.clone() {
@@ -427,6 +455,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     let a = app.clone();
     stream.on_tick(move |_| {
         if let Ok(mut app) = a.try_borrow_mut() {
+            app.update_poll();
             app.stream_tick();
         }
     });
@@ -476,6 +505,7 @@ impl App {
             ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
             ID_NEXT_RESULT | ID_PREV_RESULT => return self.step_result(id == ID_NEXT_RESULT),
             _ if self.panel_cmd(id) => {}
+            _ if self.update_cmd(id) => {}
             _ if self.stream_cmd(id) => {}
             _ if self.extra_command(id) => {}
             ID_PREVIEW => {

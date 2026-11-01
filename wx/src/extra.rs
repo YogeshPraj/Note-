@@ -693,6 +693,7 @@ impl App {
 
     /// Menu ticks for the switches handled here.
     pub fn extra_ticks(&self) {
+        self.menubar.check_item(c::ID_UPDATE_AUTO as i32, self.ws.settings.auto_update);
         self.menubar.check_item(c::ID_ON_TOP as i32, is_topmost(self));
         self.menubar.check_item(c::ID_DISTRACTION as i32, self.distraction);
         self.menubar.check_item(c::ID_POSTIT as i32, self.postit);

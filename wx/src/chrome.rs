@@ -130,6 +130,8 @@ struct St {
     look: Look,
     font: Option<Font>,
     handler: Option<Rc<dyn Fn(Act)>>,
+    /// The update notice at the far right of the toolbar: text, colour, command and where it was drawn.
+    pill: Option<(String, Rgb, usize, R)>,
     menu_items: Vec<String>,
     menu_rects: Vec<R>,
     menu_hot: Option<usize>,
@@ -291,10 +293,16 @@ fn layout_tabs(dc: &impl DeviceContext, width: i32, s: &mut St) {
 
 fn paint_tools(st: &Rc<RefCell<St>>, panel: &Panel) {
     let dc = AutoBufferedPaintDC::new(panel);
-    let s = st.borrow();
+    let mut s = st.borrow_mut();
     let lk = s.look;
     let (w, h) = { let c = panel.get_client_size(); (c.width, c.height) };
     fill(&dc, R::new(0, 0, w, h), lk.base());
+    if let Some(p) = s.pill.as_mut() {
+        let wd = text_w(&dc, &p.0) + 26;
+        p.3 = R::new(w - wd - 10, 6, w - 10, 3 + BTN - 3);
+        fill(&dc, p.3, p.1);
+        text_at(&dc, &p.0, p.3, WHITE, true);
+    }
     for (i, (item, r)) in s.tools.iter().enumerate() {
         match item {
             Tool::Sep => fill(&dc, R::new(r.l + 3, r.t + 6, r.l + 4, r.b - 6), mix(lk.base(), lk.ink(), 0x40)),
@@ -453,6 +461,7 @@ impl Chrome {
             look,
             font,
             handler: None,
+            pill: None,
             menu_items: Vec::new(),
             menu_rects: Vec::new(),
             menu_hot: None,
@@ -487,6 +496,11 @@ impl Chrome {
         wire_tabs(&st, tabs_p);
         wire_status(&st, status_p);
         Chrome { menu: menu_p, tools: tools_p, tabs: tabs_p, status: status_p, st }
+    }
+
+    pub fn set_pill(&self, p: Option<(String, Rgb, usize)>) {
+        self.st.borrow_mut().pill = p.map(|(t, c, cmd)| (t, c, cmd, R::default()));
+        self.tools.refresh(false, None);
     }
 
     pub fn set_menu_titles(&self, titles: Vec<String>) {
@@ -641,6 +655,10 @@ fn wire_tools(st: &Rc<RefCell<St>>, p: Panel) {
     let s = st.clone();
     p.on_mouse_left_up(move |e| {
         let (x, y) = pos(&e);
+        let pill = s.borrow().pill.as_ref().filter(|p| p.3.has(x, y)).map(|p| p.2);
+        if let Some(c) = pill {
+            return emit(&s, Act::Cmd(c));
+        }
         let cmd = {
             let mut m = s.borrow_mut();
             let hit = m.tool_down.filter(|d| m.tools[*d].1.has(x, y)).and_then(|d| if let Tool::Btn { cmd, .. } = &m.tools[d].0 { Some(*cmd) } else { None });

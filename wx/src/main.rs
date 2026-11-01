@@ -22,6 +22,7 @@ mod sci;
 mod settings_ui;
 mod tables;
 mod ui;
+mod updates;
 
 use wxdragon::prelude::*;
 

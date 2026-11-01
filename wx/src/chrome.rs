@@ -480,7 +480,10 @@ fn paint_tabs(st: &Rc<RefCell<St>>, panel: &Panel) {
     if let Some((l, r)) = s.arrows {
         for (rect, b) in [(l, Btn::Left), (r, Btn::Right)] {
             let (hot, down, on) = state(b);
-            tab_button(&dc, rect, lk, hot, down, on, b);
+            // An arrow that has nothing to scroll to is not drawn.
+            if on {
+                tab_button(&dc, rect, lk, hot, down, on, b);
+            }
         }
     }
     let (hot, down, on) = state(Btn::Plus);
@@ -797,7 +800,7 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
         if let Some((a, b)) = moved {
             emit(&s, Act::Move(a, b));
         }
-        let tip = match s.borrow().btn_hot {
+        let tip = match s.borrow().btn_hot.filter(|b| s.borrow().can_scroll(*b)) {
             Some(Btn::Left) => "Scroll tabs left",
             Some(Btn::Right) => "Scroll tabs right",
             Some(Btn::Plus) => "New (Ctrl+N)",
@@ -864,7 +867,12 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
     let s = st.clone();
     p.on_mouse_left_double_click(move |e| {
         let (x, y) = pos(&e);
-        if tab_at(&s.borrow(), x, y).is_none() {
+        // A double-click on empty strip makes a tab; on a button (even a hidden arrow) it does nothing extra.
+        let empty = {
+            let m = s.borrow();
+            tab_at(&m, x, y).is_none() && m.btn_at(x, y).is_none()
+        };
+        if empty {
             emit(&s, Act::New);
         }
     });

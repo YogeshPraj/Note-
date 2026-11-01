@@ -135,6 +135,8 @@ fn show(w: &impl WxWidget, on: bool) {
 /// Position the controls for the current mode and width.
 pub fn arrange() {
     let Some(p) = p() else { return };
+    // Colours set while the panel was hidden at start-up are not reliably kept, so set them whenever it is laid out.
+    restyle();
     let width = p.panel.get_client_size().width;
     let mode = mode();
     let (r1, r2, r3) = (40, 74, 108);

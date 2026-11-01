@@ -30,6 +30,10 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 - State lives in small structs (`state.rs`: whiteboard, preview, streams, search results, clipboard) owned by `App`.
 - OS differences go through `platform::current()`; do not add `cfg(windows)` outside `src/platform/`.
 
+## Menus
+
+`menu_spec.rs` describes any menu as plain data (`MenuSpec`) and realizes it in one place. The menu bar, the status-bar popups and the tab / editor context menus all go through it; tidying (no stray separators, no empty submenus) and accelerator handling are pure and tested.
+
 ## Side list
 
 `side/` is the right-hand list as a strategy: each of the Character table, Clipboard history, Document list and Function list is a `Content` (columns, rows, what activating a row does), and `Side` only tracks which one is shown. It is toolkit-free and tested; `panels.rs` fills the list control from it.

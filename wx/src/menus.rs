@@ -10,7 +10,9 @@ use notepp_core::doc::{CHARSETS, Enc};
 use notepp_core::hash::ALGOS;
 use notepp_core::lang::LANGUAGES;
 use notepp_core::{edit, settings, shortcuts};
-use wxdragon::prelude::{ItemKind, Menu};
+use wxdragon::prelude::Menu;
+
+use crate::menu_spec::{Entry as MenuEntry, MenuSpec};
 
 use crate::tables::*;
 
@@ -73,17 +75,6 @@ fn with_override(id: usize, text: &str) -> String {
     })
 }
 
-/// "Ctrl+Z or Alt+Backspace" -> "Ctrl+Z": wxWidgets takes one accelerator per item.
-fn menu_text(label: &str) -> String {
-    match label.split_once('\t') {
-        None => label.to_string(),
-        Some((name, keys)) => {
-            let first = keys.split(" or ").next().unwrap_or(keys).trim();
-            if shortcuts::parse(first).is_some() { format!("{name}\t{first}") } else { name.to_string() }
-        }
-    }
-}
-
 /// Commands that are switches: they get a tick box.
 fn checkable(id: usize) -> bool {
     matches!(
@@ -95,30 +86,26 @@ fn checkable(id: usize) -> bool {
         || (ID_ENGINE_BASE..ID_ENGINE_BASE + edit::SEARCH_ENGINES.len()).contains(&id)
 }
 
-/// Build the wxWidgets menu for a menu under construction (submenus included).
-pub fn realize(m: M) -> Menu {
-    ARENA.with(|a| realize_inner(&a.borrow(), m))
+/// The menu under construction as plain data (submenus included).
+pub fn spec(m: M) -> MenuSpec {
+    ARENA.with(|a| spec_inner(&a.borrow(), m))
 }
 
-fn realize_inner(a: &[Vec<Entry>], m: M) -> Menu {
-    let menu = Menu::builder().build();
+fn spec_inner(a: &[Vec<Entry>], m: M) -> MenuSpec {
+    let mut s = MenuSpec::new();
     for e in &a[m.0] {
-        match e {
-            Entry::Item { id, label, enabled } => {
-                let kind = if checkable(*id) { ItemKind::Check } else { ItemKind::Normal };
-                menu.append(*id as i32, &menu_text(label), "", kind);
-                if !enabled {
-                    menu.enable_item(*id as i32, false);
-                }
-            }
-            Entry::Sep => menu.append_separator(),
-            Entry::Sub { label, menu: sub } => {
-                let sub = realize_inner(a, *sub);
-                menu.append_submenu(sub, &menu_text(label), "");
-            }
-        }
+        s.push(match e {
+            Entry::Item { id, label, enabled } => MenuEntry::Item { id: *id, label: label.clone(), enabled: *enabled, check: checkable(*id).then_some(false) },
+            Entry::Sep => MenuEntry::Sep,
+            Entry::Sub { label, menu } => MenuEntry::Sub { label: label.clone(), menu: spec_inner(a, *menu) },
+        });
     }
-    menu
+    s
+}
+
+/// Build the wxWidgets menu for a menu under construction.
+pub fn realize(m: M) -> Menu {
+    spec(m).realize()
 }
 // ---- generated from the Win32 shell's menu definitions -----------------------------------------
 

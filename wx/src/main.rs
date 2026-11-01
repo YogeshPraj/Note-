@@ -9,6 +9,7 @@ mod find;
 mod findpanel;
 mod incr;
 mod mdbar;
+mod menu_spec;
 mod menus;
 mod chrome;
 mod command;

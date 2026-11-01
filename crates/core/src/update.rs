@@ -149,14 +149,14 @@ pub fn download(rel: &Release, progress: &mut dyn FnMut(u32)) -> Result<PathBuf,
         hash.update(&buf[..n]);
         file.write_all(&buf[..n]).map_err(|e| Error::Io(e.to_string()))?;
         done += n as u64;
-        let pct = if total > 0 { crate::num::to_u32(done * 95 / total) } else { 0 };
+        let pct = (done * 95).checked_div(total).map_or(0, crate::num::to_u32);
         if pct != last {
             last = pct;
             progress(pct);
         }
     }
     drop(file);
-    let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let digest = crate::hash::hex(&hash.finalize());
     if digest != expected {
         let _ = std::fs::remove_file(&zip_path);
         return Err(Error::UpdateChecksumMismatch);

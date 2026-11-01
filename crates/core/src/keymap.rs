@@ -149,10 +149,10 @@ mod tests {
     fn the_registry_defaults_do_not_clash() {
         let mut seen: HashMap<Chord, usize> = HashMap::new();
         for s in SPECS {
-            if let Some(c) = shortcuts::parse(s.shortcut) {
-                if let Some(other) = seen.insert(c, s.id) {
-                    panic!("{} and {} both default to {}", other, s.id, s.shortcut);
-                }
+            if let Some(c) = shortcuts::parse(s.shortcut)
+                && let Some(other) = seen.insert(c, s.id)
+            {
+                panic!("{} and {} both default to {}", other, s.id, s.shortcut);
             }
         }
     }

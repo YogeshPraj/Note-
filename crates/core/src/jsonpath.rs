@@ -157,7 +157,7 @@ pub fn offset_of(text: &str, path: &[Seg]) -> Option<usize> {
 /// 0-based line of the node at `path`.
 pub fn line_of(text: &str, path: &[Seg]) -> Option<usize> {
     let off = offset_of(text, path)?;
-    Some(text.as_bytes()[..off].iter().filter(|b| **b == b'\n').count())
+    Some(text.get(..off)?.matches('\n').count())
 }
 
 #[cfg(test)]

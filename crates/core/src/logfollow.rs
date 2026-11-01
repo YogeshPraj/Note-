@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn a_big_file_starts_at_its_tail_on_a_line_boundary() {
         let p = temp("tail");
-        let text: String = (0..100).map(|i| format!("line number {i:03}\n")).collect();
+        let text: String = (0..100).map(|i| format!("line number {i:03}\n")).collect::<Vec<_>>().concat();
         std::fs::write(&p, &text).unwrap();
         let (mut f, u) = Follower::open(&p, 100).unwrap();
         assert!(u.skipped_bytes > 0);

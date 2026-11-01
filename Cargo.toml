@@ -1,4 +1,5 @@
 [workspace]
+resolver = "3"
 members = ["crates/core"]
 # The wxWidgets shell is a separate workspace: they need a different compiler (see wx/README.md).
 exclude = ["wx", "vendor"]
@@ -20,6 +21,14 @@ todo = "warn"
 dbg_macro = "deny"
 print_stdout = "warn"
 too_many_lines = "warn"
+# Style lints that cost more than they give here (decision logged in docs/decisions.md).
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+assert_is_empty = "allow"
+format_push_string = "allow"
+many_single_char_names = "allow"
+items_after_statements = "allow"
+struct_excessive_bools = "allow"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
 

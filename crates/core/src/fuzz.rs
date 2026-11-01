@@ -15,7 +15,7 @@ impl Rng {
         self.0
     }
     fn below(&mut self, n: usize) -> usize {
-        crate::num::to_usize((self.next() % n.max(1) as u64))
+        crate::num::to_usize(self.next() % crate::num::to_u64(n.max(1)))
     }
 }
 
@@ -43,7 +43,7 @@ static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 fn pure_functions_never_panic() {
     std::panic::set_hook(Box::new(|info| {
         let at = info.location().map_or(String::new(), |l| format!("{}:{}", l.file(), l.line()));
-        let msg = info.payload().downcast_ref::<String>().cloned().or_else(|| info.payload().downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+        let msg = info.payload().downcast_ref::<String>().cloned().or_else(|| info.payload().downcast_ref::<&str>().map(ToString::to_string)).unwrap_or_default();
         if let Ok(mut g) = LAST.lock() {
             *g = format!("{at}: {msg}");
         }
@@ -58,7 +58,7 @@ fn pure_functions_never_panic() {
         let tab = r.below(9);
         let syn = comment_syntax(["Python", "C++", "CSS", "HTML", "Batch", "Fortran (fixed form)", "Normal text"][r.below(7)], "");
         let mut check = |name: &str, f: &mut dyn FnMut()| {
-            if catch_unwind(AssertUnwindSafe(|| f())).is_err() {
+            if catch_unwind(AssertUnwindSafe(&mut *f)).is_err() {
                 failures.push(format!("round {round}: {name} - {} on {text:?}", LAST.lock().map(|g| g.clone()).unwrap_or_default()));
             }
         };
@@ -164,7 +164,9 @@ fn pure_functions_never_panic() {
                 drop(functions::extract(&text, lexer));
             }
         });
-        check("count_text", &mut || drop(view::count_text(&text)));
+        check("count_text", &mut || {
+            let _ = view::count_text(&text);
+        });
         check("format_date_time", &mut || {
             let t = DateTime { year: 2026, month: 10, day: 30, weekday: 5, hour: 15, minute: 7, second: 9 };
             drop(format_date_time(&text, &t));

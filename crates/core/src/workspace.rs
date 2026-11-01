@@ -1181,9 +1181,9 @@ impl<S: Send> Workspace<S> {
     /// Identity of the active document's content, to skip redundant re-renders.
     pub fn preview_key(&self) -> (isize, usize, u64) {
         let text = sci::get_text(&self.sci);
-        let mut h: u64 = 0xcbf29ce484222325; // FNV-1a
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a
         for b in text.bytes() {
-            h = (h ^ u64::from(b)).wrapping_mul(0x100000001b3);
+            h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
         }
         (self.tabs.get(self.active).map_or(0, |t| t.doc), text.len(), h)
     }
@@ -1240,7 +1240,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn new_tab(&mut self) -> usize {
-        let n = (1..).find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.title == format!("new {n}"))).unwrap_or(1);
+        let n = (1..=self.tabs.len() + 1).find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.title == format!("new {n}"))).unwrap_or(1);
         let eol = match self.settings.new_doc_eol.as_str() {
             "crlf" => Eol::Crlf,
             "lf" => Eol::Lf,
@@ -2001,7 +2001,7 @@ impl<S: Send> Workspace<S> {
         self.search_engine = s.search_engine;
         self.set_symbols(s.symbols);
         if !s.date_format.is_empty() {
-            self.date_format = s.date_format.clone();
+            self.date_format.clone_from(&s.date_format);
         }
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
@@ -2212,7 +2212,7 @@ mod tests {
 
     #[test]
     fn thousands_separators() {
-        assert_eq!((commafy(0), commafy(999), commafy(1000), commafy(22187160)), ("0".into(), "999".into(), "1,000".into(), "22,187,160".into()));
+        assert_eq!((commafy(0), commafy(999), commafy(1000), commafy(22_187_160)), ("0".into(), "999".into(), "1,000".into(), "22,187,160".into()));
     }
 
     #[test]
@@ -2261,7 +2261,7 @@ mod tests {
         assert_eq!(l[0], PathBuf::from("C:\\f11.txt"));
         push_recent(&mut l, Path::new("C:\\f5.txt"), 10);
         assert_eq!(l[0], PathBuf::from("C:\\f5.txt"));
-        assert_eq!(l.iter().filter(|p| **p == PathBuf::from("C:\\f5.txt")).count(), 1);
+        assert_eq!(l.iter().filter(|p| p.as_path() == Path::new("C:\\f5.txt")).count(), 1);
         assert_eq!(l.len(), 10);
     }
 }

@@ -985,7 +985,7 @@ mod tests {
         assert_eq!(reverse_lines("1\n2\n3", "\n"), "3\n2\n1");
         let shuffled = randomize_lines("1\n2\n3\n4\n5\n6", "\n", 42);
         let mut v: Vec<&str> = shuffled.split('\n').collect();
-        v.sort();
+        v.sort_unstable();
         assert_eq!(v, ["1", "2", "3", "4", "5", "6"]);
         assert_eq!(join_lines("a\nb\r\nc\n"), "a b c");
         assert_eq!(join_lines("a \nb"), "a b");

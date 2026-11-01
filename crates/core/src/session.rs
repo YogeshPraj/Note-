@@ -234,7 +234,7 @@ fn extras_from_settings() -> Extras {
         recent: root["recentFiles"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
         workspace: None,
         search_engine: 0,
-        symbols: Default::default(),
+        symbols: crate::view::Symbols::default(),
         date_format: String::new(),
     }
 }
@@ -416,7 +416,7 @@ mod tests {
             recent: vec!["C:\\a\\b.txt".into()],
             workspace: Some("C:\\proj".into()),
             search_engine: 2,
-            symbols: Default::default(),
+            symbols: crate::view::Symbols::default(),
             date_format: "yyyy".into(),
         };
         let p = std::env::temp_dir().join("notepp_session_test.json");

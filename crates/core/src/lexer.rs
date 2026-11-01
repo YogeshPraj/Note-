@@ -18,6 +18,7 @@ pub fn register(f: Factory) {
 }
 
 /// Map a file extension to a Lexilla lexer name.
+#[allow(clippy::match_same_arms, reason = "one arm per extension group keeps the table readable")]
 pub fn lexer_for_extension(ext: &str) -> &'static str {
     match ext.to_ascii_lowercase().as_str() {
         "rs" => "rust",

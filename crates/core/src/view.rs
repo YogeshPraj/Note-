@@ -41,7 +41,7 @@ pub fn apply_symbols<S: Send>(s: &S, v: &Symbols) {
         if v.control {
             s.send(sci::SCI_CLEARREPRESENTATION, key.as_ptr() as usize, 0);
         } else {
-            s.send(sci::SCI_SETREPRESENTATION, key.as_ptr() as usize, b"\0".as_ptr() as isize);
+            s.send(sci::SCI_SETREPRESENTATION, key.as_ptr() as usize, c"".as_ptr() as isize);
         }
     }
 }

@@ -118,6 +118,7 @@ mod tests {
         assert!(atomic_write(&f, b"nope").is_err());
         assert_eq!(std::fs::read(&f).unwrap(), b"3");
         let mut p = std::fs::metadata(&f).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false, reason = "clears the DOS read-only attribute")]
         p.set_readonly(false);
         std::fs::set_permissions(&f, p).unwrap();
         // A missing folder is an error, not a silently created tree.

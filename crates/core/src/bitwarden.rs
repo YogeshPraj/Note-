@@ -231,17 +231,16 @@ fn download_to(url: &str, tmp: &std::path::Path, a: &Asset, progress: &mut dyn F
         hash.update(&buf[..n]);
         file.write_all(&buf[..n]).map_err(|e| Error::Io(e.to_string()))?;
         done += n as u64;
-        if total > 0 {
-            let pct = crate::num::to_u32(done * 90 / total);
-            if pct != last {
-                last = pct;
-                progress(pct, "Downloading the Bitwarden CLI");
-            }
+        if let Some(pct) = (done * 90).checked_div(total).map(crate::num::to_u32)
+            && pct != last
+        {
+            last = pct;
+            progress(pct, "Downloading the Bitwarden CLI");
         }
     }
     drop(file);
     // Verify BEFORE anything is extracted or executed.
-    let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let digest = crate::hash::hex(&hash.finalize());
     if digest != a.sha256 {
         return Err(Error::ChecksumMismatch { expected: a.sha256.to_string(), got: digest });
     }
@@ -400,10 +399,10 @@ pub fn login(email: &str, master_password: &str) -> Result<(), Error> {
 pub fn sync() -> Result<(), Error> {
     touch();
     let r = run(&["sync"], &[], None, Duration::from_secs(60));
-    if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(r.stderr, "sync failed"))) }
+    if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(&r.stderr, "sync failed"))) }
 }
 
-fn nonempty(s: String, fallback: &str) -> String {
+fn nonempty(s: &str, fallback: &str) -> String {
     let t = s.trim();
     if t.is_empty() { fallback.to_string() } else { t.to_string() }
 }
@@ -459,7 +458,7 @@ pub fn list(query: &str) -> Result<Vec<Item>, Error> {
         args.extend(["--search", query]);
     }
     let r = run(&args, &[], None, QUICK);
-    parse_items(&r.stdout).map_err(|_| Error::Cli(nonempty(r.stderr, "could not list items")))
+    parse_items(&r.stdout).map_err(|_| Error::Cli(nonempty(&r.stderr, "could not list items")))
 }
 
 pub const FIELDS: [&str; 5] = ["password", "username", "totp", "uri", "notes"];
@@ -475,7 +474,7 @@ pub fn get_field(id: &str, field: &str) -> Result<String, Error> {
     touch();
     let r = run(&["get", field, id], &[], None, QUICK);
     if !r.ok {
-        return Err(Error::Cli(nonempty(r.stderr, &format!("bw get {field} failed"))));
+        return Err(Error::Cli(nonempty(&r.stderr, &format!("bw get {field} failed"))));
     }
     let v = r.stdout.trim_end_matches(['\r', '\n']).to_string();
     if v.is_empty() { Err(Error::MissingField(field.to_string())) } else { Ok(v) }
@@ -540,7 +539,7 @@ pub fn create_item(item: &NewItem) -> Result<(), Error> {
     touch();
     let b64 = create_payload(item)?;
     let r = run(&["create", "item"], &[], Some(&b64), Duration::from_secs(45));
-    if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(r.stderr, "bw create item failed"))) }
+    if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(&r.stderr, "bw create item failed"))) }
 }
 
 #[derive(Debug)]
@@ -574,7 +573,7 @@ pub fn generate(o: &GenOpts) -> Result<String, Error> {
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let r = run(&refs, &[], None, QUICK);
     if !r.ok {
-        return Err(Error::Cli(nonempty(r.stderr, "bw generate failed")));
+        return Err(Error::Cli(nonempty(&r.stderr, "bw generate failed")));
     }
     let v = r.stdout.trim_end_matches(['\r', '\n']).to_string();
     if v.is_empty() { Err(Error::GenerateEmpty) } else { Ok(v) }
@@ -617,7 +616,7 @@ mod tests {
         );
         assert_eq!(items[1].title, "(untitled)");
         assert!(items[1].has_totp && !items[1].has_password);
-        assert!(!format!("{:?}", items).contains("hunter2"));
+        assert!(!format!("{items:?}").contains("hunter2"));
         assert!(parse_items("nope").is_err());
     }
 

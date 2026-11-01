@@ -21,6 +21,7 @@ impl<T: Copy + PartialEq> Schedule<T> {
     }
 
     /// Run `job` every `every_ms` milliseconds (at least every tick).
+    #[must_use]
     pub fn every(mut self, job: T, every_ms: u32) -> Self {
         let ticks = u64::from(every_ms.div_ceil(self.base_ms).max(1));
         self.jobs.push((job, ticks));

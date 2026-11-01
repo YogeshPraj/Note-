@@ -139,7 +139,7 @@ fn rows(a: &str, b: &str) -> (Vec<Row>, usize, usize, usize) {
     (out, blocks, removed, added)
 }
 
-fn cell(side: &Option<(usize, String)>, class: &str) -> String {
+fn cell(side: Option<&(usize, String)>, class: &str) -> String {
     match side {
         Some((n, h)) => format!("<td class=\"n {class}\">{n}</td><td class=\"t {class}\">{h}</td>"),
         None => "<td class=\"n void\"></td><td class=\"t void\"></td>".to_string(),
@@ -189,9 +189,7 @@ pub fn diff_html(left_name: &str, left: &str, right_name: &str, right: &str, dar
             let mut keep = vec![false; rows.len()];
             for (i, r) in rows.iter().enumerate() {
                 if r.kind != "eq" {
-                    for k in i.saturating_sub(CONTEXT)..(i + CONTEXT + 1).min(rows.len()) {
-                        keep[k] = true;
-                    }
+                    keep[i.saturating_sub(CONTEXT)..(i + CONTEXT + 1).min(rows.len())].fill(true);
                 }
             }
             let mut html = String::from("<table>");
@@ -217,7 +215,7 @@ pub fn diff_html(left_name: &str, left: &str, right_name: &str, right: &str, dar
                     "chg" => ("chg", "chg"),
                     _ => ("", ""),
                 };
-                html.push_str(&format!("<tr{}>{}{}</tr>", if starts { " class=\"start\"" } else { "" }, cell(&r.left, lc), cell(&r.right, rc)));
+                html.push_str(&format!("<tr{}>{}{}</tr>", if starts { " class=\"start\"" } else { "" }, cell(r.left.as_ref(), lc), cell(r.right.as_ref(), rc)));
                 i += 1;
             }
             html.push_str("</table>");
@@ -244,7 +242,7 @@ mod tests {
 
     #[test]
     fn changes_are_counted_marked_and_context_is_folded() {
-        let a: String = (1..=30).map(|i| format!("line {i}\n")).collect();
+        let a: String = (1..=30).map(|i| format!("line {i}\n")).collect::<Vec<_>>().concat();
         let b = a.replace("line 15\n", "line FIFTEEN\n").replace("line 28\n", "");
         let h = diff_html("old.txt", &a, "new.txt", &b, true);
         assert!(h.contains("2 changed blocks"), "{h}");

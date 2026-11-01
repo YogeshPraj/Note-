@@ -346,8 +346,8 @@ pub fn setup_line_numbers<S: Send>(sci: &S, theme: &Theme, width: isize) {
 /// Call after the lexer is attached: properties are forwarded to the lexer and
 /// are silently dropped if none is set yet.
 pub fn setup_folding<S: Send>(sci: &S, theme: &Theme) {
-    sci.send(SCI_SETPROPERTY, b"fold\0".as_ptr() as usize, b"1\0".as_ptr() as isize);
-    sci.send(SCI_SETPROPERTY, b"fold.compact\0".as_ptr() as usize, b"0\0".as_ptr() as isize);
+    sci.send(SCI_SETPROPERTY, c"fold".as_ptr() as usize, c"1".as_ptr() as isize);
+    sci.send(SCI_SETPROPERTY, c"fold.compact".as_ptr() as usize, c"0".as_ptr() as isize);
     sci.send(SCI_SETMARGINTYPEN, 2, SC_MARGIN_SYMBOL);
     sci.send(SCI_SETMARGINMASKN, 2, SC_MASK_FOLDERS);
     sci.send(SCI_SETMARGINWIDTHN, 2, 16);

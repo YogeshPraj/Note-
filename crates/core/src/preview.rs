@@ -83,7 +83,7 @@ fn escape(s: &str) -> String {
 }
 
 /// Render Markdown (GFM tables, task lists, strikethrough, footnotes) to HTML.
-/// ```mermaid fences become `<pre class="mermaid">` for the page to draw.
+/// `mermaid` code fences become `<pre class="mermaid">` for the page to draw.
 ///
 /// Every top-level block is preceded by an empty `<span class="ln" data-line="N">` (N = the
 /// 0-based source line it starts on). The preview page uses these to keep its scroll position

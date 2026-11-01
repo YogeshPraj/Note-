@@ -317,7 +317,7 @@ fn insert_after_line(doc: &str, pos: usize, eol: &str, block: &str, select: Opti
     let current_blank = doc[line_start(doc, pos)..le].trim().is_empty();
     // Replace an empty line in place; otherwise leave a blank line between this line and the block.
     let (start, lead) = if current_blank { (line_start(doc, pos), String::new()) } else { (le, format!("{eol}{eol}")) };
-    let end = if current_blank { le } else { le };
+    let end = le;
     let text = format!("{lead}{block}{eol}");
     let base = start + lead.len();
     let sel = match select {

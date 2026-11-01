@@ -280,6 +280,7 @@ pub fn command_core<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, fla
             if let Some(p) = ws.tabs[ws.active].path.clone() {
                 let cleared = std::fs::metadata(&p).map(|m| {
                     let mut perm = m.permissions();
+                    #[allow(clippy::permissions_set_readonly_false, reason = "clears the DOS read-only attribute")]
                     perm.set_readonly(false);
                     std::fs::set_permissions(&p, perm)
                 });

@@ -66,7 +66,7 @@ pub fn parse_vars(lines: &[&str]) -> HashMap<String, String> {
 }
 
 /// Replace `{{name}}` from `vars`. `{{vault:...}}` is left alone on purpose.
-pub fn expand(text: &str, vars: &HashMap<String, String>) -> String {
+pub fn expand<S: std::hash::BuildHasher>(text: &str, vars: &HashMap<String, String, S>) -> String {
     rewrite(text, |name| {
         if starts_with_vault(name) {
             return None;
@@ -207,7 +207,7 @@ pub fn request_at(text: &str, cursor_line: usize) -> Option<Request> {
 /// the ones that could not be found.
 pub fn resolve_vault_refs(
     text: &str,
-    cache: &mut HashMap<String, Option<String>>,
+    cache: &mut HashMap<String, Option<String>, impl std::hash::BuildHasher>,
     lookup: &mut dyn FnMut(&str) -> Option<String>,
     used: &mut Vec<String>,
     missing: &mut Vec<String>,

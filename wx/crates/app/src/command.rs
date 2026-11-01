@@ -76,7 +76,7 @@ impl From<notepp_core::error::Error> for AppError {
 /// rule from the registry, then hands it to the core and the registered handlers.
 pub fn execute(app: &mut App, id: usize) -> Result<(), AppError> {
     let state = CommandState::of(&app.ws);
-    if !registry::is_enabled(id, &state) {
+    if !registry::is_enabled(id, state) {
         let name = registry::spec(id).map_or_else(String::new, |s| s.tooltip());
         return Err(AppError::Disabled(name));
     }
@@ -91,7 +91,7 @@ impl App {
         }
         self.cmd_state = Some(state);
         for spec in registry::state_dependent() {
-            let on = (spec.enabled)(&state);
+            let on = (spec.enabled)(state);
             self.menubar.enable_item(crate::platform::wx::to_i32(spec.id), on);
             self.chrome.set_enabled(spec.id, on);
         }

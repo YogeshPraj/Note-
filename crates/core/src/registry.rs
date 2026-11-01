@@ -59,21 +59,21 @@ impl CommandState {
     }
 }
 
-pub type Enabled = fn(&CommandState) -> bool;
+pub type Enabled = fn(CommandState) -> bool;
 
-fn always(_: &CommandState) -> bool {
+fn always(_: CommandState) -> bool {
     true
 }
-fn has_selection(s: &CommandState) -> bool {
+fn has_selection(s: CommandState) -> bool {
     s.has_selection
 }
-fn can_undo(s: &CommandState) -> bool {
+fn can_undo(s: CommandState) -> bool {
     s.can_undo
 }
-fn can_redo(s: &CommandState) -> bool {
+fn can_redo(s: CommandState) -> bool {
     s.can_redo
 }
-fn has_path(s: &CommandState) -> bool {
+fn has_path(s: CommandState) -> bool {
     s.has_path
 }
 
@@ -394,7 +394,7 @@ pub fn spec(id: usize) -> Option<&'static CommandSpec> {
 }
 
 /// Is command `id` allowed to run now? Commands without a spec are always allowed.
-pub fn is_enabled(id: usize, state: &CommandState) -> bool {
+pub fn is_enabled(id: usize, state: CommandState) -> bool {
     spec(id).is_none_or(|s| (s.enabled)(state))
 }
 
@@ -563,16 +563,16 @@ mod tests {
     fn selection_commands_wait_for_a_selection() {
         let none = CommandState::default();
         let some = CommandState { has_selection: true, ..CommandState::default() };
-        assert!(!is_enabled(ID_COPY, &none));
-        assert!(is_enabled(ID_COPY, &some));
-        assert!(is_enabled(ID_NEW, &none));
+        assert!(!is_enabled(ID_COPY, none));
+        assert!(is_enabled(ID_COPY, some));
+        assert!(is_enabled(ID_NEW, none));
     }
 
     #[test]
     fn undo_and_redo_follow_their_stacks() {
         let s = CommandState { can_undo: true, ..CommandState::default() };
-        assert!(is_enabled(ID_UNDO, &s));
-        assert!(!is_enabled(ID_REDO, &s));
+        assert!(is_enabled(ID_UNDO, s));
+        assert!(!is_enabled(ID_REDO, s));
     }
 
     #[test]

@@ -35,13 +35,13 @@ pub struct Dek(Zeroizing<[u8; DEK_BYTES]>);
 
 impl Dek {
     fn cipher(&self) -> Aes256Gcm {
-        Aes256Gcm::new_from_slice(&self.0[..]).expect("key length is fixed")
+        Aes256Gcm::new(aes_gcm::Key::<Aes256Gcm>::from_slice(&self.0[..]))
     }
 
     /// First 8 hex characters of SHA-256(DEK): which profile a file belongs to.
     pub fn fingerprint(&self) -> String {
         let h = Sha256::digest(&self.0[..]);
-        h[..4].iter().map(|b| format!("{b:02x}")).collect()
+        crate::hash::hex(&h[..4])
     }
 }
 

@@ -39,8 +39,26 @@ pub fn kind_for(lexer: &str, path: Option<&Path>) -> Option<Kind> {
 }
 
 const DIAGRAMS: [&str; 20] = [
-    "graph", "flowchart", "sequenceDiagram", "classDiagram", "stateDiagram", "erDiagram", "journey", "gantt", "pie", "gitGraph",
-    "mindmap", "timeline", "quadrantChart", "requirementDiagram", "C4Context", "sankey", "xychart", "block", "architecture", "zenuml",
+    "graph",
+    "flowchart",
+    "sequenceDiagram",
+    "classDiagram",
+    "stateDiagram",
+    "erDiagram",
+    "journey",
+    "gantt",
+    "pie",
+    "gitGraph",
+    "mindmap",
+    "timeline",
+    "quadrantChart",
+    "requirementDiagram",
+    "C4Context",
+    "sankey",
+    "xychart",
+    "block",
+    "architecture",
+    "zenuml",
 ];
 
 /// A file that is nothing but a Mermaid diagram (no fences), e.g. `graph TD; A-->B`.
@@ -77,10 +95,7 @@ pub fn markdown_to_html(src: &str) -> String {
 /// Like `markdown_to_html`, and with `base` (the folder of the document) images that point at
 /// local files are embedded, so they show although the page itself may load no files.
 pub fn markdown_to_html_in(src: &str, base: Option<&Path>) -> String {
-    let opts = Options::ENABLE_TABLES
-        | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS;
+    let opts = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let line_starts: Vec<usize> = std::iter::once(0).chain(src.match_indices('\n').map(|(i, _)| i + 1)).collect();
     let line_of = |offset: usize| line_starts.partition_point(|&s| s <= offset) - 1;
     let marker = |offset: usize| Event::Html(format!("<span class=\"ln\" data-line=\"{}\"></span>\n", line_of(offset)).into());

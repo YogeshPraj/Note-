@@ -7,10 +7,10 @@
 //! l.append("one");
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::ListBox as WxListBox;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::ListBox as WxListBox;
+use wxdragon::prelude::*;
 
 themed!(
     /// A simple list of strings.

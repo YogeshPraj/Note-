@@ -5,13 +5,13 @@ use std::sync::Mutex;
 
 use notepp_core::commands as c;
 use notepp_core::logfollow::{self, Follower};
-use notepp_core::{http, sci};
 use notepp_core::preview as pcore;
+use notepp_core::{http, sci};
 use wxdragon::prelude::*;
 use wxdragon::widgets::webview::WebView;
 
-use crate::command::CommandHandler;
 use crate::app::App;
+use crate::command::CommandHandler;
 use crate::preview;
 
 static HTTP_RESULT: Mutex<Option<(isize, String)>> = Mutex::new(None);
@@ -82,9 +82,10 @@ impl App {
         }
         // A file that is deleted or locked for a moment keeps what is shown; the next tick tries again.
         if let Ok(u) = f.poll()
-            && (u.reset || !u.lines.is_empty()) {
-                preview::call(&view, "logAppend", &serde_json::json!({ "lines": u.lines, "reset": u.reset }).to_string());
-            }
+            && (u.reset || !u.lines.is_empty())
+        {
+            preview::call(&view, "logAppend", &serde_json::json!({ "lines": u.lines, "reset": u.reset }).to_string());
+        }
     }
 
     /// Send the request under the cursor (HTTP scratchpad, Ctrl+Enter in a .http / .rest file).
@@ -196,7 +197,6 @@ impl App {
         view.set_page(&html, "about:blank");
         f.show(true);
     }
-
 }
 
 /// Log Follow, the HTTP scratchpad, compare and print.

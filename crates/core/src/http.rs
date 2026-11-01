@@ -205,7 +205,13 @@ pub fn request_at(text: &str, cursor_line: usize) -> Option<Request> {
 
 /// Substitute `{{vault:...}}` using `lookup(reference)`. Returns the text, the references used and
 /// the ones that could not be found.
-pub fn resolve_vault_refs(text: &str, cache: &mut HashMap<String, Option<String>>, lookup: &mut dyn FnMut(&str) -> Option<String>, used: &mut Vec<String>, missing: &mut Vec<String>) -> String {
+pub fn resolve_vault_refs(
+    text: &str,
+    cache: &mut HashMap<String, Option<String>>,
+    lookup: &mut dyn FnMut(&str) -> Option<String>,
+    used: &mut Vec<String>,
+    missing: &mut Vec<String>,
+) -> String {
     rewrite(text, |name| {
         if !starts_with_vault(name) {
             return None;
@@ -248,7 +254,9 @@ fn is_text_type(ct: &str) -> bool {
     let c = ct.to_ascii_lowercase();
     c.is_empty()
         || c.starts_with("text/")
-        || ["application/json", "application/xml", "application/javascript", "application/x-www-form-urlencoded", "application/graphql"].iter().any(|p| c.starts_with(p))
+        || ["application/json", "application/xml", "application/javascript", "application/x-www-form-urlencoded", "application/graphql"]
+            .iter()
+            .any(|p| c.starts_with(p))
         || c.contains("+json")
         || c.contains("+xml")
 }
@@ -340,22 +348,23 @@ pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Res
         let raw = perform(&method, &url, &headers, payload.as_deref())?;
         let location = raw.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.clone());
         if let (Some(loc), 300..=399) = (location, raw.status)
-            && redirects < MAX_REDIRECTS {
-                redirects += 1;
-                let next = resolve_location(&url, &loc);
-                // 303, and 301/302 in practice, turn into a GET without a body.
-                if raw.status == 303 || ((raw.status == 301 || raw.status == 302) && method != "HEAD") {
-                    method = "GET".into();
-                    payload = None;
-                    headers.retain(|(k, _)| !k.eq_ignore_ascii_case("content-type") && !k.eq_ignore_ascii_case("content-length"));
-                }
-                // Credentials never follow a redirect to another host.
-                if host_of(&next) != host_of(&url) {
-                    headers.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization") && !k.eq_ignore_ascii_case("cookie"));
-                }
-                url = next;
-                continue;
+            && redirects < MAX_REDIRECTS
+        {
+            redirects += 1;
+            let next = resolve_location(&url, &loc);
+            // 303, and 301/302 in practice, turn into a GET without a body.
+            if raw.status == 303 || ((raw.status == 301 || raw.status == 302) && method != "HEAD") {
+                method = "GET".into();
+                payload = None;
+                headers.retain(|(k, _)| !k.eq_ignore_ascii_case("content-type") && !k.eq_ignore_ascii_case("content-length"));
             }
+            // Credentials never follow a redirect to another host.
+            if host_of(&next) != host_of(&url) {
+                headers.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization") && !k.eq_ignore_ascii_case("cookie"));
+            }
+            url = next;
+            continue;
+        }
         let content_type = raw.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("content-type")).map(|(_, v)| v.clone()).unwrap_or_default();
         let text = is_text_type(&content_type);
         return Ok(Response {
@@ -486,7 +495,10 @@ mod tests {
                         }
                         continue;
                     };
-                    let want: usize = text[..end].lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse().ok())).unwrap_or(0);
+                    let want: usize = text[..end]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse().ok()))
+                        .unwrap_or(0);
                     if data.len() >= end + 4 + want || n == 0 {
                         break;
                     }

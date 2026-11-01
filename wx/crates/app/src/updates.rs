@@ -8,8 +8,8 @@ use notepp_core::update::{self, Release};
 use notepp_core::workspace::Ui as _;
 use wxdragon::prelude::*;
 
-use crate::command::CommandHandler;
 use crate::app::App;
+use crate::command::CommandHandler;
 
 /// What the update threads hand to the window.
 #[derive(Default)]
@@ -96,9 +96,10 @@ impl App {
             return;
         }
         if let Some(p) = pct
-            && let State::Downloading(r, _) = &self.upd {
-                self.upd = State::Downloading(r.clone(), p);
-            }
+            && let State::Downloading(r, _) = &self.upd
+        {
+            self.upd = State::Downloading(r.clone(), p);
+        }
         if let Some((manual, result)) = check {
             self.upd = State::Idle;
             match result {
@@ -111,7 +112,10 @@ impl App {
                 }
                 Ok(None) if manual => {
                     let msg = format!("You have the latest version of Note++ (v{}).", update::VERSION);
-                    MessageDialog::builder(&self.frame, &msg, "Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
+                    MessageDialog::builder(&self.frame, &msg, "Note++")
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+                        .build()
+                        .show_modal();
                 }
                 Ok(None) => {}
                 Err(e) if manual => self.ui.error(&format!("Cannot check for updates\n\n{e}")),
@@ -147,8 +151,6 @@ impl App {
             Err(e) => self.ui.error(&format!("Cannot install the update\n\n{e}")),
         }
     }
-
-
 }
 
 /// Update checks and the toolbar pill.

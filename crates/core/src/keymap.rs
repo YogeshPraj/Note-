@@ -23,7 +23,9 @@ impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = |id: usize| registry::spec(id).map_or_else(|| format!("command {id}"), |s| s.palette.to_string());
         match self {
-            Problem::Duplicate { command, chord, held_by } => write!(f, "{chord} is used by both {} and {}; {} keeps its default", name(*held_by), name(*command), name(*command)),
+            Problem::Duplicate { command, chord, held_by } => {
+                write!(f, "{chord} is used by both {} and {}; {} keeps its default", name(*held_by), name(*command), name(*command))
+            }
             Problem::Invalid { command, text } => write!(f, "\"{text}\" is not a shortcut; {} keeps its default", name(*command)),
         }
     }

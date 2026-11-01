@@ -6,29 +6,32 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::command::AppError;
-use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_MINIMAP, ID_INCR, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_THEME, ID_WRAP};
-use notepp_core::session::{self, Session};
+use crate::widgets::web_pane::WebPane;
+use notepp_core::commands::{
+    ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_FIF, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_INCR, ID_MARK, ID_MINIMAP, ID_NEXT_RESULT, ID_PALETTE,
+    ID_PREV_RESULT, ID_PREVIEW, ID_QUICKOPEN, ID_REPLACE, ID_SAVE, ID_SAVE_COPY, ID_SAVEAS, ID_THEME, ID_WRAP,
+};
 use notepp_core::preview as pcore;
 use notepp_core::sci::{self};
+use notepp_core::session::{self, Session};
 use notepp_core::settings::Settings;
 use notepp_core::shortcuts;
 use notepp_core::workspace::Workspace;
-use wxdragon::prelude::*;
 use wxdragon::event::WebViewEvents;
-use crate::widgets::web_pane::WebPane;
+use wxdragon::prelude::*;
 
 use crate::chrome::{Act, Chrome, StatusText};
-use crate::whiteboard::{self as wbm, Pending};
 use crate::command::CommandBus;
-use notepp_core::schedule::Schedule;
-use crate::state::{PreviewState, SearchResults, StreamState, WhiteboardState};
+use crate::findpanel::{self, Cmd, Mode};
+use crate::menus::{self, Menus};
 use crate::panels::{self, Panels};
 use crate::popups;
-use crate::findpanel::{self, Cmd, Mode};
 use crate::preview;
-use crate::menus::{self, Menus};
 use crate::sci::WxSci;
+use crate::state::{PreviewState, SearchResults, StreamState, WhiteboardState};
 use crate::ui::WxUi;
+use crate::whiteboard::{self as wbm, Pending};
+use notepp_core::schedule::Schedule;
 
 pub struct App {
     pub(crate) results: SearchResults,
@@ -81,11 +84,18 @@ fn inbox() -> PathBuf {
 
 pub fn start(files: Vec<PathBuf>) {
     // A second launch hands its files to the running Note++ and exits.
-    let checker = if session::standalone() { None } else { SingleInstanceChecker::new(&format!("Notepp-{}", std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default()), None) };
+    let checker = if session::standalone() {
+        None
+    } else {
+        SingleInstanceChecker::new(&format!("Notepp-{}", std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default()), None)
+    };
     if checker.as_ref().is_some_and(wxdragon::SingleInstanceChecker::is_another_running) {
         let dir = inbox();
         let _ = std::fs::create_dir_all(&dir);
-        let list: Vec<String> = files.iter().map(|f| std::fs::canonicalize(f).unwrap_or_else(|_| f.clone()).display().to_string().trim_start_matches("\\\\?\\").to_string()).collect();
+        let list: Vec<String> = files
+            .iter()
+            .map(|f| std::fs::canonicalize(f).unwrap_or_else(|_| f.clone()).display().to_string().trim_start_matches("\\\\?\\").to_string())
+            .collect();
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         let _ = std::fs::write(dir.join(format!("{stamp}.txt")), list.join("\n"));
         // No window is created here, so the toolkit would wait forever.
@@ -148,9 +158,10 @@ pub fn start(files: Vec<PathBuf>) {
     ws.set_settings(settings);
     ws.attach_minimap(WxSci::of(&mini));
     if !session::standalone()
-        && let Some(s) = Session::load(&session::session_path()) {
-            ws.restore(&ui, &s);
-        }
+        && let Some(s) = Session::load(&session::session_path())
+    {
+        ws.restore(&ui, &s);
+    }
     for f in &files {
         ws.open_path(&ui, f);
     }
@@ -238,9 +249,10 @@ pub fn start(files: Vec<PathBuf>) {
         let (a, s) = (app.clone(), stc);
         stc.on_mouse_right_up(move |e| {
             if let wxdragon::event::WindowEventData::MouseButton(m) = &e
-                && let Some(p) = m.get_position() {
-                    popups::editor_menu(&a, s.client_to_screen(p));
-                }
+                && let Some(p) = m.get_position()
+            {
+                popups::editor_menu(&a, s.client_to_screen(p));
+            }
         });
     }
     wire_mini(&app, mini, stc);
@@ -476,9 +488,10 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
 /// With `NPP_TRACE`=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
 pub(crate) fn trace(id: usize, how: &str) {
     if let Some(p) = std::env::var_os("NPP_TRACE")
-        && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
-            let _ = std::io::Write::write_all(&mut f, format!("{id} {how}\n").as_bytes());
-        }
+        && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p)
+    {
+        let _ = std::io::Write::write_all(&mut f, format!("{id} {how}\n").as_bytes());
+    }
 }
 
 impl App {
@@ -563,7 +576,11 @@ impl App {
                     let total = hits.len();
                     hits.truncate(search::MAX_LIST);
                     let lines: Vec<String> = hits.iter().map(|h| format!("Line {}:  {}", h.line, h.text)).collect();
-                    note = Some(if total > hits.len() { format!("{total} hits (listing the first {})", hits.len()) } else { format!("{total} hits in the current document") });
+                    note = Some(if total > hits.len() {
+                        format!("{total} hits (listing the first {})", hits.len())
+                    } else {
+                        format!("{total} hits in the current document")
+                    });
                     self.results.hits = hits;
                     findpanel::set_results(&lines);
                 }
@@ -577,7 +594,12 @@ impl App {
                     match search::find_in_files(&dir, &filters, &opts) {
                         Ok(hits) => {
                             let files: std::collections::HashSet<_> = hits.iter().filter_map(|h| h.path.as_ref()).collect();
-                            note = Some(format!("{} hits in {} files{}", hits.len(), files.len(), if hits.len() >= search::MAX_HITS { " (limit reached)" } else { "" }));
+                            note = Some(format!(
+                                "{} hits in {} files{}",
+                                hits.len(),
+                                files.len(),
+                                if hits.len() >= search::MAX_HITS { " (limit reached)" } else { "" }
+                            ));
                             let lines: Vec<String> = hits
                                 .iter()
                                 .map(|h| {
@@ -597,9 +619,10 @@ impl App {
             Cmd::Browse => {
                 let d = DirDialog::builder(&self.frame, "Select a folder to search", "").build();
                 if d.show_modal() == ID_OK
-                    && let Some(p) = d.get_path() {
-                        findpanel::set_dir(&p);
-                    }
+                    && let Some(p) = d.get_path()
+                {
+                    findpanel::set_dir(&p);
+                }
             }
             Cmd::OpenHit(i) => {
                 self.results.cursor = i;
@@ -647,7 +670,8 @@ impl App {
         self.refresh();
     }
 
-    fn wb_event(&mut self, ev: wbm::Event) {        match ev {
+    fn wb_event(&mut self, ev: wbm::Event) {
+        match ev {
             wbm::Event::Ready => {
                 self.wbv.mark_ready();
                 self.wb.shown = None;
@@ -823,7 +847,6 @@ impl App {
         self.sync_file_menu();
         self.sync_command_state();
     }
-
 
     /// Show or hide the preview pane beside the editor.
     pub fn set_preview(&mut self, on: bool) {

@@ -4,15 +4,14 @@
 //! This is the Scintilla adapter: the C interface speaks pointer-sized integers, so the cast lints are allowed here and nowhere else.
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{CString, c_char, c_void};
 
 use notepp_core::sci;
 use wxdragon::prelude::*;
 
 type Direct = unsafe extern "C" fn(*mut c_void, u32, usize, isize) -> isize;
 
-#[derive(Clone, Copy)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct WxSci {
     f: Direct,
     p: *mut c_void,

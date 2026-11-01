@@ -149,7 +149,8 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
             if b[bi] == '-' {
                 bi += 1;
             }
-            let chunk_end = |v: &[char], from: usize| v[from.min(v.len())..].iter().position(|c| digit(*c) || *c == '-').map_or(v.len(), |p| from.min(v.len()) + p);
+            let chunk_end =
+                |v: &[char], from: usize| v[from.min(v.len())..].iter().position(|c| digit(*c) || *c == '-').map_or(v.len(), |p| from.min(v.len()) + p);
             let (a_end, b_end) = (chunk_end(&a, ai), chunk_end(&b, bi));
             cmp = match a[ai.min(a.len())..a_end].cmp(&b[bi.min(b.len())..b_end]) {
                 std::cmp::Ordering::Less => -1,
@@ -197,10 +198,7 @@ fn sort_lines(text: &str, eol: &str, descending: bool) -> String {
 
 /// Small xorshift generator: shuffling and random case do not need a crate.
 pub fn seed_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0x9E37_79B9_7F4A_7C15, |d| crate::num::to_u64(d.as_nanos()))
-        | 1
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0x9E37_79B9_7F4A_7C15, |d| crate::num::to_u64(d.as_nanos())) | 1
 }
 
 fn next_rand(state: &mut u64) -> u64 {
@@ -786,8 +784,7 @@ pub struct DateTime {
     pub second: u32,
 }
 
-const MONTHS: [&str; 12] =
-    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /// Format with Windows-style picture letters: yyyy yy MMMM MMM MM M dddd ddd dd d
@@ -871,8 +868,7 @@ pub fn search_url(engine: usize, query: &str) -> String {
 // ── applying to the editor ───────────────────────────────────────────────────
 
 /// What a line operation covers when nothing is selected.
-#[derive(Clone, Copy, PartialEq)]
-#[derive(Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Scope {
     WholeDocument,
     CurrentLine,
@@ -964,7 +960,10 @@ mod tests {
         assert_eq!(sort_lines_by("10\n9\n100\nx", "\n", SortKind::Integer, false), "9\n10\n100\nx");
         // Natural order: runs of digits compare by value, however long; text compares as text.
         assert_eq!(sort_lines_by("item10\nitem2\nitem1\nitem-3\nitem007", "\n", SortKind::Integer, false), "item-3\nitem1\nitem2\nitem007\nitem10");
-        assert_eq!(sort_lines_by("99999999999999999999\n100000000000000000000\n5", "\n", SortKind::Integer, true), "100000000000000000000\n99999999999999999999\n5");
+        assert_eq!(
+            sort_lines_by("99999999999999999999\n100000000000000000000\n5", "\n", SortKind::Integer, true),
+            "100000000000000000000\n99999999999999999999\n5"
+        );
         assert_eq!(sort_lines_by("1.5\n1.25\n-2", "\n", SortKind::DecimalDot, true), "1.5\n1.25\n-2");
         assert_eq!(sort_lines_by("1,5\n1,25\n-2", "\n", SortKind::DecimalComma, false), "-2\n1,25\n1,5");
     }
@@ -1126,5 +1125,4 @@ mod tests {
     fn empty_input_is_untouched() {
         assert_eq!(sort_lines("", "\n", false), "");
     }
-
 }

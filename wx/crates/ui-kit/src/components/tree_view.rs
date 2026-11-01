@@ -6,10 +6,10 @@
 //! let t = TreeView::adopt(tree_ctrl);
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::TreeCtrl as WxTreeCtrl;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::TreeCtrl as WxTreeCtrl;
+use wxdragon::prelude::*;
 
 themed!(
     /// A tree.

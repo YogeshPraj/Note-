@@ -8,11 +8,11 @@ use std::path::Path;
 use notepp_core::edit::{self, DateTime};
 
 pub mod scintilla;
-pub mod wx;
-#[cfg(windows)]
-mod windows;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
+pub mod wx;
 
 /// Operating-system services the shell needs. Window handles are raw native handles (`0` = none).
 pub trait Platform: Sync {
@@ -65,7 +65,15 @@ pub(crate) fn utc_now() -> DateTime {
     let day = crate::platform::wx::to_u32(doy - (153 * mp + 2) / 5 + 1);
     let month = crate::platform::wx::to_u32(if mp < 10 { mp + 3 } else { mp - 9 });
     let year = crate::platform::wx::to_i32(yoe + era * 400 + i64::from(month <= 2));
-    DateTime { year, month, day, weekday: crate::platform::wx::to_u32((days + 4).rem_euclid(7)), hour: crate::platform::wx::to_u32(rem / 3600), minute: crate::platform::wx::to_u32(rem % 3600 / 60), second: crate::platform::wx::to_u32(rem % 60) }
+    DateTime {
+        year,
+        month,
+        day,
+        weekday: crate::platform::wx::to_u32((days + 4).rem_euclid(7)),
+        hour: crate::platform::wx::to_u32(rem / 3600),
+        minute: crate::platform::wx::to_u32(rem % 3600 / 60),
+        second: crate::platform::wx::to_u32(rem % 60),
+    }
 }
 
 #[cfg(test)]

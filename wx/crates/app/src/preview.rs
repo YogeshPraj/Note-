@@ -62,7 +62,10 @@ fn jsoneditor_css() -> String {
 /// Inject the JSON editor (once), then tell the page to draw the document it was waiting on.
 pub fn load_json_editor(pane: &WebPane) {
     if !JSON_EDITOR.with(|c| c.replace(true)) {
-        pane.eval(&format!("(function(){{var s=document.createElement('style');s.textContent={};document.head.appendChild(s);}})();", script::js_string(&jsoneditor_css())));
+        pane.eval(&format!(
+            "(function(){{var s=document.createElement('style');s.textContent={};document.head.appendChild(s);}})();",
+            script::js_string(&jsoneditor_css())
+        ));
         pane.eval_big(JSON5_JS);
         pane.eval_big(JSONEDITOR_JS);
     }

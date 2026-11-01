@@ -9,9 +9,9 @@
 //! The pure functions at the top are unit-tested; the Scintilla-facing ones
 //! below only fetch the text and apply the result.
 
-use crate::error::Error;
 use super::doc;
 use super::sci::{self, Send};
+use crate::error::Error;
 use fancy_regex::{Captures, Regex, RegexBuilder};
 use std::path::{Path, PathBuf};
 
@@ -83,11 +83,26 @@ pub fn unescape_ext(s: &str) -> String {
             continue;
         }
         match it.peek().copied() {
-            Some('n') => { it.next(); out.push('\n') }
-            Some('r') => { it.next(); out.push('\r') }
-            Some('t') => { it.next(); out.push('\t') }
-            Some('0') => { it.next(); out.push('\0') }
-            Some('\\') => { it.next(); out.push('\\') }
+            Some('n') => {
+                it.next();
+                out.push('\n')
+            }
+            Some('r') => {
+                it.next();
+                out.push('\r')
+            }
+            Some('t') => {
+                it.next();
+                out.push('\t')
+            }
+            Some('0') => {
+                it.next();
+                out.push('\0')
+            }
+            Some('\\') => {
+                it.next();
+                out.push('\\')
+            }
             Some(k @ ('x' | 'd' | 'o' | 'b' | 'u')) => {
                 it.next();
                 let (radix, max) = match k {
@@ -97,7 +112,9 @@ pub fn unescape_ext(s: &str) -> String {
                     'b' => (2, 8),
                     _ => (16, 4),
                 };
-                if let Some(ch) = number(&mut it, radix, max) { out.push(ch) } else {
+                if let Some(ch) = number(&mut it, radix, max) {
+                    out.push(ch)
+                } else {
                     out.push('\\');
                     out.push(k);
                 }
@@ -139,13 +156,7 @@ pub fn hits_in_text(text: &str, re: &Regex, path: Option<&Path>) -> Vec<Hit> {
         }
         scanned = a;
         let line_end = text[a..].find(['\r', '\n']).map_or(text.len(), |i| a + i);
-        out.push(Hit {
-            path: path.map(Path::to_path_buf),
-            line,
-            start: a,
-            end: b,
-            text: text[line_start..line_end].trim().chars().take(240).collect(),
-        });
+        out.push(Hit { path: path.map(Path::to_path_buf), line, start: a, end: b, text: text[line_start..line_end].trim().chars().take(240).collect() });
     }
     out
 }
@@ -360,10 +371,7 @@ fn select<S: Send>(s: &S, a: usize, b: usize) {
 }
 
 fn selection<S: Send>(s: &S) -> Span {
-    (
-        crate::num::to_usize(s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)),
-        crate::num::to_usize(s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)),
-    )
+    (crate::num::to_usize(s.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(s.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)))
 }
 
 fn prepare<S: Send>(s: &S, o: &Opts) -> Result<(String, Regex), Error> {
@@ -477,8 +485,7 @@ fn fill_marks<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, Error
 /// Five user colours, like Notepad++'s "1st" to "5th" styles.
 pub const STYLE_SLOTS: usize = 5;
 const INDIC_STYLE_BASE: usize = 10;
-pub const STYLE_COLOURS: [(u8, u8, u8); STYLE_SLOTS] =
-    [(0xFF, 0x80, 0x00), (0xFF, 0xFF, 0x00), (0x00, 0xE0, 0x40), (0x80, 0x40, 0xFF), (0xFF, 0x40, 0x40)];
+pub const STYLE_COLOURS: [(u8, u8, u8); STYLE_SLOTS] = [(0xFF, 0x80, 0x00), (0xFF, 0xFF, 0x00), (0x00, 0xE0, 0x40), (0x80, 0x40, 0xFF), (0xFF, 0x40, 0x40)];
 
 pub fn style_indicator(slot: usize) -> usize {
     INDIC_STYLE_BASE + slot.min(STYLE_SLOTS - 1)
@@ -500,9 +507,10 @@ fn word_range_at_caret<S: Send>(s: &S) -> Option<Span> {
 pub fn select_word_at_caret<S: Send>(s: &S) {
     let (a, b) = selection(s);
     if a == b
-        && let Some((x, y)) = word_range_at_caret(s) {
-            select(s, x, y);
-        }
+        && let Some((x, y)) = word_range_at_caret(s)
+    {
+        select(s, x, y);
+    }
 }
 
 /// The selection, or the word under the caret when nothing is selected.
@@ -565,11 +573,7 @@ pub fn style_ranges<S: Send>(s: &S, slot: usize) -> Vec<Span> {
 
 /// The range after (or, backwards, before) `from`, wrapping around.
 pub fn next_range(ranges: &[Span], from: usize, forward: bool) -> Option<Span> {
-    if forward {
-        ranges.iter().find(|r| r.0 >= from).or(ranges.first()).copied()
-    } else {
-        ranges.iter().rev().find(|r| r.0 < from).or(ranges.last()).copied()
-    }
+    if forward { ranges.iter().find(|r| r.0 >= from).or(ranges.first()).copied() } else { ranges.iter().rev().find(|r| r.0 < from).or(ranges.last()).copied() }
 }
 
 /// Select the next coloured range of a slot. Returns false if there is none.

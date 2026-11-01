@@ -58,4 +58,3 @@ mod tests {
         assert_eq!(to_u8(255_u32), 255);
     }
 }
-

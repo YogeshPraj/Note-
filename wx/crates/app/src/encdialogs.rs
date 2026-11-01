@@ -8,10 +8,14 @@ use std::rc::Rc;
 use notepp_core::crypto::{self, Dek, Profile, Vault};
 use wxdragon::prelude::*;
 
-use crate::widgets::form::{self, ctl, Form, Kind, Spec};
+use crate::widgets::form::{self, Form, Kind, Spec, ctl};
 
 fn ask(frame: &Frame, text: &str) -> bool {
-    MessageDialog::builder(frame, text, "Note++").with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion | MessageDialogStyle::NoDefault).build().show_modal() == ID_YES
+    MessageDialog::builder(frame, text, "Note++")
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion | MessageDialogStyle::NoDefault)
+        .build()
+        .show_modal()
+        == ID_YES
 }
 
 fn tell(frame: &Frame, text: &str) {
@@ -110,7 +114,7 @@ pub fn unlock(frame: &Frame, profile: &Profile, what: &str) -> Option<Unlocked> 
         on_apply: Some(apply),
     };
     form::run(frame, spec, |_| {})?;
-    
+
     out.borrow_mut().take()
 }
 
@@ -170,7 +174,7 @@ pub fn new_password(frame: &Frame, title: &str, intro: &str) -> Option<String> {
         on_apply: Some(apply),
     };
     form::run(frame, spec, |_| {})?;
-    
+
     out.borrow_mut().take()
 }
 
@@ -191,9 +195,10 @@ fn recovery_click(f: &Form, id: usize) {
         R_SAVE => {
             let Some(frame) = owner() else { return };
             if let Some(p) = pick(&frame, true, "recovery.json", "JSON (*.json)|*.json|All files (*.*)|*.*")
-                && let Err(e) = std::fs::write(&p, crypto::recovery_file(&fp, &key)) {
-                    fail(&frame, &format!("Cannot save {}\n\n{e}", p.display()));
-                }
+                && let Err(e) = std::fs::write(&p, crypto::recovery_file(&fp, &key))
+            {
+                fail(&frame, &format!("Cannot save {}\n\n{e}", p.display()));
+            }
         }
         _ => {}
     }
@@ -337,7 +342,12 @@ pub fn settings(frame: &Frame, vault: &mut Vault) {
         }
         match ACTION.with(std::cell::Cell::get) {
             S_SETUP => {
-                if has && !ask(frame, "Replace the encryption profile?\n\nFiles protected by the current profile can no longer be opened unless you restore it. Only do this if you have no encrypted files, or have a copy of the old profile.") {
+                if has
+                    && !ask(
+                        frame,
+                        "Replace the encryption profile?\n\nFiles protected by the current profile can no longer be opened unless you restore it. Only do this if you have no encrypted files, or have a copy of the old profile.",
+                    )
+                {
                     continue;
                 }
                 setup(frame, vault);

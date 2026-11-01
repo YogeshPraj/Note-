@@ -3,17 +3,13 @@
 use super::{Activate, Content};
 
 const CONTROL_NAMES: [&str; 32] = [
-    "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "TAB", "LF", "VT", "FF", "CR", "SO", "SI", "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB", "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS",
-    "US",
+    "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "TAB", "LF", "VT", "FF", "CR", "SO", "SI", "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN",
+    "ETB", "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS", "US",
 ];
 
 /// The character a table row stands for (Windows-1252 above 127).
 pub fn char_for(n: u8) -> char {
-    if n < 128 {
-        n as char
-    } else {
-        encoding_rs::WINDOWS_1252.decode(&[n]).0.chars().next().unwrap_or('?')
-    }
+    if n < 128 { n as char } else { encoding_rs::WINDOWS_1252.decode(&[n]).0.chars().next().unwrap_or('?') }
 }
 
 /// What the "Char" column shows: a control code's name, DEL, nothing for unmapped bytes, else the character.

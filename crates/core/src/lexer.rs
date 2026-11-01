@@ -33,7 +33,8 @@ pub fn lexer_for_extension(ext: &str) -> &'static str {
         "lua" => "lua",
         "sql" => "sql",
         "html" | "htm" | "xhtml" | "shtml" | "hta" => "hypertext",
-        "xml" | "xsl" | "xslt" | "xsd" | "svg" | "xaml" | "plist" | "kml" | "wsdl" | "rss" | "atom" | "csproj" | "vbproj" | "vcxproj" | "fsproj" | "props" | "targets" | "resx" | "config" | "manifest" | "xlf" | "xliff" | "ui" => "xml",
+        "xml" | "xsl" | "xslt" | "xsd" | "svg" | "xaml" | "plist" | "kml" | "wsdl" | "rss" | "atom" | "csproj" | "vbproj" | "vcxproj" | "fsproj" | "props"
+        | "targets" | "resx" | "config" | "manifest" | "xlf" | "xliff" | "ui" => "xml",
         "css" | "scss" | "less" => "css",
         "json" => "json",
         "yaml" | "yml" => "yaml",

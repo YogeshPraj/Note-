@@ -1,7 +1,7 @@
 //! Auto-completion sources: words and function names found in the document,
 //! file-system paths, and a one-line signature for the call tip.
 
-use std::path::{Path, MAIN_SEPARATOR};
+use std::path::{MAIN_SEPARATOR, Path};
 
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -57,7 +57,9 @@ pub fn function_names(text: &str, prefix: &str, typing_at: usize) -> Vec<String>
 
 /// The path-like text just before the caret on its line.
 pub fn path_fragment(line_before_caret: &str) -> &str {
-    let start = line_before_caret.rfind(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '|' | '*' | '?' | '(' | ')' | '=')).map_or(0, |i| i + line_before_caret[i..].chars().next().map_or(1, char::len_utf8));
+    let start = line_before_caret
+        .rfind(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '|' | '*' | '?' | '(' | ')' | '='))
+        .map_or(0, |i| i + line_before_caret[i..].chars().next().map_or(1, char::len_utf8));
     &line_before_caret[start..]
 }
 

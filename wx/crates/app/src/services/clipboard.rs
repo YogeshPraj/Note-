@@ -12,7 +12,6 @@ use wxdragon::prelude::Clipboard;
 
 /// How long a copied password stays on the clipboard.
 
-
 /// The clipboard service: the system clipboard plus the password guard.
 #[derive(Default)]
 pub struct ClipboardService {
@@ -33,9 +32,10 @@ impl ClipboardService {
     /// have copied something else since, which must be left alone).
     pub fn expire_secret(&mut self) {
         if let Some(fp) = self.secret.take_if_expired(Instant::now(), SECRET_TTL)
-            && paste().is_some_and(|t| fp.matches(&t)) {
-                Clipboard::get().clear();
-            }
+            && paste().is_some_and(|t| fp.matches(&t))
+        {
+            Clipboard::get().clear();
+        }
     }
 }
 

@@ -6,10 +6,10 @@
 //! let p = Panel::new(&frame);
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::Panel as WxPanel;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::Panel as WxPanel;
+use wxdragon::prelude::*;
 
 themed!(
     /// A plain container.

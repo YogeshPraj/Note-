@@ -1,7 +1,7 @@
 //! Context menus: tabs, the editor and the status bar segments. Each is a [`MenuSpec`] realized at the click.
 
 use notepp_core::commands as c;
-use notepp_core::workspace::{TabKind, TAB_COLORS};
+use notepp_core::workspace::{TAB_COLORS, TabKind};
 use wxdragon::prelude::*;
 
 use crate::app::Shared;

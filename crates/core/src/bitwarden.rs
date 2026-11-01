@@ -180,7 +180,9 @@ fn run(args: &[&str], env: &[(&str, &str)], stdin: Option<&str>, timeout: Durati
     };
     let stdout = out_t.and_then(|t| t.join().ok()).unwrap_or_default();
     let mut stderr = err_t.and_then(|t| t.join().ok()).unwrap_or_default();
-    if let Some(s) = status { Out { ok: s.success(), stdout, stderr } } else {
+    if let Some(s) = status {
+        Out { ok: s.success(), stdout, stderr }
+    } else {
         stderr = format!("bw did not answer in {} seconds", timeout.as_secs());
         Out { ok: false, stdout, stderr }
     }
@@ -432,7 +434,14 @@ pub fn parse_items(json: &str) -> Result<Vec<Item>, Error> {
                 id,
                 title: it.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("(untitled)").to_string(),
                 username: text(login, "username"),
-                url: login.and_then(|l| l.get("uris")).and_then(Value::as_array).and_then(|u| u.first()).and_then(|u| u.get("uri")).and_then(Value::as_str).unwrap_or("").to_string(),
+                url: login
+                    .and_then(|l| l.get("uris"))
+                    .and_then(Value::as_array)
+                    .and_then(|u| u.first())
+                    .and_then(|u| u.get("uri"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 has_password: login.and_then(|l| l.get("password")).is_some_and(|p| !p.is_null()),
                 has_totp: login.and_then(|l| l.get("totp")).is_some_and(|p| !p.is_null()),
             })
@@ -486,17 +495,17 @@ pub fn split_reference(reference: &str) -> (String, &'static str) {
     if let Some(dot) = r.rfind('.') {
         let tail = &r[dot + 1..];
         if dot > 0
-            && let Some(f) = FIELDS.iter().find(|f| **f == tail) {
-                return (r[..dot].to_string(), f);
-            }
+            && let Some(f) = FIELDS.iter().find(|f| **f == tail)
+        {
+            return (r[..dot].to_string(), f);
+        }
     }
     (r.to_string(), "password")
 }
 
 // ---- writing --------------------------------------------------------------------------------
 
-#[derive(Default, Clone)]
-#[derive(Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct NewItem {
     pub title: String,
     pub username: String,
@@ -602,7 +611,10 @@ mod tests {
                        {"object":"item"}]"#;
         let items = parse_items(json).unwrap();
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0], Item { id: "1".into(), title: "GitHub".into(), username: "me".into(), url: "https://github.com".into(), has_password: true, has_totp: false });
+        assert_eq!(
+            items[0],
+            Item { id: "1".into(), title: "GitHub".into(), username: "me".into(), url: "https://github.com".into(), has_password: true, has_totp: false }
+        );
         assert_eq!(items[1].title, "(untitled)");
         assert!(items[1].has_totp && !items[1].has_password);
         assert!(!format!("{:?}", items).contains("hunter2"));

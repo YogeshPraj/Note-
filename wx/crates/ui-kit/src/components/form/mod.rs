@@ -17,8 +17,7 @@ mod layout;
 
 use crate::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
 
-#[derive(Clone, Copy, PartialEq)]
-#[derive(Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
     Label,
     Edit,
@@ -84,7 +83,13 @@ impl Form {
     pub fn text(&self, id: usize) -> String {
         match self.map.get(&id) {
             Some(W::Edit(t)) => t.get_value(),
-            Some(W::Pw(m, p, on)) => if on.get() { m.get_value() } else { p.get_value() },
+            Some(W::Pw(m, p, on)) => {
+                if on.get() {
+                    m.get_value()
+                } else {
+                    p.get_value()
+                }
+            }
             Some(W::Label(l)) => l.get_label(),
             Some(W::Button(b)) => b.get_label(),
             _ => String::new(),
@@ -164,7 +169,13 @@ impl Form {
     pub fn focus(&self, id: usize) {
         match self.map.get(&id) {
             Some(W::Edit(t)) => t.set_focus(),
-            Some(W::Pw(m, p, on)) => if on.get() { m.set_focus() } else { p.set_focus() },
+            Some(W::Pw(m, p, on)) => {
+                if on.get() {
+                    m.set_focus()
+                } else {
+                    p.set_focus()
+                }
+            }
             _ => {}
         }
     }
@@ -400,7 +411,8 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     if !spec.ok.is_empty() {
         let ok = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label(spec.ok).with_pos(Point::new(okx, oky)).with_size(Size::new(bw, bh)).build());
         ok.set_default();
-        let cancel = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label("Cancel").with_pos(Point::new(cx, cy)).with_size(Size::new(bw, bh)).build());
+        let cancel =
+            Button::adopt(wxdragon::prelude::Button::builder(&d).with_label("Cancel").with_pos(Point::new(cx, cy)).with_size(Size::new(bw, bh)).build());
         cancel.on_click(move |_| d.end_modal(ID_CANCEL));
         ok_btn = Some(ok);
         cancel_btn = Some(cancel);
@@ -458,9 +470,10 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
         ok.on_click(move |_| {
             let v = collect(&k, &f);
             if let Some(a) = &apply
-                && a(&v, &f) {
-                    return;
-                }
+                && a(&v, &f)
+            {
+                return;
+            }
             *r.borrow_mut() = Some(v);
             f.close(true);
         });
@@ -484,10 +497,9 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     }
     d.centre();
     d.show_modal();
-    
+
     result.borrow_mut().take()
 }
-
 
 /// Where layout problems found in debug builds are reported besides stderr (the application sets this once).
 pub static PROBLEM_SINK: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();

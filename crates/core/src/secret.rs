@@ -24,8 +24,7 @@ impl Fingerprint {
 }
 
 /// Remembers the password last copied, and when.
-#[derive(Default)]
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct SecretGuard {
     armed: Option<(Fingerprint, Instant)>,
 }

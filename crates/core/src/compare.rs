@@ -124,7 +124,13 @@ fn rows(a: &str, b: &str) -> (Vec<Row>, usize, usize, usize) {
                     out.push(Row {
                         left: lh.map(|h| (old_index + k + 1, h)),
                         right: rh.map(|h| (new_index + k + 1, h)),
-                        kind: if l.is_some() && r.is_some() { "chg" } else if l.is_some() { "del" } else { "ins" },
+                        kind: if l.is_some() && r.is_some() {
+                            "chg"
+                        } else if l.is_some() {
+                            "del"
+                        } else {
+                            "ins"
+                        },
                     });
                 }
             }
@@ -172,7 +178,10 @@ pub fn diff_html(left_name: &str, left: &str, right_name: &str, right: &str, dar
         (format!("<div class=\"same\">These files are too large to compare here (over {MAX_LINES} lines).</div>"), String::new())
     } else {
         let (rows, blocks, removed, added) = rows(left, right);
-        let summary = format!("<span class=\"stat\">{blocks} changed block{}</span><span class=\"stat del\">&minus;{removed}</span><span class=\"stat ins\">+{added}</span><span class=\"stat\" id=\"pos\"></span><button id=\"prev\">&lsaquo; Previous</button><button id=\"next\">Next &rsaquo;</button>", if blocks == 1 { "" } else { "s" });
+        let summary = format!(
+            "<span class=\"stat\">{blocks} changed block{}</span><span class=\"stat del\">&minus;{removed}</span><span class=\"stat ins\">+{added}</span><span class=\"stat\" id=\"pos\"></span><button id=\"prev\">&lsaquo; Previous</button><button id=\"next\">Next &rsaquo;</button>",
+            if blocks == 1 { "" } else { "s" }
+        );
         if blocks == 0 {
             ("<div class=\"same\">The two texts are identical.</div>".to_string(), String::new())
         } else {
@@ -193,7 +202,11 @@ pub fn diff_html(left_name: &str, left: &str, right_name: &str, right: &str, dar
                     while i < rows.len() && !keep[i] {
                         i += 1;
                     }
-                    html.push_str(&format!("<tr class=\"fold\"><td colspan=\"4\">&hellip; {} unchanged line{} &hellip;</td></tr>", i - start, if i - start == 1 { "" } else { "s" }));
+                    html.push_str(&format!(
+                        "<tr class=\"fold\"><td colspan=\"4\">&hellip; {} unchanged line{} &hellip;</td></tr>",
+                        i - start,
+                        if i - start == 1 { "" } else { "s" }
+                    ));
                     continue;
                 }
                 let r = &rows[i];

@@ -268,4 +268,3 @@ pub const ID_ENCODE_BASE: usize = 7000; // + index into ENCODE_IN: "Encode in ..
 pub const ID_CHARSET_BASE: usize = 7100; // + index into CHARSETS (CHARSETS.len() = Windows-1252)
 pub const ID_CONVERT_BASE: usize = 7200; // + index into ENCODE_IN: "Convert to ..."
 pub const ID_LANG_BASE: usize = 8000; // + index into LANGUAGES
-

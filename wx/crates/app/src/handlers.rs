@@ -1,6 +1,6 @@
 //! Command handlers for window-level actions, one type per concern.
 
-use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PREFS, ID_PREVIEW, ID_PRESET_BASE, ID_RELOAD, ID_STYLE_CFG};
+use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PREFS, ID_PRESET_BASE, ID_PREVIEW, ID_RELOAD, ID_STYLE_CFG};
 use notepp_core::sci::Theme;
 use notepp_core::settings;
 use wxdragon::prelude::*;

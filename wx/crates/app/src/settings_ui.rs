@@ -32,7 +32,7 @@ fn pick_font(owner: &Frame, family: &str, size: i32) -> Option<(String, i32)> {
 
 /// Settings > Preferences. Returns the edited settings on OK. Laid out exactly like the Win32 shell's.
 pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
-    use crate::widgets::form::{ctl, run, Kind, Spec};
+    use crate::widgets::form::{Kind, Spec, ctl, run};
     const FONT: usize = 101;
     const SIZE: usize = 102;
     const TAB: usize = 103;
@@ -64,10 +64,11 @@ pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
             let size = f.text(SIZE).trim().parse().unwrap_or(11);
             let owner = OWNER.with(|o| *o.borrow());
             if let Some(owner) = owner
-                && let Some((name, pt)) = pick_font(&owner, f.text(FONT).trim(), size) {
-                    f.set_text(FONT, &name);
-                    f.set_text(SIZE, &pt.to_string());
-                }
+                && let Some((name, pt)) = pick_font(&owner, f.text(FONT).trim(), size)
+            {
+                f.set_text(FONT, &name);
+                f.set_text(SIZE, &pt.to_string());
+            }
         }
     }
     let spec = Spec {
@@ -162,8 +163,22 @@ pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
         show_toolbar: v.checked(TOOLBAR),
         show_tabbar: v.checked(TABBAR),
         show_statusbar: v.checked(STATUS),
-        new_doc_encoding: if v.checked(E_BOM) { "utf8bom" } else if v.checked(E_ANSI) { "ansi" } else { "utf8" }.into(),
-        new_doc_eol: if v.checked(L_LF) { "lf" } else if v.checked(L_CR) { "cr" } else { "crlf" }.into(),
+        new_doc_encoding: if v.checked(E_BOM) {
+            "utf8bom"
+        } else if v.checked(E_ANSI) {
+            "ansi"
+        } else {
+            "utf8"
+        }
+        .into(),
+        new_doc_eol: if v.checked(L_LF) {
+            "lf"
+        } else if v.checked(L_CR) {
+            "cr"
+        } else {
+            "crlf"
+        }
+        .into(),
         ..cur.clone()
     };
     s.clamp();
@@ -176,7 +191,7 @@ pub struct StyleEdit {
 
 /// Settings > Style Configurator: the colours of the theme in use, as #RRGGBB. Laid out like the Win32 shell's.
 pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
-    use crate::widgets::form::{ctl, run, Kind, Spec};
+    use crate::widgets::form::{Kind, Spec, ctl, run};
     const FIRST: usize = 100; // edit i is FIRST + i
     const PICK: usize = 200; // button i is PICK + i
     const RESET: usize = 300;
@@ -191,12 +206,14 @@ pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
             let Some(owner) = OWNER.with(|o| *o.borrow()) else { return };
             let cd = ColourDialog::builder(&owner).with_initial_colour(crate::widgets::paint::colour(start)).build();
             if cd.show_modal() == ID_OK
-                && let Some(c) = cd.get_colour() {
-                    f.set_text(edit, &settings::to_hex((c.r, c.g, c.b)));
-                }
+                && let Some(c) = cd.get_colour()
+            {
+                f.set_text(edit, &settings::to_hex((c.r, c.g, c.b)));
+            }
         }
     }
-    let mut ctls = vec![ctl(10, Kind::Label, if theme.dark { "Colours of the dark theme (#RRGGBB):" } else { "Colours of the light theme (#RRGGBB):" }, 16, 12, 300, 18)];
+    let mut ctls =
+        vec![ctl(10, Kind::Label, if theme.dark { "Colours of the dark theme (#RRGGBB):" } else { "Colours of the light theme (#RRGGBB):" }, 16, 12, 300, 18)];
     for (i, (label, key)) in settings::ROLES.iter().enumerate() {
         let y = 40 + crate::platform::wx::to_i32(i) * 26;
         let hex = settings::color_of(theme, key).map(settings::to_hex).unwrap_or_default();
@@ -209,5 +226,8 @@ pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
     ctls.push(ctl(RESET, Kind::Check, "Reset every colour to the default", 16, 40 + n * 26 + 6, 290, 20));
     let spec = Spec { title: "Style Configurator", size: (366, 40 + n * 26 + 78), ctls, ok: "OK", buttons: None, on_change: Some(on_click), on_apply: None };
     let v = run(frame, spec, |_| {})?;
-    Some(StyleEdit { reset: v.checked(RESET), entered: settings::ROLES.iter().enumerate().map(|(i, (_, key))| (*key, v.text(FIRST + i).to_string())).collect() })
+    Some(StyleEdit {
+        reset: v.checked(RESET),
+        entered: settings::ROLES.iter().enumerate().map(|(i, (_, key))| (*key, v.text(FIRST + i).to_string())).collect(),
+    })
 }

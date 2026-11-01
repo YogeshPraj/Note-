@@ -8,9 +8,9 @@ use notepp_core::files;
 use notepp_core::lang::LANGUAGES;
 
 use crate::app::Shared;
+use crate::widgets::quick_pick::{Item, pick};
 use notepp_core::tables::ENCODE_IN;
 use wxdragon::prelude::WxWidget;
-use crate::widgets::quick_pick::{Item, pick};
 
 /// The effective shortcut text of a command (the user's own, else the default).
 fn shortcut_text(app: &crate::app::App, id: usize, default: &str) -> String {
@@ -20,8 +20,11 @@ fn shortcut_text(app: &crate::app::App, id: usize, default: &str) -> String {
 pub fn open_commands(app: &Shared) {
     let (frame, items) = {
         let Ok(a) = app.try_borrow() else { return };
-        let mut v: Vec<Item> = notepp_core::registry::palette().map(|c| Item { label: c.palette.to_string(), hint: shortcut_text(&a, c.id, c.hint()), id: c.id }).collect();
-        v.extend(notepp_core::menu_provider::palette_items().into_iter().filter_map(|i| Some(Item { label: i.palette?, hint: String::new(), id: i.command.id() })));
+        let mut v: Vec<Item> =
+            notepp_core::registry::palette().map(|c| Item { label: c.palette.to_string(), hint: shortcut_text(&a, c.id, c.hint()), id: c.id }).collect();
+        v.extend(
+            notepp_core::menu_provider::palette_items().into_iter().filter_map(|i| Some(Item { label: i.palette?, hint: String::new(), id: i.command.id() })),
+        );
         (a.frame, v)
     };
     if let Some(id) = pick(&frame, items) {
@@ -71,10 +74,11 @@ pub fn open_files(app: &Shared) {
     };
     if let Some(i) = pick(&frame, items)
         && let Some(p) = files_list.get(i).cloned()
-            && let Ok(mut a) = app.try_borrow_mut() {
-                let crate::app::App { ws, ui, .. } = &mut *a;
-                ws.open_path(ui, &p);
-                a.refresh();
-                a.stc.set_focus();
-            }
+        && let Ok(mut a) = app.try_borrow_mut()
+    {
+        let crate::app::App { ws, ui, .. } = &mut *a;
+        ws.open_path(ui, &p);
+        a.refresh();
+        a.stc.set_focus();
+    }
 }

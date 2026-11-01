@@ -224,7 +224,8 @@ struct Extras {
 
 /// Before this app has saved anything, take the look from the settings file.
 fn extras_from_settings() -> Extras {
-    let root: serde_json::Value = std::fs::read_to_string(super::settings::settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let root: serde_json::Value =
+        std::fs::read_to_string(super::settings::settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let flag = |k: &str, d: bool| root["ui"][k].as_bool().unwrap_or(d);
     Extras {
         wrap: flag("wordWrap", false),
@@ -288,7 +289,11 @@ fn tab_from_json(v: &serde_json::Value) -> Option<SessionTab> {
     } else {
         None
     };
-    let lang = if path.is_some() { None } else { v["nativeLanguage"].as_str().map(String::from).or_else(|| LANG_IDS.iter().find(|(id, _)| *id == language).map(|(_, l)| l.to_string())) };
+    let lang = if path.is_some() {
+        None
+    } else {
+        v["nativeLanguage"].as_str().map(String::from).or_else(|| LANG_IDS.iter().find(|(id, _)| *id == language).map(|(_, l)| l.to_string()))
+    };
     let title = v["name"].as_str().map(String::from).or_else(|| path.as_deref().map(|p| p.rsplit(['\\', '/']).next().unwrap_or(p).to_string()))?;
     Some(SessionTab {
         title,
@@ -320,11 +325,15 @@ pub fn migrate_legacy_native() {
     if menu.is_file() && !dir.join("contextmenu.txt").exists() {
         let _ = std::fs::copy(&menu, dir.join("contextmenu.txt"));
     }
-    let has_own = std::fs::read_to_string(super::settings::settings_path()).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_some_and(|v| v.get("font").is_some());
+    let has_own = std::fs::read_to_string(super::settings::settings_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .is_some_and(|v| v.get("font").is_some());
     if !has_own
-        && let Some(old) = std::fs::read_to_string(legacy.join("settings.json")).ok().and_then(|t| serde_json::from_str::<super::settings::Settings>(&t).ok()) {
-            let _ = old.save();
-        }
+        && let Some(old) = std::fs::read_to_string(legacy.join("settings.json")).ok().and_then(|t| serde_json::from_str::<super::settings::Settings>(&t).ok())
+    {
+        let _ = old.save();
+    }
     let _ = std::fs::write(&marker, "");
 }
 
@@ -342,7 +351,18 @@ impl Session {
             }
         }
         let ex = root.get("native").and_then(|n| serde_json::from_value::<Extras>(n.clone()).ok()).unwrap_or_else(extras_from_settings);
-        Some(Session { tabs, active, wrap: ex.wrap, dark: ex.dark, minimap: ex.minimap, recent: ex.recent, workspace: ex.workspace, search_engine: ex.search_engine, symbols: ex.symbols, date_format: ex.date_format })
+        Some(Session {
+            tabs,
+            active,
+            wrap: ex.wrap,
+            dark: ex.dark,
+            minimap: ex.minimap,
+            recent: ex.recent,
+            workspace: ex.workspace,
+            search_engine: ex.search_engine,
+            symbols: ex.symbols,
+            date_format: ex.date_format,
+        })
     }
 
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
@@ -420,7 +440,8 @@ mod tests {
         assert_eq!(s.tabs.len(), 3, "the diagram tab has no counterpart");
         assert_eq!(s.active, 1);
         assert_eq!(s.tabs[0].text.as_deref(), Some("{}"), "a file that is gone keeps the stored text");
-        let here = serde_json::json!({"tabs":[{"name":"Cargo.toml","filePath":concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"),"content":"stale","dirty":false}]});
+        let here =
+            serde_json::json!({"tabs":[{"name":"Cargo.toml","filePath":concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"),"content":"stale","dirty":false}]});
         assert_eq!(tab_from_json(&here["tabs"][0]).unwrap().text, None, "a clean file is read from disk");
         assert!(s.tabs[0].pinned && s.tabs[0].color == Some(5));
         assert_eq!((s.tabs[1].text.as_deref(), s.tabs[1].enc.as_str(), s.tabs[1].eol.as_str()), (Some("hello"), "utf16le", "lf"));
@@ -429,10 +450,26 @@ mod tests {
 
     #[test]
     fn what_is_written_keeps_the_older_shape() {
-        let t = SessionTab { title: "n.py".into(), path: Some("C:\\n.py".into()), text: Some("x".into()), caret: 1, top: 0, enc: "utf8bom".into(), eol: "cr".into(), pinned: false, color: Some(0), encrypted: false, kind: "text".into(), lang: None };
+        let t = SessionTab {
+            title: "n.py".into(),
+            path: Some("C:\\n.py".into()),
+            text: Some("x".into()),
+            caret: 1,
+            top: 0,
+            enc: "utf8bom".into(),
+            eol: "cr".into(),
+            pinned: false,
+            color: Some(0),
+            encrypted: false,
+            kind: "text".into(),
+            lang: None,
+        };
         let v = tab_to_json(0, &t, true);
         assert_eq!((v["id"].as_u64(), v["name"].as_str(), v["filePath"].as_str(), v["content"].as_str()), (Some(1), Some("n.py"), Some("C:\\n.py"), Some("x")));
-        assert_eq!((v["language"].as_str(), v["encoding"].as_str(), v["eol"].as_str(), v["color"].as_str(), v["active"].as_bool(), v["dirty"].as_bool()), (Some("python"), Some("UTF-8 BOM"), Some("Macintosh (CR)"), Some("#e05555"), Some(true), Some(true)));
+        assert_eq!(
+            (v["language"].as_str(), v["encoding"].as_str(), v["eol"].as_str(), v["color"].as_str(), v["active"].as_bool(), v["dirty"].as_bool()),
+            (Some("python"), Some("UTF-8 BOM"), Some("Macintosh (CR)"), Some("#e05555"), Some(true), Some(true))
+        );
         let back = tab_from_json(&v).unwrap();
         assert_eq!(back, t);
         let enc = SessionTab { encrypted: true, text: Some("{\"env\":1}".into()), ..t };

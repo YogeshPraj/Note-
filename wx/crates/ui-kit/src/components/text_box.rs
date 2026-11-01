@@ -6,10 +6,10 @@
 //! let t = TextBox::new(&parent, "initial", true);
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::TextCtrl as WxTextCtrl;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::TextCtrl as WxTextCtrl;
+use wxdragon::prelude::*;
 
 themed!(
     /// A text entry box (single or multi line).

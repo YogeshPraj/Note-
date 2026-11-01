@@ -7,7 +7,18 @@ const PREVIEW_CHARS: usize = 120;
 
 /// One-line, length-limited form of an entry: line breaks become a return arrow.
 pub fn preview(s: &str) -> String {
-    let flat: String = s.chars().map(|c| if c == '\r' || c == '\n' { '\u{21B5}' } else if c == '\t' { ' ' } else { c }).collect();
+    let flat: String = s
+        .chars()
+        .map(|c| {
+            if c == '\r' || c == '\n' {
+                '\u{21B5}'
+            } else if c == '\t' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
     let mut out: String = flat.chars().take(PREVIEW_CHARS).collect();
     if flat.chars().count() > PREVIEW_CHARS {
         out.push('\u{2026}');

@@ -15,7 +15,7 @@ use notepp_core::bitwarden::{self as bw, AuthState, GenOpts, Item, NewItem};
 use wxdragon::prelude::*;
 use zeroize::Zeroizing;
 
-use crate::widgets::form::{self, ctl, Form, Kind, Spec, Values};
+use crate::widgets::form::{self, Form, Kind, Spec, Values, ctl};
 
 /// What the user chose.
 pub enum Outcome {
@@ -71,7 +71,8 @@ fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnc
             break;
         }
         std::thread::sleep(Duration::from_millis(15));
-    }    f.enable(1, true);
+    }
+    f.enable(1, true);
     f.enable(2, true);
     BUSY.with(|b| b.set(false));
     handle.join().expect("background job panicked")

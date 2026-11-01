@@ -1,8 +1,8 @@
 //! View menu behaviour that lives in the editor: visible symbols, folding by
 //! level, hidden lines and the document summary.
 
-use crate::error::Error;
 use super::sci::{self, Send};
+use crate::error::Error;
 
 // ── show symbols ─────────────────────────────────────────────────────────────
 

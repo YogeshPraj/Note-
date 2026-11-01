@@ -7,10 +7,10 @@
 //! c.set_value(true);
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::CheckBox as WxCheckBox;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::CheckBox as WxCheckBox;
+use wxdragon::prelude::*;
 
 themed!(
     /// A check box.

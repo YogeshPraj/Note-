@@ -25,9 +25,8 @@ pub fn is_whiteboard_file(text: &str, path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
     match ext.as_deref() {
         Some("excalidraw" | "whiteboard") => true,
-        Some("json") => serde_json::from_str::<serde_json::Value>(text).is_ok_and(|v| {
-            v.get("__wb__").and_then(serde_json::Value::as_bool) == Some(true) || v.get("type").and_then(|t| t.as_str()) == Some("excalidraw")
-        }),
+        Some("json") => serde_json::from_str::<serde_json::Value>(text)
+            .is_ok_and(|v| v.get("__wb__").and_then(serde_json::Value::as_bool) == Some(true) || v.get("type").and_then(|t| t.as_str()) == Some("excalidraw")),
         _ => false,
     }
 }
@@ -37,8 +36,21 @@ pub fn is_whiteboard_file(text: &str, path: &Path) -> bool {
 /// (`version`, `updated`, ...). Two scenes with equal signatures look identical.
 fn drawing_signature(content: &str) -> Option<Vec<serde_json::Value>> {
     const KEYS: [&str; 15] = [
-        "id", "type", "x", "y", "width", "height", "angle", "text", "strokeColor", "backgroundColor", "fillStyle", "strokeWidth",
-        "opacity", "points", "fileId",
+        "id",
+        "type",
+        "x",
+        "y",
+        "width",
+        "height",
+        "angle",
+        "text",
+        "strokeColor",
+        "backgroundColor",
+        "fillStyle",
+        "strokeWidth",
+        "opacity",
+        "points",
+        "fileId",
     ];
     let v: serde_json::Value = serde_json::from_str(content).ok()?;
     let els = v.get("elements")?.as_array()?;
@@ -119,7 +131,8 @@ mod tests {
     fn same_drawing_sees_adds_deletes_and_style() {
         let one = r##"{"elements":[{"id":"r","type":"rectangle","x":0,"y":0,"strokeColor":"#000"}]}"##;
         let two = r##"{"elements":[{"id":"r","type":"rectangle","x":0,"y":0,"strokeColor":"#000"},{"id":"e","type":"ellipse","x":5,"y":5}]}"##;
-        let deleted = r##"{"elements":[{"id":"r","type":"rectangle","x":0,"y":0,"strokeColor":"#000"},{"id":"e","type":"ellipse","x":5,"y":5,"isDeleted":true}]}"##;
+        let deleted =
+            r##"{"elements":[{"id":"r","type":"rectangle","x":0,"y":0,"strokeColor":"#000"},{"id":"e","type":"ellipse","x":5,"y":5,"isDeleted":true}]}"##;
         let recoloured = r##"{"elements":[{"id":"r","type":"rectangle","x":0,"y":0,"strokeColor":"#f00"}]}"##;
         assert!(!same_drawing(one, two));
         assert!(same_drawing(one, deleted), "deleted elements are not visible");

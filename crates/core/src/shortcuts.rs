@@ -62,9 +62,10 @@ fn key_vk(name: &str) -> Option<u16> {
         }
     }
     if let Some(num) = n.strip_prefix(['F', 'f']).and_then(|d| d.parse::<u16>().ok())
-        && (1..=24).contains(&num) {
-            return Some(0x6F + num);
-        }
+        && (1..=24).contains(&num)
+    {
+        return Some(0x6F + num);
+    }
     NAMED.iter().find(|(k, _)| k.eq_ignore_ascii_case(n)).map(|(_, v)| *v)
 }
 

@@ -32,10 +32,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Directories never worth indexing (same list the Electron app skips).
-const SKIP: [&str; 14] = [
-    "node_modules", "target", ".git", ".svn", ".hg", "dist", "build", "out", ".next", ".cache", ".vscode", ".idea", "__pycache__",
-    "bin",
-];
+const SKIP: [&str; 14] = ["node_modules", "target", ".git", ".svn", ".hg", "dist", "build", "out", ".next", ".cache", ".vscode", ".idea", "__pycache__", "bin"];
 
 /// The nearest ancestor of `start` (up to 8 levels) containing `.git`, else `start`.
 pub fn project_root(start: &Path) -> PathBuf {

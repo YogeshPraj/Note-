@@ -14,24 +14,13 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
     let (c, n, k, s, ty, m, f, p) = (t.comment, t.number, t.keyword, t.string, t.ty, t.mac, t.func, t.prop);
     match lexer {
         // SCE_RUST_*
-        "rust" => vec![
-            (1, c), (2, c), (3, c), (4, c),
-            (5, n), (6, k), (7, ty), (8, ty),
-            (13, s), (14, s), (15, s), (18, ty), (19, m),
-            (21, s), (22, s), (23, s),
-        ],
+        "rust" => {
+            vec![(1, c), (2, c), (3, c), (4, c), (5, n), (6, k), (7, ty), (8, ty), (13, s), (14, s), (15, s), (18, ty), (19, m), (21, s), (22, s), (23, s)]
+        }
         // SCE_C_*
-        "cpp" => vec![
-            (1, c), (2, c), (3, c), (15, c),
-            (4, n), (5, k), (16, ty), (6, s), (7, s),
-            (13, s), (14, s), (9, m),
-        ],
+        "cpp" => vec![(1, c), (2, c), (3, c), (15, c), (4, n), (5, k), (16, ty), (6, s), (7, s), (13, s), (14, s), (9, m)],
         // SCE_P_*
-        "python" => vec![
-            (1, c), (12, c), (2, n), (3, s), (4, s),
-            (6, s), (7, s), (16, s), (5, k), (14, ty),
-            (8, ty), (9, f), (15, m),
-        ],
+        "python" => vec![(1, c), (12, c), (2, n), (3, s), (4, s), (6, s), (7, s), (16, s), (5, k), (14, ty), (8, ty), (9, f), (15, m)],
         // SCE_JSON_*
         "json" => vec![(1, n), (2, s), (4, p), (6, c), (7, c), (11, k), (12, k)],
         // SCE_YAML_*
@@ -49,9 +38,52 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
         // SCE_LUA_*
         "lua" => vec![(1, c), (2, c), (3, c), (4, n), (5, k), (6, s), (7, s), (8, s), (9, m), (13, ty), (14, ty), (20, m)],
         // SCE_RB_*
-        "ruby" => vec![(2, c), (3, c), (19, c), (4, n), (5, k), (6, s), (7, s), (8, ty), (9, f), (12, s), (13, m), (14, p), (15, ty), (16, m), (17, m), (18, s), (24, s), (25, s), (26, s), (27, s), (28, s)],
+        "ruby" => vec![
+            (2, c),
+            (3, c),
+            (19, c),
+            (4, n),
+            (5, k),
+            (6, s),
+            (7, s),
+            (8, ty),
+            (9, f),
+            (12, s),
+            (13, m),
+            (14, p),
+            (15, ty),
+            (16, m),
+            (17, m),
+            (18, s),
+            (24, s),
+            (25, s),
+            (26, s),
+            (27, s),
+            (28, s),
+        ],
         // SCE_PL_*
-        "perl" => vec![(2, c), (3, c), (31, c), (4, n), (5, k), (6, s), (7, s), (9, m), (12, m), (13, m), (14, m), (17, s), (18, s), (19, s), (20, s), (26, s), (27, s), (28, s), (29, s), (30, s)],
+        "perl" => vec![
+            (2, c),
+            (3, c),
+            (31, c),
+            (4, n),
+            (5, k),
+            (6, s),
+            (7, s),
+            (9, m),
+            (12, m),
+            (13, m),
+            (14, m),
+            (17, s),
+            (18, s),
+            (19, s),
+            (20, s),
+            (26, s),
+            (27, s),
+            (28, s),
+            (29, s),
+            (30, s),
+        ],
         // SCE_POWERSHELL_*
         "powershell" => vec![(1, c), (13, c), (2, s), (3, s), (14, s), (15, s), (4, n), (5, m), (8, k), (9, f), (10, ty), (11, f)],
         // SCE_BAT_*
@@ -62,8 +94,15 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
         "toml" => vec![(1, c), (3, k), (4, n), (5, k), (6, p), (9, s), (10, s), (11, s), (12, s), (13, m), (14, n)],
         // SCE_DIFF_*
         "diff" => vec![
-            (1, c), (2, k), (3, k), (4, m), (5, (0xCC, 0x33, 0x33)), (6, (0x22, 0x99, 0x22)), (7, (0xCC, 0x88, 0x00)),
-            (8, (0x22, 0x99, 0x22)), (9, (0xCC, 0x33, 0x33)),
+            (1, c),
+            (2, k),
+            (3, k),
+            (4, m),
+            (5, (0xCC, 0x33, 0x33)),
+            (6, (0x22, 0x99, 0x22)),
+            (7, (0xCC, 0x88, 0x00)),
+            (8, (0x22, 0x99, 0x22)),
+            (9, (0xCC, 0x33, 0x33)),
         ],
         // SCE_MAKE_*
         "makefile" => vec![(1, c), (2, m), (3, p), (5, f)],
@@ -82,7 +121,9 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
         // SCE_LISP_*
         "lisp" => vec![(1, c), (12, c), (2, n), (3, k), (4, k), (5, ty), (6, s), (11, m)],
         // SCE_HA_*
-        "haskell" | "literatehaskell" => vec![(2, k), (3, n), (4, s), (5, s), (6, ty), (7, ty), (8, ty), (9, ty), (10, k), (13, c), (14, c), (15, c), (16, c), (17, m), (18, m)],
+        "haskell" | "literatehaskell" => {
+            vec![(2, k), (3, n), (4, s), (5, s), (6, ty), (7, ty), (8, ty), (9, ty), (10, k), (13, c), (14, c), (15, c), (16, c), (17, m), (18, m)]
+        }
         // SCE_TCL_*
         "tcl" => vec![(1, c), (2, c), (20, c), (21, c), (3, n), (4, k), (5, s), (8, m), (9, m), (12, k), (13, k), (14, k), (15, k)],
         // SCE_R_*
@@ -378,9 +419,10 @@ pub fn lexer_of_label(label: &str) -> &'static str {
 pub fn label_for(lexer: &str, path: Option<&std::path::Path>) -> &'static str {
     let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
     if let Some((_, l)) = EXTENSION_LABELS.iter().find(|(e, _)| *e == ext)
-        && lexer_of_label(l) == lexer {
-            return l;
-        }
+        && lexer_of_label(l) == lexer
+    {
+        return l;
+    }
     DEFAULT_LABELS
         .iter()
         .find(|(x, _)| *x == lexer)

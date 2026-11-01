@@ -33,7 +33,12 @@ const SEP_W: i32 = 8;
 pub enum Item {
     Separator,
     /// aded is the icon shown while the command is not available (when absent the normal icon is used).
-    Button { cmd: usize, tip: String, icon: Option<Bitmap>, faded: Option<Bitmap> },
+    Button {
+        cmd: usize,
+        tip: String,
+        icon: Option<Bitmap>,
+        faded: Option<Bitmap>,
+    },
 }
 
 /// A coloured notice at the right edge that acts like a button.

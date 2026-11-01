@@ -6,10 +6,10 @@
 //! let l = Label::new(&parent, "Find what:");
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::StaticText as WxStaticText;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::StaticText as WxStaticText;
+use wxdragon::prelude::*;
 
 themed!(
     /// Static text.

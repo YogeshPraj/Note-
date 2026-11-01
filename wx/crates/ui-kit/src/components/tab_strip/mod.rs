@@ -196,7 +196,9 @@ impl TabStrip {
                 let mut s = st.borrow_mut();
                 if let Some(b) = s.layout.button_at(x, y) {
                     s.btn_down = Some(b);
-                    if b == Btn::Plus { Some(TabEvent::New) } else {
+                    if b == Btn::Plus {
+                        Some(TabEvent::New)
+                    } else {
                         s.scroll.step(b);
                         None
                     }

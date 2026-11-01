@@ -1,35 +1,35 @@
 //! Note++ with a wxWidgets shell.
 
 mod app;
+mod chrome;
+mod command;
 mod dialogs;
 mod encdialogs;
 mod extra;
 mod find;
 mod findpanel;
+mod handlers;
 mod incr;
 mod mdbar;
 mod menu_spec;
 mod menus;
-mod chrome;
-mod command;
-mod handlers;
 mod palette;
 // Raw operating-system calls.
 #[allow(unsafe_code)]
 mod platform;
 pub use platform::scintilla as sci;
 mod panels;
-mod pwdialogs;
 mod popups;
 mod preview;
-mod streams;
-mod whiteboard;
-mod state;
+mod pwdialogs;
 mod services;
 mod settings_ui;
 mod side;
+mod state;
+mod streams;
 mod ui;
 mod updates;
+mod whiteboard;
 pub use ui_kit as widgets;
 
 use wxdragon::prelude::*;

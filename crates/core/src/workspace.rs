@@ -16,12 +16,12 @@ use super::lang;
 use super::lexer;
 use super::mdformat;
 use super::preview;
+use super::sci::{self, Send, Theme};
 use super::search::{self, Opts};
+use super::session::{Session, SessionTab};
 use super::settings::{self, Settings};
 use super::textools;
 use super::view;
-use super::sci::{self, Send, Theme};
-use super::session::{Session, SessionTab};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -318,13 +318,13 @@ fn lang_for(path: &Path) -> &'static str {
     match path.file_name().and_then(|n| n.to_str()) {
         Some("Makefile" | "makefile" | "GNUmakefile") => return "makefile",
         Some("CMakeLists.txt") => return "cmake",
-        Some(".bashrc" | ".bash_profile" | ".bash_login" | ".bash_logout" | ".profile" | ".zshrc" | ".zprofile" | ".zshenv" | "bashrc" | "profile") => return "bash",
+        Some(".bashrc" | ".bash_profile" | ".bash_login" | ".bash_logout" | ".profile" | ".zshrc" | ".zprofile" | ".zshenv" | "bashrc" | "profile") => {
+            return "bash";
+        }
         Some("Rakefile" | "Gemfile" | "Vagrantfile" | "Guardfile" | "Podfile") => return "ruby",
         _ => {}
     }
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map_or("null", lexer::lexer_for_extension)
+    path.extension().and_then(|e| e.to_str()).map_or("null", lexer::lexer_for_extension)
 }
 
 fn file_title(path: &Path) -> String {
@@ -544,7 +544,8 @@ impl<S: Send> Workspace<S> {
             return Some("Select a single block of text first".into());
         }
         let text = sci::get_text(&self.sci);
-        let sel = (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
+        let sel =
+            (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
         let eol = match self.tabs[self.active].eol {
             Eol::Crlf => "\r\n",
             Eol::Lf => "\n",
@@ -757,7 +758,8 @@ impl<S: Send> Workspace<S> {
         let t = &self.tabs[self.active];
         let bytes = match &t.path {
             Some(p) => {
-                if self.is_dirty(self.active) && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload it as {} and lose them?", t.title, enc.label())) {
+                if self.is_dirty(self.active) && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload it as {} and lose them?", t.title, enc.label()))
+                {
                     return false;
                 }
                 match std::fs::read(p) {
@@ -881,7 +883,8 @@ impl<S: Send> Workspace<S> {
     /// "Block Comment": wrap the selection (or, with none, the current line from its first
     /// non-blank character) in the language's start and end symbols.
     fn stream_comment(&mut self, syn: edit::Comments) -> bool {
-        let (mut a, mut b) = (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
+        let (mut a, mut b) =
+            (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
         if a == b {
             let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, a, 0));
             a = crate::num::to_usize(self.send(sci::SCI_GETLINEINDENTPOSITION, line, 0).max(0));
@@ -902,7 +905,8 @@ impl<S: Send> Workspace<S> {
 
     /// "Block Uncomment": remove the comment around or inside the selection.
     fn stream_uncomment(&mut self, syn: edit::Comments) -> bool {
-        let (a, b) = (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
+        let (a, b) =
+            (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0)));
         let text = sci::get_text(&self.sci);
         let Some((s, e, inner)) = edit::undo_stream_comment(&text, (a, b), syn.start, syn.end) else { return false };
         self.send(sci::SCI_BEGINUNDOACTION, 0, 0);
@@ -1064,11 +1068,7 @@ impl<S: Send> Workspace<S> {
         };
         let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
         let line = crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, caret, 0));
-        let at = crate::num::to_usize(if above {
-            self.send(sci::SCI_POSITIONFROMLINE, line, 0)
-        } else {
-            self.send(sci::SCI_GETLINEENDPOSITION, line, 0)
-        });
+        let at = crate::num::to_usize(if above { self.send(sci::SCI_POSITIONFROMLINE, line, 0) } else { self.send(sci::SCI_GETLINEENDPOSITION, line, 0) });
         let text = std::ffi::CString::new(eol).unwrap_or_default();
         self.send(sci::SCI_INSERTTEXT, at, text.as_ptr() as isize);
         // The caret lands on the new blank line either way (as in Notepad++).
@@ -1121,11 +1121,8 @@ impl<S: Send> Workspace<S> {
         match kind {
             Completion::Words | Completion::Functions => {
                 let (at, prefix) = complete::word_before(&text, caret);
-                let items = if kind == Completion::Words {
-                    complete::words_with_prefix(&text, prefix, at)
-                } else {
-                    complete::function_names(&text, prefix, at)
-                };
+                let items =
+                    if kind == Completion::Words { complete::words_with_prefix(&text, prefix, at) } else { complete::function_names(&text, prefix, at) };
                 if items.is_empty() {
                     return Some("No suggestions".into());
                 }
@@ -1169,13 +1166,9 @@ impl<S: Send> Workspace<S> {
             PathText::FileName => one(t, &|p| file_title(p)),
             PathText::Directory => t.path.as_ref().and_then(|p| p.parent()).map(|d| d.display().to_string()),
             PathText::AllNames => Some(self.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("\r\n")),
-            PathText::AllPaths => Some(
-                self.tabs
-                    .iter()
-                    .map(|t| t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.display().to_string()))
-                    .collect::<Vec<_>>()
-                    .join("\r\n"),
-            ),
+            PathText::AllPaths => {
+                Some(self.tabs.iter().map(|t| t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.display().to_string())).collect::<Vec<_>>().join("\r\n"))
+            }
         }
     }
 
@@ -1247,9 +1240,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn new_tab(&mut self) -> usize {
-        let n = (1..)
-            .find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.title == format!("new {n}")))
-            .unwrap_or(1);
+        let n = (1..).find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.title == format!("new {n}"))).unwrap_or(1);
         let eol = match self.settings.new_doc_eol.as_str() {
             "crlf" => Eol::Crlf,
             "lf" => Eol::Lf,
@@ -1276,11 +1267,8 @@ impl<S: Send> Workspace<S> {
             self.note_recent(path);
             return;
         }
-        let replace_pristine = self.tabs.len() == 1
-            && self.tabs[0].kind == TabKind::Text
-            && self.tabs[0].path.is_none()
-            && !self.is_dirty(0)
-            && sci::length(&self.sci) == 0;
+        let replace_pristine =
+            self.tabs.len() == 1 && self.tabs[0].kind == TabKind::Text && self.tabs[0].path.is_none() && !self.is_dirty(0) && sci::length(&self.sci) == 0;
         self.open_doc(file_title(path), Some(path.to_path_buf()), &text, enc, eol, lang_for(path));
         self.tabs[self.active].encrypted = encrypted;
         self.note_recent(path);
@@ -1409,7 +1397,9 @@ impl<S: Send> Workspace<S> {
         if self.tabs[self.active].path.is_none() {
             return false;
         }
-        if self.is_dirty(self.active) && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload from disk and lose them?", self.tabs[self.active].title)) {
+        if self.is_dirty(self.active)
+            && !ui.ask_yes_no(&format!("\"{}\" has unsaved changes.\n\nReload from disk and lose them?", self.tabs[self.active].title))
+        {
             return false;
         }
         self.reload_now(ui)
@@ -1720,10 +1710,9 @@ impl<S: Send> Workspace<S> {
     fn remove_tab(&mut self, i: usize, remember: bool) {
         self.activate(i);
         let (doc, is_text) = (self.tabs[i].doc, self.tabs[i].kind == TabKind::Text);
-        if remember
-            && let Some(p) = self.tabs[i].path.clone() {
-                push_recent(&mut self.closed, &p, MAX_CLOSED);
-            }
+        if remember && let Some(p) = self.tabs[i].path.clone() {
+            push_recent(&mut self.closed, &p, MAX_CLOSED);
+        }
         if self.tabs.len() == 1 {
             self.new_tab();
             self.tabs.remove(0);
@@ -1885,10 +1874,16 @@ impl<S: Send> Workspace<S> {
             1 if self.send(sci::SCI_GETSELECTIONEMPTY, 0, 0) != 0 => format!("Pos: {}", commafy(crate::num::to_usize(pos.max(0)) + 1)),
             n => {
                 let ranges: Vec<(usize, usize)> = (0..n)
-                    .map(|i| (crate::num::to_usize(self.send(sci::SCI_GETSELECTIONNSTART, i, 0).max(0)), crate::num::to_usize(self.send(sci::SCI_GETSELECTIONNEND, i, 0).max(0))))
+                    .map(|i| {
+                        (
+                            crate::num::to_usize(self.send(sci::SCI_GETSELECTIONNSTART, i, 0).max(0)),
+                            crate::num::to_usize(self.send(sci::SCI_GETSELECTIONNEND, i, 0).max(0)),
+                        )
+                    })
                     .collect();
                 // Characters, not bytes: an accented letter or a CJK character counts once.
-                let counts: Vec<usize> = ranges.iter().map(|&(a, b)| crate::num::to_usize(self.send(sci::SCI_COUNTCHARACTERS, a, crate::num::to_isize(b)).max(0))).collect();
+                let counts: Vec<usize> =
+                    ranges.iter().map(|&(a, b)| crate::num::to_usize(self.send(sci::SCI_COUNTCHARACTERS, a, crate::num::to_isize(b)).max(0))).collect();
                 let chars: usize = counts.iter().sum();
                 let line_of = |p: usize| crate::num::to_usize(self.send(sci::SCI_LINEFROMPOSITION, p, 0).max(0));
                 if n == 1 {
@@ -1911,7 +1906,8 @@ impl<S: Send> Workspace<S> {
                     format!("Sel {} : {} | {}", commafy(n), commafy(chars), if n <= 99 { commafy(total) } else { "...".into() })
                 }
             }
-        };        Status {
+        };
+        Status {
             position: format!("Ln: {line}    Col: {col}    {tail}"),
             lines: format!("lines: {}", commafy(crate::num::to_usize(sci::line_count(&self.sci).max(0)))),
             length: format!("length: {}", commafy(crate::num::to_usize(sci::length(&self.sci).max(0)))),
@@ -1936,7 +1932,8 @@ impl<S: Send> Workspace<S> {
         (self.tabs.len(), self.active, unsaved, ids)
     }
 
-    pub fn snapshot(&mut self) -> Session {        self.remember_view();
+    pub fn snapshot(&mut self) -> Session {
+        self.remember_view();
         let cur = self.active;
         // Reading hidden tabs means swapping documents in; put back whatever was showing.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
@@ -2029,11 +2026,8 @@ impl<S: Send> Workspace<S> {
     /// Returns how many tabs were opened.
     pub fn open_session(&mut self, ui: &dyn Ui, s: &Session) -> usize {
         let start = self.tabs.len();
-        let had_pristine_tab = self.tabs.len() == 1
-            && self.tabs[0].kind == TabKind::Text
-            && self.tabs[0].path.is_none()
-            && !self.is_dirty(0)
-            && sci::length(&self.sci) == 0;
+        let had_pristine_tab =
+            self.tabs.len() == 1 && self.tabs[0].kind == TabKind::Text && self.tabs[0].path.is_none() && !self.is_dirty(0) && sci::length(&self.sci) == 0;
         self.restore_tabs(ui, s);
         let opened = self.tabs.len() - start;
         if opened > 0 {
@@ -2056,9 +2050,10 @@ impl<S: Send> Workspace<S> {
         for st in &s.tabs {
             let path = st.path.as_ref().map(PathBuf::from);
             if let Some(p) = &path
-                && self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, p))) {
-                    continue;
-                }
+                && self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, p)))
+            {
+                continue;
+            }
             if st.kind == "whiteboard" {
                 let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).map(|b| doc::decode(&b).0);
                 let (content, dirty) = match (&st.text, disk) {
@@ -2082,37 +2077,43 @@ impl<S: Send> Workspace<S> {
                     if declined {
                         continue;
                     }
-                    if let Some(t) = self.decrypt_for(ui, &env, &st.title) { saved_text = Some(t) } else {
+                    if let Some(t) = self.decrypt_for(ui, &env, &st.title) {
+                        saved_text = Some(t)
+                    } else {
                         declined = true;
                         continue;
                     }
                 }
             }
-            let idx = if let Some(path) = &path { match std::fs::read(path) {
-                Ok(bytes) => {
-                    let is_env = crypto::parse_envelope(&bytes).is_some();
-                    if is_env && declined {
-                        continue;
-                    }
-                    // A character set chosen with "Encode in" must survive a restart.
-                    let (text, enc, eol) = if is_env {
-                        if let Some((t, e, l, _)) = self.read_text(ui, &bytes, &file_title(path)) { (t, e, l) } else {
-                            declined = true;
+            let idx = if let Some(path) = &path {
+                match std::fs::read(path) {
+                    Ok(bytes) => {
+                        let is_env = crypto::parse_envelope(&bytes).is_some();
+                        if is_env && declined {
                             continue;
                         }
-                    } else if matches!(enc, Enc::Cs(_)) {
-                        let (t, e) = doc::decode_with(&bytes, enc);
-                        (t, enc, e)
-                    } else {
-                        doc::decode(&bytes)
-                    };
-                    encrypted = is_env;
-                    self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
+                        // A character set chosen with "Encode in" must survive a restart.
+                        let (text, enc, eol) = if is_env {
+                            if let Some((t, e, l, _)) = self.read_text(ui, &bytes, &file_title(path)) {
+                                (t, e, l)
+                            } else {
+                                declined = true;
+                                continue;
+                            }
+                        } else if matches!(enc, Enc::Cs(_)) {
+                            let (t, e) = doc::decode_with(&bytes, enc);
+                            (t, enc, e)
+                        } else {
+                            doc::decode(&bytes)
+                        };
+                        encrypted = is_env;
+                        self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
+                    }
+                    // File vanished: keep the unsaved text if we have it, otherwise skip.
+                    Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
+                    Err(_) => continue,
                 }
-                // File vanished: keep the unsaved text if we have it, otherwise skip.
-                Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
-                Err(_) => continue,
-            } } else {
+            } else {
                 let entry = st.lang.as_deref().and_then(|l| lang::LANGUAGES.iter().find(|(n, _)| *n == l));
                 let idx = self.open_doc(st.title.clone(), None, "", enc, eol, entry.map_or("null", |e| e.1));
                 if let Some(e) = entry {
@@ -2148,16 +2149,17 @@ fn commafy(n: usize) -> String {
 }
 
 fn unmappable_warning(enc: Enc) -> String {
-    format!(
-        "Some characters cannot be represented in {} and would be saved as ?.\n\nContinue anyway?",
-        enc.label()
-    )
+    format!("Some characters cannot be represented in {} and would be saved as ?.\n\nContinue anyway?", enc.label())
 }
 
 fn scene_element_count(content: &str) -> usize {
     serde_json::from_str::<serde_json::Value>(content)
         .ok()
-        .and_then(|v| v.get("elements").and_then(|e| e.as_array()).map(|e| e.iter().filter(|x| x.get("isDeleted").and_then(serde_json::Value::as_bool) != Some(true)).count()))
+        .and_then(|v| {
+            v.get("elements")
+                .and_then(|e| e.as_array())
+                .map(|e| e.iter().filter(|x| x.get("isDeleted").and_then(serde_json::Value::as_bool) != Some(true)).count())
+        })
         .unwrap_or(0)
 }
 

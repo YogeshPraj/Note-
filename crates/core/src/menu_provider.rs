@@ -70,7 +70,11 @@ impl MenuProvider for EncodeInItems {
         ENCODE_IN
             .iter()
             .enumerate()
-            .map(|(i, e)| MenuItemSpec { command: Command::EncodeIn(i), label: format!("Encode in {}", e.label()), palette: Some(format!("Encoding: Encode in {}", e.label())) })
+            .map(|(i, e)| MenuItemSpec {
+                command: Command::EncodeIn(i),
+                label: format!("Encode in {}", e.label()),
+                palette: Some(format!("Encoding: Encode in {}", e.label())),
+            })
             .collect()
     }
 }
@@ -84,7 +88,11 @@ impl MenuProvider for ConvertToItems {
         ENCODE_IN
             .iter()
             .enumerate()
-            .map(|(i, e)| MenuItemSpec { command: Command::ConvertTo(i), label: format!("Convert to {}", e.label()), palette: Some(format!("Encoding: Convert to {}", e.label())) })
+            .map(|(i, e)| MenuItemSpec {
+                command: Command::ConvertTo(i),
+                label: format!("Convert to {}", e.label()),
+                palette: Some(format!("Encoding: Convert to {}", e.label())),
+            })
             .collect()
     }
 }

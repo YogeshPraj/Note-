@@ -33,7 +33,8 @@ pub fn matches(query: &str, text: &str) -> Option<usize> {
 
 /// Indices of the items matching `query`, best first (ties keep the original order), at most `limit`.
 pub fn rank(items: &[Item], query: &str, limit: usize) -> Vec<usize> {
-    let mut scored: Vec<(usize, usize)> = items.iter().enumerate().filter_map(|(i, it)| matches(query, &format!("{} {}", it.label, it.hint)).map(|s| (s, i))).collect();
+    let mut scored: Vec<(usize, usize)> =
+        items.iter().enumerate().filter_map(|(i, it)| matches(query, &format!("{} {}", it.label, it.hint)).map(|s| (s, i))).collect();
     scored.sort_by_key(|(s, i)| (*s, *i));
     scored.into_iter().take(limit).map(|(_, i)| i).collect()
 }

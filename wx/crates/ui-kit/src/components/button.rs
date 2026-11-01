@@ -7,10 +7,10 @@
 //! ok.on_click(|_| println!("clicked"));
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::Button as WxButton;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::Button as WxButton;
+use wxdragon::prelude::*;
 
 themed!(
     /// A push button.

@@ -30,8 +30,7 @@ const C32: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const RECOVERY_INFO: &[u8] = b"notepp-recovery";
 
 /// The data-encryption key. Wiped from memory when dropped.
-#[derive(Clone)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Dek(Zeroizing<[u8; DEK_BYTES]>);
 
 impl Dek {
@@ -359,10 +358,7 @@ pub fn encrypt_text(text: &str, dek: &Dek, original_ext: &str) -> Result<String,
 }
 
 pub fn decrypt_envelope(env: &Envelope, dek: &Dek) -> Result<String, Error> {
-    let inner = dek
-        .cipher()
-        .decrypt(Nonce::from_slice(&b64d(&env.iv)?), b64d(&env.ct)?.as_slice())
-        .map_err(|_| Error::Decryption)?;
+    let inner = dek.cipher().decrypt(Nonce::from_slice(&b64d(&env.iv)?), b64d(&env.ct)?.as_slice()).map_err(|_| Error::Decryption)?;
     let plain = if env.compression == "gzip" {
         let mut out = Vec::new();
         GzDecoder::new(inner.as_slice()).read_to_end(&mut out).map_err(|e| Error::Corrupt(e.to_string()))?;
@@ -424,8 +420,7 @@ pub fn strength(password: &str) -> (u8, &'static str) {
 }
 
 /// What the running app knows: the profile on disk and, while unlocked, the key.
-#[derive(Default, Clone)]
-#[derive(Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Vault {
     pub profile: Option<Profile>,
     pub dek: Option<Dek>,

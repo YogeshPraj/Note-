@@ -112,6 +112,6 @@ pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
     });
     edit.set_focus();
     d.show_modal();
-    
+
     *chosen.borrow()
 }

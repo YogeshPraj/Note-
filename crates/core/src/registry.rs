@@ -552,7 +552,15 @@ mod tests {
 
     #[test]
     fn family_members_decode_to_typed_commands_and_back() {
-        for id in [ID_RECENT_BASE, ID_RECENT_BASE + 7, ID_ENCODE_BASE + 4, ID_CONVERT_BASE + 2, ID_CHARSET_BASE + crate::doc::CHARSETS.len(), ID_LANG_BASE, ID_LANG_BASE + 5] {
+        for id in [
+            ID_RECENT_BASE,
+            ID_RECENT_BASE + 7,
+            ID_ENCODE_BASE + 4,
+            ID_CONVERT_BASE + 2,
+            ID_CHARSET_BASE + crate::doc::CHARSETS.len(),
+            ID_LANG_BASE,
+            ID_LANG_BASE + 5,
+        ] {
             let c = Command::from_id(id).expect("a family member");
             assert_eq!(c.id(), id);
         }

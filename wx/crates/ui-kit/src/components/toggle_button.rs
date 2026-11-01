@@ -6,10 +6,10 @@
 //! let t = ToggleButton::new(&parent, "Bold");
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::ToggleButton as WxToggleButton;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::ToggleButton as WxToggleButton;
+use wxdragon::prelude::*;
 
 themed!(
     /// A button that stays pressed.

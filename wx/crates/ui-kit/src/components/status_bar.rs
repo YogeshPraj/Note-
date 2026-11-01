@@ -22,8 +22,7 @@ const RIGHT_MARGIN: i32 = 8;
 const SEGMENT_PAD: i32 = 22;
 
 /// One right-aligned piece of text; clickable when it has an id.
-#[derive(Clone, Default)]
-#[derive(Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Segment {
     pub text: String,
     pub id: Option<isize>,

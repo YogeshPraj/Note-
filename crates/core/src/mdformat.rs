@@ -204,11 +204,7 @@ fn indent_of(line: &str) -> (&str, &str) {
 fn heading_level(line: &str) -> Option<(usize, &str)> {
     let (_, rest) = indent_of(line);
     let hashes = rest.chars().take_while(|c| *c == '#').count();
-    if (1..=6).contains(&hashes) && rest[hashes..].starts_with([' ', '\t']) {
-        Some((hashes, rest[hashes..].trim_start()))
-    } else {
-        None
-    }
+    if (1..=6).contains(&hashes) && rest[hashes..].starts_with([' ', '\t']) { Some((hashes, rest[hashes..].trim_start())) } else { None }
 }
 
 fn heading(lines: &[String], level: u8) -> Vec<String> {

@@ -8,11 +8,11 @@
 //! v.fill(&[vec!["a.txt".into(), "1 KB".into()]]);
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::ListCtrl as WxListCtrl;
 use super::data_list;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::ListCtrl as WxListCtrl;
+use wxdragon::prelude::*;
 
 themed!(
     /// A list with columns.

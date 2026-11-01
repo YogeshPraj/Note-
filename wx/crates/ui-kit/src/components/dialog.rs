@@ -6,10 +6,10 @@
 //! let d = Dialog::new(&frame, "Options");
 //! ```
 
-use wxdragon::prelude::*;
-use wxdragon::prelude::Dialog as WxDialog;
-use crate::theme::Role;
 use super::themed::themed;
+use crate::theme::Role;
+use wxdragon::prelude::Dialog as WxDialog;
+use wxdragon::prelude::*;
 
 themed!(
     /// A modal or modeless dialog: themed background and title bar.

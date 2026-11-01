@@ -12,8 +12,8 @@ use crate::widgets::dock::Dock;
 
 mod layout;
 
-pub use layout::Mode;
 use layout::Ctl;
+pub use layout::Mode;
 
 #[derive(Clone, Copy)]
 struct P {
@@ -126,9 +126,35 @@ fn widget(p: &P, c: Ctl) -> &dyn WxWidget {
 fn all_controls(p: &P) -> Vec<&dyn WxWidget> {
     let mut v: Vec<&dyn WxWidget> = p.tab.iter().map(|t| t as &dyn WxWidget).collect();
     v.extend([
-        &p.closex as &dyn WxWidget, &p.status, &p.find_lbl, &p.find, &p.repl_lbl, &p.repl, &p.dir_lbl, &p.dir, &p.filt_lbl, &p.filt, &p.browse, &p.case,
-        &p.word, &p.wrap, &p.regex, &p.dot, &p.ext, &p.insel, &p.next, &p.prev, &p.findall, &p.count, &p.replace, &p.repl_all, &p.fif, &p.mark,
-        &p.clear, &p.close, &p.list,
+        &p.closex as &dyn WxWidget,
+        &p.status,
+        &p.find_lbl,
+        &p.find,
+        &p.repl_lbl,
+        &p.repl,
+        &p.dir_lbl,
+        &p.dir,
+        &p.filt_lbl,
+        &p.filt,
+        &p.browse,
+        &p.case,
+        &p.word,
+        &p.wrap,
+        &p.regex,
+        &p.dot,
+        &p.ext,
+        &p.insel,
+        &p.next,
+        &p.prev,
+        &p.findall,
+        &p.count,
+        &p.replace,
+        &p.repl_all,
+        &p.fif,
+        &p.mark,
+        &p.clear,
+        &p.close,
+        &p.list,
     ]);
     v
 }

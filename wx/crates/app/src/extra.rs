@@ -8,10 +8,10 @@ use notepp_core::workspace::{PathText, Ui as _};
 use notepp_core::{bookmarks, sci, search, view};
 use wxdragon::prelude::*;
 
-use crate::command::CommandHandler;
 use crate::app::App;
+use crate::command::CommandHandler;
 use crate::dialogs::{self, WinAction};
-use crate::widgets::form::{ctl, run, Kind, Spec};
+use crate::widgets::form::{Kind, Spec, ctl, run};
 
 const DEFAULT_CONTEXT_MENU: &str = "# Right-click menu of the editor. One command per line, as named in the Command Palette;\n\
 # a line with just - makes a separator. Save the file and the next right-click uses it.\n\
@@ -73,7 +73,34 @@ fn mapper_rows(s: &notepp_core::settings::Settings) -> Vec<dialogs::MapRow> {
 /// Files that run code when "opened" (programs, scripts, shortcuts, installers).
 fn runs_code(path: &Path) -> bool {
     const RUNNABLE: [&str; 28] = [
-        "exe", "com", "scr", "pif", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "lnk", "msi", "msp", "reg", "cpl", "jar", "msc", "appx", "msix", "application", "gadget", "url", "dll",
+        "exe",
+        "com",
+        "scr",
+        "pif",
+        "bat",
+        "cmd",
+        "ps1",
+        "psm1",
+        "vbs",
+        "vbe",
+        "js",
+        "jse",
+        "wsf",
+        "wsh",
+        "hta",
+        "lnk",
+        "msi",
+        "msp",
+        "reg",
+        "cpl",
+        "jar",
+        "msc",
+        "appx",
+        "msix",
+        "application",
+        "gadget",
+        "url",
+        "dll",
     ];
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| RUNNABLE.contains(&e.to_ascii_lowercase().as_str()))
 }
@@ -298,7 +325,6 @@ fn find_chars_dialog(app: &App) {
 impl App {
     /// Commands implemented here; true when `id` was one of them.
 
-
     /// Rebuild every menu (shortcut changes show up in their labels).
     pub fn reinstall_menus(&mut self) {
         self.keymap = notepp_core::keymap::KeyMap::build(&self.ws.settings.shortcuts);
@@ -317,7 +343,7 @@ impl App {
 
     /// Passwords (Bitwarden): pick an item and insert it at the cursor or copy it for 30 seconds.
     fn passwords(&mut self) {
-        use crate::pwdialogs::{run, Outcome};
+        use crate::pwdialogs::{Outcome, run};
         match run(&self.frame, !self.ws.is_whiteboard()) {
             Outcome::Insert(secret) => {
                 self.ws.insert_text(&secret);
@@ -366,7 +392,12 @@ impl App {
         self.menubar.check_item(crate::platform::wx::to_i32(c::ID_DISTRACTION), self.distraction);
         self.menubar.check_item(crate::platform::wx::to_i32(c::ID_POSTIT), self.postit);
         let side = self.side.mode;
-        for (id, m) in [(c::ID_CHAR_PANEL, crate::side::Mode::Characters), (c::ID_CLIP_HISTORY, crate::side::Mode::Clipboard), (c::ID_DOC_LIST, crate::side::Mode::Documents), (c::ID_FUNC_LIST, crate::side::Mode::Functions)] {
+        for (id, m) in [
+            (c::ID_CHAR_PANEL, crate::side::Mode::Characters),
+            (c::ID_CLIP_HISTORY, crate::side::Mode::Clipboard),
+            (c::ID_DOC_LIST, crate::side::Mode::Documents),
+            (c::ID_FUNC_LIST, crate::side::Mode::Functions),
+        ] {
             self.menubar.check_item(crate::platform::wx::to_i32(id), side == Some(m));
         }
         self.menubar.check_item(crate::platform::wx::to_i32(c::ID_WORKSPACE_TOGGLE), self.tree_visible());
@@ -570,10 +601,12 @@ impl CommandHandler<App> for ExtraCommands {
                     crate::findpanel::open(mode, "", &last, &dir);
                 }
             }
-            _ if (c::ID_BROWSER_BASE..c::ID_BROWSER_BASE + notepp_core::tables::BROWSERS.len()).contains(&id) => match app.ws.tabs[app.ws.active].path.clone() {
-                Some(p) => crate::platform::current().open_with(notepp_core::tables::BROWSERS[id - c::ID_BROWSER_BASE].1, &p),
-                None => app.flash = Some("Save the file first".into()),
-            },
+            _ if (c::ID_BROWSER_BASE..c::ID_BROWSER_BASE + notepp_core::tables::BROWSERS.len()).contains(&id) => {
+                match app.ws.tabs[app.ws.active].path.clone() {
+                    Some(p) => crate::platform::current().open_with(notepp_core::tables::BROWSERS[id - c::ID_BROWSER_BASE].1, &p),
+                    None => app.flash = Some("Save the file first".into()),
+                }
+            }
             c::ID_MONITOR => {
                 let (tab_id, path) = (app.ws.tabs[app.ws.active].id, app.ws.tabs[app.ws.active].path.clone());
                 match (path, app.streams.monitoring.contains_key(&tab_id)) {
@@ -696,7 +729,11 @@ impl CommandHandler<App> for ExtraCommands {
                             app.flash = Some("Select some text first".into());
                         } else {
                             let digest = algo.hash_bytes(sel.as_bytes());
-                            app.flash = Some(if crate::services::clipboard::copy(&digest) { format!("{} copied: {digest}", algo.name()) } else { "The clipboard is busy".into() });
+                            app.flash = Some(if crate::services::clipboard::copy(&digest) {
+                                format!("{} copied: {digest}", algo.name())
+                            } else {
+                                "The clipboard is busy".into()
+                            });
                         }
                     }
                 }

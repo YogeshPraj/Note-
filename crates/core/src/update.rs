@@ -54,7 +54,8 @@ pub fn pick_release(json: &str, current: &str) -> Result<Option<Release>, Error>
         if !is_newer(tag, current) {
             continue;
         }
-        let asset = |name: &str| r["assets"].as_array()?.iter().find(|a| a["name"].as_str() == Some(name))?["browser_download_url"].as_str().map(str::to_string);
+        let asset =
+            |name: &str| r["assets"].as_array()?.iter().find(|a| a["name"].as_str() == Some(name))?["browser_download_url"].as_str().map(str::to_string);
         let (Some(zip_url), Some(sha_url)) = (asset(ASSET), asset(&format!("{ASSET}.sha256"))) else { continue };
         if best.as_ref().is_none_or(|(b, _)| ver > *b) {
             best = Some((ver, Release { version: tag.to_string(), zip_url, sha_url }));
@@ -250,8 +251,8 @@ mod tests {
             release("v0.3.0", true, false, &both),                  // draft
             release("v0.2.5", false, true, &both),                  // prerelease
             release("v0.2.0", false, false, &both),
-            release("v0.2.1", false, false, &[ASSET]),              // no checksum: unusable
-            release("v0.1.0", false, false, &both),                 // not newer
+            release("v0.2.1", false, false, &[ASSET]), // no checksum: unusable
+            release("v0.1.0", false, false, &both),    // not newer
             release("v0.1.5", false, false, &both),
         ])
         .to_string();

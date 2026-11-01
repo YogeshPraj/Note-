@@ -8,7 +8,11 @@
 pub enum ColumnOp {
     /// Remove every column (and row) so the set can be rebuilt.
     ClearAll,
-    Insert { index: usize, name: String, width: i32 },
+    Insert {
+        index: usize,
+        name: String,
+        width: i32,
+    },
 }
 
 /// What to do to get from a list with `have` columns to `want`.
@@ -25,8 +29,15 @@ pub fn column_ops(have: usize, want: &[(&str, i32)]) -> Vec<ColumnOp> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CellOp {
     /// Add row `row` with its first cell.
-    Insert { row: usize, text: String },
-    Set { row: usize, col: usize, text: String },
+    Insert {
+        row: usize,
+        text: String,
+    },
+    Set {
+        row: usize,
+        col: usize,
+        text: String,
+    },
 }
 
 /// The calls that put `rows` into a list of `columns` columns. Cells past the last column are dropped; a missing

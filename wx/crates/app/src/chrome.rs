@@ -5,8 +5,11 @@
 
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_NEW, ID_NEW_WB, ID_OPEN, ID_SAVEALL, ID_PRINT, ID_ENC_TOGGLE, ID_PW_TOOLBAR, ID_CUT, ID_COPY, ID_PASTE, ID_UNDO, ID_REDO, ID_FIND, ID_REPLACE, ID_ZOOMIN, ID_ZOOMOUT, ID_WRAP, ID_PREVIEW, ID_LOG_FOLLOW, ID_THEME};
 use notepp_core::commands::{ID_CLOSE, ID_SAVE};
+use notepp_core::commands::{
+    ID_COPY, ID_CUT, ID_ENC_TOGGLE, ID_FIND, ID_LOG_FOLLOW, ID_NEW, ID_NEW_WB, ID_OPEN, ID_PASTE, ID_PREVIEW, ID_PRINT, ID_PW_TOOLBAR, ID_REDO, ID_REPLACE,
+    ID_SAVEALL, ID_THEME, ID_UNDO, ID_WRAP, ID_ZOOMIN, ID_ZOOMOUT,
+};
 use notepp_core::workspace::TabInfo;
 use wxdragon::prelude::*;
 
@@ -184,13 +187,25 @@ impl Chrome {
     }
 
     pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {
-        self.strip.set_tabs(tabs.into_iter().map(|t| crate::widgets::tab_strip::Tab { title: t.title, dirty: t.dirty, badge: t.badge, pinned: t.pinned, color: t.color }).collect(), active);
+        self.strip.set_tabs(
+            tabs.into_iter()
+                .map(|t| crate::widgets::tab_strip::Tab { title: t.title, dirty: t.dirty, badge: t.badge, pinned: t.pinned, color: t.color })
+                .collect(),
+            active,
+        );
     }
 
     pub fn set_status(&self, t: StatusText) {
         self.status_bar.set(
             t.position,
-            vec![Segment::text("INS"), Segment::button(t.lang, SEG_LANG), Segment::button(t.eol, SEG_EOL), Segment::button(t.enc, SEG_ENC), Segment::text(t.length), Segment::text(t.lines)],
+            vec![
+                Segment::text("INS"),
+                Segment::button(t.lang, SEG_LANG),
+                Segment::button(t.eol, SEG_EOL),
+                Segment::button(t.enc, SEG_ENC),
+                Segment::text(t.length),
+                Segment::text(t.lines),
+            ],
         );
     }
 

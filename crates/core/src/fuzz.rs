@@ -20,8 +20,9 @@ impl Rng {
 }
 
 const PIECES: &[&str] = &[
-    "a", "B", "hello", " ", "  ", "\t", "\r\n", "\n", "\r", "é", "日本", "😀", "# ", "## x", "- ", "* ", "1. ", "[x] ", "> ", "```", "|", "---", "**", "*", "_",
-    "~~", "`", "[", "](", ")", "(", "{", "}", "/*", "*/", "//", "<!--", "-->", "&", "<b>", "</b>", "=", "'", "\"", "0", "-12", "3.5", "\u{a0}", "\u{3000}", "ß", "İ",
+    "a", "B", "hello", " ", "  ", "\t", "\r\n", "\n", "\r", "é", "日本", "😀", "# ", "## x", "- ", "* ", "1. ", "[x] ", "> ", "```", "|", "---", "**", "*",
+    "_", "~~", "`", "[", "](", ")", "(", "{", "}", "/*", "*/", "//", "<!--", "-->", "&", "<b>", "</b>", "=", "'", "\"", "0", "-12", "3.5", "\u{a0}",
+    "\u{3000}", "ß", "İ",
 ];
 
 fn random_text(r: &mut Rng) -> String {
@@ -129,7 +130,22 @@ fn pure_functions_never_panic() {
             drop(textools::xml_pretty(&text));
             drop(textools::xml_minify(&text));
         });
-        for fmt in [Fmt::Bold, Fmt::Italic, Fmt::Strike, Fmt::Code, Fmt::Link, Fmt::Image, Fmt::Heading(2), Fmt::Quote, Fmt::Bullet, Fmt::Numbered, Fmt::Task, Fmt::CodeBlock, Fmt::Rule, Fmt::Table] {
+        for fmt in [
+            Fmt::Bold,
+            Fmt::Italic,
+            Fmt::Strike,
+            Fmt::Code,
+            Fmt::Link,
+            Fmt::Image,
+            Fmt::Heading(2),
+            Fmt::Quote,
+            Fmt::Bullet,
+            Fmt::Numbered,
+            Fmt::Task,
+            Fmt::CodeBlock,
+            Fmt::Rule,
+            Fmt::Table,
+        ] {
             check("mdformat", &mut || {
                 let e = mdformat::apply(fmt, &text, sel, eol);
                 // The edit must be applicable to the document.

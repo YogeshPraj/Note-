@@ -8,8 +8,8 @@ use notepp_core::commands as c;
 use notepp_core::{functions, sci, search};
 use wxdragon::prelude::*;
 
-use crate::command::CommandHandler;
 use crate::app::{App, Shared};
+use crate::command::CommandHandler;
 use crate::side::{Activate, Mode, SIDE_W};
 use crate::widgets::controls::{Button, Label, ListView, Panel, TreeView};
 use crate::widgets::theme::Role;
@@ -86,12 +86,13 @@ pub fn wire(app: &Shared) {
         let Some(item) = e.get_item() else { return };
         let Some(path) = path_of(&tree, &item) else { return };
         if path.is_file()
-            && let Ok(mut app) = a.try_borrow_mut() {
-                let App { ws, ui, .. } = &mut *app;
-                ws.open_path(ui, &path);
-                app.refresh();
-                app.stc.set_focus();
-            }
+            && let Ok(mut app) = a.try_borrow_mut()
+        {
+            let App { ws, ui, .. } = &mut *app;
+            ws.open_path(ui, &path);
+            app.refresh();
+            app.stc.set_focus();
+        }
     });
     let a = app.clone();
     let side = p.side;
@@ -112,9 +113,10 @@ pub fn wire(app: &Shared) {
         }
         let Some(n) = side.selected() else { return };
         if let Ok(mut app) = a.try_borrow_mut()
-            && app.side.content_mut().is_some_and(|c| c.remove(n)) {
-                app.fill_side();
-            }
+            && app.side.content_mut().is_some_and(|c| c.remove(n))
+        {
+            app.fill_side();
+        }
     });
 }
 
@@ -146,9 +148,10 @@ fn load_children(tree: &TreeCtrl, item: &TreeItemId) {
     for (p, is_dir) in list_dir(&path) {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if let Some(child) = tree.append_item(item, &name, None, None)
-            && is_dir {
-                tree.append_item(&child, DUMMY, None, None);
-            }
+            && is_dir
+        {
+            tree.append_item(&child, DUMMY, None, None);
+        }
     }
 }
 
@@ -211,15 +214,15 @@ impl App {
             return;
         };
         let inside = self.ws.workspace.as_ref().is_some_and(|r| p.starts_with(r));
-        if !inside
-            && let Some(d) = p.parent() {
-                self.open_workspace(d.to_path_buf());
-            }
+        if !inside && let Some(d) = p.parent() {
+            self.open_workspace(d.to_path_buf());
+        }
         self.set_tree(true);
         if let Some(root) = self.ws.workspace.clone()
-            && !reveal(&self.panels.tree, &root, &p) {
-                self.flash = Some("The file was not found in the tree".into());
-            }
+            && !reveal(&self.panels.tree, &root, &p)
+        {
+            self.flash = Some("The file was not found in the tree".into());
+        }
     }
 
     /// Switch the side list to `want`, or hide it when it already shows that.
@@ -308,7 +311,10 @@ impl App {
                 }
                 self.side_key = Some(key);
                 let text = sci::get_text(&self.ws.sci);
-                let rows = functions::extract(&text, self.ws.tabs[self.ws.active].lang).into_iter().map(|e| (vec![e.name, (e.line + 1).to_string()], e.line)).collect();
+                let rows = functions::extract(&text, self.ws.tabs[self.ws.active].lang)
+                    .into_iter()
+                    .map(|e| (vec![e.name, (e.line + 1).to_string()], e.line))
+                    .collect();
                 self.set_side_rows(rows);
             }
             _ => {}
@@ -355,9 +361,10 @@ impl CommandHandler<App> for PanelCommands {
             c::ID_OPEN_WORKSPACE => {
                 let d = DirDialog::builder(&app.frame, "Open Folder as Workspace", "").build();
                 if d.show_modal() == ID_OK
-                    && let Some(p) = d.get_path() {
-                        app.open_workspace(PathBuf::from(p));
-                    }
+                    && let Some(p) = d.get_path()
+                {
+                    app.open_workspace(PathBuf::from(p));
+                }
             }
             c::ID_OPEN_FOLDER_WS => match app.ws.tabs[app.ws.active].path.clone() {
                 Some(p) => {

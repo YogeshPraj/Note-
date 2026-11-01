@@ -35,7 +35,10 @@ fn patterns(lexer: &str) -> Vec<(&'static str, &'static str)> {
             // Go
             (r"^\s*func\s+(?:\([^)]*\)\s*)?(\w+)", "func "),
             // C, C++, Java, C#: a type and a name before "(" on a line that opens a body
-            (r"^\s*(?:[\w:<>,\*&\[\]]+\s+)+[\*&]*((?!(?:if|for|while|switch|return|else|catch|sizeof|new|do)\b)[\w:~]+)\s*\([^;]*\)\s*(?:const\s*)?(?:override\s*)?(?:throws\s+[\w, ]+)?\s*\{?\s*$", ""),
+            (
+                r"^\s*(?:[\w:<>,\*&\[\]]+\s+)+[\*&]*((?!(?:if|for|while|switch|return|else|catch|sizeof|new|do)\b)[\w:~]+)\s*\([^;]*\)\s*(?:const\s*)?(?:override\s*)?(?:throws\s+[\w, ]+)?\s*\{?\s*$",
+                "",
+            ),
         ],
         _ => Vec::new(),
     }
@@ -61,10 +64,11 @@ pub fn extract(text: &str, lexer: &str) -> Vec<Entry> {
         }
         for (re, prefix) in &compiled {
             if let Ok(Some(c)) = re.captures(line)
-                && let Some(m) = c.get(1) {
-                    out.push(Entry { line: i, name: format!("{prefix}{}", m.as_str().trim()) });
-                    break;
-                }
+                && let Some(m) = c.get(1)
+            {
+                out.push(Entry { line: i, name: format!("{prefix}{}", m.as_str().trim()) });
+                break;
+            }
         }
     }
     out

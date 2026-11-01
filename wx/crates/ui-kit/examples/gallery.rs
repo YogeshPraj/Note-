@@ -30,7 +30,9 @@ const ICON: i32 = 18;
 /// A small icon in the theme's text colour, so the tool bar shows something in either theme.
 fn icon(theme: &Theme, path: &str) -> Option<Bitmap> {
     let (r, g, b) = theme.colors.text;
-    let svg = format!("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='{path}' fill='none' stroke='#{r:02x}{g:02x}{b:02x}' stroke-width='1.5' stroke-linecap='round'/></svg>");
+    let svg = format!(
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='{path}' fill='none' stroke='#{r:02x}{g:02x}{b:02x}' stroke-width='1.5' stroke-linecap='round'/></svg>"
+    );
     BitmapBundle::from_svg_data(svg.as_bytes(), Size::new(ICON, ICON)).and_then(|b| b.get_bitmap(Size::new(ICON, ICON)))
 }
 
@@ -66,7 +68,12 @@ fn main() {
         let tools = ToolBar::new(
             &frame,
             vec![
-                ToolItem::Button { cmd: 1, tip: "New (Ctrl+N)".into(), icon: icon(&initial, "M4 2h6l3 3v9H4z"), faded: icon(&Theme::light(), "M4 2h6l3 3v9H4z") },
+                ToolItem::Button {
+                    cmd: 1,
+                    tip: "New (Ctrl+N)".into(),
+                    icon: icon(&initial, "M4 2h6l3 3v9H4z"),
+                    faded: icon(&Theme::light(), "M4 2h6l3 3v9H4z"),
+                },
                 ToolItem::Button { cmd: 2, tip: "Open (Ctrl+O)".into(), icon: icon(&initial, "M2 5h5l1 2h6v6H2z"), faded: None },
                 ToolItem::Separator,
                 ToolItem::Button { cmd: 3, tip: "Find (Ctrl+F)".into(), icon: icon(&initial, "M7 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 11l3 3"), faded: None },
@@ -93,55 +100,85 @@ fn main() {
         let column = BoxSizer::builder(Orientation::Vertical).build();
         let b = body;
 
-        column.add_sizer(&row(&b, "Buttons", |p| {
-            let (ok, toggle, check, radio) = (Button::new(p, "Button"), ToggleButton::new(p, "Toggle"), CheckBox::new(p, "Check box"), RadioButton::adopt(wxdragon::prelude::RadioButton::builder(p).with_label("Radio").build()));
-            Box::new(move |r| {
-                r.add(&ok, 0, SizerFlag::All, 4);
-                r.add(&toggle, 0, SizerFlag::All, 4);
-                r.add(&check, 0, SizerFlag::All, 4);
-                r.add(&radio, 0, SizerFlag::All, 4);
-            })
-        }), 0, SizerFlag::Expand, 0);
+        column.add_sizer(
+            &row(&b, "Buttons", |p| {
+                let (ok, toggle, check, radio) = (
+                    Button::new(p, "Button"),
+                    ToggleButton::new(p, "Toggle"),
+                    CheckBox::new(p, "Check box"),
+                    RadioButton::adopt(wxdragon::prelude::RadioButton::builder(p).with_label("Radio").build()),
+                );
+                Box::new(move |r| {
+                    r.add(&ok, 0, SizerFlag::All, 4);
+                    r.add(&toggle, 0, SizerFlag::All, 4);
+                    r.add(&check, 0, SizerFlag::All, 4);
+                    r.add(&radio, 0, SizerFlag::All, 4);
+                })
+            }),
+            0,
+            SizerFlag::Expand,
+            0,
+        );
 
-        column.add_sizer(&row(&b, "Text box", |p| {
-            let t = TextBox::new(p, "Type here", false);
-            t.set_min_size(Size::new(260, -1));
-            Box::new(move |r| {
-                r.add(&t, 0, SizerFlag::All, 4);
-            })
-        }), 0, SizerFlag::Expand, 0);
+        column.add_sizer(
+            &row(&b, "Text box", |p| {
+                let t = TextBox::new(p, "Type here", false);
+                t.set_min_size(Size::new(260, -1));
+                Box::new(move |r| {
+                    r.add(&t, 0, SizerFlag::All, 4);
+                })
+            }),
+            0,
+            SizerFlag::Expand,
+            0,
+        );
 
-        column.add_sizer(&row(&b, "List box", |p| {
-            let l = ListBox::new(p);
-            for s in ["one", "two", "three"] {
-                l.append(s);
-            }
-            l.set_min_size(Size::new(260, 70));
-            Box::new(move |r| {
-                r.add(&l, 0, SizerFlag::All, 4);
-            })
-        }), 0, SizerFlag::Expand, 0);
+        column.add_sizer(
+            &row(&b, "List box", |p| {
+                let l = ListBox::new(p);
+                for s in ["one", "two", "three"] {
+                    l.append(s);
+                }
+                l.set_min_size(Size::new(260, 70));
+                Box::new(move |r| {
+                    r.add(&l, 0, SizerFlag::All, 4);
+                })
+            }),
+            0,
+            SizerFlag::Expand,
+            0,
+        );
 
-        column.add_sizer(&row(&b, "List view", |p| {
-            let v = ListView::adopt(ListCtrl::builder(p).with_style(ListCtrlStyle::Report).build());
-            v.set_columns(&[("Name", 140), ("Size", 80)]);
-            v.fill(&[vec!["main.rs".into(), "4 KB".into()], vec!["lib.rs".into(), "12 KB".into()]]);
-            v.set_min_size(Size::new(260, 80));
-            Box::new(move |r| {
-                r.add(&v, 0, SizerFlag::All, 4);
-            })
-        }), 0, SizerFlag::Expand, 0);
+        column.add_sizer(
+            &row(&b, "List view", |p| {
+                let v = ListView::adopt(ListCtrl::builder(p).with_style(ListCtrlStyle::Report).build());
+                v.set_columns(&[("Name", 140), ("Size", 80)]);
+                v.fill(&[vec!["main.rs".into(), "4 KB".into()], vec!["lib.rs".into(), "12 KB".into()]]);
+                v.set_min_size(Size::new(260, 80));
+                Box::new(move |r| {
+                    r.add(&v, 0, SizerFlag::All, 4);
+                })
+            }),
+            0,
+            SizerFlag::Expand,
+            0,
+        );
 
-        column.add_sizer(&row(&b, "Tree view", |p| {
-            let t = TreeView::adopt(TreeCtrl::builder(p).build());
-            if let Some(root) = t.add_root("workspace", None, None) {
-                let _ = t.append_item(&root, "src", None, None);
-            }
-            t.set_min_size(Size::new(260, 70));
-            Box::new(move |r| {
-                r.add(&t, 0, SizerFlag::All, 4);
-            })
-        }), 0, SizerFlag::Expand, 0);
+        column.add_sizer(
+            &row(&b, "Tree view", |p| {
+                let t = TreeView::adopt(TreeCtrl::builder(p).build());
+                if let Some(root) = t.add_root("workspace", None, None) {
+                    let _ = t.append_item(&root, "src", None, None);
+                }
+                t.set_min_size(Size::new(260, 70));
+                Box::new(move |r| {
+                    r.add(&t, 0, SizerFlag::All, 4);
+                })
+            }),
+            0,
+            SizerFlag::Expand,
+            0,
+        );
 
         let actions = BoxSizer::builder(Orientation::Horizontal).build();
         let toggle = Button::new(&b, "Toggle theme");
@@ -190,7 +227,11 @@ fn main() {
             let _ = form::run(&frame, spec, |f| f.focus(11));
         });
         pick.on_click(move |_| {
-            let items = ["File: New", "File: Open...", "Search: Find"].iter().enumerate().map(|(i, l)| PickItem { label: (*l).to_string(), hint: String::new(), id: i }).collect();
+            let items = ["File: New", "File: Open...", "Search: Find"]
+                .iter()
+                .enumerate()
+                .map(|(i, l)| PickItem { label: (*l).to_string(), hint: String::new(), id: i })
+                .collect();
             let _ = quick_pick::pick(&frame, items);
         });
 

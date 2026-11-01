@@ -6,9 +6,7 @@ use std::path::PathBuf;
 
 fn root_version(root: &std::path::Path) -> String {
     let text = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
-    text.lines()
-        .find_map(|l| l.strip_prefix("version = \"").and_then(|r| r.split('"').next().map(String::from)))
-        .unwrap_or_else(|| "0.0.0".into())
+    text.lines().find_map(|l| l.strip_prefix("version = \"").and_then(|r| r.split('"').next().map(String::from))).unwrap_or_else(|| "0.0.0".into())
 }
 
 fn main() {

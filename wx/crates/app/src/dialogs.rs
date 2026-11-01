@@ -7,8 +7,7 @@ use notepp_core::shortcuts;
 use notepp_core::workspace::SortField;
 use wxdragon::prelude::*;
 
-use crate::widgets::form::{self, ctl, Form, Kind, Spec};
-
+use crate::widgets::form::{self, Form, Kind, Spec, ctl};
 
 // ── Windows ──────────────────────────────────────────────────────────────────
 
@@ -192,16 +191,16 @@ fn vk_of(code: i32) -> Option<u16> {
     Some(match code {
         65..=90 | 48..=57 | 32 => crate::platform::wx::to_u16(code),
         340..=363 => 0x70 + crate::platform::wx::to_u16(code - 340), // F1..F24
-        312 => 0x23,                             // End
-        313 => 0x24,                             // Home
-        314 => 0x25,                             // Left
-        315 => 0x26,                             // Up
-        316 => 0x27,                             // Right
-        317 => 0x28,                             // Down
-        366 => 0x21,                             // Page Up
-        367 => 0x22,                             // Page Down
-        322 => 0x2D,                             // Insert
-        127 => 0x2E,                             // Delete
+        312 => 0x23,                                                 // End
+        313 => 0x24,                                                 // Home
+        314 => 0x25,                                                 // Left
+        315 => 0x26,                                                 // Up
+        316 => 0x27,                                                 // Right
+        317 => 0x28,                                                 // Down
+        366 => 0x21,                                                 // Page Up
+        367 => 0x22,                                                 // Page Down
+        322 => 0x2D,                                                 // Insert
+        127 => 0x2E,                                                 // Delete
         _ => return None,
     })
 }
@@ -287,7 +286,19 @@ fn ctx_fill_avail(f: &Form) {
 }
 
 fn ctx_fill_menu(f: &Form, select: Option<usize>) {
-    let rows = CTX.with(|c| c.borrow().menu.iter().map(|n| vec![if n == CTX_SEP { "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}  separator  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}".to_string() } else { n.clone() }]).collect::<Vec<_>>());
+    let rows = CTX.with(|c| {
+        c.borrow()
+            .menu
+            .iter()
+            .map(|n| {
+                vec![if n == CTX_SEP {
+                    "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}  separator  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}".to_string()
+                } else {
+                    n.clone()
+                }]
+            })
+            .collect::<Vec<_>>()
+    });
     f.list_fill(CTX_MENU, &[("In the right-click menu", 300)], &rows);
     if let Some(i) = select.filter(|i| *i < rows.len()) {
         f.list_select(CTX_MENU, i);

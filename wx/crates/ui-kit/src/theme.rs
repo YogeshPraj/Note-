@@ -317,9 +317,10 @@ pub fn subscribe_while(f: impl Fn(&Theme) -> bool + 'static) {
     let f: Listener = Rc::new(f);
     let (id, now) = HUB.with(|h| h.borrow_mut().subscribe(f.clone()));
     if let Some(t) = now
-        && !f(&t) {
-            HUB.with(|h| h.borrow_mut().remove(&[id]));
-        }
+        && !f(&t)
+    {
+        HUB.with(|h| h.borrow_mut().remove(&[id]));
+    }
 }
 
 /// Call `f` now (if a theme is set) and on every change, for the life of the program.
@@ -344,8 +345,7 @@ pub fn adopt<W: WxWidget + Copy + 'static>(w: W, role: Role) {
 }
 
 /// What a widget is for, which decides its background.
-#[derive(Clone, Copy, PartialEq)]
-#[derive(Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Role {
     /// Panels, labels, buttons and check boxes.
     Surface,

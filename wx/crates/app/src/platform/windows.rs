@@ -70,7 +70,15 @@ impl Platform for Windows {
     fn local_time(&self) -> DateTime {
         let mut t = SystemTime::default();
         unsafe { GetLocalTime(&raw mut t) };
-        DateTime { year: i32::from(t.year), month: u32::from(t.month), day: u32::from(t.day), weekday: u32::from(t.weekday), hour: u32::from(t.hour), minute: u32::from(t.minute), second: u32::from(t.second) }
+        DateTime {
+            year: i32::from(t.year),
+            month: u32::from(t.month),
+            day: u32::from(t.day),
+            weekday: u32::from(t.weekday),
+            hour: u32::from(t.hour),
+            minute: u32::from(t.minute),
+            second: u32::from(t.second),
+        }
     }
 
     fn date_time_text(&self, long: bool) -> String {
@@ -78,7 +86,15 @@ impl Platform for Windows {
         let (mut date, mut time) = ([0u16; 128], [0u16; 64]);
         unsafe {
             GetLocalTime(&raw mut now);
-            let d = GetDateFormatEx(std::ptr::null(), if long { 2 } else { 1 }, &raw const now, std::ptr::null(), date.as_mut_ptr(), date.len() as i32, std::ptr::null());
+            let d = GetDateFormatEx(
+                std::ptr::null(),
+                if long { 2 } else { 1 },
+                &raw const now,
+                std::ptr::null(),
+                date.as_mut_ptr(),
+                date.len() as i32,
+                std::ptr::null(),
+            );
             let t = GetTimeFormatEx(std::ptr::null(), 0, &raw const now, std::ptr::null(), time.as_mut_ptr(), time.len() as i32);
             let part = |buf: &[u16], n: i32| String::from_utf16_lossy(&buf[..(n.max(1) as usize - 1).min(buf.len())]);
             format!("{} {}", part(&time, t), part(&date, d))

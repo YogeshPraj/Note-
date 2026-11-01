@@ -66,7 +66,9 @@ pub fn open(app: &Shared) {
     };
     START.with(|c| c.set(sel));
     let existing = WIN.with(|w| *w.borrow());
-    let w = if let Some(w) = existing { w } else {
+    let w = if let Some(w) = existing {
+        w
+    } else {
         let d = Dialog::new(&frame, "Incremental Search");
         d.set_client_size(Size::new(360, 136));
         let fp = frame.get_position();

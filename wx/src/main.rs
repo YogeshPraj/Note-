@@ -3,8 +3,10 @@
 mod app;
 mod dispatch;
 mod find;
+mod findpanel;
 mod menus;
 mod chrome;
+mod form;
 mod preview;
 mod whiteboard;
 mod sci;

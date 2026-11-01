@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
 use notepp_core::preview as pcore;
 use notepp_core::sci::{self, Theme};
@@ -19,6 +19,7 @@ use wxdragon::widgets::webview::WebView;
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
 use crate::dispatch;
+use crate::findpanel::{self, Cmd, Mode};
 use crate::preview;
 use crate::settings_ui;
 use crate::tables;
@@ -34,6 +35,9 @@ pub struct App {
     splitter: SplitterWindow,
     editor_pane: Panel,
     wbv: WebView,
+    pub hits: Vec<notepp_core::search::Hit>,
+    pub hit_cursor: usize,
+    pub hits_root: PathBuf,
     wb_loaded: bool,
     wb_ready: bool,
     wb_shown: Option<u64>,
@@ -107,6 +111,7 @@ pub fn start(files: Vec<PathBuf>) {
     sizer.add(&chrome.tools, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tabs, 0, SizerFlag::Expand, 0);
     sizer.add(&splitter, 1, SizerFlag::Expand, 0);
+    sizer.add(&findpanel::container(&frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
 
@@ -135,6 +140,9 @@ pub fn start(files: Vec<PathBuf>) {
         splitter,
         editor_pane,
         wbv,
+        hits: Vec::new(),
+        hit_cursor: 0,
+        hits_root: PathBuf::new(),
         wb_loaded: false,
         wb_ready: false,
         wb_shown: None,
@@ -157,6 +165,7 @@ pub fn start(files: Vec<PathBuf>) {
         recent_key: (vec![PathBuf::from("\u{0}")], false),
     }));
 
+    findpanel::wire(&app);
     wire_mini(&app, mini, stc);
     wire_whiteboard(&app, wbv);
     wire(&app, frame, &stc, &view);
@@ -206,10 +215,10 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
 fn run_command(a: &Shared, id: usize) {
     trace(id, "event");
     match id {
-        ID_FIND | ID_REPLACE => {
-            let initial = a.try_borrow().map(|x| notepp_core::search::selected_text(&x.ws.sci)).unwrap_or_default();
-            return crate::find::open(a, id == ID_REPLACE, &initial);
-        }
+        ID_FIND => return crate::find::open_panel(a, Mode::Find),
+        ID_REPLACE => return crate::find::open_panel(a, Mode::Replace),
+        ID_FIF => return crate::find::open_panel(a, Mode::InFiles),
+        ID_MARK => return crate::find::open_panel(a, Mode::Mark),
         ID_FINDNEXT | ID_FINDPREV => return crate::find::step(a, id == ID_FINDNEXT),
         ID_GOTO => return crate::find::goto_line(a),
         _ => {}
@@ -218,7 +227,6 @@ fn run_command(a: &Shared, id: usize) {
         app.command(id);
     }
 }
-
 /// Messages from the Excalidraw page: readiness, scene changes, save requests.
 fn wire_whiteboard(app: &Shared, wbv: WebView) {
     let a = app.clone();
@@ -354,6 +362,7 @@ impl App {
                 }
             }
             ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
+            ID_NEXT_RESULT | ID_PREV_RESULT => return self.step_result(id == ID_NEXT_RESULT),
             ID_PREVIEW => {
                 let on = !self.preview_on;
                 self.set_preview(on);
@@ -363,10 +372,13 @@ impl App {
                 self.frame.show_full_screen(on);
             }
             ID_ABOUT => {
-                let text = format!("Note++\nVersion {} (wxWidgets build)\n\nRewritten in Rust on native code, built for security, functionality and performance.", notepp_core::update::VERSION);
+                let build = if cfg!(debug_assertions) { "debug" } else { "release" };
+                let text = format!(
+                    "Note++\nVersion {} ({build} build)\n\nA developer-focused text editor in Rust, built on the Scintilla editing component and Lexilla lexers.\n\nAuthor: Yogesh Prajapati\nhttps://github.com/YogeshPraj/Note-\n\nComponents:\n\u{2022} Scintilla 5.5.2 and Lexilla 5.5.4 \u{2014} Neil Hodgson (HPND license)\n\u{2022} fancy-regex \u{2014} regular-expression search\n\u{2022} resvg \u{2014} toolbar icon rendering\n\u{2022} wxWidgets \u{2014} the cross-platform windowing toolkit",
+                    notepp_core::update::VERSION
+                );
                 MessageDialog::builder(&self.frame, &text, "About Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
-            }
-            ID_PREFS => {
+            }            ID_PREFS => {
                 if let Some(s) = settings_ui::preferences(&self.frame, &self.ws.settings) {
                     settings_ui::apply_settings(&mut self.ws, s);
                 }
@@ -425,8 +437,136 @@ impl App {
         self.refresh();
     }
 
-    fn wb_event(&mut self, ev: wbm::Event) {
-        match ev {
+    /// Actions from the Find panel.
+    pub fn panel_command(&mut self, cmd: Cmd) {
+        use notepp_core::search::{self, Found};
+        let sci = self.ws.sci;
+        let mode = findpanel::mode();
+        let opts = findpanel::read_opts();
+        if !matches!(cmd, Cmd::Close | Cmd::Browse | Cmd::OpenHit(_) | Cmd::Clear) {
+            self.ws.search = opts.clone();
+        }
+        let found = |f: Found| match f {
+            Found::At { wrapped: true } => "Found (wrapped around the document)".to_string(),
+            Found::At { wrapped: false } => String::new(),
+            Found::NotFound => "Not found".to_string(),
+            Found::BadPattern(e) => format!("Invalid regular expression: {e}"),
+        };
+        let outcome = |r: Result<usize, String>, what: &str| match r {
+            Ok(n) => format!("{n} {what}"),
+            Err(e) => format!("Invalid regular expression: {e}"),
+        };
+        let mut note: Option<String> = None;
+        match cmd {
+            Cmd::Next => match mode {
+                Mode::InFiles => return self.panel_command(Cmd::InFiles),
+                Mode::Mark => return self.panel_command(Cmd::Mark),
+                _ => note = Some(found(search::find(&sci, &opts, true))),
+            },
+            Cmd::Prev => note = Some(found(search::find(&sci, &opts, false))),
+            Cmd::Replace => {
+                let (replaced, f) = search::replace_current(&sci, &opts);
+                let n = found(f);
+                note = Some(if replaced && n.is_empty() { "Replaced".into() } else { n });
+            }
+            Cmd::ReplaceAll => note = Some(outcome(search::replace_all(&sci, &opts), "replaced")),
+            Cmd::Count => note = Some(outcome(search::count(&sci, &opts), "matches")),
+            Cmd::Mark => note = Some(outcome(search::mark_all(&sci, &opts, search::INDIC_FIND), "matches marked")),
+            Cmd::Clear => {
+                search::clear_marks(&sci, search::INDIC_FIND);
+                note = Some("Marks cleared".into());
+            }
+            Cmd::FindAll => match search::find_all(&sci, &opts) {
+                Ok(mut hits) => {
+                    let total = hits.len();
+                    hits.truncate(search::MAX_LIST);
+                    let lines: Vec<String> = hits.iter().map(|h| format!("Line {}:  {}", h.line, h.text)).collect();
+                    note = Some(if total > hits.len() { format!("{total} hits (listing the first {})", hits.len()) } else { format!("{total} hits in the current document") });
+                    self.hits = hits;
+                    findpanel::set_results(&lines);
+                }
+                Err(e) => note = Some(format!("Invalid regular expression: {e}")),
+            },
+            Cmd::InFiles => {
+                let (dir, filters) = findpanel::read_dir_filter();
+                if dir.as_os_str().is_empty() || !dir.is_dir() {
+                    note = Some("Choose an existing directory first".into());
+                } else {
+                    match search::find_in_files(&dir, &filters, &opts) {
+                        Ok(hits) => {
+                            let files: std::collections::HashSet<_> = hits.iter().filter_map(|h| h.path.as_ref()).collect();
+                            note = Some(format!("{} hits in {} files{}", hits.len(), files.len(), if hits.len() >= search::MAX_HITS { " (limit reached)" } else { "" }));
+                            let lines: Vec<String> = hits
+                                .iter()
+                                .map(|h| {
+                                    let p = h.path.as_ref().unwrap();
+                                    let rel = p.strip_prefix(&dir).unwrap_or(p);
+                                    format!("{} ({}):  {}", rel.display(), h.line, h.text)
+                                })
+                                .collect();
+                            self.hits = hits;
+                            self.hits_root = dir;
+                            findpanel::set_results(&lines);
+                        }
+                        Err(e) => note = Some(format!("Invalid regular expression: {e}")),
+                    }
+                }
+            }
+            Cmd::Browse => {
+                let d = DirDialog::builder(&self.frame, "Select a folder to search", "").build();
+                if d.show_modal() == ID_OK {
+                    if let Some(p) = d.get_path() {
+                        findpanel::set_dir(&p);
+                    }
+                }
+            }
+            Cmd::OpenHit(i) => {
+                self.hit_cursor = i;
+                self.open_hit(i);
+            }
+            Cmd::Close => {
+                findpanel::close();
+                self.stc.set_focus();
+            }
+        }
+        if let Some(n) = note {
+            findpanel::set_status(&n);
+        }
+        self.refresh();
+    }
+
+    /// Open result `idx` of the last search in the editor.
+    fn open_hit(&mut self, idx: usize) {
+        use notepp_core::search;
+        if let Some(h) = self.hits.get(idx).cloned() {
+            let App { ws, ui, .. } = self;
+            if let Some(p) = &h.path {
+                ws.open_path(ui, p);
+            }
+            let a = ws.active;
+            let sci = ws.sci;
+            if ws.is_dirty(a) && h.path.is_some() {
+                search::goto_line(&sci, h.line);
+            } else {
+                search::select_range(&sci, h.start, h.end);
+            }
+        }
+    }
+
+    /// F4 / Shift+F4: step through the results of the last Find All / Find in Files.
+    fn step_result(&mut self, forward: bool) {
+        let n = self.hits.len();
+        if n == 0 {
+            self.flash = Some("No search results yet".into());
+        } else {
+            self.hit_cursor = if forward { (self.hit_cursor + 1) % n } else { (self.hit_cursor + n - 1) % n };
+            self.open_hit(self.hit_cursor);
+            self.flash = Some(format!("Result {} of {n}", self.hit_cursor + 1));
+        }
+        self.refresh();
+    }
+
+    fn wb_event(&mut self, ev: wbm::Event) {        match ev {
             wbm::Event::Ready => {
                 self.wb_ready = true;
                 self.wb_shown = None;

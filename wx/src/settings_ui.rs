@@ -15,83 +15,160 @@ pub fn apply_settings(ws: &mut Workspace<WxSci>, s: Settings) {
     ws.set_margins_visible(true);
 }
 
-fn row(parent: &Dialog, label: &str, control: &impl WxWidget) -> BoxSizer {
-    let r = BoxSizer::builder(Orientation::Horizontal).build();
-    let l = StaticText::builder(parent).with_label(label).build();
-    r.add(&l, 1, SizerFlag::AlignCenterVertical | SizerFlag::All, 4);
-    r.add(control, 1, SizerFlag::Expand | SizerFlag::All, 4);
-    r
+fn number(s: String, fallback: i32) -> i32 {
+    s.trim().parse().unwrap_or(fallback)
 }
 
-/// Settings > Preferences. Returns the edited settings on OK.
-pub fn preferences(frame: &Frame, s: &Settings) -> Option<Settings> {
-    let d = Dialog::builder(frame, "Preferences").with_size(480, 640).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-
-    let font = TextCtrl::builder(&d).build();
-    font.set_value(&s.font);
-    let size = SpinCtrl::builder(&d).with_range(6, 72).build();
-    size.set_value(s.font_size);
-    let tab = SpinCtrl::builder(&d).with_range(1, 16).build();
-    tab.set_value(s.tab_width);
-    let edge = SpinCtrl::builder(&d).with_range(0, 500).build();
-    edge.set_value(s.edge_column);
-    let lock = SpinCtrl::builder(&d).with_range(0, 1440).build();
-    lock.set_value(s.passwords_auto_lock_min as i32);
-    root.add_sizer(&row(&d, "Font:", &font), 0, SizerFlag::Expand, 0);
-    root.add_sizer(&row(&d, "Font size:", &size), 0, SizerFlag::Expand, 0);
-    root.add_sizer(&row(&d, "Tab width:", &tab), 0, SizerFlag::Expand, 0);
-    root.add_sizer(&row(&d, "Right edge column (0 = off):", &edge), 0, SizerFlag::Expand, 0);
-    root.add_sizer(&row(&d, "Lock Passwords after minutes idle (0 = never):", &lock), 0, SizerFlag::Expand, 0);
-
-    let check = |text: &str, on: bool| {
-        let c = CheckBox::builder(&d).with_label(text).build();
-        c.set_value(on);
-        root.add(&c, 0, SizerFlag::All, 4);
-        c
-    };
-    let spaces = check("Insert spaces instead of tab characters", s.use_spaces);
-    let numbers = check("Show line numbers", s.line_numbers);
-    let fold = check("Show the fold margin", s.fold_margin);
-    let bookmarks = check("Show the bookmark margin", s.bookmark_margin);
-    let caret = check("Highlight the current line", s.caret_line);
-    let smart = check("Highlight other occurrences of the selected word", s.smart_highlight);
-    let md_bar = check("Show the Markdown formatting bar", s.md_toolbar);
-    let remote = check("Let previews load images from the web (restart to apply)", s.preview_remote_images);
-    let updates = check("Check for updates automatically", s.auto_update);
-
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let ok = Button::builder(&d).with_label("OK").build();
-    let cancel = Button::builder(&d).with_label("Cancel").build();
-    buttons.add(&ok, 0, SizerFlag::All, 6);
-    buttons.add(&cancel, 0, SizerFlag::All, 6);
-    root.add_sizer(&buttons, 0, SizerFlag::AlignRight, 0);
-    d.set_sizer(root, true);
-    ok.on_click(move |_| d.end_modal(ID_OK));
-    cancel.on_click(move |_| d.end_modal(ID_CANCEL));
-
-    if d.show_modal() != ID_OK {
+fn pick_font(owner: &Frame, family: &str, size: i32) -> Option<(String, i32)> {
+    let fd = FontDialog::builder(owner).build();
+    let _ = (family, size);
+    if fd.show_modal() != ID_OK {
         return None;
     }
-    let mut n = s.clone();
-    n.font = font.get_value().trim().to_string();
-    n.font_size = size.value();
-    n.tab_width = tab.value();
-    n.edge_column = edge.value();
-    n.passwords_auto_lock_min = lock.value().max(0) as u32;
-    n.use_spaces = spaces.is_checked();
-    n.line_numbers = numbers.is_checked();
-    n.fold_margin = fold.is_checked();
-    n.bookmark_margin = bookmarks.is_checked();
-    n.caret_line = caret.is_checked();
-    n.smart_highlight = smart.is_checked();
-    n.md_toolbar = md_bar.is_checked();
-    n.preview_remote_images = remote.is_checked();
-    n.auto_update = updates.is_checked();
-    n.clamp();
-    Some(n)
+    let f = fd.get_font()?;
+    Some((f.get_face_name(), f.get_point_size()))
 }
 
+/// Settings > Preferences. Returns the edited settings on OK. Laid out exactly like the Win32 shell's.
+pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
+    use crate::form::{ctl, run, Kind, Spec};
+    const FONT: usize = 101;
+    const SIZE: usize = 102;
+    const TAB: usize = 103;
+    const SPACES: usize = 104;
+    const EDGE: usize = 105;
+    const LINENO: usize = 106;
+    const FOLD: usize = 107;
+    const BOOKMARK: usize = 108;
+    const CARET: usize = 109;
+    const SMART: usize = 110;
+    const TOOLBAR: usize = 111;
+    const TABBAR: usize = 112;
+    const STATUS: usize = 113;
+    const E_UTF8: usize = 120;
+    const E_BOM: usize = 121;
+    const E_ANSI: usize = 122;
+    const L_CRLF: usize = 124;
+    const L_LF: usize = 125;
+    const L_CR: usize = 126;
+    const REMOTE: usize = 131;
+    const LOCKMIN: usize = 140;
+    const FONT_PICK: usize = 130;
+    thread_local! {
+        static OWNER: std::cell::RefCell<Option<Frame>> = const { std::cell::RefCell::new(None) };
+    }
+    OWNER.with(|o| *o.borrow_mut() = Some(*frame));
+    fn on_click(f: &crate::form::Form, id: usize) {
+        if id == FONT_PICK {
+            let size = f.text(SIZE).trim().parse().unwrap_or(11);
+            let owner = OWNER.with(|o| *o.borrow());
+            if let Some(owner) = owner {
+                if let Some((name, pt)) = pick_font(&owner, f.text(FONT).trim(), size) {
+                    f.set_text(FONT, &name);
+                    f.set_text(SIZE, &pt.to_string());
+                }
+            }
+        }
+    }
+    let spec = Spec {
+        title: "Preferences",
+        size: (440, 534),
+        ctls: vec![
+            ctl(1000, Kind::Group, "Editor", 12, 8, 416, 118),
+            ctl(1001, Kind::Label, "Font:", 24, 32, 56, 18),
+            ctl(FONT, Kind::Edit, &cur.font, 84, 29, 146, 22),
+            ctl(FONT_PICK, Kind::Button, "...", 234, 28, 30, 24),
+            ctl(1002, Kind::Label, "Size:", 282, 32, 36, 18),
+            ctl(SIZE, Kind::Edit, &cur.font_size.to_string(), 322, 29, 50, 22),
+            ctl(1003, Kind::Label, "Tab size:", 24, 62, 60, 18),
+            ctl(TAB, Kind::Edit, &cur.tab_width.to_string(), 84, 59, 50, 22),
+            ctl(SPACES, Kind::Check, "Insert spaces instead of tabs", 160, 61, 250, 20),
+            ctl(1004, Kind::Label, "Vertical guide at column (0 = none):", 24, 94, 220, 18),
+            ctl(EDGE, Kind::Edit, &cur.edge_column.to_string(), 250, 91, 50, 22),
+            ctl(1010, Kind::Group, "Display", 12, 132, 416, 112),
+            ctl(LINENO, Kind::Check, "Line numbers", 24, 152, 180, 20),
+            ctl(FOLD, Kind::Check, "Fold margin", 224, 152, 180, 20),
+            ctl(BOOKMARK, Kind::Check, "Bookmark margin", 24, 176, 180, 20),
+            ctl(CARET, Kind::Check, "Highlight current line", 224, 176, 190, 20),
+            ctl(SMART, Kind::Check, "Highlight matching words", 24, 200, 190, 20),
+            ctl(TOOLBAR, Kind::Check, "Toolbar", 224, 200, 90, 20),
+            ctl(TABBAR, Kind::Check, "Tab bar", 24, 220, 90, 20),
+            ctl(STATUS, Kind::Check, "Status bar", 224, 220, 120, 20),
+            ctl(1020, Kind::Group, "New documents", 12, 250, 416, 100),
+            ctl(1021, Kind::Label, "Encoding:", 24, 274, 64, 18),
+            ctl(E_UTF8, Kind::Radio(true), "UTF-8", 92, 272, 70, 20),
+            ctl(E_BOM, Kind::Radio(false), "UTF-8-BOM", 170, 272, 100, 20),
+            ctl(E_ANSI, Kind::Radio(false), "ANSI", 278, 272, 70, 20),
+            ctl(1022, Kind::Label, "Line ending:", 24, 312, 70, 18),
+            ctl(L_CRLF, Kind::Radio(true), "Windows (CR LF)", 98, 310, 130, 20),
+            ctl(L_LF, Kind::Radio(false), "Unix (LF)", 236, 310, 90, 20),
+            ctl(L_CR, Kind::Radio(false), "Mac (CR)", 334, 310, 90, 20),
+            ctl(1030, Kind::Group, "Live preview", 12, 356, 416, 52),
+            ctl(REMOTE, Kind::Check, "Load images from the web (applies after restart)", 24, 378, 380, 20),
+            ctl(1040, Kind::Group, "Passwords", 12, 414, 416, 52),
+            ctl(1041, Kind::Label, "Lock the Bitwarden vault after idle minutes (0 = never):", 24, 438, 316, 18),
+            ctl(LOCKMIN, Kind::Edit, &cur.passwords_auto_lock_min.to_string(), 346, 435, 50, 22),
+        ],
+        ok: "OK",
+        buttons: None,
+        on_change: Some(on_click),
+        on_apply: None,
+    };
+    let v = run(frame, spec, |f| {
+        for (id, on) in [
+            (SPACES, cur.use_spaces),
+            (LINENO, cur.line_numbers),
+            (FOLD, cur.fold_margin),
+            (BOOKMARK, cur.bookmark_margin),
+            (CARET, cur.caret_line),
+            (SMART, cur.smart_highlight),
+            (REMOTE, cur.preview_remote_images),
+            (TOOLBAR, cur.show_toolbar),
+            (TABBAR, cur.show_tabbar),
+            (STATUS, cur.show_statusbar),
+        ] {
+            f.set_checked(id, on);
+        }
+        f.set_checked(
+            match cur.new_doc_encoding.as_str() {
+                "utf8bom" => E_BOM,
+                "ansi" => E_ANSI,
+                _ => E_UTF8,
+            },
+            true,
+        );
+        f.set_checked(
+            match cur.new_doc_eol.as_str() {
+                "lf" => L_LF,
+                "cr" => L_CR,
+                _ => L_CRLF,
+            },
+            true,
+        );
+    })?;
+    let mut s = Settings {
+        font: v.text(FONT).trim().to_string(),
+        font_size: number(v.text(SIZE).into(), cur.font_size),
+        tab_width: number(v.text(TAB).into(), cur.tab_width),
+        use_spaces: v.checked(SPACES),
+        edge_column: number(v.text(EDGE).into(), cur.edge_column),
+        line_numbers: v.checked(LINENO),
+        fold_margin: v.checked(FOLD),
+        bookmark_margin: v.checked(BOOKMARK),
+        caret_line: v.checked(CARET),
+        smart_highlight: v.checked(SMART),
+        preview_remote_images: v.checked(REMOTE),
+        passwords_auto_lock_min: number(v.text(LOCKMIN).into(), cur.passwords_auto_lock_min as i32).max(0) as u32,
+        show_toolbar: v.checked(TOOLBAR),
+        show_tabbar: v.checked(TABBAR),
+        show_statusbar: v.checked(STATUS),
+        new_doc_encoding: if v.checked(E_BOM) { "utf8bom" } else if v.checked(E_ANSI) { "ansi" } else { "utf8" }.into(),
+        new_doc_eol: if v.checked(L_LF) { "lf" } else if v.checked(L_CR) { "cr" } else { "crlf" }.into(),
+        ..cur.clone()
+    };
+    s.clamp();
+    Some(s)
+}
 pub struct StyleEdit {
     pub reset: bool,
     pub entered: Vec<(&'static str, String)>,

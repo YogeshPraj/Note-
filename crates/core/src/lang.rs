@@ -10,7 +10,12 @@ use std::ffi::CString;
 
 type Rgb = (u8, u8, u8);
 
+/// Style colours of a lexer: (style id, colour). Unknown lexers have none.
 pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
+    [palette_1, palette_2, palette_3, palette_4].iter().map(|f| f(lexer, t)).find(|v| !v.is_empty()).unwrap_or_default()
+}
+
+fn palette_1(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
     let (c, n, k, s, ty, m, f, p) = (t.comment, t.number, t.keyword, t.string, t.ty, t.mac, t.func, t.prop);
     match lexer {
         // SCE_RUST_*
@@ -29,6 +34,13 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
         "markdown" => vec![(6, k), (7, k), (8, k), (9, k), (10, k), (11, k), (13, m), (14, m), (15, c), (17, c), (18, p), (19, s), (20, s), (21, s)],
         // SCE_H_* (HTML and XML share these)
         "hypertext" | "xml" => vec![(1, k), (2, k), (11, k), (3, p), (4, p), (5, n), (6, s), (7, s), (9, c), (10, m)],
+        _ => Vec::new(),
+    }
+}
+
+fn palette_4(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
+    let (c, n, k, s, ty, m, f, p) = (t.comment, t.number, t.keyword, t.string, t.ty, t.mac, t.func, t.prop);
+    match lexer {
         // SCE_CSS_*
         "css" => vec![(1, k), (2, ty), (3, m), (4, m), (6, p), (7, p), (8, s), (9, c), (10, m), (11, k), (12, k), (13, s), (14, s), (15, p), (16, p)],
         // SCE_SQL_*
@@ -86,6 +98,13 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
         ],
         // SCE_POWERSHELL_*
         "powershell" => vec![(1, c), (13, c), (2, s), (3, s), (14, s), (15, s), (4, n), (5, m), (8, k), (9, f), (10, ty), (11, f)],
+        _ => Vec::new(),
+    }
+}
+
+fn palette_2(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
+    let (c, n, k, s, ty, m, f, p) = (t.comment, t.number, t.keyword, t.string, t.ty, t.mac, t.func, t.prop);
+    match lexer {
         // SCE_BAT_*
         "batch" => vec![(1, c), (2, k), (3, m), (5, ty)],
         // SCE_PROPS_*
@@ -128,6 +147,13 @@ pub fn palette(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
         "tcl" => vec![(1, c), (2, c), (20, c), (21, c), (3, n), (4, k), (5, s), (8, m), (9, m), (12, k), (13, k), (14, k), (15, k)],
         // SCE_R_*
         "r" => vec![(1, c), (2, k), (3, k), (4, k), (5, n), (6, s), (7, s), (10, m)],
+        _ => Vec::new(),
+    }
+}
+
+fn palette_3(lexer: &str, t: &Theme) -> Vec<(usize, Rgb)> {
+    let (c, n, k, s, ty, m, f, p) = (t.comment, t.number, t.keyword, t.string, t.ty, t.mac, t.func, t.prop);
+    match lexer {
         // SCE_NSIS_*
         "nsis" => vec![(1, c), (18, c), (2, s), (3, s), (4, s), (5, k), (6, m), (7, ty), (9, k), (14, n), (17, k)],
         // SCE_INNO_*

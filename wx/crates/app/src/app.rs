@@ -1,7 +1,6 @@
 //! The application: window layout, event wiring and the command dispatcher.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -15,7 +14,6 @@ use notepp_core::preview as pcore;
 use notepp_core::sci::{self};
 use notepp_core::session::{self, Session};
 use notepp_core::settings::Settings;
-use notepp_core::shortcuts;
 use notepp_core::workspace::Workspace;
 use wxdragon::event::WebViewEvents;
 use wxdragon::prelude::*;

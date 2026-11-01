@@ -1,6 +1,8 @@
 //! Randomised robustness test: every pure text function must survive odd input (multi-byte
 //! characters, lone CRs, empty strings, very long lines) without panicking.
 
+#![allow(clippy::too_many_lines, reason = "a flat list of fuzz probes, one per function under test")]
+
 use super::edit::*;
 use super::mdformat::{self, Fmt};
 use super::{functions, preview, search, textools, view};
@@ -43,7 +45,8 @@ static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 fn pure_functions_never_panic() {
     std::panic::set_hook(Box::new(|info| {
         let at = info.location().map_or(String::new(), |l| format!("{}:{}", l.file(), l.line()));
-        let msg = info.payload().downcast_ref::<String>().cloned().or_else(|| info.payload().downcast_ref::<&str>().map(ToString::to_string)).unwrap_or_default();
+        let msg =
+            info.payload().downcast_ref::<String>().cloned().or_else(|| info.payload().downcast_ref::<&str>().map(ToString::to_string)).unwrap_or_default();
         if let Ok(mut g) = LAST.lock() {
             *g = format!("{at}: {msg}");
         }

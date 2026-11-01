@@ -75,6 +75,56 @@ fn leading_number(line: &str, comma: bool, integer: bool) -> Option<f64> {
     t[..i].replace(',', ".").parse().ok()
 }
 
+/// Two numbers of the same sign start at `ai` and `bi` (after the sign): compare them by value, however long.
+fn compare_numbers(a: &[char], b: &[char], ai: &mut usize, bi: &mut usize, sign: i64) -> i64 {
+    let digit = |c: char| c.is_ascii_digit();
+    if sign == -1 {
+        *ai += 1;
+        *bi += 1;
+    }
+    let end_of = |v: &[char], from: usize| v[from..].iter().position(|c| !digit(*c)).map_or(v.len(), |p| from + p);
+    let (a_end, b_end) = (end_of(a, *ai), end_of(b, *bi));
+    let (mut a_zeros, mut b_zeros) = (0i64, 0i64);
+    while *ai < a.len() && a[*ai] == '0' {
+        a_zeros += 1;
+        *ai += 1;
+    }
+    while *bi < b.len() && b[*bi] == '0' {
+        b_zeros += 1;
+        *bi += 1;
+    }
+    let (a_len, b_len) = (a_end.saturating_sub(*ai), b_end.saturating_sub(*bi));
+    if a_len != b_len {
+        return if a_len > b_len { sign } else { -sign };
+    }
+    let mut cmp = 0;
+    while cmp == 0 && *ai < a.len() && digit(a[*ai]) && *bi < b.len() && digit(b[*bi]) {
+        cmp = (a[*ai] as i64 - b[*bi] as i64) * sign;
+        *ai += 1;
+        *bi += 1;
+    }
+    if cmp == 0 { b_zeros - a_zeros } else { cmp }
+}
+
+/// Two text chunks (up to the next digit or minus sign): their order, and where each ends.
+fn compare_text_chunk(a: &[char], b: &[char], mut ai: usize, mut bi: usize) -> (i64, usize, usize) {
+    let digit = |c: char| c.is_ascii_digit();
+    if a[ai] == '-' {
+        ai += 1;
+    }
+    if b[bi] == '-' {
+        bi += 1;
+    }
+    let chunk_end = |v: &[char], from: usize| v[from.min(v.len())..].iter().position(|c| digit(*c) || *c == '-').map_or(v.len(), |p| from.min(v.len()) + p);
+    let (a_end, b_end) = (chunk_end(a, ai), chunk_end(b, bi));
+    let c = match a[ai.min(a.len())..a_end].cmp(&b[bi.min(b.len())..b_end]) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    };
+    (c, a_end, b_end)
+}
+
 /// Notepad++'s "Sort Lines As Integers": a natural sort. Lines are compared chunk by chunk;
 /// runs of digits (with an optional leading minus) compare by value however long they are, and
 /// the rest compares as text, so "item2" sorts before "item10".
@@ -110,53 +160,14 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
             bi += 1;
         } else if a_num {
             if a_sign == b_sign {
-                if a_sign == -1 {
-                    ai += 1;
-                    bi += 1;
-                }
-                let end_of = |v: &[char], from: usize| v[from..].iter().position(|c| !digit(*c)).map_or(v.len(), |p| from + p);
-                let (a_end, b_end) = (end_of(&a, ai), end_of(&b, bi));
-                let (mut a_zeros, mut b_zeros) = (0i64, 0i64);
-                while ai < a.len() && a[ai] == '0' {
-                    a_zeros += 1;
-                    ai += 1;
-                }
-                while bi < b.len() && b[bi] == '0' {
-                    b_zeros += 1;
-                    bi += 1;
-                }
-                let (a_len, b_len) = (a_end.saturating_sub(ai), b_end.saturating_sub(bi));
-                if a_len == b_len {
-                    while cmp == 0 && ai < a.len() && digit(a[ai]) && bi < b.len() && digit(b[bi]) {
-                        cmp = (a[ai] as i64 - b[bi] as i64) * a_sign;
-                        ai += 1;
-                        bi += 1;
-                    }
-                    if cmp == 0 {
-                        cmp = b_zeros - a_zeros;
-                    }
-                } else {
-                    cmp = if a_len > b_len { a_sign } else { -a_sign };
-                }
+                cmp = compare_numbers(&a, &b, &mut ai, &mut bi, a_sign);
             } else {
                 cmp = if a_sign == 1 { 1 } else { -1 };
             }
         } else {
             // Both are text: up to the next digit or minus sign.
-            if a[ai] == '-' {
-                ai += 1;
-            }
-            if b[bi] == '-' {
-                bi += 1;
-            }
-            let chunk_end =
-                |v: &[char], from: usize| v[from.min(v.len())..].iter().position(|c| digit(*c) || *c == '-').map_or(v.len(), |p| from.min(v.len()) + p);
-            let (a_end, b_end) = (chunk_end(&a, ai), chunk_end(&b, bi));
-            cmp = match a[ai.min(a.len())..a_end].cmp(&b[bi.min(b.len())..b_end]) {
-                std::cmp::Ordering::Less => -1,
-                std::cmp::Ordering::Equal => 0,
-                std::cmp::Ordering::Greater => 1,
-            };
+            let (c, a_end, b_end) = compare_text_chunk(&a, &b, ai, bi);
+            cmp = c;
             ai = a_end;
             bi = b_end;
         }

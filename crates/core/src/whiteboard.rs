@@ -90,7 +90,8 @@ pub fn same_drawing(a: &str, b: &str) -> bool {
 /// Lowest unused `whiteboard-N` title (same gap-filling rule as `new N`).
 pub fn next_title<'a>(existing: impl IntoIterator<Item = &'a str>) -> String {
     let existing: Vec<&str> = existing.into_iter().collect();
-    let n = (1..=existing.len() + 1).find(|n| !existing.iter().any(|t| *t == format!("whiteboard-{n}") || t.starts_with(&format!("whiteboard-{n}.")))).unwrap_or(1);
+    let n =
+        (1..=existing.len() + 1).find(|n| !existing.iter().any(|t| *t == format!("whiteboard-{n}") || t.starts_with(&format!("whiteboard-{n}.")))).unwrap_or(1);
     format!("whiteboard-{n}")
 }
 

@@ -816,7 +816,6 @@ impl<S: Send> Workspace<S> {
             Eol::Lf => "\n",
             Eol::Cr => "\r",
         };
-        let (lang, label) = (t.lang, t.lang_label);
         let tab = crate::num::to_usize(self.send(sci::SCI_GETTABWIDTH, 0, 0).max(1));
         let edge = crate::num::to_usize(self.settings.edge_column.max(0));
         let s = &self.sci;
@@ -848,8 +847,25 @@ impl<S: Send> Workspace<S> {
             LineOp::TabsToSpaces => lines(WholeDocument, &|x| edit::tabs_to_spaces(x, eol, tab)),
             LineOp::SpacesToTabsAll => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, false)),
             LineOp::SpacesToTabsLeading => lines(WholeDocument, &|x| edit::spaces_to_tabs(x, eol, tab, true)),
+            LineOp::ToggleComment | LineOp::Comment | LineOp::Uncomment | LineOp::BlockComment | LineOp::BlockUncomment => match self.comment_op(op, eol) {
+                Ok(changed) => changed,
+                Err(message) => return Some(message),
+            },
+        };
+        (!changed).then(|| "Nothing to change".into())
+    }
+
+    /// The comment operations of [`Workspace::line_op`]; `Err` carries the message to show.
+    fn comment_op(&mut self, op: LineOp, eol: &str) -> Result<bool, String> {
+        use edit::Scope::CurrentLine;
+        let t = &self.tabs[self.active];
+        let (lang, label) = (t.lang, t.lang_label);
+        let s = &self.sci;
+        let lines = |f: &dyn Fn(&str) -> String| edit::apply_lines(s, CurrentLine, f);
+        let none = || "This language has no comment syntax".to_string();
+        let syn = edit::comment_syntax(label, lang);
+        match op {
             LineOp::ToggleComment | LineOp::Comment | LineOp::Uncomment => {
-                let syn = edit::comment_syntax(label, lang);
                 let mode = match op {
                     LineOp::ToggleComment => edit::CommentMode::Toggle,
                     LineOp::Comment => edit::CommentMode::Comment,
@@ -857,27 +873,21 @@ impl<S: Send> Workspace<S> {
                 };
                 let column_zero = label == "Fortran (fixed form)";
                 if edit::comment_single("x", eol, syn, mode, column_zero).is_none() {
-                    return Some("This language has no comment syntax".into());
+                    return Err(none());
                 }
-                lines(CurrentLine, &|x| edit::comment_single(x, eol, syn, mode, column_zero).unwrap_or_else(|| x.to_string()))
+                Ok(lines(&|x| edit::comment_single(x, eol, syn, mode, column_zero).unwrap_or_else(|| x.to_string())))
             }
-            LineOp::BlockComment | LineOp::BlockUncomment => {
-                let syn = edit::comment_syntax(label, lang);
-                if syn.start.is_empty() || syn.end.is_empty() {
-                    // Without stream-comment symbols Notepad++ falls back on single-line comments.
-                    if syn.line.is_empty() {
-                        return Some("This language has no comment syntax".into());
-                    }
-                    let mode = if op == LineOp::BlockComment { edit::CommentMode::Comment } else { edit::CommentMode::Uncomment };
-                    lines(CurrentLine, &|x| edit::comment_single(x, eol, syn, mode, false).unwrap_or_else(|| x.to_string()))
-                } else if op == LineOp::BlockComment {
-                    self.stream_comment(syn)
-                } else {
-                    self.stream_uncomment(syn)
+            _ if syn.start.is_empty() || syn.end.is_empty() => {
+                // Without stream-comment symbols Notepad++ falls back on single-line comments.
+                if syn.line.is_empty() {
+                    return Err(none());
                 }
+                let mode = if op == LineOp::BlockComment { edit::CommentMode::Comment } else { edit::CommentMode::Uncomment };
+                Ok(lines(&|x| edit::comment_single(x, eol, syn, mode, false).unwrap_or_else(|| x.to_string())))
             }
-        };
-        (!changed).then(|| "Nothing to change".into())
+            LineOp::BlockComment => Ok(self.stream_comment(syn)),
+            _ => Ok(self.stream_uncomment(syn)),
+        }
     }
 
     /// "Block Comment": wrap the selection (or, with none, the current line from its first
@@ -2043,6 +2053,72 @@ impl<S: Send> Workspace<S> {
         opened
     }
 
+    /// Open the document of one saved tab (from its file, or empty when it was never saved); `None` skips the tab.
+    #[allow(clippy::too_many_arguments, reason = "the pieces of one saved tab; a struct would only rename them")]
+    fn restore_doc(
+        &mut self,
+        ui: &dyn Ui,
+        st: &crate::session::SessionTab,
+        path: Option<&Path>,
+        has_saved_text: bool,
+        enc: Enc,
+        eol: Eol,
+        declined: &mut bool,
+        encrypted: &mut bool,
+    ) -> Option<usize> {
+        let idx = if let Some(path) = path {
+            match std::fs::read(path) {
+                Ok(bytes) => {
+                    let is_env = crypto::parse_envelope(&bytes).is_some();
+                    if is_env && *declined {
+                        return None;
+                    }
+                    // A character set chosen with "Encode in" must survive a restart.
+                    let (text, enc, eol) = if is_env {
+                        if let Some((t, e, l, _)) = self.read_text(ui, &bytes, &file_title(path)) {
+                            (t, e, l)
+                        } else {
+                            *declined = true;
+                            return None;
+                        }
+                    } else if matches!(enc, Enc::Cs(_)) {
+                        let (t, e) = doc::decode_with(&bytes, enc);
+                        (t, enc, e)
+                    } else {
+                        doc::decode(&bytes)
+                    };
+                    *encrypted = is_env;
+                    self.open_doc(file_title(path), Some(path.to_path_buf()), &text, enc, eol, lang_for(path))
+                }
+                // File vanished: keep the unsaved text if we have it, otherwise skip.
+                Err(_) if has_saved_text => self.open_doc(file_title(path), Some(path.to_path_buf()), "", enc, eol, lang_for(path)),
+                Err(_) => return None,
+            }
+        } else {
+            let entry = st.lang.as_deref().and_then(|l| lang::LANGUAGES.iter().find(|(n, _)| *n == l));
+            let idx = self.open_doc(st.title.clone(), None, "", enc, eol, entry.map_or("null", |e| e.1));
+            if let Some(e) = entry {
+                self.tabs[idx].lang_label = e.0;
+            }
+            idx
+        };
+        Some(idx)
+    }
+
+    /// One saved whiteboard tab: its unsaved scene if it has one, else the file on disk.
+    fn restore_whiteboard(&mut self, st: &crate::session::SessionTab, path: Option<PathBuf>) {
+        let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).map(|b| doc::decode(&b).0);
+        let (content, dirty) = match (&st.text, disk) {
+            (Some(t), Some(d)) => (t.clone(), *t != d),
+            (Some(t), None) => (t.clone(), true),
+            (None, Some(d)) => (d, false),
+            (None, None) => return,
+        };
+        let i = self.open_whiteboard(st.title.clone(), path, content, dirty);
+        self.tabs[i].pinned = st.pinned;
+        self.tabs[i].color = st.color;
+    }
+
     /// Open the tabs described by `s` (skipping files that are already open).
     fn restore_tabs(&mut self, ui: &dyn Ui, s: &Session) {
         // Once the user declines to unlock, the other protected tabs are skipped without asking again.
@@ -2055,16 +2131,7 @@ impl<S: Send> Workspace<S> {
                 continue;
             }
             if st.kind == "whiteboard" {
-                let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).map(|b| doc::decode(&b).0);
-                let (content, dirty) = match (&st.text, disk) {
-                    (Some(t), Some(d)) => (t.clone(), *t != d),
-                    (Some(t), None) => (t.clone(), true),
-                    (None, Some(d)) => (d, false),
-                    (None, None) => continue,
-                };
-                let i = self.open_whiteboard(st.title.clone(), path, content, dirty);
-                self.tabs[i].pinned = st.pinned;
-                self.tabs[i].color = st.color;
+                self.restore_whiteboard(st, path);
                 continue;
             }
             let (enc, eol) = (Enc::from_key(&st.enc), Eol::from_key(&st.eol));
@@ -2085,41 +2152,8 @@ impl<S: Send> Workspace<S> {
                     }
                 }
             }
-            let idx = if let Some(path) = &path {
-                match std::fs::read(path) {
-                    Ok(bytes) => {
-                        let is_env = crypto::parse_envelope(&bytes).is_some();
-                        if is_env && declined {
-                            continue;
-                        }
-                        // A character set chosen with "Encode in" must survive a restart.
-                        let (text, enc, eol) = if is_env {
-                            if let Some((t, e, l, _)) = self.read_text(ui, &bytes, &file_title(path)) {
-                                (t, e, l)
-                            } else {
-                                declined = true;
-                                continue;
-                            }
-                        } else if matches!(enc, Enc::Cs(_)) {
-                            let (t, e) = doc::decode_with(&bytes, enc);
-                            (t, enc, e)
-                        } else {
-                            doc::decode(&bytes)
-                        };
-                        encrypted = is_env;
-                        self.open_doc(file_title(path), Some(path.clone()), &text, enc, eol, lang_for(path))
-                    }
-                    // File vanished: keep the unsaved text if we have it, otherwise skip.
-                    Err(_) if saved_text.is_some() => self.open_doc(file_title(path), Some(path.clone()), "", enc, eol, lang_for(path)),
-                    Err(_) => continue,
-                }
-            } else {
-                let entry = st.lang.as_deref().and_then(|l| lang::LANGUAGES.iter().find(|(n, _)| *n == l));
-                let idx = self.open_doc(st.title.clone(), None, "", enc, eol, entry.map_or("null", |e| e.1));
-                if let Some(e) = entry {
-                    self.tabs[idx].lang_label = e.0;
-                }
-                idx
+            let Some(idx) = self.restore_doc(ui, st, path.as_deref(), saved_text.is_some(), enc, eol, &mut declined, &mut encrypted) else {
+                continue;
             };
             if let Some(text) = &saved_text {
                 // Replacing content after the save point leaves the tab dirty, as it was.

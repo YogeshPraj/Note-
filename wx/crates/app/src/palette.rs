@@ -2,14 +2,10 @@
 
 use std::path::PathBuf;
 
-use notepp_core::commands::{ID_CHARSET_BASE, ID_CONVERT_BASE, ID_ENCODE_BASE, ID_LANG_BASE};
-use notepp_core::doc::CHARSETS;
 use notepp_core::files;
-use notepp_core::lang::LANGUAGES;
 
 use crate::app::Shared;
 use crate::widgets::quick_pick::{Item, pick};
-use notepp_core::tables::ENCODE_IN;
 use wxdragon::prelude::WxWidget;
 
 /// The effective shortcut text of a command (the user's own, else the default).

@@ -287,8 +287,8 @@ mod tests {
 
     #[test]
     fn utf16_without_a_bom_is_recognised() {
-        let le: Vec<u8> = "héllo wörld, plain text".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-        let be: Vec<u8> = "hello world, plain text".encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
+        let le: Vec<u8> = "héllo wörld, plain text".encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let be: Vec<u8> = "hello world, plain text".encode_utf16().flat_map(u16::to_be_bytes).collect();
         assert_eq!(decode(&le).1, Enc::Utf16Le);
         assert_eq!(decode(&le).0, "héllo wörld, plain text");
         assert_eq!(decode(&be).1, Enc::Utf16Be);

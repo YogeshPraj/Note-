@@ -57,26 +57,27 @@ type Span = (usize, usize);
 
 // ---- pure engine ----------------------------------------------------------
 
+// Up to max digits of `radix`, as a character.
+fn number(it: &mut std::iter::Peekable<std::str::Chars<'_>>, radix: u32, max: usize) -> Option<char> {
+    let mut n = 0u32;
+    let mut got = 0;
+    while got < max {
+        match it.peek().and_then(|c| c.to_digit(radix)) {
+            Some(d) => {
+                n = n * radix + d;
+                it.next();
+                got += 1;
+            }
+            None => break,
+        }
+    }
+    if got == 0 { None } else { char::from_u32(n) }
+}
+
 /// Expand the escapes of Notepad++'s Extended search mode.
 pub fn unescape_ext(s: &str) -> String {
     let mut out = String::new();
     let mut it = s.chars().peekable();
-    // Up to max digits of adix, as a character.
-    fn number(it: &mut std::iter::Peekable<std::str::Chars<'_>>, radix: u32, max: usize) -> Option<char> {
-        let mut n = 0u32;
-        let mut got = 0;
-        while got < max {
-            match it.peek().and_then(|c| c.to_digit(radix)) {
-                Some(d) => {
-                    n = n * radix + d;
-                    it.next();
-                    got += 1;
-                }
-                None => break,
-            }
-        }
-        if got == 0 { None } else { char::from_u32(n) }
-    }
     while let Some(c) = it.next() {
         if c != '\\' {
             out.push(c);

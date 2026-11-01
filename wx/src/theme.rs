@@ -45,6 +45,21 @@ pub fn ink() -> Colour {
 pub fn paint(w: &dyn WxWidget, role: Role) {
     w.set_background_color(background(role));
     w.set_foreground_color(ink());
+    w.refresh(true, None);
+}
+
+/// Make a container fill its own background with the surface colour on every repaint, instead of relying on the
+/// toolkit's erase (which follows the system's dark setting rather than ours).
+pub fn own_background(panel: Panel) {
+    panel.set_background_style(BackgroundStyle::Paint);
+    panel.on_paint(move |_| {
+        let dc = AutoBufferedPaintDC::new(&panel);
+        let size = panel.get_client_size();
+        let c = background(Role::Surface);
+        dc.set_pen(c, 1, PenStyle::Solid);
+        dc.set_brush(c, BrushStyle::Solid);
+        dc.draw_rectangle(0, 0, size.width, size.height);
+    });
 }
 
 /// Dark title bar and native control theme for a window and everything inside it.

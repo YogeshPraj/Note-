@@ -47,6 +47,7 @@ fn layout() -> Vec<Slot> {
 /// The (initially hidden) empty bar inside `frame`; its buttons are added by [`wire`].
 pub fn create(frame: &Frame) -> Panel {
     let bar = Panel::builder(frame).build();
+    crate::theme::own_background(bar);
     bar.set_min_size(Size::new(-1, HEIGHT));
     bar.show(false);
     bar

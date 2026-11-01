@@ -65,6 +65,7 @@ thread_local! {
 /// The empty container, placed in the window's layout; the controls are added by [`wire`].
 pub fn container(frame: &Frame) -> Panel {
     let p = Panel::builder(frame).build();
+    crate::theme::own_background(p);
     p.show(false);
     HOST.with(|h| *h.borrow_mut() = Some(p));
     FRAME.with(|f| *f.borrow_mut() = Some(*frame));

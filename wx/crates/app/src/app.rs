@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_MINIMAP, ID_INCR, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use crate::command::AppError;
+use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_MINIMAP, ID_INCR, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_THEME, ID_WRAP};
 use notepp_core::session::{self, Session};
 use notepp_core::preview as pcore;
 use notepp_core::sci::{self};
@@ -62,6 +63,8 @@ pub struct App {
     tab_key: Vec<(String, bool, bool)>,
     /// Set while the shell itself changes the tab strip, so its events are ignored.
     syncing: bool,
+    /// What the menus and toolbar were last enabled for (see [crate::command::App::sync_command_state]).
+    pub(crate) cmd_state: Option<notepp_core::registry::CommandState>,
     session_key: (usize, usize, usize, u64),
     recent_key: (Vec<PathBuf>, bool),
 }
@@ -187,6 +190,7 @@ pub fn start(files: Vec<PathBuf>) {
         menus: menu_set,
         tab_key: Vec::new(),
         syncing: false,
+        cmd_state: None,
         session_key: (usize::MAX, 0, 0, 0),
         recent_key: (vec![PathBuf::from("\u{0}")], false),
     }));
@@ -468,7 +472,16 @@ pub(crate) fn trace(id: usize, how: &str) {
 }
 
 impl App {
+    /// Run command `id`: the one entry point for menus, the toolbar, shortcuts and the palette.
     pub fn command(&mut self, id: usize) {
+        match crate::command::execute(self, id) {
+            Ok(()) | Err(AppError::Disabled(_)) => {}
+            Err(e) => self.flash = Some(e.to_string()),
+        }
+    }
+
+    /// The dispatch behind [`crate::command::execute`]: core commands first, then the registered handlers.
+    pub(crate) fn dispatch_command(&mut self, id: usize) -> Result<(), AppError> {
         // A whiteboard is saved from the page's latest scene, so ask for it first.
         if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wbv.is_ready() {
             self.wb.pending = Some(match id {
@@ -476,20 +489,25 @@ impl App {
                 ID_SAVEAS => Pending::SaveAs,
                 _ => Pending::SaveCopy,
             });
-            return wbm::request_data(&self.wbv);
-        }        if notepp_core::dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
+            wbm::request_data(&self.wbv);
+            return Ok(());
+        }
+        if notepp_core::dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
             trace(id, "core");
-            return self.refresh();
+            self.refresh();
+            return Ok(());
         }
         if matches!(id, ID_NEXT_RESULT | ID_PREV_RESULT) {
-            return self.step_result(id == ID_NEXT_RESULT);
+            self.step_result(id == ID_NEXT_RESULT);
+            return Ok(());
         }
         let bus = self.bus.clone();
-        if bus.dispatch(self, id).is_none() {
-            self.flash = Some("This command is not available in this build yet".into());
+        let handled = bus.dispatch(self, id).is_some();
+        if !handled {
             trace(id, "unported");
         }
         self.refresh();
+        if handled { Ok(()) } else { Err(AppError::NotAvailable(id)) }
     }
     /// Actions from the Find panel.
     pub fn panel_command(&mut self, cmd: Cmd) {
@@ -792,6 +810,7 @@ impl App {
             }
         }
         self.sync_file_menu();
+        self.sync_command_state();
     }
 
 
@@ -882,5 +901,5 @@ impl App {
 /// Default shortcut table for accelerators of items that are not in a menu.
 #[allow(dead_code)]
 pub fn default_shortcut(id: usize) -> Option<String> {
-    PALETTE_COMMANDS.iter().find(|(_, i, _)| *i == id).map(|(_, _, k)| k.to_string()).filter(|k| shortcuts::parse(k).is_some())
+    notepp_core::registry::default_shortcut(id).map(str::to_string)
 }

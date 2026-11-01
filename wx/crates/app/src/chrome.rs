@@ -63,56 +63,81 @@ pub struct Chrome {
     strip: TabStrip,
     status_bar: StatusBar,
 }
+/// A toolbar button: its command and icon; the tool-tip is the registry's (name and shortcut) unless one is given.
 macro_rules! btn {
+    ($cmd:expr, $file:literal) => {
+        (Some($cmd), include_bytes!(concat!("../../../../assets/", $file)) as &[u8], None)
+    };
     ($cmd:expr, $file:literal, $tip:literal) => {
-        (Some($cmd), include_bytes!(concat!("../../../../assets/", $file)) as &[u8], $tip)
+        (Some($cmd), include_bytes!(concat!("../../../../assets/", $file)) as &[u8], Some($tip))
     };
 }
 
-fn toolbar_table() -> Vec<(Option<usize>, &'static [u8], &'static str)> {
-    let sep = (None, &[][..], "");
+type Button = (Option<usize>, &'static [u8], Option<&'static str>);
+
+fn toolbar_table() -> Vec<Button> {
+    let sep = (None, &[][..], None);
     vec![
-        btn!(ID_NEW, "new.svg", "New (Ctrl+N)"),
-        btn!(ID_NEW_WB, "whiteboard.svg", "New Whiteboard"),
-        btn!(ID_OPEN, "open.svg", "Open (Ctrl+O)"),
-        btn!(ID_SAVE, "save.svg", "Save (Ctrl+S)"),
-        btn!(ID_SAVEALL, "saveall.svg", "Save All (Ctrl+Shift+S)"),
-        btn!(ID_CLOSE, "close.svg", "Close (Ctrl+W)"),
+        btn!(ID_NEW, "new.svg"),
+        btn!(ID_NEW_WB, "whiteboard.svg"),
+        btn!(ID_OPEN, "open.svg"),
+        btn!(ID_SAVE, "save.svg"),
+        btn!(ID_SAVEALL, "saveall.svg"),
+        btn!(ID_CLOSE, "close.svg"),
         btn!(ID_PRINT, "print.svg", "Print"),
         btn!(ID_ENC_TOGGLE, "lock.svg", "Encrypt this file (or remove its encryption)"),
         btn!(ID_PW_TOOLBAR, "key.svg", "Passwords (Bitwarden)"),
         sep,
-        btn!(ID_CUT, "cut.svg", "Cut (Ctrl+X)"),
-        btn!(ID_COPY, "copy.svg", "Copy (Ctrl+C)"),
-        btn!(ID_PASTE, "paste.svg", "Paste (Ctrl+V)"),
+        btn!(ID_CUT, "cut.svg"),
+        btn!(ID_COPY, "copy.svg"),
+        btn!(ID_PASTE, "paste.svg"),
         sep,
-        btn!(ID_UNDO, "undo.svg", "Undo (Ctrl+Z)"),
-        btn!(ID_REDO, "redo.svg", "Redo (Ctrl+Y)"),
+        btn!(ID_UNDO, "undo.svg"),
+        btn!(ID_REDO, "redo.svg"),
         sep,
-        btn!(ID_FIND, "find.svg", "Find (Ctrl+F)"),
-        btn!(ID_REPLACE, "replace.svg", "Replace (Ctrl+H)"),
+        btn!(ID_FIND, "find.svg"),
+        btn!(ID_REPLACE, "replace.svg"),
         sep,
-        btn!(ID_ZOOMIN, "zoomin.svg", "Zoom In"),
-        btn!(ID_ZOOMOUT, "zoomout.svg", "Zoom Out"),
+        btn!(ID_ZOOMIN, "zoomin.svg"),
+        btn!(ID_ZOOMOUT, "zoomout.svg"),
         sep,
-        btn!(ID_WRAP, "wordwrap.svg", "Word Wrap"),
-        btn!(ID_PREVIEW, "preview.svg", "Live Preview (Ctrl+Shift+V)"),
+        btn!(ID_WRAP, "wordwrap.svg"),
+        btn!(ID_PREVIEW, "preview.svg"),
         btn!(ID_LOG_FOLLOW, "follow.svg", "Log Follow: stream a .log / .out / .err file as it grows"),
-        btn!(ID_THEME, "darkmode.svg", "Dark Mode"),
+        btn!(ID_THEME, "darkmode.svg"),
     ]
 }
 
+/// The icon in the colour a command that cannot run is drawn in.
+fn faded_svg(svg: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(svg);
+    let mut out = String::with_capacity(text.len());
+    let mut rest: &str = &text;
+    while let Some(i) = rest.find("=\"#") {
+        let end = rest[i + 3..].find('"').map_or(rest.len(), |e| i + 3 + e);
+        let attr_start = rest[..i].rfind(' ').map_or(0, |s| s + 1);
+        let name = &rest[attr_start..i];
+        out.push_str(&rest[..attr_start]);
+        out.push_str(&format!("{name}=\"#9a9a9a\" {name}-opacity=\"0.55\""));
+        rest = &rest[(end + 1).min(rest.len())..];
+    }
+    out.push_str(rest);
+    out.into_bytes()
+}
+
 fn toolbar_items() -> Vec<Item> {
-    let svg = |svg: &[u8]| BitmapBundle::from_svg_data(svg, Size::new(ICON, ICON)).and_then(|b| b.get_bitmap(Size::new(ICON, ICON)));
+    let bitmap = |svg: &[u8]| BitmapBundle::from_svg_data(svg, Size::new(ICON, ICON)).and_then(|b| b.get_bitmap(Size::new(ICON, ICON)));
     toolbar_table()
         .into_iter()
         .map(|(cmd, data, tip)| match cmd {
-            Some(cmd) => Item::Button { cmd, tip, icon: svg(data) },
+            Some(cmd) => {
+                let tip = tip.map_or_else(|| notepp_core::registry::spec(cmd).map(|s| s.tooltip()).unwrap_or_default(), str::to_string);
+                Item::Button { cmd, tip, icon: bitmap(data), faded: bitmap(&faded_svg(data)) }
+            }
             None => Item::Separator,
         })
         .collect()
 }
-
 impl Chrome {
     pub fn new(parent: &Frame) -> Chrome {
         let menu_bar = MenuBar::new(parent);
@@ -165,6 +190,10 @@ impl Chrome {
             t.position,
             vec![Segment::text("INS"), Segment::button(t.lang, SEG_LANG), Segment::button(t.eol, SEG_EOL), Segment::button(t.enc, SEG_ENC), Segment::text(t.length), Segment::text(t.lines)],
         );
+    }
+
+    pub fn set_enabled(&self, cmd: usize, on: bool) {
+        self.tool_bar.set_enabled(cmd, on);
     }
 
     pub fn set_checked(&self, cmd: usize, on: bool) {

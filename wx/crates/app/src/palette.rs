@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use notepp_core::commands::{ID_CHARSET_BASE, ID_CONVERT_BASE, ID_ENCODE_BASE, ID_LANG_BASE, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_CHARSET_BASE, ID_CONVERT_BASE, ID_ENCODE_BASE, ID_LANG_BASE};
 use notepp_core::doc::CHARSETS;
 use notepp_core::files;
 use notepp_core::lang::LANGUAGES;
@@ -20,7 +20,7 @@ fn shortcut_text(app: &crate::app::App, id: usize, default: &str) -> String {
 pub fn open_commands(app: &Shared) {
     let (frame, items) = {
         let Ok(a) = app.try_borrow() else { return };
-        let mut v: Vec<Item> = PALETTE_COMMANDS.iter().map(|(l, id, k)| Item { label: l.to_string(), hint: shortcut_text(&a, *id, k), id: *id }).collect();
+        let mut v: Vec<Item> = notepp_core::registry::palette().map(|c| Item { label: c.palette.to_string(), hint: shortcut_text(&a, c.id, c.hint()), id: c.id }).collect();
         for (i, e) in ENCODE_IN.iter().enumerate() {
             v.push(Item { label: format!("Encoding: Encode in {}", e.label()), hint: String::new(), id: ID_ENCODE_BASE + i });
             v.push(Item { label: format!("Encoding: Convert to {}", e.label()), hint: String::new(), id: ID_CONVERT_BASE + i });

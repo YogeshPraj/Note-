@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use notepp_core::commands::{ID_WRAP, ID_THEME, ID_MINIMAP, ID_PREVIEW, ID_LOG_FOLLOW, ID_MD_TOOLBAR, ID_UPDATE_AUTO, ID_READONLY, ID_CHAR_PANEL, ID_CLIP_HISTORY, ID_DOC_LIST, ID_FUNC_LIST, ID_FULLSCREEN, ID_ON_TOP, ID_POSTIT, ID_DISTRACTION, ID_MONITOR, ID_WORKSPACE_TOGGLE, ID_EOL_CRLF, ID_EOL_LF, ID_EOL_CR, PALETTE_COMMANDS, ID_ENGINE_BASE, ID_NEW, ID_NEW_WB, ID_OPEN, ID_OPEN_VIEWER, ID_OPEN_WORKSPACE, ID_RELOAD, ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_SAVEALL, ID_CLOSE, ID_CLOSE_ALL, ID_RECYCLE, ID_LOAD_SESSION, ID_SAVE_SESSION, ID_ENCRYPT, ID_DECRYPT, ID_RECENT_BASE, ID_OPEN_ALL_RECENT, ID_RECENT_CLEAR, ID_RESTORE_CLOSED, ID_EXIT, ID_OPEN_FOLDER_EXPLORER, ID_OPEN_FOLDER_CMD, ID_OPEN_FOLDER_WS, ID_CLOSE_OTHERS, ID_CLOSE_LEFT, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_PRINT, ID_PRINT_NOW, ID_PAGE_SETUP, ID_UNDO, ID_REDO, ID_CUT, ID_COPY, ID_PASTE, ID_DELETE, ID_SELALL, ID_BEGIN_END_SEL, ID_BEGIN_END_COL, ID_INS_DATE_SHORT, ID_INS_DATE_LONG, ID_INS_DATE_CUSTOM, ID_CP_FULLPATH, ID_CP_NAME, ID_CP_DIR, ID_CP_ALLNAMES, ID_CP_ALLPATHS, ID_INDENT_INC, ID_INDENT_DEC, ID_C_UPPER, ID_C_LOWER, ID_CASE_PROPER, ID_CASE_PROPER_BLEND, ID_CASE_SENTENCE, ID_CASE_SENTENCE_BLEND, ID_CASE_INVERT, ID_CASE_RANDOM, ID_L_DUP, ID_L_DEDUP, ID_L_RM_CONSEC, ID_L_SPLIT, ID_L_JOIN, ID_L_UP, ID_L_DOWN, ID_L_TRANSPOSE, ID_L_NOEMPTY, ID_L_RM_BLANK, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_REVERSE, ID_L_RANDOM, ID_L_CUT, ID_L_COPY, ID_L_DEL, ID_L_SORT_ASC, ID_L_SORT_DESC, ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_COMMENT, ID_CMT_LINE, ID_UNCMT_LINE, ID_CMT_BLOCK, ID_UNCMT_BLOCK, ID_AC_FUNC, ID_AC_WORD, ID_AC_HINT, ID_AC_PATH, ID_L_TRIM, ID_B_TRIM_LEAD, ID_B_TRIM_BOTH, ID_B_EOL_SPACE, ID_B_UNNECESSARY, ID_B_TAB_SPACE, ID_B_SPACE_TAB_ALL, ID_B_SPACE_TAB_LEAD, ID_PS_HTML, ID_PS_RTF, ID_PS_COPY_BIN, ID_PS_CUT_BIN, ID_PS_PASTE_BIN, ID_SEL_OPEN, ID_SEL_FOLDER, ID_SEL_SEARCH, ID_COLUMN_MODE, ID_COLUMN_EDITOR, ID_CLEAR_RO, ID_FIND, ID_FIF, ID_FINDNEXT, ID_FINDPREV, ID_SEL_FIND_NEXT, ID_SEL_FIND_PREV, ID_VOL_NEXT, ID_VOL_PREV, ID_REPLACE, ID_INCR, ID_RESULTS, ID_NEXT_RESULT, ID_PREV_RESULT, ID_GOTO, ID_BRACE_GOTO, ID_BRACE_SEL, ID_MARK, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_CLEAR_STYLE_BASE, ID_JUMP_UP_BASE, ID_JUMP_DOWN_BASE, ID_COPY_STYLED_BASE, ID_BM_TOGGLE, ID_BM_NEXT, ID_BM_PREV, ID_BM_CLEAR, ID_BM_CUT, ID_BM_COPY, ID_BM_PASTE, ID_BM_DELETE, ID_BM_DELETE_UNMARKED, ID_BM_INVERT, ID_FIND_CHARS, ID_BROWSER_BASE, ID_SYM_WS, ID_SYM_EOL, ID_SYM_NONPRINT, ID_SYM_CTRL, ID_SYM_ALL, ID_SYM_INDENT, ID_SYM_WRAP, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET, ID_MOVE_OTHER_VIEW, ID_CLONE_OTHER_VIEW, ID_MOVE_NEW_INSTANCE, ID_OPEN_NEW_INSTANCE, ID_TAB_BASE, ID_NEXT_TAB, ID_PREV_TAB, ID_MOVE_TAB_FWD, ID_MOVE_TAB_BACK, ID_FOCUS_OTHER, ID_HIDE_LINES, ID_FOLD_ALL, ID_UNFOLD_ALL, ID_FOLD_CUR, ID_UNFOLD_CUR, ID_FOLD_LEVEL_BASE, ID_UNFOLD_LEVEL_BASE, ID_SUMMARY, ID_PROJECT_BASE, ID_SYNC_V, ID_SYNC_H, ID_RTL, ID_LTR, ID_PALETTE, ID_QUICKOPEN, ID_ENCODE_BASE, ID_CHARSET_BASE, ID_CONVERT_BASE, ID_LANG_BASE, ID_ABOUT, ID_UPDATE_CHECK, ID_PREFS, ID_STYLE_CFG, ID_SHORTCUTS, ID_PRESET_BASE, ID_IMPORT_THEME, ID_EXPORT_THEME, ID_ENC_SETTINGS, ID_EDIT_CONTEXT, ID_HASH_BASE, ID_B64_ENC, ID_B64_DEC, ID_URL_ENC, ID_URL_DEC, ID_JSON_PRETTY, ID_JSON_MIN, ID_XML_PRETTY, ID_XML_MIN, ID_PASSWORDS, ID_HTTP_SEND};
+use notepp_core::commands::{ID_WRAP, ID_THEME, ID_MINIMAP, ID_PREVIEW, ID_LOG_FOLLOW, ID_MD_TOOLBAR, ID_UPDATE_AUTO, ID_READONLY, ID_CHAR_PANEL, ID_CLIP_HISTORY, ID_DOC_LIST, ID_FUNC_LIST, ID_FULLSCREEN, ID_ON_TOP, ID_POSTIT, ID_DISTRACTION, ID_MONITOR, ID_WORKSPACE_TOGGLE, ID_EOL_CRLF, ID_EOL_LF, ID_EOL_CR, ID_ENGINE_BASE, ID_NEW, ID_NEW_WB, ID_OPEN, ID_OPEN_VIEWER, ID_OPEN_WORKSPACE, ID_RELOAD, ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_SAVEALL, ID_CLOSE, ID_CLOSE_ALL, ID_RECYCLE, ID_LOAD_SESSION, ID_SAVE_SESSION, ID_ENCRYPT, ID_DECRYPT, ID_RECENT_BASE, ID_OPEN_ALL_RECENT, ID_RECENT_CLEAR, ID_RESTORE_CLOSED, ID_EXIT, ID_OPEN_FOLDER_EXPLORER, ID_OPEN_FOLDER_CMD, ID_OPEN_FOLDER_WS, ID_CLOSE_OTHERS, ID_CLOSE_LEFT, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_PRINT, ID_PRINT_NOW, ID_PAGE_SETUP, ID_UNDO, ID_REDO, ID_CUT, ID_COPY, ID_PASTE, ID_DELETE, ID_SELALL, ID_BEGIN_END_SEL, ID_BEGIN_END_COL, ID_INS_DATE_SHORT, ID_INS_DATE_LONG, ID_INS_DATE_CUSTOM, ID_CP_FULLPATH, ID_CP_NAME, ID_CP_DIR, ID_CP_ALLNAMES, ID_CP_ALLPATHS, ID_INDENT_INC, ID_INDENT_DEC, ID_C_UPPER, ID_C_LOWER, ID_CASE_PROPER, ID_CASE_PROPER_BLEND, ID_CASE_SENTENCE, ID_CASE_SENTENCE_BLEND, ID_CASE_INVERT, ID_CASE_RANDOM, ID_L_DUP, ID_L_DEDUP, ID_L_RM_CONSEC, ID_L_SPLIT, ID_L_JOIN, ID_L_UP, ID_L_DOWN, ID_L_TRANSPOSE, ID_L_NOEMPTY, ID_L_RM_BLANK, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_REVERSE, ID_L_RANDOM, ID_L_CUT, ID_L_COPY, ID_L_DEL, ID_L_SORT_ASC, ID_L_SORT_DESC, ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_COMMENT, ID_CMT_LINE, ID_UNCMT_LINE, ID_CMT_BLOCK, ID_UNCMT_BLOCK, ID_AC_FUNC, ID_AC_WORD, ID_AC_HINT, ID_AC_PATH, ID_L_TRIM, ID_B_TRIM_LEAD, ID_B_TRIM_BOTH, ID_B_EOL_SPACE, ID_B_UNNECESSARY, ID_B_TAB_SPACE, ID_B_SPACE_TAB_ALL, ID_B_SPACE_TAB_LEAD, ID_PS_HTML, ID_PS_RTF, ID_PS_COPY_BIN, ID_PS_CUT_BIN, ID_PS_PASTE_BIN, ID_SEL_OPEN, ID_SEL_FOLDER, ID_SEL_SEARCH, ID_COLUMN_MODE, ID_COLUMN_EDITOR, ID_CLEAR_RO, ID_FIND, ID_FIF, ID_FINDNEXT, ID_FINDPREV, ID_SEL_FIND_NEXT, ID_SEL_FIND_PREV, ID_VOL_NEXT, ID_VOL_PREV, ID_REPLACE, ID_INCR, ID_RESULTS, ID_NEXT_RESULT, ID_PREV_RESULT, ID_GOTO, ID_BRACE_GOTO, ID_BRACE_SEL, ID_MARK, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_CLEAR_STYLE_BASE, ID_JUMP_UP_BASE, ID_JUMP_DOWN_BASE, ID_COPY_STYLED_BASE, ID_BM_TOGGLE, ID_BM_NEXT, ID_BM_PREV, ID_BM_CLEAR, ID_BM_CUT, ID_BM_COPY, ID_BM_PASTE, ID_BM_DELETE, ID_BM_DELETE_UNMARKED, ID_BM_INVERT, ID_FIND_CHARS, ID_BROWSER_BASE, ID_SYM_WS, ID_SYM_EOL, ID_SYM_NONPRINT, ID_SYM_CTRL, ID_SYM_ALL, ID_SYM_INDENT, ID_SYM_WRAP, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET, ID_MOVE_OTHER_VIEW, ID_CLONE_OTHER_VIEW, ID_MOVE_NEW_INSTANCE, ID_OPEN_NEW_INSTANCE, ID_TAB_BASE, ID_NEXT_TAB, ID_PREV_TAB, ID_MOVE_TAB_FWD, ID_MOVE_TAB_BACK, ID_FOCUS_OTHER, ID_HIDE_LINES, ID_FOLD_ALL, ID_UNFOLD_ALL, ID_FOLD_CUR, ID_UNFOLD_CUR, ID_FOLD_LEVEL_BASE, ID_UNFOLD_LEVEL_BASE, ID_SUMMARY, ID_PROJECT_BASE, ID_SYNC_V, ID_SYNC_H, ID_RTL, ID_LTR, ID_PALETTE, ID_QUICKOPEN, ID_ENCODE_BASE, ID_CHARSET_BASE, ID_CONVERT_BASE, ID_LANG_BASE, ID_ABOUT, ID_UPDATE_CHECK, ID_PREFS, ID_STYLE_CFG, ID_SHORTCUTS, ID_PRESET_BASE, ID_IMPORT_THEME, ID_EXPORT_THEME, ID_ENC_SETTINGS, ID_EDIT_CONTEXT, ID_HASH_BASE, ID_B64_ENC, ID_B64_DEC, ID_URL_ENC, ID_URL_DEC, ID_JSON_PRETTY, ID_JSON_MIN, ID_XML_PRETTY, ID_XML_MIN, ID_PASSWORDS, ID_HTTP_SEND};
 use notepp_core::doc::CHARSETS;
 use notepp_core::hash::ALGOS;
 use notepp_core::lang::LANGUAGES;
@@ -54,6 +54,14 @@ impl B {
         let label = with_override(id, text);
         ARENA.with(|a| a.borrow_mut()[m.0].push(Entry::Item { id, label, enabled }));
     }
+    /// Add a registered command: its text and shortcut come from the command registry.
+    pub fn cmd(m: M, id: usize) {
+        Self::cmd_state(m, id, true);
+    }
+    pub fn cmd_state(m: M, id: usize, enabled: bool) {
+        let text = notepp_core::registry::spec(id).map_or_else(|| format!("Command {id}"), |s| s.menu_text(None));
+        Self::add_state(m, id, &text, enabled);
+    }
     pub fn sep(m: M) {
         ARENA.with(|a| a.borrow_mut()[m.0].push(Entry::Sep));
     }
@@ -82,7 +90,7 @@ fn checkable(id: usize) -> bool {
         ID_WRAP | ID_THEME | ID_MINIMAP | ID_PREVIEW | ID_LOG_FOLLOW | ID_MD_TOOLBAR | ID_UPDATE_AUTO | ID_READONLY | ID_CHAR_PANEL
             | ID_CLIP_HISTORY | ID_DOC_LIST | ID_FUNC_LIST | ID_FULLSCREEN | ID_ON_TOP | ID_POSTIT | ID_DISTRACTION | ID_MONITOR | ID_WORKSPACE_TOGGLE
             | ID_EOL_CRLF | ID_EOL_LF | ID_EOL_CR
-    ) || PALETTE_COMMANDS.iter().any(|(name, i, _)| *i == id && name.starts_with("View: Show "))
+    ) || notepp_core::registry::spec(id).is_some_and(|s| s.palette.starts_with("View: Show "))
         || (ID_ENGINE_BASE..ID_ENGINE_BASE + edit::SEARCH_ENGINES.len()).contains(&id)
 }
 
@@ -131,9 +139,9 @@ pub struct Menus {
 
 pub fn eol_menu() -> M {
     let m = B::popup();
-    B::add(m, ID_EOL_CRLF, "Windows (CR LF)");
-    B::add(m, ID_EOL_LF, "Unix (LF)");
-    B::add(m, ID_EOL_CR, "Macintosh (CR)");
+    B::cmd(m, ID_EOL_CRLF);
+    B::cmd(m, ID_EOL_LF);
+    B::cmd(m, ID_EOL_CR);
     m
 }
 
@@ -143,30 +151,30 @@ pub fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     
     B::clear(m.file);
     let f = m.file;
-    B::add(f, ID_NEW, "&New\tCtrl+N");
-    B::add(f, ID_NEW_WB, "New &Whiteboard");
-    B::add(f, ID_OPEN, "&Open...\tCtrl+O");
+    B::cmd(f, ID_NEW);
+    B::cmd(f, ID_NEW_WB);
+    B::cmd(f, ID_OPEN);
     B::submenu(f, "Open Containing &Folder", m.open_folder); // keep FILE_OPEN_FOLDER_POS in step
-    B::add(f, ID_OPEN_VIEWER, "Open in &Default Viewer");
-    B::add(f, ID_OPEN_WORKSPACE, "Open Folder as &Workspace...");
-    B::add(f, ID_RELOAD, "Reload from Dis&k\tCtrl+R");
-    B::add(f, ID_SAVE, "&Save\tCtrl+S");
-    B::add(f, ID_SAVEAS, "Save &As...\tCtrl+Alt+S");
-    B::add(f, ID_SAVE_COPY, "Save a Cop&y As...");
-    B::add(f, ID_SAVEALL, "Save A&ll\tCtrl+Shift+S");
-    B::add(f, ID_CLOSE, "&Close\tCtrl+W");
-    B::add(f, ID_CLOSE_ALL, "Close All\tCtrl+Shift+W");
+    B::cmd(f, ID_OPEN_VIEWER);
+    B::cmd(f, ID_OPEN_WORKSPACE);
+    B::cmd(f, ID_RELOAD);
+    B::cmd(f, ID_SAVE);
+    B::cmd(f, ID_SAVEAS);
+    B::cmd(f, ID_SAVE_COPY);
+    B::cmd(f, ID_SAVEALL);
+    B::cmd(f, ID_CLOSE);
+    B::cmd(f, ID_CLOSE_ALL);
     B::submenu(f, "Close M&ultiple Documents", m.close_multi);
-    B::add(f, ID_RECYCLE, "Move to Recycle &Bin");
+    B::cmd(f, ID_RECYCLE);
     B::sep(f);
-    B::add(f, ID_LOAD_SESSION, "Load Session...");
-    B::add(f, ID_SAVE_SESSION, "Save Session...");
+    B::cmd(f, ID_LOAD_SESSION);
+    B::cmd(f, ID_SAVE_SESSION);
     B::sep(f);
     // Ctrl+P is Quick Open in Note++, so Print has no shortcut.
     B::submenu(f, "&Print", m.print);
     B::sep(f);
-    B::add(f, ID_ENCRYPT, "&Encrypt This File");
-    B::add(f, ID_DECRYPT, "Remove Encr&yption From This File");
+    B::cmd(f, ID_ENCRYPT);
+    B::cmd(f, ID_DECRYPT);
     B::sep(f);
     B::clear(m.recent);
     let r = m.recent;
@@ -181,149 +189,149 @@ pub fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::add_state(r, ID_OPEN_ALL_RECENT, "Open All Recent Files", !recent.is_empty());
     B::add_state(r, ID_RECENT_CLEAR, "Empty Recent Files List", !recent.is_empty());
     B::submenu(f, "&Recent Files", m.recent);
-    B::add_state(f, ID_RESTORE_CLOSED, "Restore Recent Closed File\tCtrl+Shift+T", can_restore);
+    B::cmd_state(f, ID_RESTORE_CLOSED, can_restore);
     B::sep(f);
-    B::add(f, ID_EXIT, "E&xit\tAlt+F4");
+    B::cmd(f, ID_EXIT);
 }
 
 pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     
     let file = B::popup();
     let open_folder = B::popup();
-    B::add(open_folder, ID_OPEN_FOLDER_EXPLORER, "&Explorer");
-    B::add(open_folder, ID_OPEN_FOLDER_CMD, "&cmd");
-    B::add(open_folder, ID_OPEN_FOLDER_WS, "Folder as &Workspace");
+    B::cmd(open_folder, ID_OPEN_FOLDER_EXPLORER);
+    B::cmd(open_folder, ID_OPEN_FOLDER_CMD);
+    B::cmd(open_folder, ID_OPEN_FOLDER_WS);
     let close_multi = B::popup();
-    B::add(close_multi, ID_CLOSE_OTHERS, "Close All but Active Document");
-    B::add(close_multi, ID_CLOSE_LEFT, "Close All to the Left");
-    B::add(close_multi, ID_CLOSE_RIGHT, "Close All to the Right");
-    B::add(close_multi, ID_CLOSE_UNCHANGED, "Close All Unchanged");
+    B::cmd(close_multi, ID_CLOSE_OTHERS);
+    B::cmd(close_multi, ID_CLOSE_LEFT);
+    B::cmd(close_multi, ID_CLOSE_RIGHT);
+    B::cmd(close_multi, ID_CLOSE_UNCHANGED);
     let print = B::popup();
-    B::add(print, ID_PRINT, "Print &Preview / Print...");
-    B::add(print, ID_PRINT_NOW, "Print No&w");
-    B::add(print, ID_PAGE_SETUP, "Page Se&tup...");
+    B::cmd(print, ID_PRINT);
+    B::cmd(print, ID_PRINT_NOW);
+    B::cmd(print, ID_PAGE_SETUP);
     let recent = B::popup();
 
     let edit = B::popup();
-    B::add(edit, ID_UNDO, "&Undo\tCtrl+Z or Alt+Backspace");
-    B::add(edit, ID_REDO, "&Redo\tCtrl+Y or Ctrl+Shift+Z");
+    B::cmd(edit, ID_UNDO);
+    B::cmd(edit, ID_REDO);
     B::sep(edit);
-    B::add(edit, ID_CUT, "Cu&t\tCtrl+X or Shift+DEL");
-    B::add(edit, ID_COPY, "&Copy\tCtrl+C or Ctrl+INS");
-    B::add(edit, ID_PASTE, "&Paste\tCtrl+V or Shift+INS");
-    B::add(edit, ID_DELETE, "&Delete\tDEL");
-    B::add(edit, ID_SELALL, "Select &All\tCtrl+A");
-    B::add(edit, ID_BEGIN_END_SEL, "Begin/End &Select\tCtrl+Shift+B");
-    B::add(edit, ID_BEGIN_END_COL, "Begin/End Select in Column Mode\tAlt+Shift+B");
+    B::cmd(edit, ID_CUT);
+    B::cmd(edit, ID_COPY);
+    B::cmd(edit, ID_PASTE);
+    B::cmd(edit, ID_DELETE);
+    B::cmd(edit, ID_SELALL);
+    B::cmd(edit, ID_BEGIN_END_SEL);
+    B::cmd(edit, ID_BEGIN_END_COL);
     B::sep(edit);
 
     let insert = B::popup();
-    B::add(insert, ID_INS_DATE_SHORT, "Date Time (short version)");
-    B::add(insert, ID_INS_DATE_LONG, "Date Time (long version)");
-    B::add(insert, ID_INS_DATE_CUSTOM, "Date Time (customized)");
+    B::cmd(insert, ID_INS_DATE_SHORT);
+    B::cmd(insert, ID_INS_DATE_LONG);
+    B::cmd(insert, ID_INS_DATE_CUSTOM);
     B::submenu(edit, "In&sert", insert);
 
     let to_clip = B::popup();
-    B::add(to_clip, ID_CP_FULLPATH, "Current Full File path to Clipboard");
-    B::add(to_clip, ID_CP_NAME, "Current Filename to Clipboard");
-    B::add(to_clip, ID_CP_DIR, "Current Dir. Path to Clipboard");
+    B::cmd(to_clip, ID_CP_FULLPATH);
+    B::cmd(to_clip, ID_CP_NAME);
+    B::cmd(to_clip, ID_CP_DIR);
     B::sep(to_clip);
-    B::add(to_clip, ID_CP_ALLNAMES, "Copy All Filenames");
-    B::add(to_clip, ID_CP_ALLPATHS, "Copy All File Paths");
+    B::cmd(to_clip, ID_CP_ALLNAMES);
+    B::cmd(to_clip, ID_CP_ALLPATHS);
     B::submenu(edit, "Copy to Clip&board", to_clip);
 
     let indent = B::popup();
-    B::add(indent, ID_INDENT_INC, "&Increase Line Indent\tTab");
-    B::add(indent, ID_INDENT_DEC, "&Decrease Line Indent\tShift+Tab");
+    B::cmd(indent, ID_INDENT_INC);
+    B::cmd(indent, ID_INDENT_DEC);
     B::submenu(edit, "&Indent", indent);
 
     let case = B::popup();
-    B::add(case, ID_C_UPPER, "&UPPERCASE\tCtrl+Shift+U");
-    B::add(case, ID_C_LOWER, "&lowercase\tCtrl+U");
+    B::cmd(case, ID_C_UPPER);
+    B::cmd(case, ID_C_LOWER);
     B::sep(case);
-    B::add(case, ID_CASE_PROPER, "&Proper Case\tAlt+U");
-    B::add(case, ID_CASE_PROPER_BLEND, "Proper Case (blend)\tAlt+Shift+U");
-    B::add(case, ID_CASE_SENTENCE, "&Sentence case\tCtrl+Alt+U");
-    B::add(case, ID_CASE_SENTENCE_BLEND, "Sentence case (blend)\tCtrl+Alt+Shift+U");
-    B::add(case, ID_CASE_INVERT, "i&NVERT cASE");
-    B::add(case, ID_CASE_RANDOM, "&ranDOm CasE");
+    B::cmd(case, ID_CASE_PROPER);
+    B::cmd(case, ID_CASE_PROPER_BLEND);
+    B::cmd(case, ID_CASE_SENTENCE);
+    B::cmd(case, ID_CASE_SENTENCE_BLEND);
+    B::cmd(case, ID_CASE_INVERT);
+    B::cmd(case, ID_CASE_RANDOM);
     B::submenu(edit, "Convert Case &to", case);
 
     let lines = B::popup();
-    B::add(lines, ID_L_DUP, "&Duplicate Current Line\tCtrl+D");
-    B::add(lines, ID_L_DEDUP, "Remove Duplicate Lines");
-    B::add(lines, ID_L_RM_CONSEC, "Remove Consecutive Duplicate Lines");
-    B::add(lines, ID_L_SPLIT, "S&plit Lines\tCtrl+I");
-    B::add(lines, ID_L_JOIN, "&Join Lines\tCtrl+J");
-    B::add(lines, ID_L_UP, "Move Up Current Line\tCtrl+Shift+Up");
-    B::add(lines, ID_L_DOWN, "Move Down Current Line\tCtrl+Shift+Down");
-    B::add(lines, ID_L_TRANSPOSE, "&Transpose Current Line\tCtrl+T");
-    B::add(lines, ID_L_NOEMPTY, "Remove Empty Lines");
-    B::add(lines, ID_L_RM_BLANK, "Remove Empty Lines (Containing Blank characters)");
-    B::add(lines, ID_L_INS_ABOVE, "Insert Blank Line Above Current\tCtrl+Alt+Enter");
-    B::add(lines, ID_L_INS_BELOW, "Insert Blank Line Below Current\tCtrl+Alt+Shift+Enter");
-    B::add(lines, ID_L_REVERSE, "Reverse Line Order");
-    B::add(lines, ID_L_RANDOM, "Randomize Line Order");
+    B::cmd(lines, ID_L_DUP);
+    B::cmd(lines, ID_L_DEDUP);
+    B::cmd(lines, ID_L_RM_CONSEC);
+    B::cmd(lines, ID_L_SPLIT);
+    B::cmd(lines, ID_L_JOIN);
+    B::cmd(lines, ID_L_UP);
+    B::cmd(lines, ID_L_DOWN);
+    B::cmd(lines, ID_L_TRANSPOSE);
+    B::cmd(lines, ID_L_NOEMPTY);
+    B::cmd(lines, ID_L_RM_BLANK);
+    B::cmd(lines, ID_L_INS_ABOVE);
+    B::cmd(lines, ID_L_INS_BELOW);
+    B::cmd(lines, ID_L_REVERSE);
+    B::cmd(lines, ID_L_RANDOM);
     B::sep(lines);
-    B::add(lines, ID_L_CUT, "Cut Current Line\tCtrl+L");
-    B::add(lines, ID_L_COPY, "Copy Current Line\tCtrl+Shift+X");
-    B::add(lines, ID_L_DEL, "Delete Current Line\tCtrl+Shift+L");
+    B::cmd(lines, ID_L_CUT);
+    B::cmd(lines, ID_L_COPY);
+    B::cmd(lines, ID_L_DEL);
     B::sep(lines);
-    B::add(lines, ID_L_SORT_ASC, "Sort Lines Lexicographically Ascending");
-    B::add(lines, ID_L_SORT_DESC, "Sort Lines Lexicographically Descending");
-    B::add(lines, ID_L_SORT_NOCASE_ASC, "Sort Lines Lexicographically Ascending Ignoring Case");
-    B::add(lines, ID_L_SORT_NOCASE_DESC, "Sort Lines Lexicographically Descending Ignoring Case");
-    B::add(lines, ID_L_SORT_INT_ASC, "Sort Lines As Integers Ascending");
-    B::add(lines, ID_L_SORT_INT_DESC, "Sort Lines As Integers Descending");
-    B::add(lines, ID_L_SORT_COMMA_ASC, "Sort Lines As Decimals (Comma) Ascending");
-    B::add(lines, ID_L_SORT_COMMA_DESC, "Sort Lines As Decimals (Comma) Descending");
-    B::add(lines, ID_L_SORT_DOT_ASC, "Sort Lines As Decimals (Dot) Ascending");
-    B::add(lines, ID_L_SORT_DOT_DESC, "Sort Lines As Decimals (Dot) Descending");
+    B::cmd(lines, ID_L_SORT_ASC);
+    B::cmd(lines, ID_L_SORT_DESC);
+    B::cmd(lines, ID_L_SORT_NOCASE_ASC);
+    B::cmd(lines, ID_L_SORT_NOCASE_DESC);
+    B::cmd(lines, ID_L_SORT_INT_ASC);
+    B::cmd(lines, ID_L_SORT_INT_DESC);
+    B::cmd(lines, ID_L_SORT_COMMA_ASC);
+    B::cmd(lines, ID_L_SORT_COMMA_DESC);
+    B::cmd(lines, ID_L_SORT_DOT_ASC);
+    B::cmd(lines, ID_L_SORT_DOT_DESC);
     B::submenu(edit, "&Line Operations", lines);
 
     let comment = B::popup();
-    B::add(comment, ID_COMMENT, "&Toggle Single Line Comment\tCtrl+Q");
-    B::add(comment, ID_CMT_LINE, "Single Line &Comment\tCtrl+K");
-    B::add(comment, ID_UNCMT_LINE, "Single Line &Uncomment\tCtrl+Shift+K");
-    B::add(comment, ID_CMT_BLOCK, "&Block Comment\tCtrl+Shift+Q");
-    B::add(comment, ID_UNCMT_BLOCK, "Block Uncomment\tCtrl+Shift+R");
+    B::cmd(comment, ID_COMMENT);
+    B::cmd(comment, ID_CMT_LINE);
+    B::cmd(comment, ID_UNCMT_LINE);
+    B::cmd(comment, ID_CMT_BLOCK);
+    B::cmd(comment, ID_UNCMT_BLOCK);
     B::submenu(edit, "Comment/Uncomment", comment);
 
     let complete = B::popup();
-    B::add(complete, ID_AC_FUNC, "Function Completion\tCtrl+Space");
-    B::add(complete, ID_AC_WORD, "Word Completion\tCtrl+Enter");
-    B::add(complete, ID_AC_HINT, "Function Parameters Hint\tCtrl+Shift+Space");
-    B::add(complete, ID_AC_PATH, "Path Completion\tCtrl+Alt+Space");
+    B::cmd(complete, ID_AC_FUNC);
+    B::cmd(complete, ID_AC_WORD);
+    B::cmd(complete, ID_AC_HINT);
+    B::cmd(complete, ID_AC_PATH);
     B::submenu(edit, "Auto-Completion", complete);
 
     let eol_sub = eol_menu();
     B::submenu(edit, "EOL Conversion", eol_sub);
 
     let blank = B::popup();
-    B::add(blank, ID_L_TRIM, "Trim Trailing Space");
-    B::add(blank, ID_B_TRIM_LEAD, "Trim Leading Space");
-    B::add(blank, ID_B_TRIM_BOTH, "Trim Leading and Trailing Space");
-    B::add(blank, ID_B_EOL_SPACE, "EOL to Space");
-    B::add(blank, ID_B_UNNECESSARY, "Remove Unnecessary Blank and EOL");
+    B::cmd(blank, ID_L_TRIM);
+    B::cmd(blank, ID_B_TRIM_LEAD);
+    B::cmd(blank, ID_B_TRIM_BOTH);
+    B::cmd(blank, ID_B_EOL_SPACE);
+    B::cmd(blank, ID_B_UNNECESSARY);
     B::sep(blank);
-    B::add(blank, ID_B_TAB_SPACE, "TAB to Space");
-    B::add(blank, ID_B_SPACE_TAB_ALL, "Space to TAB (All)");
-    B::add(blank, ID_B_SPACE_TAB_LEAD, "Space to TAB (Leading)");
+    B::cmd(blank, ID_B_TAB_SPACE);
+    B::cmd(blank, ID_B_SPACE_TAB_ALL);
+    B::cmd(blank, ID_B_SPACE_TAB_LEAD);
     B::submenu(edit, "Blank Operations", blank);
 
     let paste_special = B::popup();
-    B::add(paste_special, ID_PS_HTML, "Paste HTML Content");
-    B::add(paste_special, ID_PS_RTF, "Paste RTF Content");
+    B::cmd(paste_special, ID_PS_HTML);
+    B::cmd(paste_special, ID_PS_RTF);
     B::sep(paste_special);
-    B::add(paste_special, ID_PS_COPY_BIN, "Copy Binary Content");
-    B::add(paste_special, ID_PS_CUT_BIN, "Cut Binary Content");
-    B::add(paste_special, ID_PS_PASTE_BIN, "Paste Binary Content");
+    B::cmd(paste_special, ID_PS_COPY_BIN);
+    B::cmd(paste_special, ID_PS_CUT_BIN);
+    B::cmd(paste_special, ID_PS_PASTE_BIN);
     B::submenu(edit, "Paste Special", paste_special);
 
     let on_selection = B::popup();
-    B::add(on_selection, ID_SEL_OPEN, "Open File");
-    B::add(on_selection, ID_SEL_FOLDER, "Open Containing Folder");
-    B::add(on_selection, ID_SEL_SEARCH, "Search on Internet");
+    B::cmd(on_selection, ID_SEL_OPEN);
+    B::cmd(on_selection, ID_SEL_FOLDER);
+    B::cmd(on_selection, ID_SEL_SEARCH);
     let engine = B::popup();
     for (i, (name, _)) in edit::SEARCH_ENGINES.iter().enumerate() {
         B::add(engine, ID_ENGINE_BASE + i, name);
@@ -332,32 +340,32 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::submenu(edit, "On Selection", on_selection);
     B::sep(edit);
 
-    B::add(edit, ID_COLUMN_MODE, "Column Mode...");
-    B::add(edit, ID_COLUMN_EDITOR, "Column &Editor...\tAlt+C");
-    B::add(edit, ID_CHAR_PANEL, "Character Panel");
-    B::add(edit, ID_CLIP_HISTORY, "Clipboard History");
+    B::cmd(edit, ID_COLUMN_MODE);
+    B::cmd(edit, ID_COLUMN_EDITOR);
+    B::cmd(edit, ID_CHAR_PANEL);
+    B::cmd(edit, ID_CLIP_HISTORY);
     B::sep(edit);
-    B::add(edit, ID_READONLY, "Set Read-Only");
-    B::add(edit, ID_CLEAR_RO, "Clear Read-Only Flag");
+    B::cmd(edit, ID_READONLY);
+    B::cmd(edit, ID_CLEAR_RO);
 
     let search = B::popup();
-    B::add(search, ID_FIND, "&Find...\tCtrl+F");
-    B::add(search, ID_FIF, "Find in Files...\tCtrl+Shift+F");
-    B::add(search, ID_FINDNEXT, "Find &Next\tF3");
-    B::add(search, ID_FINDPREV, "Find &Previous\tShift+F3");
-    B::add(search, ID_SEL_FIND_NEXT, "Select and Find Next\tCtrl+F3");
-    B::add(search, ID_SEL_FIND_PREV, "Select and Find Previous\tCtrl+Shift+F3");
-    B::add(search, ID_VOL_NEXT, "Find (Volatile) Next\tCtrl+Alt+F3");
-    B::add(search, ID_VOL_PREV, "Find (Volatile) Previous\tCtrl+Alt+Shift+F3");
-    B::add(search, ID_REPLACE, "&Replace...\tCtrl+H");
-    B::add(search, ID_INCR, "Incremental Search\tCtrl+Alt+I");
-    B::add(search, ID_RESULTS, "Search Results Window\tF7");
-    B::add(search, ID_NEXT_RESULT, "Next Search Result\tF4");
-    B::add(search, ID_PREV_RESULT, "Previous Search Result\tShift+F4");
-    B::add(search, ID_GOTO, "&Go to...\tCtrl+G");
-    B::add(search, ID_BRACE_GOTO, "Go to Matching Brace\tCtrl+B");
-    B::add(search, ID_BRACE_SEL, "Select All Between Matching Braces\tCtrl+Alt+B");
-    B::add(search, ID_MARK, "&Mark...\tCtrl+M");
+    B::cmd(search, ID_FIND);
+    B::cmd(search, ID_FIF);
+    B::cmd(search, ID_FINDNEXT);
+    B::cmd(search, ID_FINDPREV);
+    B::cmd(search, ID_SEL_FIND_NEXT);
+    B::cmd(search, ID_SEL_FIND_PREV);
+    B::cmd(search, ID_VOL_NEXT);
+    B::cmd(search, ID_VOL_PREV);
+    B::cmd(search, ID_REPLACE);
+    B::cmd(search, ID_INCR);
+    B::cmd(search, ID_RESULTS);
+    B::cmd(search, ID_NEXT_RESULT);
+    B::cmd(search, ID_PREV_RESULT);
+    B::cmd(search, ID_GOTO);
+    B::cmd(search, ID_BRACE_GOTO);
+    B::cmd(search, ID_BRACE_SEL);
+    B::cmd(search, ID_MARK);
     B::sep(search);
     let slot_menu = |title: &str, base: usize, prefix: &str, suffix: &str, extra: Option<&str>| {
         let m = B::popup();
@@ -377,25 +385,25 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     slot_menu("Copy Styled Text", ID_COPY_STYLED_BASE, "", " Style", Some("All Styles"));
     B::sep(search);
     let bm = B::popup();
-    B::add(bm, ID_BM_TOGGLE, "&Toggle Bookmark\tCtrl+F2");
-    B::add(bm, ID_BM_NEXT, "&Next Bookmark\tF2");
-    B::add(bm, ID_BM_PREV, "&Previous Bookmark\tShift+F2");
-    B::add(bm, ID_BM_CLEAR, "&Clear All Bookmarks");
-    B::add(bm, ID_BM_CUT, "Cut Bookmarked Lines");
-    B::add(bm, ID_BM_COPY, "Copy Bookmarked Lines");
-    B::add(bm, ID_BM_PASTE, "Paste to (Replace) Bookmarked Lines");
-    B::add(bm, ID_BM_DELETE, "Remove Bookmarked Lines");
-    B::add(bm, ID_BM_DELETE_UNMARKED, "Remove Non-Bookmarked Lines");
-    B::add(bm, ID_BM_INVERT, "Inverse Bookmark");
+    B::cmd(bm, ID_BM_TOGGLE);
+    B::cmd(bm, ID_BM_NEXT);
+    B::cmd(bm, ID_BM_PREV);
+    B::cmd(bm, ID_BM_CLEAR);
+    B::cmd(bm, ID_BM_CUT);
+    B::cmd(bm, ID_BM_COPY);
+    B::cmd(bm, ID_BM_PASTE);
+    B::cmd(bm, ID_BM_DELETE);
+    B::cmd(bm, ID_BM_DELETE_UNMARKED);
+    B::cmd(bm, ID_BM_INVERT);
     B::submenu(search, "&Bookmark", bm);
     B::sep(search);
-    B::add(search, ID_FIND_CHARS, "Find characters in range...");
+    B::cmd(search, ID_FIND_CHARS);
 
     let view = B::popup();
-    B::add(view, ID_ON_TOP, "Always on Top");
-    B::add(view, ID_FULLSCREEN, "Toggle Full Screen Mode\tF11");
-    B::add(view, ID_POSTIT, "Post-It\tF12");
-    B::add(view, ID_DISTRACTION, "Distraction Free Mode");
+    B::cmd(view, ID_ON_TOP);
+    B::cmd(view, ID_FULLSCREEN);
+    B::cmd(view, ID_POSTIT);
+    B::cmd(view, ID_DISTRACTION);
     B::sep(view);
     let browsers = B::popup();
     for (i, (name, _)) in BROWSERS.iter().enumerate() {
@@ -404,44 +412,44 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::submenu(view, "View Current File in", browsers);
     B::sep(view);
     let sym = B::popup();
-    B::add(sym, ID_SYM_WS, "Show Space and Tab");
-    B::add(sym, ID_SYM_EOL, "Show End of Line");
-    B::add(sym, ID_SYM_NONPRINT, "Show Non-Printing Characters");
-    B::add(sym, ID_SYM_CTRL, "Show Control Characters && Unicode EOL");
-    B::add(sym, ID_SYM_ALL, "Show All Characters");
+    B::cmd(sym, ID_SYM_WS);
+    B::cmd(sym, ID_SYM_EOL);
+    B::cmd(sym, ID_SYM_NONPRINT);
+    B::cmd(sym, ID_SYM_CTRL);
+    B::cmd(sym, ID_SYM_ALL);
     B::sep(sym);
-    B::add(sym, ID_SYM_INDENT, "Show Indent Guide");
-    B::add(sym, ID_SYM_WRAP, "Show Wrap Symbol");
+    B::cmd(sym, ID_SYM_INDENT);
+    B::cmd(sym, ID_SYM_WRAP);
     B::submenu(view, "Show Symbol", sym);
     let zoom = B::popup();
-    B::add(zoom, ID_ZOOMIN, "Zoom In\tCtrl+Num +");
-    B::add(zoom, ID_ZOOMOUT, "Zoom Out\tCtrl+Num -");
-    B::add(zoom, ID_ZOOMRESET, "Restore Default Zoom\tCtrl+Num /");
+    B::cmd(zoom, ID_ZOOMIN);
+    B::cmd(zoom, ID_ZOOMOUT);
+    B::cmd(zoom, ID_ZOOMRESET);
     B::submenu(view, "Zoom", zoom);
     let moveclone = B::popup();
-    B::add_state(moveclone, ID_MOVE_OTHER_VIEW, "Move to Other View", false);
-    B::add_state(moveclone, ID_CLONE_OTHER_VIEW, "Clone to Other View", false);
-    B::add(moveclone, ID_MOVE_NEW_INSTANCE, "Move to New Instance");
-    B::add(moveclone, ID_OPEN_NEW_INSTANCE, "Open in New Instance");
+    B::cmd_state(moveclone, ID_MOVE_OTHER_VIEW, false);
+    B::cmd_state(moveclone, ID_CLONE_OTHER_VIEW, false);
+    B::cmd(moveclone, ID_MOVE_NEW_INSTANCE);
+    B::cmd(moveclone, ID_OPEN_NEW_INSTANCE);
     B::submenu(view, "Move/Clone Current Document", moveclone);
     let tab = B::popup();
     for i in 0..9 {
         B::add(tab, ID_TAB_BASE + i, &format!("Tab {}", i + 1));
     }
     B::sep(tab);
-    B::add(tab, ID_NEXT_TAB, "Next Tab\tCtrl+PgDn");
-    B::add(tab, ID_PREV_TAB, "Previous Tab\tCtrl+PgUp");
-    B::add(tab, ID_MOVE_TAB_FWD, "Move Tab Forward\tCtrl+Shift+PgDn");
-    B::add(tab, ID_MOVE_TAB_BACK, "Move Tab Backward\tCtrl+Shift+PgUp");
+    B::cmd(tab, ID_NEXT_TAB);
+    B::cmd(tab, ID_PREV_TAB);
+    B::cmd(tab, ID_MOVE_TAB_FWD);
+    B::cmd(tab, ID_MOVE_TAB_BACK);
     B::submenu(view, "Tab", tab);
-    B::add(view, ID_WRAP, "Word wrap");
-    B::add_state(view, ID_FOCUS_OTHER, "Focus on Another View\tF8", false);
-    B::add(view, ID_HIDE_LINES, "Hide Lines\tAlt+H");
+    B::cmd(view, ID_WRAP);
+    B::cmd_state(view, ID_FOCUS_OTHER, false);
+    B::cmd(view, ID_HIDE_LINES);
     B::sep(view);
-    B::add(view, ID_FOLD_ALL, "Fold All\tAlt+0");
-    B::add(view, ID_UNFOLD_ALL, "Unfold All\tAlt+Shift+0");
-    B::add(view, ID_FOLD_CUR, "Fold Current Level\tCtrl+Alt+F");
-    B::add(view, ID_UNFOLD_CUR, "Unfold Current Level\tCtrl+Alt+Shift+F");
+    B::cmd(view, ID_FOLD_ALL);
+    B::cmd(view, ID_UNFOLD_ALL);
+    B::cmd(view, ID_FOLD_CUR);
+    B::cmd(view, ID_UNFOLD_CUR);
     let fold_level = B::popup();
     let unfold_level = B::popup();
     for i in 0..8 {
@@ -451,33 +459,33 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::submenu(view, "Fold Level", fold_level);
     B::submenu(view, "Unfold Level", unfold_level);
     B::sep(view);
-    B::add(view, ID_SUMMARY, "Summary...");
+    B::cmd(view, ID_SUMMARY);
     B::sep(view);
     let projects = B::popup();
     for i in 0..3 {
         B::add_state(projects, ID_PROJECT_BASE + i, &format!("Project Panel {}", i + 1), false);
     }
     B::submenu(view, "Project Panels", projects);
-    B::add(view, ID_WORKSPACE_TOGGLE, "Folder as Workspace");
-    B::add(view, ID_MINIMAP, "Document Map");
-    B::add(view, ID_DOC_LIST, "Document List");
-    B::add(view, ID_FUNC_LIST, "Function List");
+    B::cmd(view, ID_WORKSPACE_TOGGLE);
+    B::cmd(view, ID_MINIMAP);
+    B::cmd(view, ID_DOC_LIST);
+    B::cmd(view, ID_FUNC_LIST);
     B::sep(view);
-    B::add_state(view, ID_SYNC_V, "Synchronize Vertical Scrolling", false);
-    B::add_state(view, ID_SYNC_H, "Synchronize Horizontal Scrolling", false);
+    B::cmd_state(view, ID_SYNC_V, false);
+    B::cmd_state(view, ID_SYNC_H, false);
     B::sep(view);
-    B::add(view, ID_RTL, "Text Direction RTL\tCtrl+Alt+R");
-    B::add(view, ID_LTR, "Text Direction LTR\tCtrl+Alt+L");
+    B::cmd(view, ID_RTL);
+    B::cmd(view, ID_LTR);
     B::sep(view);
-    B::add(view, ID_MONITOR, "Monitoring (tail -f)");
-    B::add(view, ID_LOG_FOLLOW, "Log Follow (.log / .out / .err)");
+    B::cmd(view, ID_MONITOR);
+    B::cmd(view, ID_LOG_FOLLOW);
     B::sep(view);
     // Note++ extras that Notepad++ keeps elsewhere.
-    B::add(view, ID_PREVIEW, "Live Preview\tCtrl+Shift+V");
-    B::add(view, ID_MD_TOOLBAR, "Markdown Toolbar");
-    B::add(view, ID_THEME, "Dark mode");
-    B::add(view, ID_PALETTE, "Command Palette...\tCtrl+Shift+P");
-    B::add(view, ID_QUICKOPEN, "Quick Open...\tCtrl+P");
+    B::cmd(view, ID_PREVIEW);
+    B::cmd(view, ID_MD_TOOLBAR);
+    B::cmd(view, ID_THEME);
+    B::cmd(view, ID_PALETTE);
+    B::cmd(view, ID_QUICKOPEN);
 
     let enc = B::popup();
     for (i, e) in ENCODE_IN.iter().enumerate() {
@@ -506,7 +514,7 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
 
     // Languages: "Normal Text", then one submenu per initial letter.
     let lang = B::popup();
-    B::add(lang, ID_LANG_BASE, "Normal Text");
+    B::cmd(lang, ID_LANG_BASE);
     let mut by_letter: std::collections::BTreeMap<char, Vec<usize>> = std::collections::BTreeMap::new();
     for (i, (label, _)) in LANGUAGES.iter().enumerate().skip(1) {
         by_letter.entry(label.chars().next().unwrap_or('#').to_ascii_uppercase()).or_default().push(i);
@@ -521,19 +529,19 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     }
 
     let help = B::popup();
-    B::add(help, ID_ABOUT, "&About Note++");
+    B::cmd(help, ID_ABOUT);
     B::sep(help);
-    B::add(help, ID_UPDATE_CHECK, "Check for Updates &Now");
-    B::add(help, ID_UPDATE_AUTO, "Check for Updates &Automatically");
+    B::cmd(help, ID_UPDATE_CHECK);
+    B::cmd(help, ID_UPDATE_AUTO);
 
     // Settings
     let settings_menu = B::popup();
-    B::add(settings_menu, ID_PREFS, "Preferences...");
-    B::add(settings_menu, ID_STYLE_CFG, "Style Configurator...");
-    B::add(settings_menu, ID_SHORTCUTS, "Shortcut Mapper...");
+    B::cmd(settings_menu, ID_PREFS);
+    B::cmd(settings_menu, ID_STYLE_CFG);
+    B::cmd(settings_menu, ID_SHORTCUTS);
     B::sep(settings_menu);
     let themes = B::popup();
-    B::add(themes, ID_PRESET_BASE, "Default (light)");
+    B::cmd(themes, ID_PRESET_BASE);
     B::add(themes, ID_PRESET_BASE + 1, "Default (dark)");
     B::sep(themes);
     for (i, p) in settings::PRESETS.iter().enumerate() {
@@ -541,12 +549,12 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     }
     B::submenu(settings_menu, "Themes", themes);
     let import = B::popup();
-    B::add(import, ID_IMPORT_THEME, "Import style theme(s)...");
-    B::add(import, ID_EXPORT_THEME, "Export style theme...");
+    B::cmd(import, ID_IMPORT_THEME);
+    B::cmd(import, ID_EXPORT_THEME);
     B::submenu(settings_menu, "Import", import);
     B::sep(settings_menu);
-    B::add(settings_menu, ID_ENC_SETTINGS, "Encryption...");
-    B::add(settings_menu, ID_EDIT_CONTEXT, "Edit Popup ContextMenu");
+    B::cmd(settings_menu, ID_ENC_SETTINGS);
+    B::cmd(settings_menu, ID_EDIT_CONTEXT);
 
     // Tools: one submenu per digest, then the text tools.
     let tools = B::popup();
@@ -559,20 +567,20 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     }
     B::sep(tools);
     let text_tools = B::popup();
-    B::add(text_tools, ID_B64_ENC, "Base64 Encode");
-    B::add(text_tools, ID_B64_DEC, "Base64 Decode");
+    B::cmd(text_tools, ID_B64_ENC);
+    B::cmd(text_tools, ID_B64_DEC);
     B::sep(text_tools);
-    B::add(text_tools, ID_URL_ENC, "URL Encode");
-    B::add(text_tools, ID_URL_DEC, "URL Decode");
+    B::cmd(text_tools, ID_URL_ENC);
+    B::cmd(text_tools, ID_URL_DEC);
     B::sep(text_tools);
-    B::add(text_tools, ID_JSON_PRETTY, "JSON: Pretty-print");
-    B::add(text_tools, ID_JSON_MIN, "JSON: Minify");
-    B::add(text_tools, ID_XML_PRETTY, "XML: Pretty-print");
-    B::add(text_tools, ID_XML_MIN, "XML: Minify");
+    B::cmd(text_tools, ID_JSON_PRETTY);
+    B::cmd(text_tools, ID_JSON_MIN);
+    B::cmd(text_tools, ID_XML_PRETTY);
+    B::cmd(text_tools, ID_XML_MIN);
     B::submenu(tools, "Text Tools", text_tools);
     B::sep(tools);
-    B::add(tools, ID_PASSWORDS, "Passwords (Bitwarden)...");
-    B::add(tools, ID_HTTP_SEND, "Send HTTP Request\tCtrl+Enter (.http / .rest files)");
+    B::cmd(tools, ID_PASSWORDS);
+    B::cmd(tools, ID_HTTP_SEND);
 
     // Window: Sort By, Windows..., then the open documents (filled as the menu opens).
     let window = B::popup();
@@ -594,3 +602,42 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     (bar, menus)
 }
 
+
+#[cfg(test)]
+mod golden {
+    use super::*;
+
+    fn dump(spec: &MenuSpec, depth: usize, out: &mut String) {
+        for e in spec.entries() {
+            let pad = "  ".repeat(depth);
+            match e {
+                MenuEntry::Item { id, label, enabled, check } => out.push_str(&format!("{pad}{id}\t{label}\t{enabled}\t{check:?}\n")),
+                MenuEntry::Sep => out.push_str(&format!("{pad}-\n")),
+                MenuEntry::Sub { label, menu } => {
+                    out.push_str(&format!("{pad}> {label}\n"));
+                    dump(menu, depth + 1, out);
+                }
+            }
+        }
+    }
+
+    /// The whole menu bar as text. Menus now come from the command registry; this keeps them from changing by accident.
+    /// To accept an intended change, delete `tests/menus.golden` and run the tests once.
+    #[test]
+    fn the_menu_bar_matches_its_snapshot() {
+        let (bar, _) = build_menus();
+        let mut text = String::new();
+        for (title, m) in &bar {
+            text.push_str(&format!("# {title}\n"));
+            dump(&spec(*m), 0, &mut text);
+        }
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("menus.golden");
+        match std::fs::read_to_string(&path) {
+            Ok(old) => assert_eq!(old.replace("\r\n", "\n"), text, "menus changed; delete {} to accept", path.display()),
+            Err(_) => {
+                let _ = std::fs::create_dir_all(path.parent().unwrap());
+                std::fs::write(&path, &text).unwrap();
+            }
+        }
+    }
+}

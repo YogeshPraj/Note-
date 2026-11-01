@@ -22,7 +22,8 @@ const SEP_W: i32 = 8;
 /// What goes in the row.
 pub enum Item {
     Separator,
-    Button { cmd: usize, tip: &'static str, icon: Option<Bitmap> },
+    /// aded is the icon shown while the command is not available (when absent the normal icon is used).
+    Button { cmd: usize, tip: String, icon: Option<Bitmap>, faded: Option<Bitmap> },
 }
 
 /// A coloured notice at the right edge that acts like a button.
@@ -69,6 +70,7 @@ struct State {
     items: Vec<Item>,
     rects: Vec<Rect>,
     checked: Vec<usize>,
+    disabled: Vec<usize>,
     pill: Option<(Pill, Rect)>,
     pointer: Pointer,
     handler: Option<Rc<dyn Fn(ToolEvent)>>,
@@ -76,7 +78,7 @@ struct State {
 
 impl State {
     fn button_at(&self, x: i32, y: i32) -> Option<usize> {
-        self.items.iter().zip(&self.rects).position(|(it, r)| matches!(it, Item::Button { .. }) && r.has(x, y))
+        self.items.iter().zip(&self.rects).position(|(it, r)| matches!(it, Item::Button { cmd, .. } if !self.disabled.contains(cmd)) && r.has(x, y))
     }
 }
 
@@ -98,6 +100,7 @@ impl ToolBar {
             rects: layout(&kinds),
             items,
             checked: Vec::new(),
+            disabled: Vec::new(),
             pill: None,
             pointer: Pointer::default(),
             handler: None,
@@ -122,6 +125,23 @@ impl ToolBar {
 
     pub fn set_pill(&self, pill: Option<Pill>) {
         self.st.borrow_mut().pill = pill.map(|p| (p, Rect::default()));
+        self.panel.refresh(false, None);
+    }
+
+    /// A disabled button is drawn faded and ignores the pointer.
+    pub fn set_enabled(&self, cmd: usize, on: bool) {
+        {
+            let mut s = self.st.borrow_mut();
+            let off = s.disabled.contains(&cmd);
+            if on != off {
+                return;
+            }
+            if on {
+                s.disabled.retain(|c| *c != cmd);
+            } else {
+                s.disabled.push(cmd);
+            }
+        }
         self.panel.refresh(false, None);
     }
 
@@ -159,11 +179,11 @@ impl ToolBar {
                 let mut s = st.borrow_mut();
                 let hit = s.button_at(x, y);
                 let changed = s.pointer.hover(hit);
-                let tip = hit.and_then(|i| if let Item::Button { tip, .. } = &s.items[i] { Some(*tip) } else { None });
+                let tip = hit.and_then(|i| if let Item::Button { tip, .. } = &s.items[i] { Some(tip.clone()) } else { None });
                 (changed, tip)
             };
             if changed {
-                p.set_tooltip(tip.unwrap_or(""));
+                p.set_tooltip(tip.as_deref().unwrap_or(""));
                 p.refresh(false, None);
             }
         });
@@ -223,8 +243,11 @@ fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
     for (i, (item, r)) in s.items.iter().zip(&s.rects).enumerate() {
         match item {
             Item::Separator => fill(&dc, Rect::new(r.l + 3, r.t + 6, r.l + 4, r.b - 6), mix(lk.base(), lk.ink(), 0x40)),
-            Item::Button { cmd, icon, .. } => {
-                if s.pointer.down() == Some(i) {
+            Item::Button { cmd, icon, faded, .. } => {
+                let off = s.disabled.contains(cmd);
+                if off {
+                    // no hover or press effect on a command that cannot run
+                } else if s.pointer.down() == Some(i) {
                     wash(&dc, *r, mix(lk.base(), lk.ink(), 0x30), 0.0);
                 } else if s.pointer.hot() == Some(i) {
                     wash(&dc, *r, mix(lk.base(), lk.ink(), 0x18), 0.0);
@@ -233,7 +256,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
                     fill(&dc, *r, mix(lk.base(), ACCENT, 0x40));
                     outline(&dc, *r, mix(lk.base(), ACCENT, 0xB0));
                 }
-                if let Some(b) = icon {
+                if let Some(b) = if off { faded.as_ref().or(icon.as_ref()) } else { icon.as_ref() } {
                     dc.draw_bitmap(b, r.l + (BTN - ICON) / 2, r.t + (BTN - ICON) / 2, true);
                 }
             }

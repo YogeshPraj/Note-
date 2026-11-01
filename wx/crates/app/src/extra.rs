@@ -48,7 +48,7 @@ pub fn context_entries(text: &str) -> Vec<Option<(&'static str, usize, &'static 
             if l == "-" {
                 Some(None)
             } else {
-                c::PALETTE_COMMANDS.iter().find(|(name, _, _)| name.eq_ignore_ascii_case(l)).map(|(n, id, k)| Some((*n, *id, *k)))
+                notepp_core::registry::palette().find(|s| s.palette.eq_ignore_ascii_case(l)).map(|s| Some((s.palette, s.id, s.hint())))
             }
         })
         .collect()
@@ -61,12 +61,11 @@ fn context_names(text: &str) -> Vec<String> {
 fn mapper_rows(s: &notepp_core::settings::Settings) -> Vec<dialogs::MapRow> {
     let native = [c::ID_UNDO, c::ID_REDO, c::ID_SELALL, c::ID_CUT, c::ID_COPY, c::ID_PASTE];
     let mut seen = std::collections::HashSet::new();
-    c::PALETTE_COMMANDS
-        .iter()
-        .filter(|(_, id, _)| !native.contains(id) && seen.insert(*id))
-        .map(|(name, id, default)| {
-            let current = s.shortcuts.get(&id.to_string()).cloned().unwrap_or_else(|| default.to_string());
-            dialogs::MapRow { id: *id, name: name.to_string(), default: default.to_string(), current }
+    notepp_core::registry::palette()
+        .filter(|c| !native.contains(&c.id) && seen.insert(c.id))
+        .map(|c| {
+            let current = s.shortcuts.get(&c.id.to_string()).cloned().unwrap_or_else(|| c.hint().to_string());
+            dialogs::MapRow { id: c.id, name: c.palette.to_string(), default: c.hint().to_string(), current }
         })
         .collect()
 }
@@ -657,7 +656,7 @@ impl CommandHandler<App> for ExtraCommands {
             c::ID_EDIT_CONTEXT => {
                 let p = ensure_context_menu_file();
                 let current = context_names(&std::fs::read_to_string(&p).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.into()));
-                let all = c::PALETTE_COMMANDS.iter().map(|(n, _, _)| n.to_string()).collect();
+                let all = notepp_core::registry::palette().map(|c| c.palette.to_string()).collect();
                 if let Some((menu, as_text)) = dialogs::context_menu_editor(&app.frame, all, current.clone(), context_names(DEFAULT_CONTEXT_MENU)) {
                     if menu != current {
                         let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");

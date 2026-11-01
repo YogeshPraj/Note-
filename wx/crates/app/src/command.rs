@@ -4,6 +4,8 @@
 
 use std::rc::Rc;
 
+use notepp_core::registry::{self, CommandState};
+
 use crate::app::App;
 use crate::extra::ExtraCommands;
 use crate::handlers::{AppearanceCommands, HelpCommands, ViewCommands};
@@ -42,6 +44,59 @@ impl<C> CommandBus<C> {
     }
 }
 
+/// Why a command did not run. The text is what the status bar shows.
+#[derive(Debug)]
+pub enum AppError {
+    /// The command exists but its enabled rule says not now (nothing selected, nothing to undo, ...).
+    Disabled(String),
+    /// The command has no handler in this build.
+    NotAvailable(usize),
+    Core(notepp_core::error::Error),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::Disabled(name) => write!(f, "{name} is not available right now"),
+            AppError::NotAvailable(_) => f.write_str("This command is not available in this build yet"),
+            AppError::Core(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<notepp_core::error::Error> for AppError {
+    fn from(e: notepp_core::error::Error) -> Self {
+        AppError::Core(e)
+    }
+}
+
+/// Run a command by id. Everything that can start an action goes through here: it checks the command's enabled
+/// rule from the registry, then hands it to the core and the registered handlers.
+pub fn execute(app: &mut App, id: usize) -> Result<(), AppError> {
+    let state = CommandState::of(&app.ws);
+    if !registry::is_enabled(id, &state) {
+        let name = registry::spec(id).map_or_else(String::new, |s| s.tooltip());
+        return Err(AppError::Disabled(name));
+    }
+    app.dispatch_command(id)
+}
+impl App {
+    /// Enable or grey the menu items and toolbar buttons whose registry rule depends on the editor's state.
+    pub fn sync_command_state(&mut self) {
+        let state = CommandState::of(&self.ws);
+        if self.cmd_state == Some(state) {
+            return;
+        }
+        self.cmd_state = Some(state);
+        for spec in registry::state_dependent() {
+            let on = (spec.enabled)(&state);
+            self.menubar.enable_item(crate::platform::wx::to_i32(spec.id), on);
+            self.chrome.set_enabled(spec.id, on);
+        }
+    }
+}
 impl CommandBus<App> {
     /// The handlers of the shipped application, in priority order.
     pub fn standard() -> Rc<Self> {

@@ -1,0 +1,568 @@
+# File
+1001	&New	Ctrl+N	true	None
+1008	New &Whiteboard	true	None
+1002	&Open...	Ctrl+O	true	None
+> Open Containing &Folder
+  1101	&Explorer	true	None
+  1102	&cmd	true	None
+  1103	Folder as &Workspace	true	None
+1104	Open in &Default Viewer	true	None
+1105	Open Folder as &Workspace...	true	None
+1106	Reload from Dis&k	Ctrl+R	true	None
+1003	&Save	Ctrl+S	true	None
+1004	Save &As...	Ctrl+Alt+S	true	None
+1107	Save a Cop&y As...	true	None
+1005	Save A&ll	Ctrl+Shift+S	true	None
+1006	&Close	Ctrl+W	true	None
+1109	Close All	Ctrl+Shift+W	true	None
+> Close M&ultiple Documents
+  1110	Close All but Active Document	true	None
+  1111	Close All to the Left	true	None
+  1112	Close All to the Right	true	None
+  1113	Close All Unchanged	true	None
+1114	Move to Recycle &Bin	true	None
+-
+1115	Load Session...	true	None
+1116	Save Session...	true	None
+-
+> &Print
+  1117	Print &Preview / Print...	true	None
+  1118	Print No&w	true	None
+  1125	Page Se&tup...	true	None
+-
+1126	&Encrypt This File	true	None
+1127	Remove Encr&yption From This File	true	None
+-
+> &Recent Files
+  0	(no recent files)	false	None
+  -
+  1120	Open All Recent Files	false	None
+  10100	Empty Recent Files List	false	None
+1119	Restore Recent Closed File	Ctrl+Shift+T	false	None
+-
+1007	E&xit	Alt+F4	true	None
+# Edit
+2001	&Undo	Ctrl+Z or Alt+Backspace	true	None
+2002	&Redo	Ctrl+Y or Ctrl+Shift+Z	true	None
+-
+2003	Cu&t	Ctrl+X or Shift+DEL	true	None
+2004	&Copy	Ctrl+C or Ctrl+INS	true	None
+2005	&Paste	Ctrl+V or Shift+INS	true	None
+2201	&Delete	DEL	true	None
+2006	Select &All	Ctrl+A	true	None
+2202	Begin/End &Select	Ctrl+Shift+B	true	None
+2203	Begin/End Select in Column Mode	Alt+Shift+B	true	None
+-
+> In&sert
+  2210	Date Time (short version)	true	None
+  2211	Date Time (long version)	true	None
+  2212	Date Time (customized)	true	None
+> Copy to Clip&board
+  2220	Current Full File path to Clipboard	true	None
+  2221	Current Filename to Clipboard	true	None
+  2222	Current Dir. Path to Clipboard	true	None
+  -
+  2223	Copy All Filenames	true	None
+  2224	Copy All File Paths	true	None
+> &Indent
+  2230	&Increase Line Indent	Tab	true	None
+  2231	&Decrease Line Indent	Shift+Tab	true	None
+> Convert Case &to
+  2110	&UPPERCASE	Ctrl+Shift+U	true	None
+  2111	&lowercase	Ctrl+U	true	None
+  -
+  2240	&Proper Case	Alt+U	true	None
+  2241	Proper Case (blend)	Alt+Shift+U	true	None
+  2242	&Sentence case	Ctrl+Alt+U	true	None
+  2243	Sentence case (blend)	Ctrl+Alt+Shift+U	true	None
+  2244	i&NVERT cASE	true	None
+  2245	&ranDOm CasE	true	None
+> &Line Operations
+  2101	&Duplicate Current Line	Ctrl+D	true	None
+  2107	Remove Duplicate Lines	true	None
+  2250	Remove Consecutive Duplicate Lines	true	None
+  2251	S&plit Lines	Ctrl+I	true	None
+  2252	&Join Lines	Ctrl+J	true	None
+  2103	Move Up Current Line	Ctrl+Shift+Up	true	None
+  2104	Move Down Current Line	Ctrl+Shift+Down	true	None
+  2268	&Transpose Current Line	Ctrl+T	true	None
+  2108	Remove Empty Lines	true	None
+  2253	Remove Empty Lines (Containing Blank characters)	true	None
+  2254	Insert Blank Line Above Current	Ctrl+Alt+Enter	true	None
+  2255	Insert Blank Line Below Current	Ctrl+Alt+Shift+Enter	true	None
+  2256	Reverse Line Order	true	None
+  2257	Randomize Line Order	true	None
+  -
+  2266	Cut Current Line	Ctrl+L	true	None
+  2267	Copy Current Line	Ctrl+Shift+X	true	None
+  2102	Delete Current Line	Ctrl+Shift+L	true	None
+  -
+  2105	Sort Lines Lexicographically Ascending	true	None
+  2106	Sort Lines Lexicographically Descending	true	None
+  2258	Sort Lines Lexicographically Ascending Ignoring Case	true	None
+  2259	Sort Lines Lexicographically Descending Ignoring Case	true	None
+  2260	Sort Lines As Integers Ascending	true	None
+  2261	Sort Lines As Integers Descending	true	None
+  2264	Sort Lines As Decimals (Comma) Ascending	true	None
+  2265	Sort Lines As Decimals (Comma) Descending	true	None
+  2262	Sort Lines As Decimals (Dot) Ascending	true	None
+  2263	Sort Lines As Decimals (Dot) Descending	true	None
+> Comment/Uncomment
+  2112	&Toggle Single Line Comment	Ctrl+Q	true	None
+  2271	Single Line &Comment	Ctrl+K	true	None
+  2272	Single Line &Uncomment	Ctrl+Shift+K	true	None
+  2273	&Block Comment	Ctrl+Shift+Q	true	None
+  2274	Block Uncomment	Ctrl+Shift+R	true	None
+> Auto-Completion
+  2280	Function Completion	Ctrl+Space	true	None
+  2281	Word Completion	Ctrl+Enter	true	None
+  2282	Function Parameters Hint	Ctrl+Shift+Space	true	None
+  2283	Path Completion	Ctrl+Alt+Space	true	None
+> EOL Conversion
+  2010	Windows (CR LF)	true	Some(false)
+  2011	Unix (LF)	true	Some(false)
+  2012	Macintosh (CR)	true	Some(false)
+> Blank Operations
+  2109	Trim Trailing Space	true	None
+  2291	Trim Leading Space	true	None
+  2292	Trim Leading and Trailing Space	true	None
+  2293	EOL to Space	true	None
+  2294	Remove Unnecessary Blank and EOL	true	None
+  -
+  2295	TAB to Space	true	None
+  2296	Space to TAB (All)	true	None
+  2297	Space to TAB (Leading)	true	None
+> Paste Special
+  2300	Paste HTML Content	true	None
+  2301	Paste RTF Content	true	None
+  -
+  2302	Copy Binary Content	true	None
+  2303	Cut Binary Content	true	None
+  2304	Paste Binary Content	true	None
+> On Selection
+  2310	Open File	true	None
+  2311	Open Containing Folder	true	None
+  2312	Search on Internet	true	None
+  > Change Search Engine
+    2320	Google	true	Some(false)
+    2321	Bing	true	Some(false)
+    2322	DuckDuckGo	true	Some(false)
+    2323	Stack Overflow	true	Some(false)
+    2324	GitHub	true	Some(false)
+-
+2330	Column Mode...	true	None
+2331	Column &Editor...	Alt+C	true	None
+2332	Character Panel	true	Some(false)
+2333	Clipboard History	true	Some(false)
+-
+2334	Set Read-Only	true	Some(false)
+2335	Clear Read-Only Flag	true	None
+# Search
+5001	&Find...	Ctrl+F	true	None
+5006	Find in Files...	Ctrl+Shift+F	true	None
+5003	Find &Next	F3	true	None
+5004	Find &Previous	Shift+F3	true	None
+5011	Select and Find Next	Ctrl+F3	true	None
+5012	Select and Find Previous	Ctrl+Shift+F3	true	None
+5013	Find (Volatile) Next	Ctrl+Alt+F3	true	None
+5014	Find (Volatile) Previous	Ctrl+Alt+Shift+F3	true	None
+5002	&Replace...	Ctrl+H	true	None
+5015	Incremental Search	Ctrl+Alt+I	true	None
+5016	Search Results Window	F7	true	None
+5017	Next Search Result	F4	true	None
+5018	Previous Search Result	Shift+F4	true	None
+5005	&Go to...	Ctrl+G	true	None
+5019	Go to Matching Brace	Ctrl+B	true	None
+5020	Select All Between Matching Braces	Ctrl+Alt+B	true	None
+5007	&Mark...	Ctrl+M	true	None
+-
+> Style All Occurrences of Token
+  5030	Using 1st Style	true	None
+  5031	Using 2nd Style	true	None
+  5032	Using 3rd Style	true	None
+  5033	Using 4th Style	true	None
+  5034	Using 5th Style	true	None
+> Style One Token
+  5040	Using 1st Style	true	None
+  5041	Using 2nd Style	true	None
+  5042	Using 3rd Style	true	None
+  5043	Using 4th Style	true	None
+  5044	Using 5th Style	true	None
+> Clear Style
+  5050	Clear 1st Style	true	None
+  5051	Clear 2nd Style	true	None
+  5052	Clear 3rd Style	true	None
+  5053	Clear 4th Style	true	None
+  5054	Clear 5th Style	true	None
+  5055	Clear all Styles	true	None
+> Jump Up
+  5060	1st Style	true	None
+  5061	2nd Style	true	None
+  5062	3rd Style	true	None
+  5063	4th Style	true	None
+  5064	5th Style	true	None
+> Jump Down
+  5070	1st Style	true	None
+  5071	2nd Style	true	None
+  5072	3rd Style	true	None
+  5073	4th Style	true	None
+  5074	5th Style	true	None
+> Copy Styled Text
+  5080	1st Style	true	None
+  5081	2nd Style	true	None
+  5082	3rd Style	true	None
+  5083	4th Style	true	None
+  5084	5th Style	true	None
+  5085	All Styles	true	None
+-
+> &Bookmark
+  5101	&Toggle Bookmark	Ctrl+F2	true	None
+  5102	&Next Bookmark	F2	true	None
+  5103	&Previous Bookmark	Shift+F2	true	None
+  5104	&Clear All Bookmarks	true	None
+  5105	Cut Bookmarked Lines	true	None
+  5106	Copy Bookmarked Lines	true	None
+  5107	Paste to (Replace) Bookmarked Lines	true	None
+  5108	Remove Bookmarked Lines	true	None
+  5109	Remove Non-Bookmarked Lines	true	None
+  5110	Inverse Bookmark	true	None
+-
+5021	Find characters in range...	true	None
+# View
+3101	Always on Top	true	Some(false)
+3102	Toggle Full Screen Mode	F11	true	Some(false)
+3103	Post-It	F12	true	Some(false)
+3104	Distraction Free Mode	true	Some(false)
+-
+> View Current File in
+  3110	Firefox	true	None
+  3111	Chrome	true	None
+  3112	Edge	true	None
+-
+> Show Symbol
+  3120	Show Space and Tab	true	Some(false)
+  3121	Show End of Line	true	Some(false)
+  3122	Show Non-Printing Characters	true	None
+  3123	Show Control Characters && Unicode EOL	true	None
+  3124	Show All Characters	true	Some(false)
+  -
+  3125	Show Indent Guide	true	Some(false)
+  3126	Show Wrap Symbol	true	Some(false)
+> Zoom
+  3002	Zoom In	Ctrl+Num +	true	None
+  3003	Zoom Out	Ctrl+Num -	true	None
+  3004	Restore Default Zoom	Ctrl+Num /	true	None
+> Move/Clone Current Document
+  3132	Move to Other View	false	None
+  3133	Clone to Other View	false	None
+  3130	Move to New Instance	true	None
+  3131	Open in New Instance	true	None
+> Tab
+  3140	Tab 1	true	None
+  3141	Tab 2	true	None
+  3142	Tab 3	true	None
+  3143	Tab 4	true	None
+  3144	Tab 5	true	None
+  3145	Tab 6	true	None
+  3146	Tab 7	true	None
+  3147	Tab 8	true	None
+  3148	Tab 9	true	None
+  -
+  4001	Next Tab	Ctrl+PgDn	true	None
+  4002	Previous Tab	Ctrl+PgUp	true	None
+  3150	Move Tab Forward	Ctrl+Shift+PgDn	true	None
+  3151	Move Tab Backward	Ctrl+Shift+PgUp	true	None
+3001	Word wrap	true	Some(false)
+3160	Focus on Another View	F8	false	None
+3161	Hide Lines	Alt+H	true	None
+-
+3170	Fold All	Alt+0	true	None
+3171	Unfold All	Alt+Shift+0	true	None
+3172	Fold Current Level	Ctrl+Alt+F	true	None
+3173	Unfold Current Level	Ctrl+Alt+Shift+F	true	None
+> Fold Level
+  3180	Level 1	Alt+1	true	None
+  3181	Level 2	Alt+2	true	None
+  3182	Level 3	Alt+3	true	None
+  3183	Level 4	Alt+4	true	None
+  3184	Level 5	Alt+5	true	None
+  3185	Level 6	Alt+6	true	None
+  3186	Level 7	Alt+7	true	None
+  3187	Level 8	Alt+8	true	None
+> Unfold Level
+  3190	Level 1	Alt+Shift+1	true	None
+  3191	Level 2	Alt+Shift+2	true	None
+  3192	Level 3	Alt+Shift+3	true	None
+  3193	Level 4	Alt+Shift+4	true	None
+  3194	Level 5	Alt+Shift+5	true	None
+  3195	Level 6	Alt+Shift+6	true	None
+  3196	Level 7	Alt+Shift+7	true	None
+  3197	Level 8	Alt+Shift+8	true	None
+-
+3200	Summary...	true	None
+-
+> Project Panels
+  3201	Project Panel 1	false	None
+  3202	Project Panel 2	false	None
+  3203	Project Panel 3	false	None
+3007	Folder as Workspace	true	Some(false)
+3006	Document Map	true	Some(false)
+3206	Document List	true	Some(false)
+3207	Function List	true	Some(false)
+-
+3208	Synchronize Vertical Scrolling	false	None
+3209	Synchronize Horizontal Scrolling	false	None
+-
+3210	Text Direction RTL	Ctrl+Alt+R	true	None
+3211	Text Direction LTR	Ctrl+Alt+L	true	None
+-
+3212	Monitoring (tail -f)	true	Some(false)
+3213	Log Follow (.log / .out / .err)	true	Some(false)
+-
+5301	Live Preview	Ctrl+Shift+V	true	Some(false)
+5417	Markdown Toolbar	true	Some(false)
+3005	Dark mode	true	Some(false)
+5201	Command Palette...	Ctrl+Shift+P	true	None
+5202	Quick Open...	Ctrl+P	true	None
+# Encoding
+7000	Encode in ANSI	true	None
+7001	Encode in UTF-8	true	None
+7002	Encode in UTF-8-BOM	true	None
+7003	Encode in UTF-16 BE BOM	true	None
+7004	Encode in UTF-16 LE BOM	true	None
+> Character sets
+  > Arabic
+    7100	ISO 8859-6	true	None
+    7101	Windows-1256	true	None
+  > Baltic
+    7102	ISO 8859-4	true	None
+    7103	ISO 8859-13	true	None
+    7104	Windows-1257	true	None
+  > Celtic
+    7105	ISO 8859-14	true	None
+  > Central European
+    7106	ISO 8859-2	true	None
+    7107	Windows-1250	true	None
+  > Chinese
+    7108	Big5	true	None
+    7109	GBK	true	None
+    7110	GB18030	true	None
+  > Cyrillic
+    7111	ISO 8859-5	true	None
+    7112	KOI8-R	true	None
+    7113	KOI8-U	true	None
+    7114	Windows-1251	true	None
+    7115	OEM 866	true	None
+    7116	Mac Cyrillic	true	None
+  > Eastern European
+    7117	ISO 8859-16	true	None
+  > Greek
+    7118	ISO 8859-7	true	None
+    7119	Windows-1253	true	None
+  > Hebrew
+    7120	ISO 8859-8	true	None
+    7121	Windows-1255	true	None
+  > Japanese
+    7122	Shift-JIS	true	None
+    7123	EUC-JP	true	None
+  > Korean
+    7124	EUC-KR	true	None
+  > North European
+    7125	ISO 8859-10	true	None
+  > Thai
+    7126	Windows-874	true	None
+  > Turkish
+    7127	Windows-1254	true	None
+  > Vietnamese
+    7128	Windows-1258	true	None
+  > Western European
+    7132	Windows-1252	true	None
+    7129	ISO 8859-3	true	None
+    7130	ISO 8859-15	true	None
+    7131	Macintosh	true	None
+-
+7200	Convert to ANSI	true	None
+7201	Convert to UTF-8	true	None
+7202	Convert to UTF-8-BOM	true	None
+7203	Convert to UTF-16 BE BOM	true	None
+7204	Convert to UTF-16 LE BOM	true	None
+# Language
+8000	Normal Text	true	None
+> A
+  8001	ActionScript	true	None
+  8002	Ada	true	None
+  8004	ASN.1	true	None
+  8005	ASP	true	None
+  8003	Assembly	true	None
+  8006	AutoIt	true	None
+  8007	AviSynth	true	None
+> B
+  8008	BaanC	true	None
+  8009	Batch	true	None
+  8010	BlitzBasic	true	None
+> C
+  8011	C	true	None
+  8012	C#	true	None
+  8013	C++	true	None
+  8014	Caml	true	None
+  8015	CMake	true	None
+  8016	COBOL	true	None
+  8017	CoffeeScript	true	None
+  8018	Csound	true	None
+  8019	CSS	true	None
+> D
+  8020	D	true	None
+  8021	Diff	true	None
+> E
+  8022	Erlang	true	None
+  8023	ErrorList	true	None
+  8024	Escript	true	None
+> F
+  8025	F#	true	None
+  8026	Forth	true	None
+  8028	Fortran (fixed form)	true	None
+  8027	Fortran (free form)	true	None
+  8029	FreeBasic	true	None
+> G
+  8030	GDScript	true	None
+  8031	Go	true	None
+  8032	Gui4Cli	true	None
+> H
+  8033	Haskell	true	None
+  8034	Hollywood	true	None
+  8035	HTML	true	None
+> I
+  8036	ini file	true	None
+  8037	Inno Setup	true	None
+  8038	Intel HEX	true	None
+> J
+  8039	Java	true	None
+  8040	JavaScript	true	None
+  8041	JSON	true	None
+  8042	JSP	true	None
+  8043	Julia	true	None
+> K
+  8044	KIXtart	true	None
+> L
+  8045	LaTeX	true	None
+  8046	LISP	true	None
+  8047	Lua	true	None
+> M
+  8048	Makefile	true	None
+  8049	Markdown	true	None
+  8050	Matlab	true	None
+  8051	MMIXAL	true	None
+> N
+  8052	Nim	true	None
+  8053	Nix	true	None
+  8054	NSIS	true	None
+> O
+  8055	Objective-C	true	None
+  8056	OScript	true	None
+> P
+  8057	Pascal	true	None
+  8058	Perl	true	None
+  8059	PHP	true	None
+  8060	PostScript	true	None
+  8061	PowerShell	true	None
+  8062	Properties file	true	None
+  8063	PureBasic	true	None
+  8064	Python	true	None
+> R
+  8065	R	true	None
+  8066	Raku	true	None
+  8067	REBOL	true	None
+  8068	Registry	true	None
+  8069	Resource file	true	None
+  8070	Ruby	true	None
+  8071	Rust	true	None
+> S
+  8077	S-Record	true	None
+  8072	Scheme	true	None
+  8073	Shell	true	None
+  8074	Smalltalk	true	None
+  8075	Spice	true	None
+  8076	SQL	true	None
+  8078	Swift	true	None
+> T
+  8079	TCL	true	None
+  8080	Tektronix extended HEX	true	None
+  8081	TeX	true	None
+  8082	TOML	true	None
+  8083	TypeScript	true	None
+> V
+  8084	Verilog	true	None
+  8085	VHDL	true	None
+  8086	Visual Basic	true	None
+  8087	Visual Prolog	true	None
+> X
+  8088	XML	true	None
+> Y
+  8089	YAML	true	None
+> Z
+  8090	Zig	true	None
+# Settings
+3301	Preferences...	true	None
+3302	Style Configurator...	true	None
+3303	Shortcut Mapper...	true	None
+-
+> Themes
+  3320	Default (light)	true	None
+  3321	Default (dark)	true	None
+  -
+  3322	Monokai	true	None
+  3323	Dracula	true	None
+  3324	Solarized Dark	true	None
+  3325	Solarized Light	true	None
+  3326	Obsidian	true	None
+  3327	Zenburn	true	None
+  3328	Twilight	true	None
+  3329	Deep Black	true	None
+  3330	Bespin	true	None
+  3331	Vibrant Ink	true	None
+  3332	Nord	true	None
+  3333	One Dark	true	None
+> Import
+  3305	Import style theme(s)...	true	None
+  3306	Export style theme...	true	None
+-
+3340	Encryption...	true	None
+3307	Edit Popup ContextMenu	true	None
+# Tools
+> MD5
+  3400	Generate...	true	None
+  3401	Generate from files...	true	None
+  3402	Generate from selection into clipboard	true	None
+> SHA-1
+  3410	Generate...	true	None
+  3411	Generate from files...	true	None
+  3412	Generate from selection into clipboard	true	None
+> SHA-256
+  3420	Generate...	true	None
+  3421	Generate from files...	true	None
+  3422	Generate from selection into clipboard	true	None
+> SHA-512
+  3430	Generate...	true	None
+  3431	Generate from files...	true	None
+  3432	Generate from selection into clipboard	true	None
+-
+> Text Tools
+  3450	Base64 Encode	true	None
+  3451	Base64 Decode	true	None
+  -
+  3452	URL Encode	true	None
+  3453	URL Decode	true	None
+  -
+  3454	JSON: Pretty-print	true	None
+  3455	JSON: Minify	true	None
+  3456	XML: Pretty-print	true	None
+  3457	XML: Minify	true	None
+-
+3341	Passwords (Bitwarden)...	true	None
+3342	Send HTTP Request	Ctrl+Enter (.http / .rest files)	true	None
+# Window
+# ?
+9001	&About Note++	true	None
+-
+3351	Check for Updates &Now	true	None
+3352	Check for Updates &Automatically	true	Some(false)

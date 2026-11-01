@@ -34,3 +34,4 @@ pub mod schedule;
 pub mod tables;
 pub mod secret;
 pub mod num;
+pub mod registry;

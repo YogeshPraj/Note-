@@ -6,34 +6,30 @@ use wxdragon::prelude::*;
 
 pub use super::geom::{Rect, Rgb, mix};
 
-pub const WHITE: Rgb = (0xFF, 0xFF, 0xFF);
-/// The blue used for selection, the active tab's top edge and the status bar.
-pub const ACCENT: Rgb = (0x00, 0x7A, 0xCC);
-
-/// Light or dark scheme, with the editor's colours so the active tab can merge into the page.
-#[derive(Clone, Copy)]
-#[derive(Debug)]
+/// Light or dark scheme as the painters use it: the theme's colours, with the editor's own so the active tab can
+/// merge into the page. Build it with [`crate::theme::Theme::look`].
+#[derive(Clone, Copy, Debug)]
 pub struct Look {
     pub dark: bool,
     pub editor_bg: Rgb,
     pub editor_fg: Rgb,
+    pub colors: super::theme::Colors,
 }
 
 impl Look {
     pub fn fg(self) -> Rgb {
-        if self.dark { (0xE6, 0xE6, 0xE6) } else { (0x1A, 0x1A, 0x1A) }
+        self.colors.text
     }
     pub fn dim(self) -> Rgb {
-        if self.dark { (0xB0, 0xB0, 0xB0) } else { (0x50, 0x50, 0x50) }
+        self.colors.text_muted
     }
     pub fn ink(self) -> Rgb {
-        if self.dark { WHITE } else { (0, 0, 0) }
+        self.colors.ink
     }
     pub fn base(self) -> Rgb {
-        if self.dark { (0x20, 0x20, 0x20) } else { (0xF3, 0xF3, 0xF3) }
+        self.colors.bg
     }
 }
-
 pub fn colour(c: Rgb) -> Colour {
     Colour::rgb(c.0, c.1, c.2)
 }

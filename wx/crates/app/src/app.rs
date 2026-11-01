@@ -798,7 +798,8 @@ impl App {
             lang: s.lang.clone(),
         });
         let th = &self.ws.theme;
-        crate::widgets::theme::set(crate::widgets::theme::Theme { dark: th.dark, editor_bg: th.bg, editor_fg: th.fg });
+        let base = if th.dark { crate::widgets::theme::Theme::dark() } else { crate::widgets::theme::Theme::light() };
+        crate::widgets::theme::set(base.with_editor(th.bg, th.fg));
         self.chrome.set_checked(ID_WRAP, self.ws.wrap);
         self.chrome.set_checked(ID_THEME, self.ws.theme.dark);
         self.chrome.set_checked(ID_PREVIEW, self.preview.on);

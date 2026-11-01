@@ -2,6 +2,12 @@
 //!
 //! The control only draws the titles and reports which one was clicked and where its popup belongs; the
 //! application shows the actual menu.
+//!
+//! ```ignore
+//! let bar = MenuBar::new(&frame);
+//! bar.set_titles(vec!["File".into(), "Edit".into(), "View".into()]);
+//! bar.on_event(|MenuEvent::Open(index, x, y)| { /* show menu `index` at (x, y) */ });
+//! ```
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,9 +15,9 @@ use std::rc::Rc;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
-use super::geom::Rect;
-use super::paint::{Look, fill, mix, pos, text_at, text_w, wash};
-use super::pointer::Pointer;
+use crate::geom::Rect;
+use crate::paint::{Look, fill, mix, pos, text_at, text_w, wash};
+use crate::pointer::Pointer;
 
 pub const HEIGHT: i32 = 26;
 const LEFT: i32 = 6;
@@ -63,8 +69,8 @@ impl MenuBar {
         panel.set_background_style(BackgroundStyle::Paint);
         panel.set_min_size(Size::new(-1, HEIGHT));
         let st = Rc::new(RefCell::new(State {
-            look: super::theme::current().look(),
-            font: Font::builder().with_face_name("Segoe UI").with_point_size(9).build(),
+            look: crate::theme::current().look(),
+            font: crate::theme::current().ui_font(),
             titles: Vec::new(),
             rects: Vec::new(),
             pointer: Pointer::default(),
@@ -73,7 +79,7 @@ impl MenuBar {
         let bar = MenuBar { panel, st };
         bar.wire();
         let (p, st) = (bar.panel, bar.st.clone());
-        super::theme::subscribe(move |t| {
+        crate::theme::subscribe(move |t| {
             st.borrow_mut().look = t.look();
             p.refresh(false, None);
         });

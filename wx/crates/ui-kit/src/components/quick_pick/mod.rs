@@ -2,6 +2,11 @@
 //!
 //! Give it items; it returns the id of the one the user chose. Filtering and keyboard navigation are in
 //! [`filter`], which has no toolkit in it and is unit tested.
+//!
+//! ```ignore
+//! let items = vec![Item { label: "File: New".into(), hint: "Ctrl+N".into(), id: 1001 }];
+//! if let Some(id) = pick(&frame, items) { /* run command `id` */ }
+//! ```
 
 pub mod filter;
 
@@ -13,7 +18,7 @@ use wxdragon::prelude::*;
 
 pub use self::filter::Item;
 use self::filter::{Nav, navigate, rank};
-use super::controls::{Dialog, ListBox, TextBox};
+use crate::controls::{Dialog, ListBox, TextBox};
 
 const WIDTH: i32 = 640;
 const ROW_H: i32 = 26;

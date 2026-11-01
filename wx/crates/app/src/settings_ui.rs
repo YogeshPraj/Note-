@@ -189,7 +189,7 @@ pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
             let edit = FIRST + (id - PICK);
             let start = settings::parse_hex(&f.text(edit)).unwrap_or((0, 0, 0));
             let Some(owner) = OWNER.with(|o| *o.borrow()) else { return };
-            let cd = ColourDialog::builder(&owner).with_initial_colour(Colour::new(start.0, start.1, start.2, 255)).build();
+            let cd = ColourDialog::builder(&owner).with_initial_colour(crate::widgets::paint::colour(start)).build();
             if cd.show_modal() == ID_OK
                 && let Some(c) = cd.get_colour() {
                     f.set_text(edit, &settings::to_hex((c.r, c.g, c.b)));

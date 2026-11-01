@@ -1,6 +1,12 @@
 //! The status bar: a text at the left and right-aligned segments, some of them clickable.
 //!
 //! It always uses the accent colour (like the Win32 shell), whatever the theme.
+//!
+//! ```ignore
+//! let bar = StatusBar::new(&frame);
+//! bar.set_left("Ln 1, Col 1");
+//! bar.set_segments(vec![Segment::new("UTF-8", 1), Segment::new("Windows (CR LF)", 2)]);
+//! ```
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -8,11 +14,10 @@ use std::rc::Rc;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
-use super::geom::Rect;
-use super::paint::{ACCENT, Rgb, WHITE, fill, pos, text_at, text_w};
+use crate::geom::Rect;
+use crate::paint::{fill, pos, text_at, text_w};
 
 pub const HEIGHT: i32 = 24;
-const SEPARATOR: Rgb = (0x4D, 0xA3, 0xDA);
 const RIGHT_MARGIN: i32 = 8;
 const SEGMENT_PAD: i32 = 22;
 
@@ -79,7 +84,7 @@ impl StatusBar {
         panel.set_background_style(BackgroundStyle::Paint);
         panel.set_min_size(Size::new(-1, HEIGHT));
         let st = Rc::new(RefCell::new(State {
-            font: Font::builder().with_face_name("Segoe UI").with_point_size(9).build(),
+            font: crate::theme::current().ui_font(),
             left: String::new(),
             segments: Vec::new(),
             rects: Vec::new(),
@@ -137,13 +142,14 @@ fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
     }
     let size = panel.get_client_size();
     let (w, h) = (size.width, size.height);
-    fill(&dc, Rect::new(0, 0, w, h), ACCENT);
-    text_at(&dc, &s.left, Rect::new(10, 0, w / 3, h), WHITE, false);
+    let c = crate::theme::current().colors;
+    fill(&dc, Rect::new(0, 0, w, h), c.accent);
+    text_at(&dc, &s.left, Rect::new(10, 0, w / 3, h), c.accent_text, false);
     let widths: Vec<i32> = s.segments.iter().map(|g| text_w(&dc, &g.text)).collect();
     s.rects = layout_right(&widths, w, h);
     for (seg, r) in s.segments.iter().zip(&s.rects) {
-        text_at(&dc, &seg.text, *r, WHITE, true);
-        fill(&dc, Rect::new(r.l, 5, r.l + 1, h - 5), SEPARATOR);
+        text_at(&dc, &seg.text, *r, c.accent_text, true);
+        fill(&dc, Rect::new(r.l, 5, r.l + 1, h - 5), c.accent_line);
     }
 }
 

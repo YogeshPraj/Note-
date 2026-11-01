@@ -4,6 +4,12 @@
 //! so this is a plain panel. It owns no application state: it is told the tabs and the active one, and reports
 //! what the user did as a [`TabEvent`]. Layout and scrolling live in [`model`], which has no toolkit in it and
 //! is unit tested.
+//!
+//! ```ignore
+//! let strip = TabStrip::new(&frame);
+//! strip.set_tabs(vec![Tab { title: "new 1".into(), dirty: true, badge: None, pinned: false, color: None }], 0);
+//! strip.on_event(|e| match e { TabEvent::Select(i) => { /* activate tab i */ } _ => {} });
+//! ```
 
 pub mod model;
 
@@ -15,14 +21,12 @@ use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
 use self::model::{Btn, Layout, Rows, Scroll};
-use super::geom::Rect;
-use super::paint::{ACCENT, Look, Rgb, WHITE, colour, fill, mix, pos, text_at, text_w, wash};
+use crate::geom::Rect;
+use crate::paint::{Look, Rgb, colour, fill, mix, pos, text_at, text_w, wash};
 
 pub const HEIGHT: i32 = 32;
 
 const ROWS: Rows = Rows { tab_top: 4, tab_bottom: HEIGHT, btn_top: 6, btn_bottom: HEIGHT - 2 };
-const DIRTY: Rgb = (0xC0, 0x00, 0x00);
-const BADGE: Rgb = (0x4A, 0x7A, 0xFF);
 /// How often dragging a tab against the edge scrolls by one tab.
 const AUTO_SCROLL: Duration = Duration::from_millis(120);
 
@@ -90,7 +94,7 @@ impl TabStrip {
         panel.set_background_style(BackgroundStyle::Paint);
         panel.set_min_size(Size::new(-1, HEIGHT));
         let st = Rc::new(RefCell::new(State {
-            look: Look { dark: false, editor_bg: WHITE, editor_fg: (0, 0, 0) },
+            look: crate::theme::Theme::light().look(),
             font: None,
             tabs: Vec::new(),
             active: 0,
@@ -106,7 +110,7 @@ impl TabStrip {
         let strip = TabStrip { panel, st };
         strip.wire();
         let (p, st) = (strip.panel, strip.st.clone());
-        super::theme::subscribe(move |t| {
+        crate::theme::subscribe(move |t| {
             st.borrow_mut().look = t.look();
             p.refresh(false, None);
         });
@@ -347,7 +351,7 @@ fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect, 
     let fg = if active { lk.editor_fg } else { lk.dim() };
     if active {
         fill(dc, Rect::new(r.l, r.t, r.r, h), lk.editor_bg);
-        fill(dc, Rect::new(r.l, r.t, r.r, r.t + 2), ACCENT);
+        fill(dc, Rect::new(r.l, r.t, r.r, r.t + 2), lk.colors.accent);
     } else if hot {
         fill(dc, Rect::new(r.l, r.t, r.r, r.b - 1), mix(lk.base(), lk.ink(), 0x18));
     }
@@ -366,16 +370,16 @@ fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect, 
         tx += 16;
     }
     if info.dirty {
-        dc.set_pen(colour(DIRTY), 1, PenStyle::Solid);
-        dc.set_brush(colour(DIRTY), BrushStyle::Solid);
+        dc.set_pen(colour(lk.colors.danger), 1, PenStyle::Solid);
+        dc.set_brush(colour(lk.colors.danger), BrushStyle::Solid);
         dc.draw_ellipse(tx, r.t + 12, 8, 8);
         tx += 14;
     }
     if let Some(badge) = info.badge {
-        dc.set_pen(colour(BADGE), 1, PenStyle::Solid);
-        dc.set_brush(colour(BADGE), BrushStyle::Solid);
+        dc.set_pen(colour(lk.colors.badge), 1, PenStyle::Solid);
+        dc.set_brush(colour(lk.colors.badge), BrushStyle::Solid);
         dc.draw_rounded_rectangle(tx, r.t + 8, 24, 16, 6.0);
-        text_at(dc, badge, Rect::new(tx, r.t + 8, tx + 24, r.t + 24), WHITE, true);
+        text_at(dc, badge, Rect::new(tx, r.t + 8, tx + 24, r.t + 24), lk.colors.accent_text, true);
         tx += 30;
     }
     // Long names end in an ellipsis rather than running under the close button.
@@ -391,7 +395,7 @@ fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect, 
     if (active || hot) && !info.pinned {
         let c = close_rect(&r);
         if s.hot == Some((i, true)) {
-            let wash = if active { if lk.dark { (0x3A, 0x3A, 0x3A) } else { (0xE0, 0xE0, 0xE0) } } else { mix(lk.base(), lk.ink(), 0x28) };
+            let wash = if active { lk.colors.bg_active } else { mix(lk.base(), lk.ink(), 0x28) };
             fill(dc, c, wash);
         }
         dc.set_pen(colour(fg), 1, PenStyle::Solid);

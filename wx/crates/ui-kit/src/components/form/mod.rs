@@ -1,5 +1,10 @@
 //! A declarative dialog: controls at fixed positions, like the Win32 shell's `form`.
 //! Dialog definitions are copied from there, so both builds lay out identically.
+//!
+//! ```ignore
+//! let spec = Spec { title: "Go To".into(), ..Spec::default() };
+//! if let Some(values) = run(&frame, spec, |form| form.focus(1)) { /* read `values` */ }
+//! ```
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -463,7 +468,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     for (sw, edit) in swatches {
         let paint = move |hex: &str| {
             if let Some(c) = parse_hex(hex) {
-                sw.set_background_color(Colour::rgb(c.0, c.1, c.2));
+                sw.set_background_color(crate::paint::colour(c));
                 sw.refresh(true, None);
             }
         };

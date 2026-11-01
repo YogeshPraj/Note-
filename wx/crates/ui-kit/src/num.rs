@@ -27,6 +27,12 @@ saturating! {
     to_i64 => i64,
 }
 
+/// Round to the nearest i32, saturating. The one float-to-integer conversion the kit needs (for display scaling).
+#[allow(clippy::cast_possible_truncation)]
+pub fn round_i32(x: f64) -> i32 {
+    x.round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,3 +58,4 @@ mod tests {
         assert_eq!(to_u8(255_u32), 255);
     }
 }
+

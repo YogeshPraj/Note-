@@ -2,6 +2,15 @@
 //!
 //! The control knows nothing about commands beyond an id it hands back in a [`ToolEvent`]. Buttons can be
 //! marked checked from outside.
+//!
+//! ```ignore
+//! let bar = ToolBar::new(&frame, vec![
+//!     Item::Button { cmd: 1001, tip: "New (Ctrl+N)".into(), icon: None, faded: None },
+//!     Item::Separator,
+//! ]);
+//! bar.on_event(|ToolEvent::Command(cmd)| { /* run command `cmd` */ });
+//! bar.set_enabled(1001, false); // faded, ignores the pointer
+//! ```
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,9 +18,9 @@ use std::rc::Rc;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
-use super::geom::Rect;
-use super::paint::{ACCENT, Look, Rgb, WHITE, fill, mix, outline, pos, text_at, text_w, wash};
-use super::pointer::Pointer;
+use crate::geom::Rect;
+use crate::paint::{Look, Rgb, fill, mix, outline, pos, text_at, text_w, wash};
+use crate::pointer::Pointer;
 
 pub const HEIGHT: i32 = 34;
 const ICON: i32 = 18;
@@ -102,8 +111,8 @@ impl ToolBar {
         panel.set_min_size(Size::new(-1, HEIGHT));
         let kinds: Vec<bool> = items.iter().map(|i| matches!(i, Item::Button { .. })).collect();
         let st = Rc::new(RefCell::new(State {
-            look: super::theme::current().look(),
-            font: Font::builder().with_face_name("Segoe UI").with_point_size(9).build(),
+            look: crate::theme::current().look(),
+            font: crate::theme::current().ui_font(),
             rects: layout(&kinds),
             items,
             checked: Vec::new(),
@@ -115,7 +124,7 @@ impl ToolBar {
         let bar = ToolBar { panel, st };
         bar.wire();
         let (p, st) = (bar.panel, bar.st.clone());
-        super::theme::subscribe(move |t| {
+        crate::theme::subscribe(move |t| {
             st.borrow_mut().look = t.look();
             p.refresh(false, None);
         });
@@ -257,7 +266,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
     if let Some((pill, rect)) = s.pill.as_mut() {
         *rect = pill_rect(text_w(&dc, &pill.text), size.width);
         fill(&dc, *rect, pill.colour);
-        text_at(&dc, &pill.text, *rect, WHITE, true);
+        text_at(&dc, &pill.text, *rect, lk.colors.accent_text, true);
     }
     for (i, (item, r)) in s.items.iter().zip(&s.rects).enumerate() {
         match item {
@@ -272,8 +281,8 @@ fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
                     wash(&dc, *r, mix(lk.base(), lk.ink(), 0x18), 0.0);
                 }
                 if s.checked.contains(cmd) {
-                    fill(&dc, *r, mix(lk.base(), ACCENT, 0x40));
-                    outline(&dc, *r, mix(lk.base(), ACCENT, 0xB0));
+                    fill(&dc, *r, mix(lk.base(), lk.colors.accent, 0x40));
+                    outline(&dc, *r, mix(lk.base(), lk.colors.accent, 0xB0));
                 }
                 if let Some(b) = if off { faded.as_ref().or(icon.as_ref()) } else { icon.as_ref() } {
                     dc.draw_bitmap(b, r.l + (BTN - ICON) / 2, r.t + (BTN - ICON) / 2, true);

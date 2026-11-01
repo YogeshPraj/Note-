@@ -2,10 +2,15 @@
 //! window to re-flow when that changes. Height 0 hides it.
 //!
 //! The Find panel and the Markdown bar both sit in one.
+//!
+//! ```ignore
+//! let dock = Dock::new(&frame);
+//! dock.set_height(34); // shown; 0 hides it
+//! ```
 
 use wxdragon::prelude::*;
 
-use super::theme;
+use crate::theme;
 
 impl std::fmt::Debug for Dock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

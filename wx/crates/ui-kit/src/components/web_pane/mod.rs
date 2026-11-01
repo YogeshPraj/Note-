@@ -4,6 +4,12 @@
 //! order, when it is ([`WebPane::mark_ready`]); loading a page starts the wait again. It also remembers which
 //! theme it was last told, so a caller only re-sends it when it changed. Script building and the ready-queue are in
 //! [`script`] and [`queue`], which have no toolkit in them and are unit tested.
+//!
+//! ```ignore
+//! let pane = WebPane::new(&panel);
+//! pane.load_html("<h1>Hello</h1>");
+//! pane.eval("document.title = 'x'"); // queued until the page is ready
+//! ```
 
 pub mod queue;
 pub mod script;

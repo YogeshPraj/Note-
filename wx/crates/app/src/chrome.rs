@@ -111,6 +111,8 @@ fn toolbar_table() -> Vec<Button> {
 /// The icon in the colour a command that cannot run is drawn in.
 fn faded_svg(svg: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(svg);
+    let (r, g, b) = crate::widgets::theme::current().colors.disabled;
+    let grey = format!("#{r:02x}{g:02x}{b:02x}");
     let mut out = String::with_capacity(text.len());
     let mut rest: &str = &text;
     while let Some(i) = rest.find("=\"#") {
@@ -118,7 +120,7 @@ fn faded_svg(svg: &[u8]) -> Vec<u8> {
         let attr_start = rest[..i].rfind(' ').map_or(0, |s| s + 1);
         let name = &rest[attr_start..i];
         out.push_str(&rest[..attr_start]);
-        out.push_str(&format!("{name}=\"#9a9a9a\" {name}-opacity=\"0.55\""));
+        out.push_str(&format!("{name}=\"{grey}\" {name}-opacity=\"0.55\""));
         rest = &rest[(end + 1).min(rest.len())..];
     }
     out.push_str(rest);
@@ -143,7 +145,7 @@ impl Chrome {
         let menu_bar = MenuBar::new(parent);
         let tool_bar = ToolBar::new(parent, toolbar_items());
         let strip = TabStrip::new(parent);
-        strip.set_font(Font::builder().with_face_name("Segoe UI").with_point_size(9).build());
+        strip.set_font(crate::widgets::theme::current().ui_font());
         let status_bar = StatusBar::new(parent);
         Chrome { menu: menu_bar.panel(), tools: tool_bar.panel(), tabs: strip.panel(), status: status_bar.panel(), menu_bar, tool_bar, strip, status_bar }
     }

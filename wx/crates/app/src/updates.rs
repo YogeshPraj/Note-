@@ -43,9 +43,9 @@ impl App {
     /// Show the state of the update in the toolbar pill.
     fn update_pill(&self) {
         let pill = match &self.upd {
-            State::Available(r) => Some((format!("New update available (v{})", r.version), (0x38, 0x83, 0xFA), c::ID_UPDATE_PILL)),
-            State::Downloading(_, p) => Some((format!("Downloading {p}%"), (0xD0, 0x8A, 0x12), c::ID_UPDATE_PILL)),
-            State::Ready(v, _) => Some((format!("Click to update to v{v}"), (0x2E, 0x9E, 0x4F), c::ID_UPDATE_PILL)),
+            State::Available(r) => Some((format!("New update available (v{})", r.version), crate::widgets::theme::current().colors.info, c::ID_UPDATE_PILL)),
+            State::Downloading(_, p) => Some((format!("Downloading {p}%"), crate::widgets::theme::current().colors.warning, c::ID_UPDATE_PILL)),
+            State::Ready(v, _) => Some((format!("Click to update to v{v}"), crate::widgets::theme::current().colors.success, c::ID_UPDATE_PILL)),
             State::Idle | State::Checking => None,
         };
         self.chrome.set_pill(pill);

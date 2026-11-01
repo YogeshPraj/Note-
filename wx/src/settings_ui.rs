@@ -174,46 +174,41 @@ pub struct StyleEdit {
     pub entered: Vec<(&'static str, String)>,
 }
 
-/// Settings > Style Configurator: the colours of the theme in use, as #RRGGBB.
+/// Settings > Style Configurator: the colours of the theme in use, as #RRGGBB. Laid out like the Win32 shell's.
 pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
-    let d = Dialog::builder(frame, if theme.dark { "Style Configurator - dark theme" } else { "Style Configurator - light theme" }).with_size(420, 640).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-    let mut boxes = Vec::new();
-    for (label, key) in settings::ROLES {
-        let hex = settings::color_of(theme, key).map(settings::to_hex).unwrap_or_default();
-        let t = TextCtrl::builder(&d).build();
-        t.set_value(&hex);
-        let r = BoxSizer::builder(Orientation::Horizontal).build();
-        let l = StaticText::builder(&d).with_label(label).build();
-        r.add(&l, 1, SizerFlag::AlignCenterVertical | SizerFlag::All, 3);
-        r.add(&t, 0, SizerFlag::All, 3);
-        let pick = Button::builder(&d).with_label("...").build();
-        r.add(&pick, 0, SizerFlag::All, 3);
-        root.add_sizer(&r, 0, SizerFlag::Expand, 0);
-        pick.on_click(move |_| {
-            let start = settings::parse_hex(&t.get_value()).unwrap_or((0, 0, 0));
-            let cd = ColourDialog::builder(&d).with_initial_colour(Colour::new(start.0, start.1, start.2, 255)).build();
+    use crate::form::{ctl, run, Kind, Spec};
+    const FIRST: usize = 100; // edit i is FIRST + i
+    const PICK: usize = 200; // button i is PICK + i
+    const RESET: usize = 300;
+    thread_local! {
+        static OWNER: std::cell::RefCell<Option<Frame>> = const { std::cell::RefCell::new(None) };
+    }
+    OWNER.with(|o| *o.borrow_mut() = Some(*frame));
+    fn on_click(f: &crate::form::Form, id: usize) {
+        if (PICK..PICK + settings::ROLES.len()).contains(&id) {
+            let edit = FIRST + (id - PICK);
+            let start = settings::parse_hex(&f.text(edit)).unwrap_or((0, 0, 0));
+            let Some(owner) = OWNER.with(|o| *o.borrow()) else { return };
+            let cd = ColourDialog::builder(&owner).with_initial_colour(Colour::new(start.0, start.1, start.2, 255)).build();
             if cd.show_modal() == ID_OK {
                 if let Some(c) = cd.get_colour() {
-                    t.set_value(&settings::to_hex((c.r, c.g, c.b)));
+                    f.set_text(edit, &settings::to_hex((c.r, c.g, c.b)));
                 }
             }
-        });
-        boxes.push((*key, t));
+        }
     }
-    let reset = CheckBox::builder(&d).with_label("Reset every colour to the default").build();
-    root.add(&reset, 0, SizerFlag::All, 6);
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let ok = Button::builder(&d).with_label("OK").build();
-    let cancel = Button::builder(&d).with_label("Cancel").build();
-    buttons.add(&ok, 0, SizerFlag::All, 6);
-    buttons.add(&cancel, 0, SizerFlag::All, 6);
-    root.add_sizer(&buttons, 0, SizerFlag::AlignRight, 0);
-    d.set_sizer(root, true);
-    ok.on_click(move |_| d.end_modal(ID_OK));
-    cancel.on_click(move |_| d.end_modal(ID_CANCEL));
-    if d.show_modal() != ID_OK {
-        return None;
+    let mut ctls = vec![ctl(10, Kind::Label, if theme.dark { "Colours of the dark theme (#RRGGBB):" } else { "Colours of the light theme (#RRGGBB):" }, 16, 12, 300, 18)];
+    for (i, (label, key)) in settings::ROLES.iter().enumerate() {
+        let y = 40 + i as i32 * 26;
+        let hex = settings::color_of(theme, key).map(settings::to_hex).unwrap_or_default();
+        ctls.push(ctl(400 + i, Kind::Label, label, 16, y + 3, 170, 18));
+        ctls.push(ctl(FIRST + i, Kind::Edit, &hex, 190, y, 84, 22));
+        ctls.push(ctl(500 + i, Kind::Swatch, &(FIRST + i).to_string(), 282, y, 28, 22));
+        ctls.push(ctl(PICK + i, Kind::Button, "...", 316, y - 1, 30, 24));
     }
-    Some(StyleEdit { reset: reset.is_checked(), entered: boxes.into_iter().map(|(k, t)| (k, t.get_value())).collect() })
+    let n = settings::ROLES.len() as i32;
+    ctls.push(ctl(RESET, Kind::Check, "Reset every colour to the default", 16, 40 + n * 26 + 6, 290, 20));
+    let spec = Spec { title: "Style Configurator", size: (366, 40 + n * 26 + 78), ctls, ok: "OK", buttons: None, on_change: Some(on_click), on_apply: None };
+    let v = run(frame, spec, |_| {})?;
+    Some(StyleEdit { reset: v.checked(RESET), entered: settings::ROLES.iter().enumerate().map(|(i, (_, key))| (*key, v.text(FIRST + i).to_string())).collect() })
 }

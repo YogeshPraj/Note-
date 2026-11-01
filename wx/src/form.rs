@@ -21,6 +21,8 @@ pub enum Kind {
     Button,
     /// A push button that Enter presses.
     DefButton,
+    /// A small box showing the "#RRGGBB" typed in the edit box whose id is the control text.
+    Swatch,
 }
 
 pub struct Ctl {
@@ -41,6 +43,7 @@ enum W {
     Check(CheckBox),
     Radio(RadioButton),
     Button(Button),
+    Swatch(Panel),
 }
 
 /// Live access to the controls while the form is open.
@@ -98,7 +101,7 @@ impl Form {
             Some(W::Label(l)) => {
                 l.enable(on);
             }
-            None => {}
+            Some(W::Swatch(_)) | None => {}
         }
     }
     pub fn focus(&self, id: usize) {
@@ -163,6 +166,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let mut kinds = Vec::new();
     let mut first_edit = None;
     let mut click_ids: Vec<(usize, Button)> = Vec::new();
+    let mut swatches: Vec<(Panel, usize)> = Vec::new();
     for c in &spec.ctls {
         let (p, s) = pos(c.rect);
         match c.kind {
@@ -203,6 +207,13 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                 let r = b.build();
                 map.insert(c.id, W::Radio(r));
                 kinds.push((c.id, c.kind));
+            }
+            Kind::Swatch => {
+                let sw = Panel::builder(&d).with_pos(p).with_size(s).with_style(PanelStyle::BorderSimple).build();
+                if let Ok(edit) = c.text.parse::<usize>() {
+                    swatches.push((sw, edit));
+                }
+                map.insert(c.id, W::Swatch(sw));
             }
             Kind::Button | Kind::DefButton => {
                 let b = Button::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build();
@@ -256,6 +267,19 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             *r.borrow_mut() = Some(v);
             f.close(true);
         });
+    }
+    for (sw, edit) in swatches {
+        let paint = move |hex: &str| {
+            if let Some(c) = notepp_core::settings::parse_hex(hex) {
+                sw.set_background_color(Colour::rgb(c.0, c.1, c.2));
+                sw.refresh(true, None);
+            }
+        };
+        if let Some(W::Edit(t)) = form.map.get(&edit) {
+            paint(&t.get_value());
+            let t2 = *t;
+            t.on_text_updated(move |_| paint(&t2.get_value()));
+        }
     }
     init(&form);
     if let Some(id) = first_edit {

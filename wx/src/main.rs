@@ -4,6 +4,7 @@ mod app;
 mod dispatch;
 mod find;
 mod menus;
+mod chrome;
 mod preview;
 mod sci;
 mod settings_ui;

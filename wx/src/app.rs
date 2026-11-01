@@ -16,6 +16,7 @@ use wxdragon::prelude::*;
 use wxdragon::event::WebViewEvents;
 use wxdragon::widgets::webview::WebView;
 
+use crate::chrome::{Act, Chrome, StatusText};
 use crate::dispatch;
 use crate::preview;
 use crate::settings_ui;
@@ -30,6 +31,8 @@ pub struct App {
     pub flash: Option<String>,
     pub frame: Frame,
     splitter: SplitterWindow,
+    editor_pane: Panel,
+    mini: StyledTextCtrl,
     stc: StyledTextCtrl,
     view: WebView,
     preview_on: bool,
@@ -37,8 +40,7 @@ pub struct App {
     preview_ready: bool,
     preview_dark: bool,
     preview_key: Option<(isize, usize, u64)>,
-    tabs: Notebook,
-    status: StatusBar,
+    chrome: Chrome,
     menubar: MenuBar,
     menus: Menus,
     /// (title, modified) of the tabs as last shown, to rebuild the strip only when it changed.
@@ -71,30 +73,36 @@ pub fn start(files: Vec<PathBuf>) {
     let menubar = mb.build();
     frame.set_menu_bar(menubar);
 
-    // Tab strip (only its tab row is shown) above the editor.
-    let tabs = Notebook::builder(&frame).build();
-    tabs.set_min_size(Size::new(-1, 34));
+    // Toolbar and tab strip above the editor, status bar below it.
+    let chrome = Chrome::new(&frame);
     // The editor, with the preview pane beside it when that is switched on.
     let splitter = SplitterWindow::builder(&frame).build();
-    let stc = StyledTextCtrl::builder(&splitter).build();
+    let editor_pane = Panel::builder(&splitter).build();
+    let stc = StyledTextCtrl::builder(&editor_pane).build();
+    let mini = StyledTextCtrl::builder(&editor_pane).build();
+    mini.set_min_size(Size::new(110, -1));
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(&stc, 1, SizerFlag::Expand, 0);
+    row.add(&mini, 0, SizerFlag::Expand, 0);
+    editor_pane.set_sizer(row, true);
     let view = WebView::builder(&splitter).build();
     view.add_script_message_handler("ipc");
     view.show(false);
-    splitter.initialize(&stc);
+    splitter.initialize(&editor_pane);
     splitter.set_minimum_pane_size(120);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
-    sizer.add(&tabs, 0, SizerFlag::Expand, 0);
+    sizer.add(&chrome.tools, 0, SizerFlag::Expand, 0);
+    sizer.add(&chrome.tabs, 0, SizerFlag::Expand, 0);
     sizer.add(&splitter, 1, SizerFlag::Expand, 0);
+    sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
-
-    let status = frame.create_status_bar(6, 0, -1, "status");
-    status.set_status_widths(&[-5, -2, -2, -2, -2, 50]);
 
     let ui = WxUi { frame };
     let sci = WxSci::of(&stc);
     let mut ws = Workspace::new(sci);
     ws.set_settings(settings);
+    ws.attach_minimap(WxSci::of(&mini));
     if !session::standalone() {
         if let Some(s) = Session::load(&session::session_path()) {
             ws.restore(&ui, &s);
@@ -113,6 +121,8 @@ pub fn start(files: Vec<PathBuf>) {
         flash: None,
         frame,
         splitter,
+        editor_pane,
+        mini,
         stc,
         view,
         preview_on: false,
@@ -120,8 +130,7 @@ pub fn start(files: Vec<PathBuf>) {
         preview_ready: false,
         preview_dark: false,
         preview_key: None,
-        tabs,
-        status,
+        chrome,
         menubar: frame.get_menu_bar().expect("menu bar"),
         menus: menu_set,
         tab_key: Vec::new(),
@@ -130,14 +139,50 @@ pub fn start(files: Vec<PathBuf>) {
         recent_key: (vec![PathBuf::from("\u{0}")], false),
     }));
 
-    wire(&app, frame, &stc, &tabs, &view);
+    wire_mini(&app, mini, stc);
+    wire(&app, frame, &stc, &view);
     app.borrow_mut().refresh();
     frame.show(true);
     frame.centre();
     stc.set_focus();
 }
 
-fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, tabs: &Notebook, view: &WebView) {
+/// The minimap is a second view of the document: clicking or dragging in it scrolls the editor.
+fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
+    use notepp_core::sci::Send;
+    let jump = |app: &Shared, mini: StyledTextCtrl, e: &wxdragon::event::WindowEventData| {
+        let p = match e {
+            wxdragon::event::WindowEventData::MouseButton(m) => m.get_position(),
+            wxdragon::event::WindowEventData::MouseMotion(m) => m.get_position(),
+            _ => None,
+        };
+        let Some(p) = p else { return };
+        let sci = WxSci::of(&mini);
+        let pos = sci.send(sci::SCI_POSITIONFROMPOINT, p.x as usize, p.y as isize).max(0);
+        let line = sci.send(sci::SCI_LINEFROMPOSITION, pos as usize, 0).max(0);
+        if let Ok(mut a) = app.try_borrow_mut() {
+            a.ws.scroll_to_line(line as usize);
+            a.refresh();
+        }
+    };
+    let down = Rc::new(std::cell::Cell::new(false));
+    let (a, d) = (app.clone(), down.clone());
+    mini.on_mouse_left_down(move |e| {
+        d.set(true);
+        jump(&a, mini, &e);
+    });
+    let d = down.clone();
+    mini.on_mouse_left_up(move |_| d.set(false));
+    let a = app.clone();
+    mini.on_mouse_motion(move |e| {
+        if down.get() {
+            jump(&a, mini, &e);
+        }
+    });
+    mini.on_set_focus(move |_| stc.set_focus());
+}
+
+fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     // The preview page finished loading: draw the current document in it.
     let a = app.clone();
     view.on_loaded(move |_| {
@@ -196,18 +241,28 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, tabs: &Notebook, view:
         }
     });
 
-    // Choosing a tab.
+    // Toolbar buttons and the tab strip.
     let a = app.clone();
-    tabs.on_page_changed(move |e| {
-        if let Ok(mut app) = a.try_borrow_mut() {
-            if !app.syncing {
-                if let Some(i) = e.get_selection() {
-                    app.ws.activate(i.max(0) as usize);
-                    app.refresh();
-                }
+    let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
+        let Ok(mut app) = a.try_borrow_mut() else { return };
+        match act {
+            Act::Cmd(id) => return app.command(id),
+            Act::Select(i) => app.ws.activate(i),
+            Act::Close(i) => {
+                let App { ws, ui, .. } = &mut *app;
+                ws.close(ui, i);
             }
+            Act::New => {
+                app.ws.new_tab();
+            }
+            Act::Move(from, to) => app.ws.move_tab_to(from, to),
+            Act::Context(i) => app.ws.activate(i),
+            Act::Status(_) => {}
         }
+        app.refresh();
+        app.stc.set_focus();
     });
+    app.borrow().chrome.set_handler(handler);
 
     // Keep the session file current (a crash or power cut then loses at most a few seconds).
     let autosave = Timer::new(&frame);
@@ -252,7 +307,7 @@ impl App {
                 self.frame.show_full_screen(on);
             }
             ID_ABOUT => {
-                let text = format!("Note++\nVersion {} (wxWidgets build)\n\nExperience the native power.", notepp_core::update::VERSION);
+                let text = format!("Note++\nVersion {} (wxWidgets build)\n\nRewritten in Rust on native code, built for security, functionality and performance.", notepp_core::update::VERSION);
                 MessageDialog::builder(&self.frame, &text, "About Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
             }
             ID_PREFS => {
@@ -320,13 +375,27 @@ impl App {
         self.sync_tabs();
         let s = self.ws.status();
         let position = self.flash.take().unwrap_or_else(|| format!("{}", s.position));
-        for (i, text) in [position, format!("{}", s.lines), format!("{}", s.length), format!("{}", s.enc), format!("{}", s.eol), format!("{}", s.lang)].iter().enumerate() {
-            self.status.set_status_text(text, i);
-        }
+        self.chrome.set_status(StatusText {
+            position,
+            lines: format!("{}", s.lines),
+            length: format!("{}", s.length),
+            enc: format!("{}", s.enc),
+            eol: format!("{}", s.eol),
+            lang: format!("{}", s.lang),
+        });
+        let th = &self.ws.theme;
+        self.chrome.set_theme(th.dark, th.bg, th.fg);
+        self.chrome.set_checked(ID_WRAP, self.ws.wrap);
+        self.chrome.set_checked(ID_THEME, self.ws.theme.dark);
+        self.chrome.set_checked(ID_PREVIEW, self.preview_on);
         self.frame.set_title(&self.ws.window_title());
         self.menubar.check_item(ID_WRAP as i32, self.ws.wrap);
         self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
         self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
+        if self.mini.is_shown() != self.ws.minimap {
+            self.mini.show(self.ws.minimap);
+            self.editor_pane.layout();
+        }
         self.menubar.check_item(ID_PREVIEW as i32, self.preview_on);
         self.preview_update(false);
         {
@@ -353,7 +422,7 @@ impl App {
             }
             self.view.show(true);
             let half = self.frame.get_size().width / 2;
-            self.splitter.split_vertically(&self.stc, &self.view, half);
+            self.splitter.split_vertically(&self.editor_pane, &self.view, half);
             self.preview_key = None;
         } else {
             self.splitter.unsplit(Some(&self.view));
@@ -396,34 +465,7 @@ impl App {
     }
     fn sync_tabs(&mut self) {
         let infos = self.ws.tab_infos();
-        let key: Vec<(String, bool, bool)> = infos.iter().map(|t| (t.title.clone(), t.dirty, t.pinned)).collect();
-        if key != self.tab_key || self.tabs.get_page_count() != infos.len() {
-            self.syncing = true;
-            // One empty page per tab; pages are added or dropped at the end and relabelled in place.
-            while self.tabs.get_page_count() > infos.len() {
-                let last = self.tabs.get_page_count() - 1;
-                if let Some(w) = self.tabs.get_page(last) {
-                    self.tabs.remove_page(last);
-                    w.destroy();
-                }
-            }
-            for (i, t) in infos.iter().enumerate() {
-                let label = format!("{}{}{}", if t.pinned { "\u{1F4CC} " } else { "" }, if t.dirty { "\u{25CF} " } else { "" }, t.title);
-                if i < self.tabs.get_page_count() {
-                    self.tabs.set_page_text(i, &label);
-                } else {
-                    let page = Panel::builder(&self.tabs).build();
-                    self.tabs.add_page(&page, &label, false, None);
-                }
-            }
-            self.syncing = false;
-            self.tab_key = key;
-        }
-        if self.tabs.selection() != self.ws.active as i32 {
-            self.syncing = true;
-            self.tabs.set_selection(self.ws.active);
-            self.syncing = false;
-        }
+        self.chrome.set_tabs(infos, self.ws.active);
     }
 
     /// The File menu lists recent files and offers "Restore Recent Closed File": rebuild it when they change.

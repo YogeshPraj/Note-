@@ -366,7 +366,7 @@ pub fn wire(app: &Shared) {
         t.on_toggle(move |_| {
             let m = [Mode::Find, Mode::Replace, Mode::InFiles, Mode::Mark][i];
             let (find, last, dir) = match a.try_borrow() {
-                Ok(app) => (panel.find.get_value(), app.ws.search.find.clone(), app.hits_root.display().to_string()),
+                Ok(app) => (panel.find.get_value(), app.ws.search.find.clone(), app.results.root.display().to_string()),
                 Err(_) => return,
             };
             open(m, &find, &last, &dir);

@@ -27,7 +27,16 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 ## Conventions
 
 - The app is `Rc<RefCell<App>>`; event handlers use `try_borrow_mut`. Modal dialogs run with nothing borrowed.
-- Windows-only code is isolated in `winmenu.rs`, `extra.rs::sys` and `updates.rs` and must move behind a platform trait before the macOS/Linux builds.
+- State lives in small structs (`state.rs`: whiteboard, preview, streams, search results, clipboard) owned by `App`.
+- OS differences go through `platform::current()`; do not add `cfg(windows)` outside `src/platform/`.
+
+## Platforms
+
+`src/platform/` has `windows.rs` (Explorer, cmd, Recycle Bin, regional dates, native menu loop) and `unix.rs` (macOS and Linux). The rest of the shell is OS-independent.
+
+The Win32-only shell that used to live in the repository root was removed on this branch; it remains in git history (`main`).
+
+Packaging, the installer and release CI (`scripts/package.ps1`, `installer/`, `.github/workflows/build.yml`) still describe the old Win32 build and need porting to the wx build.
 
 ## Build (Windows)
 

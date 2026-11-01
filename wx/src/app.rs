@@ -19,6 +19,7 @@ use wxdragon::widgets::webview::WebView;
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
 use crate::command::CommandBus;
+use crate::state::{ClipboardState, PreviewState, SearchResults, StreamState, WhiteboardState};
 use crate::dispatch;
 use crate::panels::{self, Panels};
 use crate::popups;
@@ -29,7 +30,12 @@ use crate::sci::WxSci;
 use crate::ui::WxUi;
 
 pub struct App {
-    bus: Rc<CommandBus>,
+    pub(crate) results: SearchResults,
+    pub(crate) clipboard: ClipboardState,
+    pub(crate) streams: StreamState,
+    pub(crate) wb: WhiteboardState,
+    pub(crate) preview: PreviewState,
+    bus: Rc<CommandBus<App>>,
     pub ws: Workspace<WxSci>,
     pub ui: WxUi,
     pub flash: Option<String>,
@@ -40,32 +46,11 @@ pub struct App {
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
     pub(crate) mdbar: Panel,
-    pub(crate) monitoring: HashMap<u64, u64>,
     pub(crate) upd: crate::updates::State,
-    /// Digest of a password put on the clipboard, and when: it is cleared after 30 seconds and kept out of the history.
-    pub(crate) clip_secret: Option<(Vec<u8>, std::time::Instant)>,
-    pub(crate) log: Option<(u64, notepp_core::logfollow::Follower)>,
-    pub(crate) log_shown: Option<u64>,
-    pub(crate) http_last: Option<(isize, String)>,
-    pub(crate) http_shown: Option<isize>,
-    pub(crate) http_busy: bool,
     menu_bar: isize,
-    pub hits: Vec<notepp_core::search::Hit>,
-    pub hit_cursor: usize,
-    pub hits_root: PathBuf,
-    wb_loaded: bool,
-    wb_ready: bool,
-    wb_shown: Option<u64>,
-    wb_dark: bool,
-    wb_pending: Option<Pending>,
     mini: StyledTextCtrl,
     pub(crate) stc: StyledTextCtrl,
     pub(crate) view: WebView,
-    pub(crate) preview_on: bool,
-    preview_loaded: bool,
-    preview_ready: bool,
-    preview_dark: bool,
-    preview_key: Option<(isize, usize, u64)>,
     pub(crate) chrome: Chrome,
     pub(crate) menubar: MenuBar,
     pub(crate) postit: bool,
@@ -175,6 +160,11 @@ pub fn start(files: Vec<PathBuf>) {
 
     let app: Shared = Rc::new(RefCell::new(App {
         bus: CommandBus::standard(),
+        results: Default::default(),
+        clipboard: Default::default(),
+        streams: Default::default(),
+        wb: Default::default(),
+        preview: Default::default(),
         ws,
         ui,
         flash: None,
@@ -186,30 +176,10 @@ pub fn start(files: Vec<PathBuf>) {
         panels,
         side_key: None,
         mdbar,
-        monitoring: HashMap::new(),
         upd: Default::default(),
-        clip_secret: None,
-        log: None,
-        log_shown: None,
-        http_last: None,
-        http_shown: None,
-        http_busy: false,
-        hits: Vec::new(),
-        hit_cursor: 0,
-        hits_root: PathBuf::new(),
-        wb_loaded: false,
-        wb_ready: false,
-        wb_shown: None,
-        wb_dark: false,
-        wb_pending: None,
         mini,
         stc,
         view,
-        preview_on: false,
-        preview_loaded: false,
-        preview_ready: false,
-        preview_dark: false,
-        preview_key: None,
         chrome,
         postit: false,
         distraction: false,
@@ -267,7 +237,7 @@ pub fn start(files: Vec<PathBuf>) {
         // attached so shortcuts and ticks keep working.
         let hwnd = frame.get_handle() as isize;
         let mut a = app.borrow_mut();
-        a.menu_bar = crate::winmenu::detach(hwnd);
+        a.menu_bar = crate::platform::current().detach_menu_bar(hwnd);
         a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.replace('&', "")).collect());
     }
     frame.layout();
@@ -346,8 +316,8 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     let a = app.clone();
     view.on_loaded(move |_| {
         if let Ok(mut app) = a.try_borrow_mut() {
-            app.preview_ready = true;
-            app.preview_dark = !app.ws.theme.dark;
+            app.preview.ready = true;
+            app.preview.dark = !app.ws.theme.dark;
             app.preview_update(true);
         }
     });
@@ -395,7 +365,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
                 Err(_) => return,
             };
             let _ = (x, y);
-            crate::winmenu::popup(bar, frame.get_handle() as isize, i as i32, count, &*at);
+            crate::platform::current().popup_menu(bar, frame.get_handle() as isize, i as i32, count, &*at);
             return;
         }
         // Popup menus are modal: nothing may be borrowed while they are open (their commands re-enter the app).
@@ -498,8 +468,8 @@ pub(crate) fn trace(id: usize, how: &str) {
 impl App {
     pub fn command(&mut self, id: usize) {
         // A whiteboard is saved from the page's latest scene, so ask for it first.
-        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wb_ready {
-            self.wb_pending = Some(match id {
+        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wb.ready {
+            self.wb.pending = Some(match id {
                 ID_SAVE => Pending::Save,
                 ID_SAVEAS => Pending::SaveAs,
                 _ => Pending::SaveCopy,
@@ -564,7 +534,7 @@ impl App {
                     hits.truncate(search::MAX_LIST);
                     let lines: Vec<String> = hits.iter().map(|h| format!("Line {}:  {}", h.line, h.text)).collect();
                     note = Some(if total > hits.len() { format!("{total} hits (listing the first {})", hits.len()) } else { format!("{total} hits in the current document") });
-                    self.hits = hits;
+                    self.results.hits = hits;
                     findpanel::set_results(&lines);
                 }
                 Err(e) => note = Some(format!("Invalid regular expression: {e}")),
@@ -586,8 +556,8 @@ impl App {
                                     format!("{} ({}):  {}", rel.display(), h.line, h.text)
                                 })
                                 .collect();
-                            self.hits = hits;
-                            self.hits_root = dir;
+                            self.results.hits = hits;
+                            self.results.root = dir;
                             findpanel::set_results(&lines);
                         }
                         Err(e) => note = Some(format!("Invalid regular expression: {e}")),
@@ -603,7 +573,7 @@ impl App {
                 }
             }
             Cmd::OpenHit(i) => {
-                self.hit_cursor = i;
+                self.results.cursor = i;
                 self.open_hit(i);
             }
             Cmd::Close => {
@@ -620,7 +590,7 @@ impl App {
     /// Open result `idx` of the last search in the editor.
     fn open_hit(&mut self, idx: usize) {
         use notepp_core::search;
-        if let Some(h) = self.hits.get(idx).cloned() {
+        if let Some(h) = self.results.hits.get(idx).cloned() {
             let App { ws, ui, .. } = self;
             if let Some(p) = &h.path {
                 ws.open_path(ui, p);
@@ -637,22 +607,22 @@ impl App {
 
     /// F4 / Shift+F4: step through the results of the last Find All / Find in Files.
     fn step_result(&mut self, forward: bool) {
-        let n = self.hits.len();
+        let n = self.results.hits.len();
         if n == 0 {
             self.flash = Some("No search results yet".into());
         } else {
-            self.hit_cursor = if forward { (self.hit_cursor + 1) % n } else { (self.hit_cursor + n - 1) % n };
-            self.open_hit(self.hit_cursor);
-            self.flash = Some(format!("Result {} of {n}", self.hit_cursor + 1));
+            self.results.cursor = if forward { (self.results.cursor + 1) % n } else { (self.results.cursor + n - 1) % n };
+            self.open_hit(self.results.cursor);
+            self.flash = Some(format!("Result {} of {n}", self.results.cursor + 1));
         }
         self.refresh();
     }
 
     fn wb_event(&mut self, ev: wbm::Event) {        match ev {
             wbm::Event::Ready => {
-                self.wb_ready = true;
-                self.wb_shown = None;
-                self.wb_dark = !self.ws.theme.dark;
+                self.wb.ready = true;
+                self.wb.shown = None;
+                self.wb.dark = !self.ws.theme.dark;
             }
             wbm::Event::State(s) => self.wb_apply_scene(s),
             wbm::Event::Data(s) => {
@@ -660,7 +630,7 @@ impl App {
                 self.wb_finish_pending();
             }
             wbm::Event::SaveRequest => {
-                self.wb_pending = Some(Pending::Save);
+                self.wb.pending = Some(Pending::Save);
                 wbm::request_data(&self.wbv);
             }
         }
@@ -670,7 +640,7 @@ impl App {
     fn wb_apply_scene(&mut self, s: String) {
         let current = self.ws.is_whiteboard().then(|| self.ws.tabs[self.ws.active].id);
         // Ignore echoes for a scene that is no longer the one on screen.
-        if current.is_some() && current == self.wb_shown {
+        if current.is_some() && current == self.wb.shown {
             let t = &mut self.ws.tabs[self.ws.active];
             if t.content != s {
                 // Pan/zoom and Excalidraw's own re-serialisation are not edits.
@@ -684,7 +654,7 @@ impl App {
     }
 
     fn wb_finish_pending(&mut self) {
-        let Some(p) = self.wb_pending.take() else { return };
+        let Some(p) = self.wb.pending.take() else { return };
         if !self.ws.is_whiteboard() {
             return;
         }
@@ -714,11 +684,11 @@ impl App {
             self.wbv.show(wb);
             relayout = true;
             if wb {
-                self.wb_shown = None;
-                if !self.wb_loaded {
+                self.wb.shown = None;
+                if !self.wb.loaded {
                     match wbm::page_url() {
                         Some(url) => {
-                            self.wb_loaded = true;
+                            self.wb.loaded = true;
                             self.wbv.load_url(&url);
                         }
                         None => self.flash = Some("Whiteboard unavailable: assets/whiteboard not found".into()),
@@ -729,18 +699,18 @@ impl App {
         if relayout {
             self.editor_pane.layout();
         }
-        if wb && self.wb_ready {
+        if wb && self.wb.ready {
             let dark = self.ws.theme.dark;
-            if self.wb_dark != dark {
-                self.wb_dark = dark;
+            if self.wb.dark != dark {
+                self.wb.dark = dark;
                 wbm::set_theme(&self.wbv, dark);
             }
             let (id, content) = {
                 let t = &self.ws.tabs[self.ws.active];
                 (t.id, t.content.clone())
             };
-            if self.wb_shown != Some(id) {
-                self.wb_shown = Some(id);
+            if self.wb.shown != Some(id) {
+                self.wb.shown = Some(id);
                 wbm::load(&self.wbv, &content);
                 self.wbv.set_focus();
             }
@@ -807,7 +777,7 @@ impl App {
         self.chrome.set_theme(th.dark, th.bg, th.fg);
         self.chrome.set_checked(ID_WRAP, self.ws.wrap);
         self.chrome.set_checked(ID_THEME, self.ws.theme.dark);
-        self.chrome.set_checked(ID_PREVIEW, self.preview_on);
+        self.chrome.set_checked(ID_PREVIEW, self.preview.on);
         self.frame.set_title(&self.ws.window_title());
         self.menubar.check_item(ID_WRAP as i32, self.ws.wrap);
         self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
@@ -817,7 +787,7 @@ impl App {
         self.style_panels();
         self.sync_chrome();
         self.extra_ticks();
-        self.menubar.check_item(ID_PREVIEW as i32, self.preview_on);
+        self.menubar.check_item(ID_PREVIEW as i32, self.preview.on);
         self.preview_update(false);
         {
             use notepp_core::doc::Eol;
@@ -832,19 +802,19 @@ impl App {
 
     /// Show or hide the preview pane beside the editor.
     pub fn set_preview(&mut self, on: bool) {
-        if on == self.preview_on {
+        if on == self.preview.on {
             return;
         }
-        self.preview_on = on;
+        self.preview.on = on;
         if on {
-            if !self.preview_loaded {
-                self.preview_loaded = true;
+            if !self.preview.loaded {
+                self.preview.loaded = true;
                 self.view.set_page(&preview::page_html(self.ws.settings.preview_remote_images), "about:blank");
             }
             self.view.show(true);
             let half = self.frame.get_size().width / 2;
             self.splitter.split_vertically(&self.editor_pane, &self.view, half);
-            self.preview_key = None;
+            self.preview.key = None;
         } else {
             self.splitter.unsplit(Some(&self.view));
             self.view.show(false);
@@ -853,20 +823,20 @@ impl App {
 
     /// Re-render the preview when the document, its text or the theme changed.
     pub fn preview_update(&mut self, force: bool) {
-        if !self.preview_on || !self.preview_ready {
+        if !self.preview.on || !self.preview.ready {
             return;
         }
         let dark = self.ws.theme.dark;
-        if self.preview_dark != dark {
-            self.preview_dark = dark;
+        if self.preview.dark != dark {
+            self.preview.dark = dark;
             preview::set_theme(&self.view, dark);
-            self.preview_key = None;
+            self.preview.key = None;
         }
         let key = self.ws.preview_key();
-        if !force && self.preview_key == Some(key) {
+        if !force && self.preview.key == Some(key) {
             return;
         }
-        self.preview_key = Some(key);
+        self.preview.key = Some(key);
         let view = self.view;
         let Some(kind) = self.ws.preview_kind() else {
             return preview::render(&view, "message", "Preview is available for Markdown, HTML, Mermaid and JSON files.");

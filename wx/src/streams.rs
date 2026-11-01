@@ -10,6 +10,7 @@ use notepp_core::preview as pcore;
 use wxdragon::prelude::*;
 use wxdragon::widgets::webview::WebView;
 
+use crate::command::CommandHandler;
 use crate::app::App;
 use crate::preview;
 
@@ -22,19 +23,19 @@ impl App {
         match kind {
             pcore::Kind::Log => {
                 let (id, path) = (self.ws.tabs[self.ws.active].id, self.ws.tabs[self.ws.active].path.clone());
-                if force || self.log_shown != Some(id) {
+                if force || self.streams.log_shown != Some(id) {
                     self.log_start(id, path);
                 }
             }
             _ => {
                 let doc = self.ws.tabs[self.ws.active].doc;
                 // Typing in the request must not rebuild the page and lose the tab you were reading.
-                if force || self.http_shown != Some(doc) {
-                    match &self.http_last {
+                if force || self.streams.http_shown != Some(doc) {
+                    match &self.streams.http_last {
                         Some((d, json)) if *d == doc => preview::render(&view, "http", json),
                         _ => preview::render(&view, "message", "Press Ctrl+Enter to send the request under the cursor."),
                     }
-                    self.http_shown = Some(doc);
+                    self.streams.http_shown = Some(doc);
                 }
             }
         }
@@ -43,8 +44,8 @@ impl App {
     /// Begin following `path` in the preview pane, showing the end of the file.
     fn log_start(&mut self, id: u64, path: Option<PathBuf>) {
         let view = self.view;
-        self.log = None;
-        self.log_shown = Some(id);
+        self.streams.log = None;
+        self.streams.log_shown = Some(id);
         let Some(p) = path else {
             preview::render(&view, "message", "Save the file to follow it.");
             return;
@@ -53,7 +54,7 @@ impl App {
             Ok((f, u)) => {
                 let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 preview::render(&view, "log", &serde_json::json!({ "name": name, "lines": u.lines, "skipped": u.skipped_bytes }).to_string());
-                self.log = Some((id, f));
+                self.streams.log = Some((id, f));
             }
             Err(e) => preview::render(&view, "message", &format!("Cannot read {}: {e}", p.display())),
         }
@@ -63,22 +64,22 @@ impl App {
     pub fn stream_tick(&mut self) {
         let view = self.view;
         if let Some((doc, json)) = HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            self.http_busy = false;
-            self.http_last = Some((doc, json.clone()));
+            self.streams.http_busy = false;
+            self.streams.http_last = Some((doc, json.clone()));
             let showing = self.ws.tabs.get(self.ws.active).is_some_and(|t| t.doc == doc);
-            if showing && self.preview_on && self.ws.preview_kind() == Some(pcore::Kind::Http) {
+            if showing && self.preview.on && self.ws.preview_kind() == Some(pcore::Kind::Http) {
                 preview::render(&view, "http", &json);
-                self.http_shown = Some(doc);
+                self.streams.http_shown = Some(doc);
             }
         }
-        let showing = self.preview_on && self.ws.preview_kind() == Some(pcore::Kind::Log);
+        let showing = self.preview.on && self.ws.preview_kind() == Some(pcore::Kind::Log);
         if !showing {
-            self.log = None;
-            self.log_shown = None;
+            self.streams.log = None;
+            self.streams.log_shown = None;
             return;
         }
         let id = self.ws.tabs[self.ws.active].id;
-        let Some((lid, f)) = self.log.as_mut() else { return };
+        let Some((lid, f)) = self.streams.log.as_mut() else { return };
         if *lid != id {
             return;
         }
@@ -96,7 +97,7 @@ impl App {
             self.flash = Some("Open a .http or .rest file to send requests".into());
             return;
         }
-        if self.http_busy {
+        if self.streams.http_busy {
             self.flash = Some("A request is already running".into());
             return;
         }
@@ -106,16 +107,16 @@ impl App {
             self.flash = Some("No request found at the cursor".into());
             return;
         };
-        if !self.preview_on {
+        if !self.preview.on {
             self.set_preview(true);
         }
         let doc = self.ws.tabs[self.ws.active].doc;
         let pending = http::pending_json(&req);
         let view = self.view;
         preview::render(&view, "http", &pending);
-        self.http_last = Some((doc, pending));
-        self.http_shown = Some(doc);
-        self.http_busy = true;
+        self.streams.http_last = Some((doc, pending));
+        self.streams.http_shown = Some(doc);
+        self.streams.http_busy = true;
         std::thread::spawn(move || {
             // {{vault:...}} is looked up here, at send time, and never leaves this thread.
             let json = match http::send(&req, &mut |r| notepp_core::bitwarden::resolve_reference(r).ok()) {
@@ -199,22 +200,32 @@ impl App {
         view.set_page(&html, "about:blank");
         f.show(true);
     }
-    /// Commands of these features; true when `id` was one of them.
-    pub fn stream_cmd(&mut self, id: usize) -> bool {
+
+}
+
+/// Log Follow, the HTTP scratchpad, compare and print.
+pub struct StreamCommands;
+
+impl CommandHandler<App> for StreamCommands {
+    fn name(&self) -> &'static str {
+        "streams"
+    }
+
+    fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
-            c::ID_HTTP_SEND => self.http_send(),
+            c::ID_HTTP_SEND => app.http_send(),
             c::ID_LOG_FOLLOW => {
-                if self.ws.preview_kind() != Some(pcore::Kind::Log) {
-                    self.flash = Some("Log Follow works on .log, .out and .err files".into());
+                if app.ws.preview_kind() != Some(pcore::Kind::Log) {
+                    app.flash = Some("Log Follow works on .log, .out and .err files".into());
                 } else {
-                    let on = !self.preview_on;
-                    self.set_preview(on);
+                    let on = !app.preview.on;
+                    app.set_preview(on);
                 }
             }
-            c::ID_PRINT | c::ID_PRINT_NOW => self.print_document(),
-            c::ID_PAGE_SETUP => self.flash = Some("Page margins are set in the print dialog".into()),
-            c::ID_TAB_CMP_CLIP => self.compare_with_clipboard(),
-            c::ID_TAB_CMP_FILE => self.compare_with_file(),
+            c::ID_PRINT | c::ID_PRINT_NOW => app.print_document(),
+            c::ID_PAGE_SETUP => app.flash = Some("Page margins are set in the print dialog".into()),
+            c::ID_TAB_CMP_CLIP => app.compare_with_clipboard(),
+            c::ID_TAB_CMP_FILE => app.compare_with_file(),
             _ => return false,
         }
         true

@@ -8,6 +8,7 @@ use notepp_core::update::{self, Release};
 use notepp_core::workspace::Ui as _;
 use wxdragon::prelude::*;
 
+use crate::command::CommandHandler;
 use crate::app::App;
 
 /// What the update threads hand to the window.
@@ -148,21 +149,32 @@ impl App {
         }
     }
 
-    pub fn update_cmd(&mut self, id: usize) -> bool {
+
+}
+
+/// Update checks and the toolbar pill.
+pub struct UpdateCommands;
+
+impl CommandHandler<App> for UpdateCommands {
+    fn name(&self) -> &'static str {
+        "updates"
+    }
+
+    fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
-            c::ID_UPDATE_CHECK => self.update_check(true),
+            c::ID_UPDATE_CHECK => app.update_check(true),
             c::ID_UPDATE_AUTO => {
-                let mut s = self.ws.settings.clone();
+                let mut s = app.ws.settings.clone();
                 s.auto_update = !s.auto_update;
                 let on = s.auto_update;
-                crate::settings_ui::apply_settings(&mut self.ws, s);
-                self.flash = Some(if on { "Updates are checked for automatically" } else { "Automatic update checks are off" }.into());
+                crate::settings_ui::apply_settings(&mut app.ws, s);
+                app.flash = Some(if on { "Updates are checked for automatically" } else { "Automatic update checks are off" }.into());
             }
-            c::ID_UPDATE_PILL => match self.upd.clone() {
-                State::Available(rel) => self.update_download(rel),
-                State::Ready(ver, dir) => self.update_install(&ver, &dir),
-                State::Downloading(..) | State::Checking => self.flash = Some("The update is still downloading".into()),
-                State::Idle => self.update_check(true),
+            c::ID_UPDATE_PILL => match app.upd.clone() {
+                State::Available(rel) => app.update_download(rel),
+                State::Ready(ver, dir) => app.update_install(&ver, &dir),
+                State::Downloading(..) | State::Checking => app.flash = Some("The update is still downloading".into()),
+                State::Idle => app.update_check(true),
             },
             _ => return false,
         }

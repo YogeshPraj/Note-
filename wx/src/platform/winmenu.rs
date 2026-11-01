@@ -176,13 +176,4 @@ mod imp {
     }
 }
 
-#[cfg(windows)]
 pub use imp::{detach, popup};
-
-#[cfg(not(windows))]
-pub fn detach(_hwnd: isize) -> isize {
-    0
-}
-
-#[cfg(not(windows))]
-pub fn popup(_bar: isize, _hwnd: isize, _index: i32, _count: i32, _at: &dyn Fn(i32) -> (i32, i32)) {}

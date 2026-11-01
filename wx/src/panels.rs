@@ -8,6 +8,7 @@ use notepp_core::commands as c;
 use notepp_core::{functions, sci, search};
 use wxdragon::prelude::*;
 
+use crate::command::CommandHandler;
 use crate::app::{App, Shared};
 
 pub const TREE_W: i32 = 260;
@@ -314,9 +315,9 @@ impl App {
     /// Once a minute-ish tasks: clear a copied password after 30 seconds, lock the vault when idle.
     pub fn clip_tick(&mut self) {
         use sha2::{Digest, Sha256};
-        if let Some((d, at)) = self.clip_secret.clone() {
+        if let Some((d, at)) = self.clipboard.secret.clone() {
             if at.elapsed().as_secs() >= 30 {
-                self.clip_secret = None;
+                self.clipboard.secret = None;
                 if Clipboard::get().get_text().is_some_and(|t| Sha256::digest(t.as_bytes()).as_slice() == d.as_slice()) {
                     Clipboard::get().clear();
                 }
@@ -331,7 +332,7 @@ impl App {
     pub fn poll_clipboard(&mut self) {
         let Some(text) = Clipboard::get().get_text() else { return };
         // A copied password stays out of the history.
-        if let Some((d, _)) = &self.clip_secret {
+        if let Some((d, _)) = &self.clipboard.secret {
             use sha2::{Digest, Sha256};
             if Sha256::digest(text.as_bytes()).as_slice() == d.as_slice() {
                 return;
@@ -469,38 +470,48 @@ impl App {
         self.stc.set_focus();
     }
 
-    /// Commands of the panels; true when `id` was one of them.
-    pub fn panel_cmd(&mut self, id: usize) -> bool {
+
+}
+
+/// Side panels: workspace tree, document and function lists, clipboard history, character panel.
+pub struct PanelCommands;
+
+impl CommandHandler<App> for PanelCommands {
+    fn name(&self) -> &'static str {
+        "panels"
+    }
+
+    fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
-            c::ID_CHAR_PANEL => self.toggle_side(Mode::Characters),
-            c::ID_CLIP_HISTORY => self.toggle_side(Mode::Clipboard),
-            c::ID_DOC_LIST => self.toggle_side(Mode::Documents),
-            c::ID_FUNC_LIST => self.toggle_side(Mode::Functions),
+            c::ID_CHAR_PANEL => app.toggle_side(Mode::Characters),
+            c::ID_CLIP_HISTORY => app.toggle_side(Mode::Clipboard),
+            c::ID_DOC_LIST => app.toggle_side(Mode::Documents),
+            c::ID_FUNC_LIST => app.toggle_side(Mode::Functions),
             c::ID_WORKSPACE_TOGGLE => {
-                if self.ws.workspace.is_some() {
-                    let on = !self.tree_visible();
-                    self.set_tree(on);
+                if app.ws.workspace.is_some() {
+                    let on = !app.tree_visible();
+                    app.set_tree(on);
                 } else {
-                    self.flash = Some("Open a folder as workspace first".into());
+                    app.flash = Some("Open a folder as workspace first".into());
                 }
             }
             c::ID_OPEN_WORKSPACE => {
-                let d = DirDialog::builder(&self.frame, "Open Folder as Workspace", "").build();
+                let d = DirDialog::builder(&app.frame, "Open Folder as Workspace", "").build();
                 if d.show_modal() == ID_OK {
                     if let Some(p) = d.get_path() {
-                        self.open_workspace(PathBuf::from(p));
+                        app.open_workspace(PathBuf::from(p));
                     }
                 }
             }
-            c::ID_OPEN_FOLDER_WS => match self.ws.tabs[self.ws.active].path.clone() {
+            c::ID_OPEN_FOLDER_WS => match app.ws.tabs[app.ws.active].path.clone() {
                 Some(p) => {
                     if let Some(d) = p.parent() {
-                        self.open_workspace(d.to_path_buf());
+                        app.open_workspace(d.to_path_buf());
                     }
                 }
-                None => self.flash = Some("Save the file first".into()),
+                None => app.flash = Some("Save the file first".into()),
             },
-            c::ID_TAB_REVEAL => self.reveal_in_tree(),
+            c::ID_TAB_REVEAL => app.reveal_in_tree(),
             _ => return false,
         }
         true

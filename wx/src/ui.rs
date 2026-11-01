@@ -69,21 +69,7 @@ impl Ui for WxUi {
     }
 
     fn recycle(&self, path: &Path) -> Result<(), String> {
-        #[cfg(windows)]
-        {
-            // The shell's own "send to Recycle Bin", through the .NET file-system helper.
-            let script = format!(
-                "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin')",
-                path.display().to_string().replace('\'', "''")
-            );
-            let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).output().map_err(|e| e.to_string())?;
-            if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = path;
-            Err("Moving files to the trash is not available here yet".into())
-        }
+        crate::platform::current().recycle(path)
     }
 
     fn error(&self, msg: &str) {

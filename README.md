@@ -20,7 +20,7 @@
 
 ## About
 
-**Note++ 2.0** is a native desktop editor: quick to start, light on memory, and comfortable for anyone who knows Notepad++. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`src/core` is portable; each OS gets its own shell in `src/platform`). The first shell is Windows: native Win32 windows, menus, tabs and dialogs, with previews, the whiteboard and the compare view in the system's WebView2.
+**Note++ 2.0** is a native desktop editor: quick to start, light on memory, and comfortable for anyone who knows Notepad++. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`crates/core` is portable; one wxWidgets shell in `wx/` targets Windows, macOS and Linux behind a `Platform` trait). Menus, tabs and dialogs are native, with previews, the whiteboard and the compare view in the system WebView.
 
 **Platforms:** Windows 10/11 (64-bit) today. macOS and Linux shells are the next step; the 1.x line already ran on all three.
 
@@ -99,7 +99,8 @@ powershell -File scripts\installer.ps1  # dist\release\NotePP-Setup-X.Y.Z.exe + 
 
 ```
 crates/core/     portable logic (its own crate): tabs, sessions, encodings, search, crypto, updater
-src/platform/    the Win32 shell: window, menus, tab strip, dialogs, WebView2 panes
+wx/              the wxWidgets shell: window, menus, tab strip, dialogs, WebView panes (see wx/README.md)
+vendor/          patched wxdragon-sys glue
 assets/          icons, preview pages, bundled Mermaid / jsoneditor / whiteboard
 installer/       the NSIS installer script and its sidebar image
 scripts/         setup, package, release and installer scripts

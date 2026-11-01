@@ -12,7 +12,7 @@ use crate::{settings_ui, tables};
 /// Exit, reload, minimap, preview and full screen.
 pub struct ViewCommands;
 
-impl CommandHandler for ViewCommands {
+impl CommandHandler<App> for ViewCommands {
     fn name(&self) -> &'static str {
         "view"
     }
@@ -27,7 +27,7 @@ impl CommandHandler for ViewCommands {
             }
             ID_MINIMAP => app.ws.minimap = !app.ws.minimap,
             ID_PREVIEW => {
-                let on = !app.preview_on;
+                let on = !app.preview.on;
                 app.set_preview(on);
             }
             ID_FULLSCREEN => {
@@ -92,7 +92,7 @@ impl AppearanceCommands {
     }
 }
 
-impl CommandHandler for AppearanceCommands {
+impl CommandHandler<App> for AppearanceCommands {
     fn name(&self) -> &'static str {
         "appearance"
     }
@@ -116,7 +116,7 @@ impl CommandHandler for AppearanceCommands {
 /// The About box.
 pub struct HelpCommands;
 
-impl CommandHandler for HelpCommands {
+impl CommandHandler<App> for HelpCommands {
     fn name(&self) -> &'static str {
         "help"
     }

@@ -9,7 +9,7 @@ use crate::findpanel::{self, Mode};
 /// Open the docked panel in `mode`, prefilled with the selection.
 pub fn open_panel(app: &Shared, mode: Mode) {
     let (sel, last, dir) = match app.try_borrow() {
-        Ok(a) => (search::selected_text(&a.ws.sci), a.ws.search.find.clone(), a.hits_root.display().to_string()),
+        Ok(a) => (search::selected_text(&a.ws.sci), a.ws.search.find.clone(), a.results.root.display().to_string()),
         Err(_) => return,
     };
     findpanel::open(mode, &sel, &last, &dir);

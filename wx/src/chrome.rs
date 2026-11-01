@@ -126,6 +126,14 @@ struct Drag {
     moving: bool,
 }
 
+/// The tab strip's own buttons: scroll left, scroll right and new tab.
+#[derive(Clone, Copy, PartialEq)]
+enum Btn {
+    Left,
+    Right,
+    Plus,
+}
+
 struct St {
     look: Look,
     font: Option<Font>,
@@ -146,6 +154,8 @@ struct St {
     layout: Vec<R>,
     plus: R,
     arrows: Option<(R, R)>,
+    btn_hot: Option<Btn>,
+    btn_down: Option<Btn>,
     area: i32,
     offset: i32,
     follow: bool,
@@ -288,7 +298,7 @@ fn layout_tabs(dc: &impl DeviceContext, width: i32, s: &mut St) {
         r.r += shift;
     }
     let plus_x = pad + (total - s.offset).min(avail) + 4;
-    s.plus = R::new(plus_x, 6, plus_x + 24, TAB_H - 2);
+    s.plus = R::new(plus_x, 6, plus_x + 26, TAB_H - 4);
 }
 
 fn paint_tools(st: &Rc<RefCell<St>>, panel: &Panel) {
@@ -320,6 +330,74 @@ fn paint_tools(st: &Rc<RefCell<St>>, panel: &Panel) {
                     dc.draw_bitmap(b, r.l + (BTN - ICON) / 2, r.t + (BTN - ICON) / 2, true);
                 }
             }
+        }
+    }
+}
+
+impl St {
+    fn can_scroll(&self, b: Btn) -> bool {
+        match b {
+            Btn::Left => self.offset > 0,
+            Btn::Right => self.layout.last().is_some_and(|t| t.r > self.area),
+            Btn::Plus => true,
+        }
+    }
+
+    fn btn_at(&self, x: i32, y: i32) -> Option<Btn> {
+        match self.arrows {
+            Some((l, _)) if l.has(x, y) => Some(Btn::Left),
+            Some((_, r)) if r.has(x, y) => Some(Btn::Right),
+            _ if self.plus.has(x, y) => Some(Btn::Plus),
+            _ => None,
+        }
+    }
+
+    /// Scroll so the next tab that is cut off on that side comes fully into view.
+    fn scroll_tabs(&mut self, b: Btn) {
+        let Some(_) = self.arrows else { return };
+        let pad = ARROW_W + 2;
+        let avail = self.area - pad - 4;
+        // Tab edges without the scroll shift.
+        let edges: Vec<(i32, i32)> = self.layout.iter().map(|r| (r.l - pad + self.offset, r.r - pad + self.offset)).collect();
+        match b {
+            Btn::Left => {
+                if let Some((l, _)) = edges.iter().rev().find(|(l, _)| *l < self.offset) {
+                    self.offset = *l;
+                } else {
+                    self.offset = 0;
+                }
+            }
+            Btn::Right => {
+                if let Some((_, r)) = edges.iter().find(|(_, r)| *r > self.offset + avail) {
+                    self.offset = *r - avail;
+                }
+            }
+            Btn::Plus => {}
+        }
+    }
+}
+
+fn dp(x: i32, y: i32) -> wxdragon::dc::Point {
+    wxdragon::dc::Point::new(x, y)
+}
+
+fn tab_button(dc: &impl DeviceContext, r: R, lk: Look, hot: bool, down: bool, enabled: bool, glyph: Btn) {
+    if enabled && (hot || down) {
+        let wash = mix(lk.base(), lk.ink(), if down { 0x40 } else { 0x24 });
+        dc.set_pen(colour(wash), 1, PenStyle::Solid);
+        dc.set_brush(colour(wash), BrushStyle::Solid);
+        dc.draw_rounded_rectangle(r.l, r.t, r.w(), r.h(), 4.0);
+    }
+    let c = if enabled { lk.fg() } else { mix(lk.base(), lk.ink(), 0x50) };
+    dc.set_pen(colour(c), 1, PenStyle::Solid);
+    dc.set_brush(colour(c), BrushStyle::Solid);
+    let (cx, cy) = ((r.l + r.r) / 2, (r.t + r.b) / 2);
+    match glyph {
+        Btn::Left => dc.draw_polygon(&[dp(cx + 3, cy - 5), dp(cx - 3, cy), dp(cx + 3, cy + 5)], 0, 0, wxdragon::dc::PolygonFillMode::OddEven),
+        Btn::Right => dc.draw_polygon(&[dp(cx - 3, cy - 5), dp(cx + 3, cy), dp(cx - 3, cy + 5)], 0, 0, wxdragon::dc::PolygonFillMode::OddEven),
+        Btn::Plus => {
+            dc.draw_line(cx - 5, cy, cx + 6, cy);
+            dc.draw_line(cx, cy - 5, cx, cy + 6);
         }
     }
 }
@@ -398,16 +476,15 @@ fn paint_tabs(st: &Rc<RefCell<St>>, panel: &Panel) {
         }
     }
     dc.destroy_clipping_region();
-    text_at(&dc, "+", s.plus, lk.fg(), true);
+    let state = |b: Btn| (s.btn_hot == Some(b), s.btn_down == Some(b), s.can_scroll(b));
     if let Some((l, r)) = s.arrows {
-        let can_l = s.offset > 0;
-        let can_r = s.layout.last().is_some_and(|t| t.r > s.area);
-        for b in [l, r] {
-            outline(&dc, b, lk.dim());
+        for (rect, b) in [(l, Btn::Left), (r, Btn::Right)] {
+            let (hot, down, on) = state(b);
+            tab_button(&dc, rect, lk, hot, down, on, b);
         }
-        text_at(&dc, "\u{25C0}", l, if can_l { lk.fg() } else { lk.dim() }, true);
-        text_at(&dc, "\u{25B6}", r, if can_r { lk.fg() } else { lk.dim() }, true);
     }
+    let (hot, down, on) = state(Btn::Plus);
+    tab_button(&dc, s.plus, lk, hot, down, on, Btn::Plus);
 }
 
 fn paint_status(st: &Rc<RefCell<St>>, panel: &Panel) {
@@ -474,6 +551,8 @@ impl Chrome {
             tab_hot: None,
             layout: Vec::new(),
             plus: R::default(),
+            btn_hot: None,
+            btn_down: None,
             arrows: None,
             area: 0,
             offset: 0,
@@ -712,16 +791,28 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
                 if hot != m.tab_hot {
                     m.tab_hot = hot;
                 }
+                m.btn_hot = m.btn_at(x, y);
             }
         }
         if let Some((a, b)) = moved {
             emit(&s, Act::Move(a, b));
         }
+        let tip = match s.borrow().btn_hot {
+            Some(Btn::Left) => "Scroll tabs left",
+            Some(Btn::Right) => "Scroll tabs right",
+            Some(Btn::Plus) => "New (Ctrl+N)",
+            None => "",
+        };
+        p.set_tooltip(tip);
         p.refresh(false, None);
     });
     let s = st.clone();
     p.on_mouse_leave(move |_| {
-        s.borrow_mut().tab_hot = None;
+        {
+            let mut m = s.borrow_mut();
+            m.tab_hot = None;
+            m.btn_hot = None;
+        }
         p.refresh(false, None);
     });
     let s = st.clone();
@@ -731,12 +822,17 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
             let mut m = s.borrow_mut();
             let hit = tab_at(&m, x, y);
             let on_close = hit.is_some_and(|i| close_rect(&m.layout[i]).has(x, y) && !m.tabs[i].pinned && (i == m.active || m.tab_hot.map(|h| h.0) == Some(i)));
-            if m.arrows.is_some_and(|(l, _)| l.has(x, y)) {
-                m.offset -= 150;
-                None
-            } else if m.arrows.is_some_and(|(_, r)| r.has(x, y)) {
-                m.offset += 150;
-                None
+            if let Some(b) = m.btn_at(x, y) {
+                m.btn_down = Some(b);
+                match b {
+                    Btn::Plus => Some(Act::New),
+                    _ => {
+                        if m.can_scroll(b) {
+                            m.scroll_tabs(b);
+                        }
+                        None
+                    }
+                }
             } else if let Some(i) = hit {
                 if on_close {
                     Some(Act::Close(i))
@@ -744,8 +840,6 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
                     m.drag = Some(Drag { from: i, x0: x, moving: false });
                     Some(Act::Select(i))
                 }
-            } else if m.plus.has(x, y) {
-                Some(Act::New)
             } else {
                 None
             }
@@ -760,6 +854,8 @@ fn wire_tabs(st: &Rc<RefCell<St>>, p: Panel) {
     });
     let s = st.clone();
     p.on_mouse_left_up(move |_| {
+        s.borrow_mut().btn_down = None;
+        p.refresh(false, None);
         let was = s.borrow_mut().drag.take().is_some();
         if was && p.has_capture() {
             p.release_mouse();

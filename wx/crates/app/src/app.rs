@@ -339,6 +339,14 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
             jump(&a, mini, &e);
         }
     });
+    let a = app.clone();
+    mini.on_mouse_right_up(move |e| {
+        if let wxdragon::event::WindowEventData::MouseButton(m) = &e
+            && let Some(p) = m.get_position()
+        {
+            popups::minimap_menu(&a, mini.client_to_screen(p));
+        }
+    });
     mini.on_set_focus(move |_| stc.set_focus());
 }
 

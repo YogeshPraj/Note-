@@ -90,6 +90,14 @@ pub fn editor_menu(app: &Shared, at: Point) {
     show(&frame, editor_spec(entries, &shortcuts), at);
 }
 
+/// Right-click on the minimap: hide it (View > Document Map brings it back).
+pub fn minimap_menu(app: &Shared, at: Point) {
+    let Ok(a) = app.try_borrow() else { return };
+    let frame = a.frame;
+    drop(a);
+    show(&frame, MenuSpec::new().item(c::ID_MINIMAP, "Hide Minimap"), at);
+}
+
 /// A click on the encoding / line-ending / language segment of the status bar.
 pub fn status_menu(app: &Shared, seg: isize, at: Point) {
     let (frame, m) = {

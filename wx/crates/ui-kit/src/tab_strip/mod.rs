@@ -186,12 +186,9 @@ impl TabStrip {
                 let mut s = st.borrow_mut();
                 if let Some(b) = s.layout.button_at(x, y) {
                     s.btn_down = Some(b);
-                    match b {
-                        Btn::Plus => Some(TabEvent::New),
-                        _ => {
-                            s.scroll.step(b);
-                            None
-                        }
+                    if b == Btn::Plus { Some(TabEvent::New) } else {
+                        s.scroll.step(b);
+                        None
                     }
                 } else if let Some(i) = s.layout.tab_at(x, y) {
                     let on_close = close_rect(&s.layout.tabs[i]).has(x, y) && !s.tabs[i].pinned && (i == s.active || s.hot.map(|h| h.0) == Some(i));
@@ -392,7 +389,7 @@ fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect, 
             fill(dc, c, wash);
         }
         dc.set_pen(colour(fg), 1, PenStyle::Solid);
-        let (cx, cy) = ((c.l + c.r) / 2, (c.t + c.b) / 2);
+        let (cx, cy) = (i32::midpoint(c.l, c.r), i32::midpoint(c.t, c.b));
         dc.draw_line(cx - 3, cy - 3, cx + 4, cy + 4);
         dc.draw_line(cx + 3, cy - 3, cx - 4, cy + 4);
     }
@@ -409,7 +406,7 @@ fn paint_button(dc: &impl DeviceContext, r: Rect, lk: Look, hot: bool, down: boo
     let c = lk.fg();
     dc.set_pen(colour(c), 1, PenStyle::Solid);
     dc.set_brush(colour(c), BrushStyle::Solid);
-    let (cx, cy) = ((r.l + r.r) / 2, (r.t + r.b) / 2);
+    let (cx, cy) = (i32::midpoint(r.l, r.r), i32::midpoint(r.t, r.b));
     let fill_mode = wxdragon::dc::PolygonFillMode::OddEven;
     match glyph {
         Btn::Left => dc.draw_polygon(&[dp(cx + 3, cy - 5), dp(cx - 3, cy), dp(cx + 3, cy + 5)], 0, 0, fill_mode),

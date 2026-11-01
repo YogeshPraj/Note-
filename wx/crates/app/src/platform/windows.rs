@@ -1,4 +1,7 @@
 //! Windows: Explorer, cmd, the Recycle Bin and the regional date and time formats.
+//!
+//! Win32 structures use fixed-width integers, so the cast lints are allowed in this platform adapter only.
+#![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 
 use std::os::windows::process::CommandExt;
 use std::path::Path;
@@ -66,17 +69,17 @@ impl Platform for Windows {
 
     fn local_time(&self) -> DateTime {
         let mut t = SystemTime::default();
-        unsafe { GetLocalTime(&mut t) };
-        DateTime { year: t.year as i32, month: t.month as u32, day: t.day as u32, weekday: t.weekday as u32, hour: t.hour as u32, minute: t.minute as u32, second: t.second as u32 }
+        unsafe { GetLocalTime(&raw mut t) };
+        DateTime { year: i32::from(t.year), month: u32::from(t.month), day: u32::from(t.day), weekday: u32::from(t.weekday), hour: u32::from(t.hour), minute: u32::from(t.minute), second: u32::from(t.second) }
     }
 
     fn date_time_text(&self, long: bool) -> String {
         let mut now = SystemTime::default();
         let (mut date, mut time) = ([0u16; 128], [0u16; 64]);
         unsafe {
-            GetLocalTime(&mut now);
-            let d = GetDateFormatEx(std::ptr::null(), if long { 2 } else { 1 }, &now, std::ptr::null(), date.as_mut_ptr(), date.len() as i32, std::ptr::null());
-            let t = GetTimeFormatEx(std::ptr::null(), 0, &now, std::ptr::null(), time.as_mut_ptr(), time.len() as i32);
+            GetLocalTime(&raw mut now);
+            let d = GetDateFormatEx(std::ptr::null(), if long { 2 } else { 1 }, &raw const now, std::ptr::null(), date.as_mut_ptr(), date.len() as i32, std::ptr::null());
+            let t = GetTimeFormatEx(std::ptr::null(), 0, &raw const now, std::ptr::null(), time.as_mut_ptr(), time.len() as i32);
             let part = |buf: &[u16], n: i32| String::from_utf16_lossy(&buf[..(n.max(1) as usize - 1).min(buf.len())]);
             format!("{} {}", part(&time, t), part(&date, d))
         }

@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use notepp_core::crypto::{self, Vault};
+use notepp_core::crypto::Vault;
 use notepp_core::workspace::{Confirm, Ui};
 use wxdragon::prelude::*;
 

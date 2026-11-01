@@ -1,7 +1,7 @@
 //! The workspace tree (left) and the side list (right): Character Panel, Clipboard History, Document List and
 //! Function List.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use notepp_core::commands as c;
@@ -40,7 +40,7 @@ fn list_dir(dir: &Path) -> Vec<(PathBuf, bool)> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
             (!(is_dir && HIDDEN.contains(&name.as_str()))).then(|| (e.path(), is_dir, name.to_lowercase()))
         })
         .collect();
@@ -85,14 +85,13 @@ pub fn wire(app: &Shared) {
     p.tree.on_item_activated(move |e| {
         let Some(item) = e.get_item() else { return };
         let Some(path) = path_of(&tree, &item) else { return };
-        if path.is_file() {
-            if let Ok(mut app) = a.try_borrow_mut() {
+        if path.is_file()
+            && let Ok(mut app) = a.try_borrow_mut() {
                 let App { ws, ui, .. } = &mut *app;
                 ws.open_path(ui, &path);
                 app.refresh();
                 app.stc.set_focus();
             }
-        }
     });
     let a = app.clone();
     let side = p.side;
@@ -102,7 +101,7 @@ pub fn wire(app: &Shared) {
             return;
         }
         if let Ok(mut app) = a.try_borrow_mut() {
-            app.side_activate(n as usize);
+            app.side_activate(crate::platform::wx::to_usize(n));
         }
     });
     let a = app.clone();
@@ -112,11 +111,10 @@ pub fn wire(app: &Shared) {
             return;
         }
         let Some(n) = side.selected() else { return };
-        if let Ok(mut app) = a.try_borrow_mut() {
-            if app.side.content_mut().is_some_and(|c| c.remove(n)) {
+        if let Ok(mut app) = a.try_borrow_mut()
+            && app.side.content_mut().is_some_and(|c| c.remove(n)) {
                 app.fill_side();
             }
-        }
     });
 }
 
@@ -126,7 +124,7 @@ fn path_of(tree: &TreeCtrl, item: &TreeItemId) -> Option<PathBuf> {
     let mut names = Vec::new();
     let mut cur = item.clone();
     // The root has no parent; every other item contributes its name.
-    while let Some(parent) = tree.get_item_parent(&cur).filter(|p| p.is_ok()) {
+    while let Some(parent) = tree.get_item_parent(&cur).filter(wxdragon::TreeItemId::is_ok) {
         names.push(tree.get_item_text(&cur)?);
         cur = parent;
     }
@@ -147,11 +145,10 @@ fn load_children(tree: &TreeCtrl, item: &TreeItemId) {
     tree.delete_children(item);
     for (p, is_dir) in list_dir(&path) {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if let Some(child) = tree.append_item(item, &name, None, None) {
-            if is_dir {
+        if let Some(child) = tree.append_item(item, &name, None, None)
+            && is_dir {
                 tree.append_item(&child, DUMMY, None, None);
             }
-        }
     }
 }
 
@@ -189,7 +186,7 @@ impl App {
     pub fn open_workspace(&mut self, dir: PathBuf) {
         let t = self.panels.tree;
         ROOT.with(|r| *r.borrow_mut() = Some(dir.clone()));
-        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.display().to_string());
+        let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into_owned());
         self.panels.title.set_label(&name);
         t.delete_all_items();
         if let Some(root) = t.add_root(&name, None, None) {
@@ -214,17 +211,15 @@ impl App {
             return;
         };
         let inside = self.ws.workspace.as_ref().is_some_and(|r| p.starts_with(r));
-        if !inside {
-            if let Some(d) = p.parent() {
+        if !inside
+            && let Some(d) = p.parent() {
                 self.open_workspace(d.to_path_buf());
             }
-        }
         self.set_tree(true);
-        if let Some(root) = self.ws.workspace.clone() {
-            if !reveal(&self.panels.tree, &root, &p) {
+        if let Some(root) = self.ws.workspace.clone()
+            && !reveal(&self.panels.tree, &root, &p) {
                 self.flash = Some("The file was not found in the tree".into());
             }
-        }
     }
 
     /// Switch the side list to `want`, or hide it when it already shows that.
@@ -359,11 +354,10 @@ impl CommandHandler<App> for PanelCommands {
             }
             c::ID_OPEN_WORKSPACE => {
                 let d = DirDialog::builder(&app.frame, "Open Folder as Workspace", "").build();
-                if d.show_modal() == ID_OK {
-                    if let Some(p) = d.get_path() {
+                if d.show_modal() == ID_OK
+                    && let Some(p) = d.get_path() {
                         app.open_workspace(PathBuf::from(p));
                     }
-                }
             }
             c::ID_OPEN_FOLDER_WS => match app.ws.tabs[app.ws.active].path.clone() {
                 Some(p) => {

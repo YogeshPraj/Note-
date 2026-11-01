@@ -56,7 +56,7 @@ fn windows_click(f: &Form, id: usize) {
         if d.show_modal() == ID_OK {
             let i = d.get_selection();
             if i >= 0 {
-                WIN_PICK.with(|p| p.set(Some(WIN_SORT + 1 + i as usize)));
+                WIN_PICK.with(|p| p.set(Some(WIN_SORT + 1 + crate::platform::wx::to_usize(i))));
                 f.close(true);
             }
         }
@@ -95,7 +95,7 @@ pub fn windows_dialog(frame: &Frame, rows: &[Vec<String>], selected: usize) -> O
         }
     });
     let sel = WIN_SEL.with(|s| s.borrow().clone());
-    match (accepted, WIN_PICK.with(|p| p.take())) {
+    match (accepted, WIN_PICK.with(std::cell::Cell::take)) {
         (_, Some(WIN_SAVE)) => Some(WinAction::Save(sel)),
         (_, Some(WIN_CLOSE)) => Some(WinAction::Close(sel)),
         (_, Some(id)) => SORTS.get(id - WIN_SORT - 1).map(|(_, f, d)| WinAction::Sort(*f, *d)),
@@ -190,8 +190,8 @@ fn mapper_click(f: &Form, id: usize) {
 /// wxWidgets key code -> Windows virtual-key code (what the shortcut table stores).
 fn vk_of(code: i32) -> Option<u16> {
     Some(match code {
-        65..=90 | 48..=57 | 32 => code as u16,
-        340..=363 => 0x70 + (code - 340) as u16, // F1..F24
+        65..=90 | 48..=57 | 32 => crate::platform::wx::to_u16(code),
+        340..=363 => 0x70 + crate::platform::wx::to_u16(code - 340), // F1..F24
         312 => 0x23,                             // End
         313 => 0x24,                             // Home
         314 => 0x25,                             // Left
@@ -369,7 +369,7 @@ fn ctx_click(f: &Form, id: usize) {
     }
 }
 
-/// Settings > Edit Popup ContextMenu. `all`: every command that can be offered; `current` / `default`: the menu
+/// Settings > Edit Popup `ContextMenu`. `all`: every command that can be offered; `current` / `default`: the menu
 /// as a list of command names with "-" for a separator. Returns the new menu and whether the user asked to edit
 /// the file as text instead.
 pub fn context_menu_editor(frame: &Frame, all: Vec<String>, current: Vec<String>, default: Vec<String>) -> Option<(Vec<String>, bool)> {

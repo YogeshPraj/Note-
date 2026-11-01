@@ -136,7 +136,7 @@ impl Label {
         Label::adopt(WxStaticText::builder(parent).with_label(text).build())
     }
 
-    /// The stock static text's own get_label (a String); the window-level one would hide it.
+    /// The stock static text's own `get_label` (a String); the window-level one would hide it.
     pub fn get_label(&self) -> String {
         self.0.get_label()
     }
@@ -171,13 +171,13 @@ impl ListBox {
 impl ListView {
     /// Set the columns, replacing any it had (the stock list cannot remove a single column).
     pub fn set_columns(&self, columns: &[(&str, i32)]) {
-        for op in data_list::column_ops(self.0.get_column_count().max(0) as usize, columns) {
+        for op in data_list::column_ops(crate::num::to_usize(self.0.get_column_count().max(0)), columns) {
             match op {
                 data_list::ColumnOp::ClearAll => {
                     self.0.clear_all();
                 }
                 data_list::ColumnOp::Insert { index, name, width } => {
-                    self.0.insert_column(index as i64, &name, ListColumnFormat::Left, width);
+                    self.0.insert_column(crate::num::to_i64(index), &name, ListColumnFormat::Left, width);
                 }
             }
         }
@@ -186,13 +186,13 @@ impl ListView {
     /// Replace all rows with `rows` (cells past the last column are ignored).
     pub fn fill(&self, rows: &[Vec<String>]) {
         self.0.delete_all_items();
-        let columns = self.0.get_column_count().max(0) as usize;
+        let columns = crate::num::to_usize(self.0.get_column_count().max(0));
         for op in data_list::cell_ops(rows, columns) {
             match op {
                 data_list::CellOp::Insert { row, text } => {
-                    self.0.insert_item(row as i64, &text, None);
+                    self.0.insert_item(crate::num::to_i64(row), &text, None);
                 }
-                data_list::CellOp::Set { row, col, text } => self.0.set_item_text_by_column(row as i64, col as i32, &text),
+                data_list::CellOp::Set { row, col, text } => self.0.set_item_text_by_column(crate::num::to_i64(row), crate::num::to_i32(col), &text),
             }
         }
     }
@@ -211,8 +211,8 @@ impl ListView {
             if n < 0 {
                 break;
             }
-            out.push(n as usize);
-            i = n as i64;
+            out.push(crate::num::to_usize(n));
+            i = i64::from(n);
         }
         out
     }

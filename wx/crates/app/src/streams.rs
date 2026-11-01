@@ -20,23 +20,20 @@ impl App {
     /// Show the log or the last HTTP response in the preview pane.
     pub fn stream_preview(&mut self, kind: pcore::Kind, force: bool) {
         let view = self.view.clone();
-        match kind {
-            pcore::Kind::Log => {
-                let (id, path) = (self.ws.tabs[self.ws.active].id, self.ws.tabs[self.ws.active].path.clone());
-                if force || self.streams.log_shown != Some(id) {
-                    self.log_start(id, path);
-                }
+        if kind == pcore::Kind::Log {
+            let (id, path) = (self.ws.tabs[self.ws.active].id, self.ws.tabs[self.ws.active].path.clone());
+            if force || self.streams.log_shown != Some(id) {
+                self.log_start(id, path);
             }
-            _ => {
-                let doc = self.ws.tabs[self.ws.active].doc;
-                // Typing in the request must not rebuild the page and lose the tab you were reading.
-                if force || self.streams.http_shown != Some(doc) {
-                    match &self.streams.http_last {
-                        Some((d, json)) if *d == doc => preview::render(&view, "http", json),
-                        _ => preview::render(&view, "message", "Press Ctrl+Enter to send the request under the cursor."),
-                    }
-                    self.streams.http_shown = Some(doc);
+        } else {
+            let doc = self.ws.tabs[self.ws.active].doc;
+            // Typing in the request must not rebuild the page and lose the tab you were reading.
+            if force || self.streams.http_shown != Some(doc) {
+                match &self.streams.http_last {
+                    Some((d, json)) if *d == doc => preview::render(&view, "http", json),
+                    _ => preview::render(&view, "message", "Press Ctrl+Enter to send the request under the cursor."),
                 }
+                self.streams.http_shown = Some(doc);
             }
         }
     }
@@ -63,7 +60,7 @@ impl App {
     /// Timer: send what was added to the followed log, and show a finished HTTP response.
     pub fn stream_tick(&mut self) {
         let view = self.view.clone();
-        if let Some((doc, json)) = HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some((doc, json)) = HTTP_RESULT.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
             self.streams.http_busy = false;
             self.streams.http_last = Some((doc, json.clone()));
             let showing = self.ws.tabs.get(self.ws.active).is_some_and(|t| t.doc == doc);
@@ -84,11 +81,10 @@ impl App {
             return;
         }
         // A file that is deleted or locked for a moment keeps what is shown; the next tick tries again.
-        if let Ok(u) = f.poll() {
-            if u.reset || !u.lines.is_empty() {
+        if let Ok(u) = f.poll()
+            && (u.reset || !u.lines.is_empty()) {
                 preview::call(&view, "logAppend", &serde_json::json!({ "lines": u.lines, "reset": u.reset }).to_string());
             }
-        }
     }
 
     /// Send the request under the cursor (HTTP scratchpad, Ctrl+Enter in a .http / .rest file).
@@ -123,7 +119,7 @@ impl App {
                 Ok(res) => http::response_json(&req, &res),
                 Err(e) => http::error_json(&req, &e.to_string()),
             };
-            *HTTP_RESULT.lock().unwrap_or_else(|e| e.into_inner()) = Some((doc, json));
+            *HTTP_RESULT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((doc, json));
         });
     }
 
@@ -215,11 +211,11 @@ impl CommandHandler<App> for StreamCommands {
         match id {
             c::ID_HTTP_SEND => app.http_send(),
             c::ID_LOG_FOLLOW => {
-                if app.ws.preview_kind() != Some(pcore::Kind::Log) {
-                    app.flash = Some("Log Follow works on .log, .out and .err files".into());
-                } else {
+                if app.ws.preview_kind() == Some(pcore::Kind::Log) {
                     let on = !app.preview.on;
                     app.set_preview(on);
+                } else {
+                    app.flash = Some("Log Follow works on .log, .out and .err files".into());
                 }
             }
             c::ID_PRINT | c::ID_PRINT_NOW => app.print_document(),

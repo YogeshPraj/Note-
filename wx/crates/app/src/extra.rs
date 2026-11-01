@@ -216,7 +216,7 @@ fn column_editor(app: &mut App) -> Option<String> {
     } else {
         NumFormat::Dec
     };
-    let numbers = ColumnNumbers { initial, step, repeat: repeat.max(1) as usize, format, leading_zeros: v.checked(ZEROS) };
+    let numbers = ColumnNumbers { initial, step, repeat: crate::platform::wx::to_usize(repeat.max(1)), format, leading_zeros: v.checked(ZEROS) };
     app.ws.column_edit(None, Some(&numbers))
 }
 
@@ -345,7 +345,7 @@ impl App {
         }
         let App { ws, ui, .. } = self;
         if ws.reload_from_disk(ui) {
-            let end = sci::length(&ws.sci).max(0) as usize;
+            let end = crate::platform::wx::to_usize(sci::length(&ws.sci).max(0));
             notepp_core::sci::Send::send(&ws.sci, sci::SCI_GOTOPOS, end, 0);
             notepp_core::sci::Send::send(&ws.sci, sci::SCI_SCROLLCARET, 0, 0);
         }
@@ -355,18 +355,18 @@ impl App {
 
     /// Menu ticks for the switches handled here.
     pub fn extra_ticks(&self) {
-        self.menubar.check_item(c::ID_UPDATE_AUTO as i32, self.ws.settings.auto_update);
-        self.menubar.check_item(c::ID_MD_TOOLBAR as i32, self.ws.settings.md_toolbar);
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_UPDATE_AUTO), self.ws.settings.auto_update);
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_MD_TOOLBAR), self.ws.settings.md_toolbar);
         let monitored = self.streams.monitoring.contains_key(&self.ws.tabs[self.ws.active].id);
-        self.menubar.check_item(c::ID_MONITOR as i32, monitored);
-        self.menubar.check_item(c::ID_ON_TOP as i32, crate::widgets::native::current().is_topmost(self.frame.get_handle() as isize));
-        self.menubar.check_item(c::ID_DISTRACTION as i32, self.distraction);
-        self.menubar.check_item(c::ID_POSTIT as i32, self.postit);
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_MONITOR), monitored);
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_ON_TOP), crate::widgets::native::current().is_topmost(self.frame.get_handle() as isize));
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_DISTRACTION), self.distraction);
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_POSTIT), self.postit);
         let side = self.side.mode;
         for (id, m) in [(c::ID_CHAR_PANEL, crate::side::Mode::Characters), (c::ID_CLIP_HISTORY, crate::side::Mode::Clipboard), (c::ID_DOC_LIST, crate::side::Mode::Documents), (c::ID_FUNC_LIST, crate::side::Mode::Functions)] {
-            self.menubar.check_item(id as i32, side == Some(m));
+            self.menubar.check_item(crate::platform::wx::to_i32(id), side == Some(m));
         }
-        self.menubar.check_item(c::ID_WORKSPACE_TOGGLE as i32, self.tree_visible());
+        self.menubar.check_item(crate::platform::wx::to_i32(c::ID_WORKSPACE_TOGGLE), self.tree_visible());
     }
 
     /// Show or hide the menu bar, toolbar, tab bar and status bar from the settings and the view modes.
@@ -524,7 +524,7 @@ impl CommandHandler<App> for ExtraCommands {
             c::ID_RTL | c::ID_LTR => {
                 crate::widgets::native::current().set_rtl(app.stc.get_handle() as isize, id == c::ID_RTL);
                 // Scintilla's own bidirectional mode: 1 = right-to-left, 0 = off.
-                notepp_core::sci::Send::send(&app.ws.sci, 2709, (id == c::ID_RTL) as usize, 0);
+                notepp_core::sci::Send::send(&app.ws.sci, 2709, usize::from(id == c::ID_RTL), 0);
             }
             c::ID_ON_TOP => {
                 let p = crate::widgets::native::current();
@@ -580,7 +580,7 @@ impl CommandHandler<App> for ExtraCommands {
                         app.ws.set_read_only(false);
                     }
                     (Some(p), false) => {
-                        let len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                        let len = std::fs::metadata(&p).map_or(0, |m| m.len());
                         app.streams.monitoring.insert(tab_id, len);
                         app.ws.set_read_only(true);
                         app.flash = Some("Monitoring: new lines are shown as the file grows".into());

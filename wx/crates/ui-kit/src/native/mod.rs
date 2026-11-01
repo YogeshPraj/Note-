@@ -4,6 +4,9 @@
 //!
 //! Window handles are raw native handles (`0` = none). On platforms without an implementation every call does
 //! nothing.
+//!
+//! Raw handles and Win32 calls need integer casts, so the cast lints are allowed in this module (and its children) only.
+#![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 
 #[cfg(windows)]
 mod windows;

@@ -28,7 +28,7 @@ pub enum Kind {
     DefButton,
     /// A small box showing the "#RRGGBB" typed in the edit box whose id is the control text.
     Swatch,
-    /// A report-style list (fill it with Form::list_fill).
+    /// A report-style list (fill it with `Form::list_fill`).
     List,
     /// Like List, but several rows can be selected.
     MultiList,
@@ -165,7 +165,7 @@ impl Form {
     }
     pub fn list_set_cell(&self, id: usize, row: usize, col: usize, text: &str) {
         if let Some(W::List(l)) = self.map.get(&id) {
-            l.set_item_text_by_column(row as i64, col as i32, text);
+            l.set_item_text_by_column(crate::num::to_i64(row), crate::num::to_i32(col), text);
         }
     }
     pub fn list_selected_all(&self, id: usize) -> Vec<usize> {
@@ -183,8 +183,8 @@ impl Form {
     pub fn list_select(&self, id: usize, row: usize) {
         if let Some(W::List(l)) = self.map.get(&id) {
             let both = ListItemState::Selected | ListItemState::Focused;
-            l.set_item_state(row as i64, both, both);
-            l.ensure_visible(row as i64);
+            l.set_item_state(crate::num::to_i64(row), both, both);
+            l.ensure_visible(crate::num::to_i64(row));
         }
     }
 
@@ -217,7 +217,7 @@ pub struct Values {
 
 impl Values {
     pub fn text(&self, id: usize) -> &str {
-        self.text.get(&id).map(String::as_str).unwrap_or("")
+        self.text.get(&id).map_or("", String::as_str)
     }
     pub fn checked(&self, id: usize) -> bool {
         self.checked.get(&id).copied().unwrap_or(false)
@@ -280,7 +280,7 @@ fn problems(spec: &Spec) -> Vec<String> {
         let ((ox, oy), (cx, cy)) = button_positions(spec);
         vec![(ox, oy, BTN_W, BTN_H), (cx, cy, BTN_W, BTN_H)]
     };
-    layout::check(spec.size, &placed, &buttons).iter().map(|p| p.to_string()).collect()
+    layout::check(spec.size, &placed, &buttons).iter().map(std::string::ToString::to_string).collect()
 }
 
 pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> {
@@ -437,11 +437,10 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
         let apply = spec.on_apply.clone();
         ok.on_click(move |_| {
             let v = collect(&k, &f);
-            if let Some(a) = &apply {
-                if a(&v, &f) {
+            if let Some(a) = &apply
+                && a(&v, &f) {
                     return;
                 }
-            }
             *r.borrow_mut() = Some(v);
             f.close(true);
         });
@@ -465,8 +464,8 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     }
     d.centre();
     d.show_modal();
-    let out = result.borrow_mut().take();
-    out
+    
+    result.borrow_mut().take()
 }
 
 
@@ -479,5 +478,5 @@ fn parse_hex(s: &str) -> Option<(u8, u8, u8)> {
         return None;
     }
     let v = u32::from_str_radix(h, 16).ok()?;
-    Some(((v >> 16) as u8, (v >> 8) as u8, v as u8))
+    Some((crate::num::to_u8(v >> 16), crate::num::to_u8((v >> 8) & 0xFF), crate::num::to_u8(v & 0xFF)))
 }

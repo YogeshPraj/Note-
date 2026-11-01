@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn a_document_row_activates_its_tab() {
         let mut t = docs();
-        t.set_rows(vec![(vec!["a".into(), "".into()], 3)]);
+        t.set_rows(vec![(vec!["a".into(), String::new()], 3)]);
         assert_eq!(t.activate(0), Some(Activate::Document(3)));
     }
 

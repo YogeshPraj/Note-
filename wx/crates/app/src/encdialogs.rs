@@ -110,8 +110,8 @@ pub fn unlock(frame: &Frame, profile: &Profile, what: &str) -> Option<Unlocked> 
         on_apply: Some(apply),
     };
     form::run(frame, spec, |_| {})?;
-    let r = out.borrow_mut().take();
-    r
+    
+    out.borrow_mut().take()
 }
 
 // ---- choosing a password --------------------------------------------------------------------
@@ -142,16 +142,13 @@ pub fn new_password(frame: &Frame, title: &str, intro: &str) -> Option<String> {
         } else {
             None
         };
-        match problem {
-            Some(p) => {
-                f.set_text(P_STATUS, p);
-                f.focus(P_PW);
-                true
-            }
-            None => {
-                *result.borrow_mut() = Some(a.to_string());
-                false
-            }
+        if let Some(p) = problem {
+            f.set_text(P_STATUS, p);
+            f.focus(P_PW);
+            true
+        } else {
+            *result.borrow_mut() = Some(a.to_string());
+            false
         }
     });
     form::on_edit(password_changed);
@@ -173,8 +170,8 @@ pub fn new_password(frame: &Frame, title: &str, intro: &str) -> Option<String> {
         on_apply: Some(apply),
     };
     form::run(frame, spec, |_| {})?;
-    let r = out.borrow_mut().take();
-    r
+    
+    out.borrow_mut().take()
 }
 
 // ---- the recovery key -----------------------------------------------------------------------
@@ -193,11 +190,10 @@ fn recovery_click(f: &Form, id: usize) {
         }
         R_SAVE => {
             let Some(frame) = owner() else { return };
-            if let Some(p) = pick(&frame, true, "recovery.json", "JSON (*.json)|*.json|All files (*.*)|*.*") {
-                if let Err(e) = std::fs::write(&p, crypto::recovery_file(&fp, &key)) {
+            if let Some(p) = pick(&frame, true, "recovery.json", "JSON (*.json)|*.json|All files (*.*)|*.*")
+                && let Err(e) = std::fs::write(&p, crypto::recovery_file(&fp, &key)) {
                     fail(&frame, &format!("Cannot save {}\n\n{e}", p.display()));
                 }
-            }
         }
         _ => {}
     }
@@ -265,7 +261,7 @@ pub fn unlock_vault(frame: &Frame, vault: &mut Vault, what: &str) -> bool {
         let intro = "You unlocked with your recovery key.\r\n\r\nChoose a new password. Your files are not changed.";
         if let Some(pw) = new_password(frame, "Choose a new password", intro) {
             let mut p = profile;
-            match crypto::set_password(&mut p, &u.dek, &pw).and_then(|_| crypto::save_profile(&p)) {
+            match crypto::set_password(&mut p, &u.dek, &pw).and_then(|()| crypto::save_profile(&p)) {
                 Ok(()) => vault.profile = Some(p),
                 Err(e) => fail(frame, &format!("Cannot save the new password\n\n{e}")),
             }
@@ -336,10 +332,10 @@ pub fn settings(frame: &Frame, vault: &mut Vault) {
             f.enable(S_PASSWORD, has);
             f.enable(S_RECOVERY, has);
         });
-        if shown.is_none() && ACTION.with(|a| a.get()) == 0 {
+        if shown.is_none() && ACTION.with(std::cell::Cell::get) == 0 {
             return;
         }
-        match ACTION.with(|a| a.get()) {
+        match ACTION.with(std::cell::Cell::get) {
             S_SETUP => {
                 if has && !ask(frame, "Replace the encryption profile?\n\nFiles protected by the current profile can no longer be opened unless you restore it. Only do this if you have no encrypted files, or have a copy of the old profile.") {
                     continue;
@@ -360,7 +356,7 @@ pub fn settings(frame: &Frame, vault: &mut Vault) {
                 let intro = "Choose a new password.\r\n\r\nYour encrypted files do not need to be touched: only the key's wrapping changes.";
                 if let (Some(pw), Some(dek), Some(p)) = (new_password(frame, "Change password", intro), vault.dek.clone(), vault.profile.clone()) {
                     let mut p = p;
-                    match crypto::set_password(&mut p, &dek, &pw).and_then(|_| crypto::save_profile(&p)) {
+                    match crypto::set_password(&mut p, &dek, &pw).and_then(|()| crypto::save_profile(&p)) {
                         Ok(()) => {
                             vault.profile = Some(p);
                             tell(frame, "Your password was changed.");

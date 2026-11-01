@@ -90,7 +90,7 @@ pub fn layout(mode: Mode, width: i32, results: bool) -> Layout {
     let at = |x: i32, y: i32, w: i32, h: i32| Rect::new(x, y, x + w, y + h);
 
     for i in 0..4 {
-        v.push((Ctl::Tab(i), at(8 + i as i32 * 86, 6, 84, 28)));
+        v.push((Ctl::Tab(i), at(8 + crate::platform::wx::to_i32(i) * 86, 6, 84, 28)));
     }
     v.push((Ctl::Status, at(356, 11, (width - 356 - 44).max(0), 18)));
     v.push((Ctl::Closex, at(width - 30, 7, 24, 24)));

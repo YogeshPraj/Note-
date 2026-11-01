@@ -81,7 +81,7 @@ fn inbox() -> PathBuf {
 pub fn start(files: Vec<PathBuf>) {
     // A second launch hands its files to the running Note++ and exits.
     let checker = if session::standalone() { None } else { SingleInstanceChecker::new(&format!("Notepp-{}", std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default()), None) };
-    if checker.as_ref().is_some_and(|c| c.is_another_running()) {
+    if checker.as_ref().is_some_and(wxdragon::SingleInstanceChecker::is_another_running) {
         let dir = inbox();
         let _ = std::fs::create_dir_all(&dir);
         let list: Vec<String> = files.iter().map(|f| std::fs::canonicalize(f).unwrap_or_else(|_| f.clone()).display().to_string().trim_start_matches("\\\\?\\").to_string()).collect();
@@ -145,11 +145,10 @@ pub fn start(files: Vec<PathBuf>) {
     let mut ws = Workspace::new(sci);
     ws.set_settings(settings);
     ws.attach_minimap(WxSci::of(&mini));
-    if !session::standalone() {
-        if let Some(s) = Session::load(&session::session_path()) {
+    if !session::standalone()
+        && let Some(s) = Session::load(&session::session_path()) {
             ws.restore(&ui, &s);
         }
-    }
     for f in &files {
         ws.open_path(&ui, f);
     }
@@ -224,11 +223,10 @@ pub fn start(files: Vec<PathBuf>) {
         WxSci::of(&stc).send(2371, 0, 0); // SCI_USEPOPUP: never
         let (a, s) = (app.clone(), stc);
         stc.on_mouse_right_up(move |e| {
-            if let wxdragon::event::WindowEventData::MouseButton(m) = &e {
-                if let Some(p) = m.get_position() {
+            if let wxdragon::event::WindowEventData::MouseButton(m) = &e
+                && let Some(p) = m.get_position() {
                     popups::editor_menu(&a, s.client_to_screen(p));
                 }
-            }
         });
     }
     wire_mini(&app, mini, stc);
@@ -260,10 +258,10 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
         };
         let Some(p) = p else { return };
         let sci = WxSci::of(&mini);
-        let pos = sci.send(sci::SCI_POSITIONFROMPOINT, p.x as usize, p.y as isize).max(0);
-        let line = sci.send(sci::SCI_LINEFROMPOSITION, pos as usize, 0).max(0);
+        let pos = sci.send(sci::SCI_POSITIONFROMPOINT, crate::platform::wx::to_usize(p.x), p.y as isize).max(0);
+        let line = sci.send(sci::SCI_LINEFROMPOSITION, crate::platform::wx::to_usize(pos), 0).max(0);
         if let Ok(mut a) = app.try_borrow_mut() {
-            a.ws.scroll_to_line(line as usize);
+            a.ws.scroll_to_line(crate::platform::wx::to_usize(line));
             a.refresh();
         }
     };
@@ -349,7 +347,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     });
     // Menu commands.
     let a = app.clone();
-    frame.on_menu(move |e| run_command(&a, e.get_id() as usize));
+    frame.on_menu(move |e| run_command(&a, crate::platform::wx::to_usize(e.get_id())));
 
     // Caret moves, edits and selection changes update the status bar.
     let a = app.clone();
@@ -369,7 +367,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
                 Err(_) => return,
             };
             let _ = (x, y);
-            crate::widgets::native::current().popup_menu(bar, frame.get_handle() as isize, i as i32, count, &*at);
+            crate::widgets::native::current().popup_menu(bar, frame.get_handle() as isize, crate::platform::wx::to_i32(i), count, &*at);
             return;
         }
         // Popup menus are modal: nothing may be borrowed while they are open (their commands re-enter the app).
@@ -429,7 +427,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     let ticker = Timer::new(&frame);
     let a = app.clone();
     let beat = std::cell::Cell::new(0u64);
-    let base = schedule.base_ms() as i32;
+    let base = crate::platform::wx::to_i32(schedule.base_ms());
     ticker.on_tick(move |_| {
         beat.set(beat.get() + 1);
         let Ok(mut app) = a.try_borrow_mut() else { return };
@@ -461,13 +459,12 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     });
 }
 
-/// With NPP_TRACE=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
+/// With `NPP_TRACE`=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
 pub(crate) fn trace(id: usize, how: &str) {
-    if let Some(p) = std::env::var_os("NPP_TRACE") {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+    if let Some(p) = std::env::var_os("NPP_TRACE")
+        && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
             let _ = std::io::Write::write_all(&mut f, format!("{id} {how}\n").as_bytes());
         }
-    }
 }
 
 impl App {
@@ -571,11 +568,10 @@ impl App {
             }
             Cmd::Browse => {
                 let d = DirDialog::builder(&self.frame, "Select a folder to search", "").build();
-                if d.show_modal() == ID_OK {
-                    if let Some(p) = d.get_path() {
+                if d.show_modal() == ID_OK
+                    && let Some(p) = d.get_path() {
                         findpanel::set_dir(&p);
                     }
-                }
             }
             Cmd::OpenHit(i) => {
                 self.results.cursor = i;
@@ -764,14 +760,14 @@ impl App {
         }
         self.sync_tabs();
         let s = self.ws.status();
-        let position = self.flash.take().unwrap_or_else(|| format!("{}", s.position));
+        let position = self.flash.take().unwrap_or_else(|| s.position.clone());
         self.chrome.set_status(StatusText {
             position,
-            lines: format!("{}", s.lines),
-            length: format!("{}", s.length),
-            enc: format!("{}", s.enc),
-            eol: format!("{}", s.eol),
-            lang: format!("{}", s.lang),
+            lines: s.lines.clone(),
+            length: s.length.clone(),
+            enc: s.enc.clone(),
+            eol: s.eol.clone(),
+            lang: s.lang.clone(),
         });
         let th = &self.ws.theme;
         crate::widgets::theme::set(crate::widgets::theme::Theme { dark: th.dark, editor_bg: th.bg, editor_fg: th.fg });
@@ -779,20 +775,20 @@ impl App {
         self.chrome.set_checked(ID_THEME, self.ws.theme.dark);
         self.chrome.set_checked(ID_PREVIEW, self.preview.on);
         self.frame.set_title(&self.ws.window_title());
-        self.menubar.check_item(ID_WRAP as i32, self.ws.wrap);
-        self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
-        self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
+        self.menubar.check_item(crate::platform::wx::to_i32(ID_WRAP), self.ws.wrap);
+        self.menubar.check_item(crate::platform::wx::to_i32(ID_THEME), self.ws.theme.dark);
+        self.menubar.check_item(crate::platform::wx::to_i32(ID_MINIMAP), self.ws.minimap);
         self.wb_sync();
         self.refresh_side();
         self.sync_chrome();
         self.extra_ticks();
-        self.menubar.check_item(ID_PREVIEW as i32, self.preview.on);
+        self.menubar.check_item(crate::platform::wx::to_i32(ID_PREVIEW), self.preview.on);
         self.preview_update(false);
         {
             use notepp_core::doc::Eol;
             let eol = self.ws.tabs[self.ws.active].eol;
             for (id, e) in [(ID_EOL_CRLF, Eol::Crlf), (ID_EOL_LF, Eol::Lf), (ID_EOL_CR, Eol::Cr)] {
-                self.menubar.check_item(id as i32, eol == e);
+                self.menubar.check_item(crate::platform::wx::to_i32(id), eol == e);
             }
         }
         self.sync_file_menu();

@@ -1,5 +1,8 @@
 //! The editor control: a wxStyledTextCtrl, driven through Scintilla's direct function and pointer
 //! so the portable core can send it the same raw messages it sends everywhere else.
+//!
+//! This is the Scintilla adapter: the C interface speaks pointer-sized integers, so the cast lints are allowed here and nowhere else.
+#![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 
 use std::ffi::{c_char, c_void, CString};
 
@@ -23,7 +26,7 @@ impl sci::Send for WxSci {
 impl WxSci {
     /// The raw Scintilla access of a styled text control.
     pub fn of(stc: &StyledTextCtrl) -> WxSci {
-        let win = stc.handle_ptr() as *mut wxdragon_sys::wxd_StyledTextCtrl_t;
+        let win = stc.handle_ptr().cast::<wxdragon_sys::wxd_StyledTextCtrl_t>();
         let (f, p) = unsafe { (wxdragon_sys::wxd_StyledTextCtrl_GetDirectFunction(win), wxdragon_sys::wxd_StyledTextCtrl_GetDirectPointer(win)) };
         assert!(!f.is_null() && !p.is_null(), "Scintilla direct access is not available");
         WxSci { f: unsafe { std::mem::transmute::<*mut c_void, Direct>(f) }, p }

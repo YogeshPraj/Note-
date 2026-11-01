@@ -8,6 +8,7 @@ pub mod dock;
 pub mod form;
 pub mod geom;
 pub mod menu_bar;
+pub mod num;
 // Raw operating-system calls: the one place in the kit that needs unsafe code.
 #[allow(unsafe_code)]
 pub mod native;

@@ -12,7 +12,7 @@ use crate::widgets::dock::Dock;
 
 mod layout;
 
-pub use layout::{Mode, RESULTS_H};
+pub use layout::Mode;
 use layout::Ctl;
 
 #[derive(Clone, Copy)]
@@ -70,15 +70,15 @@ fn p() -> Option<P> {
 }
 
 pub fn visible() -> bool {
-    SHOWN.with(|c| c.get())
+    SHOWN.with(std::cell::Cell::get)
 }
 
 pub fn mode() -> Mode {
-    MODE.with(|c| c.get())
+    MODE.with(std::cell::Cell::get)
 }
 
 fn results_visible() -> bool {
-    RESULTS.with(|c| c.get()) && mode() != Mode::Mark
+    RESULTS.with(std::cell::Cell::get) && mode() != Mode::Mark
 }
 
 /// Height the panel needs in the current mode (0 while it is closed).
@@ -332,7 +332,7 @@ pub fn wire(app: &Shared) {
     let a = app.clone();
     panel.list.on_selection_changed(move |e| {
         if let Some(i) = e.get_selection() {
-            fire(&a, Cmd::OpenHit(i.max(0) as usize));
+            fire(&a, Cmd::OpenHit(crate::platform::wx::to_usize(i.max(0))));
         }
     });
     host.on_size(move |_| arrange());

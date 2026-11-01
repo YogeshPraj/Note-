@@ -67,13 +67,13 @@ impl Native for Windows {
         unsafe {
             if GetAncestor(window, 2) == window {
                 // GA_ROOT: a top-level window, owned or not.
-                let on = dark as i32;
-                DwmSetWindowAttribute(window, 20, &on, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE
+                let on = i32::from(dark);
+                DwmSetWindowAttribute(window, 20, &raw const on, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE
                 SetWindowPos(window, 0, 0, 0, 0, 0, 0x37);
                 RedrawWindow(window, std::ptr::null(), 0, 0x0001 | 0x0004 | 0x0400 | 0x0100); // INVALIDATE | ERASE | FRAME | UPDATENOW
             }
-            theme_child(window, dark as isize);
-            EnumChildWindows(window, theme_child, dark as isize);
+            theme_child(window, isize::from(dark));
+            EnumChildWindows(window, theme_child, isize::from(dark));
         }
     }
 
@@ -82,7 +82,7 @@ impl Native for Windows {
     }
 
     fn popup_menu(&self, bar: isize, window: isize, index: i32, count: i32, anchor: &dyn Fn(i32) -> (i32, i32)) {
-        winmenu::popup(bar, window, index, count, anchor)
+        winmenu::popup(bar, window, index, count, anchor);
     }
 
     fn set_rtl(&self, window: isize, rtl: bool) {

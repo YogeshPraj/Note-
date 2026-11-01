@@ -118,12 +118,12 @@ impl MenuSpec {
             match e {
                 Entry::Item { id, label, enabled, check } => {
                     let kind = if check.is_some() { ItemKind::Check } else { ItemKind::Normal };
-                    menu.append(*id as i32, &accelerator_text(label), "", kind);
+                    menu.append(crate::platform::wx::to_i32(*id), &accelerator_text(label), "", kind);
                     if let Some(on) = check {
-                        menu.check_item(*id as i32, *on);
+                        menu.check_item(crate::platform::wx::to_i32(*id), *on);
                     }
                     if !enabled {
-                        menu.enable_item(*id as i32, false);
+                        menu.enable_item(crate::platform::wx::to_i32(*id), false);
                     }
                 }
                 Entry::Sep => menu.append_separator(),

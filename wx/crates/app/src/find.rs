@@ -39,7 +39,7 @@ pub fn step(app: &Shared, forward: bool) {
 pub fn goto_line(app: &Shared) {
     let (frame, lines) = {
         let Ok(a) = app.try_borrow() else { return };
-        (a.frame, notepp_core::sci::line_count(&a.ws.sci).max(1) as usize)
+        (a.frame, crate::platform::wx::to_usize(notepp_core::sci::line_count(&a.ws.sci).max(1)))
     };
     use crate::widgets::form::{ctl, run, Kind, Spec};
     let spec = Spec {
@@ -54,10 +54,8 @@ pub fn goto_line(app: &Shared) {
         on_change: None,
         on_apply: None,
     };
-    if let Some(v) = run(&frame, spec, |_| {}) {
-        if let Ok(n) = v.text(2).trim().parse::<usize>() {
-            if let Ok(a) = app.try_borrow() {
+    if let Some(v) = run(&frame, spec, |_| {})
+        && let Ok(n) = v.text(2).trim().parse::<usize>()
+            && let Ok(a) = app.try_borrow() {
                 search::goto_line(&a.ws.sci, n.clamp(1, lines.max(1)));
-            }
-        }
-    }}
+            }}

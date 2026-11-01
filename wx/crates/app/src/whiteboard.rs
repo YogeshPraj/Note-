@@ -1,4 +1,4 @@
-//! The whiteboard: the Excalidraw page in a WebView, speaking the original `postMessage` protocol
+//! The whiteboard: the Excalidraw page in a `WebView`, speaking the original `postMessage` protocol
 //! (`wb-load`, `wb-theme`, `wb-get-data` in; `wb-ready`, `wb-state`, `wb-data`, `wb-save-request` out).
 //!
 //! The page is top-level here rather than in an iframe, so a small script forwards its outgoing
@@ -9,14 +9,14 @@ use std::path::{Path, PathBuf};
 use crate::widgets::web_pane::{WebPane, script};
 
 /// Forward the page's outgoing protocol messages to the shell.
-pub const BRIDGE: &str = r#"
+pub const BRIDGE: &str = r"
 window.addEventListener('message', function (e) {
   var d = e.data;
   if (d && typeof d === 'object' && (d.type === 'wb-ready' || d.type === 'wb-state' || d.type === 'wb-data' || d.type === 'wb-save-request')) {
     window.ipc.postMessage(JSON.stringify(d));
   }
 });
-"#;
+";
 
 #[derive(Debug, PartialEq)]
 pub enum Event {

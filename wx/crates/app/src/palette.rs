@@ -44,7 +44,7 @@ pub fn open_files(app: &Shared) {
         let ws = &a.ws;
         // Open tabs, then recent files, then everything under the project root.
         let mut list: Vec<PathBuf> = Vec::new();
-        let mut push = |p: &PathBuf, list: &mut Vec<PathBuf>| {
+        let push = |p: &PathBuf, list: &mut Vec<PathBuf>| {
             if !list.contains(p) {
                 list.push(p.clone());
             }
@@ -57,7 +57,7 @@ pub fn open_files(app: &Shared) {
         for p in &ws.recent {
             push(p, &mut list);
         }
-        let start = ws.tabs[ws.active].path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let start = ws.tabs[ws.active].path.as_ref().and_then(|p| p.parent().map(std::path::Path::to_path_buf));
         let root = ws.workspace.clone().or_else(|| start.as_ref().map(|d| files::project_root(d)));
         if let Some(root) = &root {
             for p in files::scan_files(root, 8000) {
@@ -78,14 +78,12 @@ pub fn open_files(app: &Shared) {
             .collect();
         (a.frame, list, items)
     };
-    if let Some(i) = pick(&frame, items) {
-        if let Some(p) = files_list.get(i).cloned() {
-            if let Ok(mut a) = app.try_borrow_mut() {
+    if let Some(i) = pick(&frame, items)
+        && let Some(p) = files_list.get(i).cloned()
+            && let Ok(mut a) = app.try_borrow_mut() {
                 let crate::app::App { ws, ui, .. } = &mut *a;
                 ws.open_path(ui, &p);
                 a.refresh();
                 a.stc.set_focus();
             }
-        }
-    }
 }

@@ -27,7 +27,7 @@ fn tab_spec(f: &TabFacts) -> MenuSpec {
     let colours = TAB_COLORS
         .iter()
         .enumerate()
-        .fold(MenuSpec::new(), |m, (i, (name, _))| m.check(c::ID_TAB_COLOR_BASE + i, name, f.color == Some(i as u8)))
+        .fold(MenuSpec::new(), |m, (i, (name, _))| m.check(c::ID_TAB_COLOR_BASE + i, name, f.color == Some(crate::platform::wx::to_u8(i))))
         .sep()
         .item_if(c::ID_TAB_COLOR_NONE, "No colour", f.color.is_some());
     MenuSpec::new()
@@ -67,7 +67,7 @@ fn editor_spec(entries: Vec<Option<(&str, usize, &str)>>, shortcuts: &std::colle
             None => m.sep(),
             Some((name, id, default)) => {
                 let label = name.split_once(": ").map_or(name, |(_, l)| l);
-                let key = shortcuts.get(&id.to_string()).map(String::as_str).unwrap_or(default);
+                let key = shortcuts.get(&id.to_string()).map_or(default, String::as_str);
                 m.item(id, &if key.is_empty() { label.to_string() } else { format!("{label}\t{key}") })
             }
         };

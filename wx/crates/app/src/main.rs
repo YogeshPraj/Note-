@@ -17,15 +17,13 @@ mod palette;
 // Raw operating-system calls.
 #[allow(unsafe_code)]
 mod platform;
+pub use platform::scintilla as sci;
 mod panels;
 mod pwdialogs;
 mod popups;
 mod preview;
 mod streams;
 mod whiteboard;
-// Scintilla's direct-call interface and lexer registration are raw FFI.
-#[allow(unsafe_code)]
-mod sci;
 mod state;
 mod services;
 mod settings_ui;

@@ -63,12 +63,11 @@ pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
         if id == FONT_PICK {
             let size = f.text(SIZE).trim().parse().unwrap_or(11);
             let owner = OWNER.with(|o| *o.borrow());
-            if let Some(owner) = owner {
-                if let Some((name, pt)) = pick_font(&owner, f.text(FONT).trim(), size) {
+            if let Some(owner) = owner
+                && let Some((name, pt)) = pick_font(&owner, f.text(FONT).trim(), size) {
                     f.set_text(FONT, &name);
                     f.set_text(SIZE, &pt.to_string());
                 }
-            }
         }
     }
     let spec = Spec {
@@ -159,7 +158,7 @@ pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
         caret_line: v.checked(CARET),
         smart_highlight: v.checked(SMART),
         preview_remote_images: v.checked(REMOTE),
-        passwords_auto_lock_min: number(v.text(LOCKMIN).into(), cur.passwords_auto_lock_min as i32).max(0) as u32,
+        passwords_auto_lock_min: crate::platform::wx::to_u32(number(v.text(LOCKMIN).into(), crate::platform::wx::to_i32(cur.passwords_auto_lock_min)).max(0)),
         show_toolbar: v.checked(TOOLBAR),
         show_tabbar: v.checked(TABBAR),
         show_statusbar: v.checked(STATUS),
@@ -191,23 +190,22 @@ pub fn style_configurator(frame: &Frame, theme: &Theme) -> Option<StyleEdit> {
             let start = settings::parse_hex(&f.text(edit)).unwrap_or((0, 0, 0));
             let Some(owner) = OWNER.with(|o| *o.borrow()) else { return };
             let cd = ColourDialog::builder(&owner).with_initial_colour(Colour::new(start.0, start.1, start.2, 255)).build();
-            if cd.show_modal() == ID_OK {
-                if let Some(c) = cd.get_colour() {
+            if cd.show_modal() == ID_OK
+                && let Some(c) = cd.get_colour() {
                     f.set_text(edit, &settings::to_hex((c.r, c.g, c.b)));
                 }
-            }
         }
     }
     let mut ctls = vec![ctl(10, Kind::Label, if theme.dark { "Colours of the dark theme (#RRGGBB):" } else { "Colours of the light theme (#RRGGBB):" }, 16, 12, 300, 18)];
     for (i, (label, key)) in settings::ROLES.iter().enumerate() {
-        let y = 40 + i as i32 * 26;
+        let y = 40 + crate::platform::wx::to_i32(i) * 26;
         let hex = settings::color_of(theme, key).map(settings::to_hex).unwrap_or_default();
         ctls.push(ctl(400 + i, Kind::Label, label, 16, y + 3, 170, 18));
         ctls.push(ctl(FIRST + i, Kind::Edit, &hex, 190, y, 84, 22));
         ctls.push(ctl(500 + i, Kind::Swatch, &(FIRST + i).to_string(), 282, y, 28, 22));
         ctls.push(ctl(PICK + i, Kind::Button, "...", 316, y - 1, 30, 24));
     }
-    let n = settings::ROLES.len() as i32;
+    let n = crate::platform::wx::to_i32(settings::ROLES.len());
     ctls.push(ctl(RESET, Kind::Check, "Reset every colour to the default", 16, 40 + n * 26 + 6, 290, 20));
     let spec = Spec { title: "Style Configurator", size: (366, 40 + n * 26 + 78), ctls, ok: "OK", buttons: None, on_change: Some(on_click), on_apply: None };
     let v = run(frame, spec, |_| {})?;

@@ -119,7 +119,7 @@ mod imp {
                     cch: 0,
                     bmp_item: 0,
                 };
-                if GetMenuItemInfoW(menu, i as u32, 1, &mut info) != 0 && info.state & MFS_HILITE != 0 {
+                if GetMenuItemInfoW(menu, i as u32, 1, &raw mut info) != 0 && info.state & MFS_HILITE != 0 {
                     return info.sub_menu != 0;
                 }
             }
@@ -133,16 +133,16 @@ mod imp {
             if m.message == WM_KEYDOWN && (m.wparam == VK_LEFT || m.wparam == VK_RIGHT) {
                 let right = m.wparam == VK_RIGHT;
                 // Only at the top level, and not when Right would open a submenu.
-                if open_popups() == 1 && !(right && highlighted_has_submenu(SHOWN.with(|c| c.get()))) {
-                    let n = COUNT.with(|c| c.get()).max(1);
-                    let cur = CURRENT.with(|c| c.get());
+                if open_popups() == 1 && !(right && highlighted_has_submenu(SHOWN.with(std::cell::Cell::get))) {
+                    let n = COUNT.with(std::cell::Cell::get).max(1);
+                    let cur = CURRENT.with(std::cell::Cell::get);
                     GOTO.with(|g| g.set((cur + if right { 1 } else { n - 1 }) % n));
                     unsafe { EndMenu() };
                     return 1;
                 }
             }
         }
-        unsafe { CallNextHookEx(HOOK.with(|h| h.get()), code, wparam, lparam) }
+        unsafe { CallNextHookEx(HOOK.with(std::cell::Cell::get), code, wparam, lparam) }
     }
 
     /// Show menu `index` of the detached bar; `at(i)` gives the screen position of menu `i`.
@@ -162,7 +162,7 @@ mod imp {
                 GOTO.with(|g| g.set(-1));
                 let (x, y) = at(index);
                 TrackPopupMenu(sub, 0, x, y, 0, hwnd, std::ptr::null());
-                let next = GOTO.with(|g| g.get());
+                let next = GOTO.with(std::cell::Cell::get);
                 if next < 0 {
                     break;
                 }

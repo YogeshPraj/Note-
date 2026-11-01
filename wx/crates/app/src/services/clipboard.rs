@@ -32,11 +32,10 @@ impl ClipboardService {
     /// Clear the clipboard if a guarded password has been on it long enough and is still its content (the user may
     /// have copied something else since, which must be left alone).
     pub fn expire_secret(&mut self) {
-        if let Some(fp) = self.secret.take_if_expired(Instant::now(), SECRET_TTL) {
-            if paste().is_some_and(|t| fp.matches(&t)) {
+        if let Some(fp) = self.secret.take_if_expired(Instant::now(), SECRET_TTL)
+            && paste().is_some_and(|t| fp.matches(&t)) {
                 Clipboard::get().clear();
             }
-        }
     }
 }
 

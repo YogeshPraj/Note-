@@ -60,7 +60,7 @@ fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnc
         // Let the dialog repaint and answer the mouse while the worker runs.
         #[allow(unsafe_code)]
         unsafe {
-            wxdragon_sys::wxd_Note_SafeYield()
+            wxdragon_sys::wxd_Note_SafeYield();
         };
         let now = prog.lock().map(|p| p.clone()).unwrap_or_default();
         if now != shown {
@@ -78,7 +78,7 @@ fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnc
 }
 
 fn busy() -> bool {
-    BUSY.with(|b| b.get())
+    BUSY.with(std::cell::Cell::get)
 }
 
 fn show_error(host: &Frame, text: &str) {
@@ -290,7 +290,7 @@ fn vault_click(f: &Form, id: usize) {
             f.close(true);
         }
         V_SYNC => {
-            let r = work(f, V_STATUS, "Syncing with Bitwarden...", |_| bw::sync().and_then(|_| bw::list("")));
+            let r = work(f, V_STATUS, "Syncing with Bitwarden...", |_| bw::sync().and_then(|()| bw::list("")));
             match r {
                 Ok(items) => {
                     ITEMS.with(|i| *i.borrow_mut() = items);
@@ -354,7 +354,7 @@ fn vault_screen(host: &Frame, can_insert: bool) -> Act {
         fill_list(f);
         f.focus(V_SEARCH);
     });
-    ACT.with(|a| a.get())
+    ACT.with(std::cell::Cell::get)
 }
 
 // ---- add an item ----------------------------------------------------------------------------

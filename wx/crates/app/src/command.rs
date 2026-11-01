@@ -102,6 +102,6 @@ mod tests {
         let bus = CommandBus::default().register(Owns("a", &[1]));
         let mut ctx = Ctx::default();
         assert_eq!(bus.dispatch(&mut ctx, 99), None);
-        assert!(ctx.log.is_empty());
+        assert_eq!(ctx.log, [] as [std::string::String; 0]);
     }
 }

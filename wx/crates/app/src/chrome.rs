@@ -5,7 +5,7 @@
 
 use std::rc::Rc;
 
-use notepp_core::commands::*;
+use notepp_core::commands::{ID_NEW, ID_NEW_WB, ID_OPEN, ID_SAVEALL, ID_PRINT, ID_ENC_TOGGLE, ID_PW_TOOLBAR, ID_CUT, ID_COPY, ID_PASTE, ID_UNDO, ID_REDO, ID_FIND, ID_REPLACE, ID_ZOOMIN, ID_ZOOMOUT, ID_WRAP, ID_PREVIEW, ID_LOG_FOLLOW, ID_THEME};
 use notepp_core::commands::{ID_CLOSE, ID_SAVE};
 use notepp_core::workspace::TabInfo;
 use wxdragon::prelude::*;
@@ -147,7 +147,7 @@ impl Chrome {
                 TabEvent::New => Act::New,
                 TabEvent::Move(from, to) => Act::Move(from, to),
                 TabEvent::Context(i, x, y) => Act::Context(i, x, y),
-            })
+            });
         });
         let a = h.clone();
         self.menu_bar.on_event(move |MenuEvent::Open(i, x, y)| a(Act::Menu(i, x, y)));

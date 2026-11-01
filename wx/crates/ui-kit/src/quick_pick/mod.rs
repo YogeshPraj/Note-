@@ -96,9 +96,9 @@ pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
         };
         match (nav, key) {
             (Some(n), _) => {
-                let to = navigate(list.get_selection().map_or(-1, |s| s as i32), list.get_count() as i32, PAGE, n);
+                let to = navigate(list.get_selection().map_or(-1, crate::num::to_i32), crate::num::to_i32(list.get_count()), PAGE, n);
                 if to >= 0 {
-                    list.set_selection(to as u32, true);
+                    list.set_selection(crate::num::to_u32(to), true);
                 }
             }
             (None, KEY_ESCAPE) => d.end_modal(ID_CANCEL),
@@ -107,6 +107,6 @@ pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
     });
     edit.set_focus();
     d.show_modal();
-    let r = *chosen.borrow();
-    r
+    
+    *chosen.borrow()
 }

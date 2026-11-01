@@ -71,7 +71,7 @@ impl App {
         self.upd = State::Checking;
         std::thread::spawn(move || {
             let r = update::check(update::VERSION);
-            UPD.lock().unwrap_or_else(|e| e.into_inner()).check = Some((manual, r));
+            UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).check = Some((manual, r));
         });
     }
 
@@ -80,26 +80,25 @@ impl App {
         self.update_pill();
         std::thread::spawn(move || {
             let r = update::download(&rel, &mut |p| {
-                UPD.lock().unwrap_or_else(|e| e.into_inner()).pct = Some(p);
+                UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).pct = Some(p);
             });
-            UPD.lock().unwrap_or_else(|e| e.into_inner()).done = Some(r.map(|dir| (rel.version.clone(), dir)));
+            UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).done = Some(r.map(|dir| (rel.version.clone(), dir)));
         });
     }
 
     /// Timer: take what the background steps have finished.
     pub fn update_poll(&mut self) {
         let (check, pct, done) = {
-            let mut u = UPD.lock().unwrap_or_else(|e| e.into_inner());
+            let mut u = UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             (u.check.take(), u.pct.take(), u.done.take())
         };
         if check.is_none() && pct.is_none() && done.is_none() {
             return;
         }
-        if let Some(p) = pct {
-            if let State::Downloading(r, _) = &self.upd {
+        if let Some(p) = pct
+            && let State::Downloading(r, _) = &self.upd {
                 self.upd = State::Downloading(r.clone(), p);
             }
-        }
         if let Some((manual, result)) = check {
             self.upd = State::Idle;
             match result {

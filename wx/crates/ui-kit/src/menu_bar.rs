@@ -91,9 +91,9 @@ impl MenuBar {
     /// application is busy showing one.
     pub fn locator(&self) -> (Box<dyn Fn(i32) -> (i32, i32)>, i32) {
         let (st, panel) = (self.st.clone(), self.panel);
-        let n = st.borrow().titles.len() as i32;
+        let n = crate::num::to_i32(st.borrow().titles.len());
         let at = move |i: i32| {
-            let (x, y) = st.borrow().rects.get(i as usize).map_or((0, HEIGHT), |r| (r.l, r.b));
+            let (x, y) = st.borrow().rects.get(crate::num::to_usize(i)).map_or((0, HEIGHT), |r| (r.l, r.b));
             let p = panel.client_to_screen(Point::new(x, y));
             (p.x, p.y)
         };

@@ -27,6 +27,6 @@ impl Rect {
 
 /// `base` blended towards `ink` by `a` / 255.
 pub fn mix(base: Rgb, ink: Rgb, a: u8) -> Rgb {
-    let m = |b: u8, i: u8| ((b as u32 * (255 - a as u32) + i as u32 * a as u32) / 255) as u8;
+    let m = |b: u8, i: u8| crate::num::to_u8((u32::from(b) * (255 - u32::from(a)) + u32::from(i) * u32::from(a)) / 255);
     (m(base.0, ink.0), m(base.1, ink.1), m(base.2, ink.2))
 }

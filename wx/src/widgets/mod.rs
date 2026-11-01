@@ -1,5 +1,6 @@
 //! Reusable building blocks for the shell's own controls.
 
+pub mod dock;
 pub mod geom;
 pub mod menu_bar;
 pub mod paint;

@@ -7,16 +7,12 @@ use notepp_core::search::Opts;
 use wxdragon::prelude::*;
 
 use crate::app::Shared;
+use crate::widgets::dock::Dock;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Mode {
-    Find = 0,
-    Replace = 1,
-    InFiles = 2,
-    Mark = 3,
-}
+mod layout;
 
-pub const RESULTS_H: i32 = 180;
+pub use layout::{Mode, RESULTS_H};
+use layout::Ctl;
 
 #[derive(Clone, Copy)]
 struct P {
@@ -55,8 +51,7 @@ struct P {
 
 thread_local! {
     static PANEL: RefCell<Option<P>> = const { RefCell::new(None) };
-    static HOST: RefCell<Option<Panel>> = const { RefCell::new(None) };
-    static FRAME: RefCell<Option<Frame>> = const { RefCell::new(None) };
+    static DOCK: RefCell<Option<Dock>> = const { RefCell::new(None) };
     static MODE: Cell<Mode> = const { Cell::new(Mode::Find) };
     static SHOWN: Cell<bool> = const { Cell::new(false) };
     static RESULTS: Cell<bool> = const { Cell::new(false) };
@@ -64,12 +59,9 @@ thread_local! {
 
 /// The empty container, placed in the window's layout; the controls are added by [`wire`].
 pub fn container(frame: &Frame) -> Panel {
-    let p = Panel::builder(frame).build();
-    crate::widgets::theme::own_background(p);
-    p.show(false);
-    HOST.with(|h| *h.borrow_mut() = Some(p));
-    FRAME.with(|f| *f.borrow_mut() = Some(*frame));
-    p
+    let dock = Dock::new(frame);
+    DOCK.with(|d| *d.borrow_mut() = Some(dock));
+    dock.panel()
 }
 
 fn p() -> Option<P> {
@@ -111,26 +103,56 @@ pub fn restyle() {
     }
     theme::style_native(&p.panel);
 }
-/// Height the panel needs in the current mode.
+/// Height the panel needs in the current mode (0 while it is closed).
 pub fn height() -> i32 {
-    if !visible() {
-        return 0;
+    if visible() { layout::height(mode(), results_visible()) } else { 0 }
+}
+
+/// The widget behind a control of the layout.
+fn widget(p: &P, c: Ctl) -> &dyn WxWidget {
+    match c {
+        Ctl::Tab(i) => &p.tab[i],
+        Ctl::Closex => &p.closex,
+        Ctl::Status => &p.status,
+        Ctl::FindLbl => &p.find_lbl,
+        Ctl::Find => &p.find,
+        Ctl::ReplLbl => &p.repl_lbl,
+        Ctl::Repl => &p.repl,
+        Ctl::DirLbl => &p.dir_lbl,
+        Ctl::Dir => &p.dir,
+        Ctl::FiltLbl => &p.filt_lbl,
+        Ctl::Filt => &p.filt,
+        Ctl::Browse => &p.browse,
+        Ctl::Case => &p.case,
+        Ctl::Word => &p.word,
+        Ctl::Wrap => &p.wrap,
+        Ctl::Regex => &p.regex,
+        Ctl::Dot => &p.dot,
+        Ctl::Ext => &p.ext,
+        Ctl::InSel => &p.insel,
+        Ctl::Next => &p.next,
+        Ctl::Prev => &p.prev,
+        Ctl::FindAll => &p.findall,
+        Ctl::Count => &p.count,
+        Ctl::Replace => &p.replace,
+        Ctl::ReplAll => &p.repl_all,
+        Ctl::Fif => &p.fif,
+        Ctl::Mark => &p.mark,
+        Ctl::Clear => &p.clear,
+        Ctl::Close => &p.close,
+        Ctl::List => &p.list,
     }
-    let base = 26
-        + match mode() {
-            Mode::Find | Mode::Mark => 108,
-            Mode::Replace => 142,
-            Mode::InFiles => 176,
-        };
-    base + if results_visible() { RESULTS_H } else { 0 }
 }
 
-fn place(w: &impl WxWidget, x: i32, y: i32, wd: i32, h: i32) {
-    w.set_size_with_pos(x, y, wd, h);
-}
-
-fn show(w: &impl WxWidget, on: bool) {
-    w.show(on);
+/// Every control, so the ones a mode does not use can be hidden.
+fn all_controls(p: &P) -> Vec<&dyn WxWidget> {
+    let mut v: Vec<&dyn WxWidget> = p.tab.iter().map(|t| t as &dyn WxWidget).collect();
+    v.extend([
+        &p.closex as &dyn WxWidget, &p.status, &p.find_lbl, &p.find, &p.repl_lbl, &p.repl, &p.dir_lbl, &p.dir, &p.filt_lbl, &p.filt, &p.browse, &p.case,
+        &p.word, &p.wrap, &p.regex, &p.dot, &p.ext, &p.insel, &p.next, &p.prev, &p.findall, &p.count, &p.replace, &p.repl_all, &p.fif, &p.mark,
+        &p.clear, &p.close, &p.list,
+    ]);
+    v
 }
 
 /// Position the controls for the current mode and width.
@@ -138,105 +160,27 @@ pub fn arrange() {
     let Some(p) = p() else { return };
     // Colours set while the panel was hidden at start-up are not reliably kept, so set them whenever it is laid out.
     restyle();
-    let width = p.panel.get_client_size().width;
     let mode = mode();
-    let (r1, r2, r3) = (40, 74, 108);
-    for (i, t) in p.tab.iter().enumerate() {
-        place(t, 8 + i as i32 * 86, 6, 84, 28);
-        t.set_value(i == mode as usize);
-    }
-    place(&p.status, 356, 11, (width - 356 - 44).max(0), 18);
-    place(&p.closex, width - 30, 7, 24, 24);
-
-    let hide: [&dyn WxWidget; 26] = [
-        &p.find_lbl, &p.find, &p.repl_lbl, &p.repl, &p.dir_lbl, &p.dir, &p.filt_lbl, &p.filt, &p.browse, &p.case, &p.word, &p.wrap, &p.regex,
-        &p.dot, &p.ext, &p.insel, &p.next, &p.prev, &p.findall, &p.count, &p.replace, &p.repl_all, &p.fif, &p.mark, &p.clear, &p.close,
-    ];
-    for w in hide {
+    let l = layout::layout(mode, p.panel.get_client_size().width, results_visible());
+    for w in all_controls(&p) {
         w.show(false);
     }
-    let label = |h: &StaticText, y: i32| {
-        place(h, 12, y + 4, 90, 20);
-        show(h, true);
-    };
-    let edit = |h: &TextCtrl, y: i32| {
-        place(h, 108, y, 250, 24);
-        show(h, true);
-    };
-    let btn = |h: &Button, x: &mut i32, y: i32, w: i32| {
-        place(h, *x, y, w, 26);
-        show(h, true);
-        *x += w + 6;
-    };
-    label(&p.find_lbl, r1);
-    edit(&p.find, r1);
-    let mut x = 368;
-    let mut checks_y = r2;
-    match mode {
-        Mode::Find => {
-            btn(&p.next, &mut x, r1 - 1, 84);
-            btn(&p.prev, &mut x, r1 - 1, 96);
-            btn(&p.findall, &mut x, r1 - 1, 200);
-            btn(&p.count, &mut x, r1 - 1, 64);
-            btn(&p.close, &mut x, r1 - 1, 64);
-        }
-        Mode::Replace => {
-            btn(&p.next, &mut x, r1 - 1, 84);
-            btn(&p.prev, &mut x, r1 - 1, 96);
-            btn(&p.count, &mut x, r1 - 1, 64);
-            btn(&p.findall, &mut x, r1 - 1, 200);
-            label(&p.repl_lbl, r2);
-            edit(&p.repl, r2);
-            let mut x2 = 368;
-            btn(&p.replace, &mut x2, r2 - 1, 84);
-            btn(&p.repl_all, &mut x2, r2 - 1, 96);
-            btn(&p.close, &mut x2, r2 - 1, 64);
-            checks_y = r3;
-        }
-        Mode::InFiles => {
-            btn(&p.fif, &mut x, r1 - 1, 84);
-            btn(&p.close, &mut x, r1 - 1, 64);
-            label(&p.dir_lbl, r2);
-            edit(&p.dir, r2);
-            let mut x2 = 368;
-            btn(&p.browse, &mut x2, r2 - 1, 34);
-            label(&p.filt_lbl, r3);
-            edit(&p.filt, r3);
-            checks_y = r3 + 34;
-        }
-        Mode::Mark => {
-            btn(&p.mark, &mut x, r1 - 1, 84);
-            btn(&p.clear, &mut x, r1 - 1, 120);
-            btn(&p.close, &mut x, r1 - 1, 64);
-        }
+    for (i, t) in p.tab.iter().enumerate() {
+        t.set_value(i == mode as usize);
     }
-    let mut cx = 108;
-    for (c, w) in [(&p.case, 100), (&p.word, 172), (&p.wrap, 110), (&p.regex, 138), (&p.dot, 140)] {
-        place(c, cx, checks_y, w, 22);
-        show(c, true);
-        cx += w + 6;
+    for (c, r) in &l.placed {
+        let w = widget(&p, *c);
+        w.set_size_with_pos(r.l, r.t, r.w(), r.h());
+        w.show(true);
     }
-    place(&p.ext, 108, checks_y + 26, 230, 22);
-    show(&p.ext, true);
-    if mode != Mode::InFiles {
-        place(&p.insel, 344, checks_y + 26, 130, 22);
-        show(&p.insel, true);
-    }
-    let base = height() - if results_visible() { RESULTS_H } else { 0 };
-    place(&p.list, 8, base, (width - 16).max(0), RESULTS_H - 8);
-    show(&p.list, results_visible());
 }
 
 /// Resize the panel to fit its mode and let the window re-flow.
 pub fn relayout() {
-    let (Some(host), Some(frame)) = (HOST.with(|h| *h.borrow()), FRAME.with(|f| *f.borrow())) else { return };
-    let h = height();
-    host.show(h > 0);
-    host.set_min_size(Size::new(-1, h));
-    frame.layout();
+    let Some(dock) = DOCK.with(|d| *d.borrow()) else { return };
+    dock.set_height(height());
     arrange();
 }
-
 pub fn read_opts() -> Opts {
     let Some(p) = p() else { return Opts::default() };
     Opts {
@@ -320,7 +264,7 @@ pub enum Cmd {
 
 /// Build the controls and hook them to the application.
 pub fn wire(app: &Shared) {
-    let Some(host) = HOST.with(|h| *h.borrow()) else { return };
+    let Some(host) = DOCK.with(|d| d.borrow().map(|d| d.panel())) else { return };
     let label = |t: &str| StaticText::builder(&host).with_label(t).build();
     let edit = || TextCtrl::builder(&host).with_style(TextCtrlStyle::ProcessEnter).build();
     let button = |t: &str| Button::builder(&host).with_label(t).build();

@@ -36,6 +36,7 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 
 - `tab_strip` - scrollable, reorderable tabs with dirty dot, badge, pin, colour bar, close button and `+`. `model.rs` does the layout and scrolling; scrolling is by tab index (the idea behind wxWidgets' `wxAuiTabContainer`), and a scroll arrow exists, and takes room, only while there is something to scroll to. It reports `TabEvent`s and holds no application state.
 - `menu_bar`, `tool_bar`, `status_bar` - the window's bars. Each has a tested layout function and reports typed events; `chrome.rs` only supplies their content and maps events to `Act`.
+- `dock` - a docked strip (themed background, height, window re-flow) used by the Find panel and the Markdown bar. The Find panel's placement of every control per mode and width is a pure `findpanel/layout.rs`.
 - `pointer` - the hover/press/release state machine the bars share.
 - `theme` - one `Theme` value and a hub; components subscribe, and a late subscriber is told the current theme at once.
 - `geom` / `paint` - `Rect`, colour mixing, the light/dark `Look` and drawing helpers.

@@ -45,7 +45,7 @@ pub struct App {
     wbv: WebView,
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
-    pub(crate) mdbar: Panel,
+    pub(crate) mdbar: crate::widgets::dock::Dock,
     pub(crate) upd: crate::updates::State,
     menu_bar: isize,
     mini: StyledTextCtrl,
@@ -135,7 +135,7 @@ pub fn start(files: Vec<PathBuf>) {
     sizer.add(&chrome.tools, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tabs, 0, SizerFlag::Expand, 0);
     let mdbar = crate::mdbar::create(&frame);
-    sizer.add(&mdbar, 0, SizerFlag::Expand, 0);
+    sizer.add(&mdbar.panel(), 0, SizerFlag::Expand, 0);
     sizer.add(&splitter, 1, SizerFlag::Expand, 0);
     sizer.add(&findpanel::container(&frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);

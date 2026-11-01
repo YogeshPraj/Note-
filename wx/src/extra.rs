@@ -390,8 +390,7 @@ impl App {
         ];
         let md = self.ws.is_markdown() && s.md_toolbar && !self.postit && !self.distraction;
         if md != self.mdbar.is_shown() {
-            self.mdbar.show(md);
-            self.frame.layout();
+            self.mdbar.set_height(if md { crate::mdbar::HEIGHT } else { 0 });
         }
         if want != self.chrome_vis {
             self.chrome_vis = want;

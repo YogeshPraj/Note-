@@ -126,7 +126,7 @@ test, app 82.
 | 8 | Hard-coded colours | **Fixed in the kit and the shell** (token test). Remaining: the editor's own palette in `core` (`sci.rs`, `settings.rs`), which is data of the editor colour scheme, not UI chrome. |
 | 9 | Two theming mechanisms | **Fixed.** `Look` is derived from `Theme`. |
 | 10 | No spacing, radius, font tokens | **Partly fixed.** Tokens and `Theme::px` exist and fonts are used; component pixel constants and the Win32-parity dialog positions are still literals by design. |
-| 11 | `unwrap`/`expect` in production | **Fixed** for `unwrap` (denied). `expect` remains in two places with a documented invariant (`crypto.rs` key length, app start-up). |
+| 11 | `unwrap`/`expect` in production | **Fixed** for `unwrap` (denied). `expect` remains in three places (`crypto.rs` fixed key length, the menu bar lookup at app start-up, one in `pwdialogs.rs`), each a warning. |
 | 12 | No typed errors | **Fixed.** `notepp_core::error::Error` (`thiserror`) replaces every `Result<_, String>`; the app has `AppError`. |
 | 13 | `println!` in the shell | **Fixed.** Routed through `PROBLEM_SINK` and the trace helper. |
 | 14 | `unsafe` | **Fixed.** `core` forbids it; the workspace denies it and only FFI modules allow it, each with a comment. `ui-kit::components` controls allow it for one trait method wxdragon makes unsafe. |

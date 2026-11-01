@@ -6,14 +6,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use wxdragon::prelude::*;
 
 static DARK: AtomicBool = AtomicBool::new(false);
+static APPLIED: AtomicBool = AtomicBool::new(false);
 
 pub fn is_dark() -> bool {
     DARK.load(Ordering::Relaxed)
 }
 
-/// Record the theme; true when it changed.
+/// Record the theme; true when it changed, and on the first call so the start-up theme is applied explicitly
+/// (the toolkit otherwise follows the system's dark setting).
 pub fn set_dark(on: bool) -> bool {
-    DARK.swap(on, Ordering::Relaxed) != on
+    let first = !APPLIED.swap(true, Ordering::Relaxed);
+    DARK.swap(on, Ordering::Relaxed) != on || first
 }
 
 /// What a widget is for, which decides its background.

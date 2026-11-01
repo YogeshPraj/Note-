@@ -24,6 +24,10 @@ pub enum Kind {
     DefButton,
     /// A small box showing the "#RRGGBB" typed in the edit box whose id is the control text.
     Swatch,
+    /// A report-style list (fill it with Form::list_fill).
+    List,
+    /// Like List, but several rows can be selected.
+    MultiList,
 }
 
 pub struct Ctl {
@@ -45,6 +49,7 @@ enum W {
     Radio(RadioButton),
     Button(Button),
     Swatch(Panel),
+    List(ListCtrl),
 }
 
 /// Live access to the controls while the form is open.
@@ -103,6 +108,9 @@ impl Form {
                 l.enable(on);
             }
             Some(W::Swatch(_)) | None => {}
+            Some(W::List(l)) => {
+                l.enable(on);
+            }
         }
     }
     pub fn focus(&self, id: usize) {
@@ -110,6 +118,72 @@ impl Form {
             t.set_focus();
         }
     }
+    /// Replace the columns (once) and rows of a list.
+    pub fn list_fill(&self, id: usize, columns: &[(&str, i32)], rows: &[Vec<String>]) {
+        let Some(W::List(l)) = self.map.get(&id) else { return };
+        if l.get_column_count() == 0 {
+            for (i, (name, w)) in columns.iter().enumerate() {
+                l.insert_column(i as i64, name, ListColumnFormat::Left, *w);
+            }
+        }
+        l.delete_all_items();
+        for (r, row) in rows.iter().enumerate() {
+            l.insert_item(r as i64, row.first().map_or("", String::as_str), None);
+            for (c, cell) in row.iter().enumerate().skip(1) {
+                l.set_item_text_by_column(r as i64, c as i32, cell);
+            }
+        }
+    }
+    pub fn list_set_cell(&self, id: usize, row: usize, col: usize, text: &str) {
+        if let Some(W::List(l)) = self.map.get(&id) {
+            l.set_item_text_by_column(row as i64, col as i32, text);
+        }
+    }
+    pub fn list_selected_all(&self, id: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        if let Some(W::List(l)) = self.map.get(&id) {
+            let mut i = -1i64;
+            loop {
+                let n = l.get_next_item(i, ListNextItemFlag::All, ListItemState::Selected);
+                if n < 0 {
+                    break;
+                }
+                out.push(n as usize);
+                i = n as i64;
+            }
+        }
+        out
+    }
+    pub fn list_selected(&self, id: usize) -> Option<usize> {
+        match self.map.get(&id) {
+            Some(W::List(l)) => usize::try_from(l.get_first_selected_item()).ok(),
+            _ => None,
+        }
+    }
+    pub fn list_select(&self, id: usize, row: usize) {
+        if let Some(W::List(l)) = self.map.get(&id) {
+            let both = ListItemState::Selected | ListItemState::Focused;
+            l.set_item_state(row as i64, both, both);
+            l.ensure_visible(row as i64);
+        }
+    }
+
+    /// Key presses in edit box `id`; return true to swallow the key.
+    pub fn on_key(&self, id: usize, cb: impl Fn(&Form, i32, bool, bool, bool) -> bool + 'static) {
+        if let Some(W::Edit(t)) = self.map.get(&id) {
+            let f = self.clone();
+            t.on_key_down(move |e| {
+                if let wxdragon::event::WindowEventData::Keyboard(k) = &e {
+                    let code = k.get_key_code().unwrap_or(0);
+                    if cb(&f, code, k.control_down(), k.alt_down(), k.shift_down()) {
+                        return;
+                    }
+                }
+                e.skip(true);
+            });
+        }
+    }
+
     pub fn close(&self, ok: bool) {
         self.dialog.end_modal(if ok { ID_OK } else { ID_CANCEL });
     }
@@ -128,6 +202,15 @@ impl Values {
     pub fn checked(&self, id: usize) -> bool {
         self.checked.get(&id).copied().unwrap_or(false)
     }
+}
+
+thread_local! {
+    static EDIT_HOOK: std::cell::Cell<Option<fn(&Form, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Called with the id of an edit box whenever its text changes, for the next form only.
+pub fn on_edit(hook: fn(&Form, usize)) {
+    EDIT_HOOK.with(|h| h.set(Some(hook)));
 }
 
 pub struct Spec<'a> {
@@ -168,6 +251,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let mut first_edit = None;
     let mut click_ids: Vec<(usize, Button)> = Vec::new();
     let mut swatches: Vec<(Panel, usize)> = Vec::new();
+    let mut lists: Vec<(usize, ListCtrl)> = Vec::new();
     for c in &spec.ctls {
         let (p, s) = pos(c.rect);
         match c.kind {
@@ -216,6 +300,12 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                 }
                 map.insert(c.id, W::Swatch(sw));
             }
+            Kind::List | Kind::MultiList => {
+                let style = if c.kind == Kind::List { ListCtrlStyle::Report | ListCtrlStyle::SingleSel } else { ListCtrlStyle::Report };
+                let l = ListCtrl::builder(&d).with_pos(p).with_size(s).with_style(style).build();
+                lists.push((c.id, l));
+                map.insert(c.id, W::List(l));
+            }
             Kind::Button | Kind::DefButton => {
                 let b = Button::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build();
                 if c.kind == Kind::DefButton {
@@ -254,6 +344,20 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                     r.bind_internal(EventType::COMMAND_RADIOBUTTON_SELECTED, move |_| on(&f, id));
                 }
                 _ => {}
+            }
+        }
+    }
+    if let Some(on) = spec.on_change {
+        for (id, l) in &lists {
+            let (f, id) = (form.clone(), *id);
+            l.on_item_selected(move |_| on(&f, id));
+        }
+    }
+    if let Some(hook) = EDIT_HOOK.with(|h| h.replace(None)) {
+        for (id, w) in form.map.iter() {
+            if let W::Edit(t) = w {
+                let (f, id) = (form.clone(), *id);
+                t.on_text_updated(move |_| hook(&f, id));
             }
         }
     }

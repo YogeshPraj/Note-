@@ -9,7 +9,62 @@ use notepp_core::{bookmarks, sci, search, view};
 use wxdragon::prelude::*;
 
 use crate::app::App;
+use crate::dialogs::{self, WinAction};
 use crate::form::{ctl, run, Kind, Spec};
+
+const DEFAULT_CONTEXT_MENU: &str = "# Right-click menu of the editor. One command per line, as named in the Command Palette;\n\
+# a line with just - makes a separator. Save the file and the next right-click uses it.\n\
+Edit: Cut\nEdit: Copy\nEdit: Paste\nEdit: Delete\nEdit: Select All\n-\n\
+Edit: Open Selected File\nEdit: Search Selection on Internet\n-\n\
+Edit: Toggle Line Comment\nEdit: Block Comment\nEdit: Block Uncomment\n-\n\
+Edit: UPPERCASE\nEdit: lowercase\nEdit: Proper Case\n-\n\
+Search: Style All Occurrences of Token (1st)\nSearch: Clear all Styles\n-\n\
+View: Fold All\nView: Unfold All\n";
+
+pub fn context_menu_path() -> PathBuf {
+    notepp_core::session::config_dir().join("contextmenu.txt")
+}
+
+fn ensure_context_menu_file() -> PathBuf {
+    let p = context_menu_path();
+    if !p.exists() {
+        let _ = std::fs::create_dir_all(notepp_core::session::config_dir());
+        let _ = std::fs::write(&p, DEFAULT_CONTEXT_MENU);
+    }
+    p
+}
+
+/// Entries of the context menu file: Some(command) or None for a separator.
+pub fn context_entries(text: &str) -> Vec<Option<(&'static str, usize, &'static str)>> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            if l == "-" {
+                Some(None)
+            } else {
+                c::PALETTE_COMMANDS.iter().find(|(name, _, _)| name.eq_ignore_ascii_case(l)).map(|(n, id, k)| Some((*n, *id, *k)))
+            }
+        })
+        .collect()
+}
+
+fn context_names(text: &str) -> Vec<String> {
+    context_entries(text).into_iter().map(|e| e.map_or("-".to_string(), |(n, _, _)| n.to_string())).collect()
+}
+
+fn mapper_rows(s: &notepp_core::settings::Settings) -> Vec<dialogs::MapRow> {
+    let native = [c::ID_UNDO, c::ID_REDO, c::ID_SELALL, c::ID_CUT, c::ID_COPY, c::ID_PASTE];
+    let mut seen = std::collections::HashSet::new();
+    c::PALETTE_COMMANDS
+        .iter()
+        .filter(|(_, id, _)| !native.contains(id) && seen.insert(*id))
+        .map(|(name, id, default)| {
+            let current = s.shortcuts.get(&id.to_string()).cloned().unwrap_or_else(|| default.to_string());
+            dialogs::MapRow { id: *id, name: name.to_string(), default: default.to_string(), current }
+        })
+        .collect()
+}
 
 fn clipboard_set(text: &str) -> bool {
     Clipboard::get().set_text(text)
@@ -481,9 +536,122 @@ impl App {
             }
             c::ID_COLUMN_EDITOR => self.flash = column_editor(self),
             c::ID_SUMMARY => summary(self),
+            c::ID_WINDOWS => {
+                let mut sel = self.ws.active;
+                loop {
+                    let rows = self.ws.window_rows();
+                    match dialogs::windows_dialog(&self.frame, &rows, sel.min(rows.len().saturating_sub(1))) {
+                        None => break,
+                        Some(WinAction::Activate(i)) => {
+                            self.ws.activate(i);
+                            break;
+                        }
+                        Some(WinAction::Save(rows)) => {
+                            let App { ws, ui, .. } = self;
+                            for &i in &rows {
+                                // Saving goes through the active tab; whiteboards save from their own tab.
+                                if i < ws.tabs.len() && ws.tabs[i].kind == notepp_core::workspace::TabKind::Text && ws.is_dirty(i) {
+                                    ws.activate(i);
+                                    ws.save(ui);
+                                }
+                            }
+                            sel = ws.active;
+                        }
+                        Some(WinAction::Close(rows)) => {
+                            let App { ws, ui, .. } = self;
+                            // Highest first so the indices stay valid.
+                            for &i in rows.iter().rev() {
+                                if i < ws.tabs.len() && !ws.close(ui, i) {
+                                    break;
+                                }
+                            }
+                            sel = ws.active;
+                        }
+                        Some(WinAction::Sort(field, descending)) => {
+                            self.ws.sort_tabs(field, descending);
+                            sel = self.ws.active;
+                        }
+                    }
+                }
+            }
+            _ if (c::ID_WINDOW_SORT_BASE..c::ID_WINDOW_SORT_BASE + dialogs::SORTS.len()).contains(&id) => {
+                let (_, field, descending) = dialogs::SORTS[id - c::ID_WINDOW_SORT_BASE];
+                self.ws.sort_tabs(field, descending);
+            }
+            c::ID_SHORTCUTS => {
+                if let Some(done) = dialogs::shortcut_mapper(&self.frame, mapper_rows(&self.ws.settings)) {
+                    let mut s = self.ws.settings.clone();
+                    s.shortcuts.clear();
+                    for r in done {
+                        if r.current != r.default {
+                            s.shortcuts.insert(r.id.to_string(), r.current);
+                        }
+                    }
+                    let _ = s.save();
+                    self.ws.settings = s;
+                    self.reinstall_menus();
+                    self.flash = Some("Shortcuts updated".into());
+                }
+            }
+            c::ID_EDIT_CONTEXT => {
+                let p = ensure_context_menu_file();
+                let current = context_names(&std::fs::read_to_string(&p).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.into()));
+                let all = c::PALETTE_COMMANDS.iter().map(|(n, _, _)| n.to_string()).collect();
+                if let Some((menu, as_text)) = dialogs::context_menu_editor(&self.frame, all, current.clone(), context_names(DEFAULT_CONTEXT_MENU)) {
+                    if menu != current {
+                        let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");
+                        let _ = std::fs::write(&p, format!("{header}\n{}\n", menu.join("\n")));
+                        self.flash = Some("Right-click menu saved".into());
+                    }
+                    if as_text {
+                        let App { ws, ui, .. } = self;
+                        ws.open_path(ui, &p);
+                    }
+                }
+            }
+            _ if (c::ID_HASH_BASE..c::ID_HASH_BASE + notepp_core::hash::ALGOS.len() * 10).contains(&id) => {
+                let algo = notepp_core::hash::ALGOS[(id - c::ID_HASH_BASE) / 10];
+                match (id - c::ID_HASH_BASE) % 10 {
+                    0 => dialogs::hash_text(&self.frame, algo),
+                    1 => {
+                        let files = self.ui.pick_open();
+                        if !files.is_empty() {
+                            let lines: Vec<String> = files
+                                .iter()
+                                .map(|p| match std::fs::File::open(p).and_then(|f| algo.hash_reader(f)) {
+                                    Ok(h) => format!("{h}  {}", p.display()),
+                                    Err(e) => format!("(error)  {}: {e}", p.display()),
+                                })
+                                .collect();
+                            dialogs::text_result(&self.frame, &format!("{} of {} file(s)", algo.name(), files.len()), &lines.join("\r\n"));
+                        }
+                    }
+                    _ => {
+                        let sel = search::selected_text(&sci);
+                        if sel.is_empty() {
+                            self.flash = Some("Select some text first".into());
+                        } else {
+                            let digest = algo.hash_bytes(sel.as_bytes());
+                            self.flash = Some(if clipboard_set(&digest) { format!("{} copied: {digest}", algo.name()) } else { "The clipboard is busy".into() });
+                        }
+                    }
+                }
+            }
             _ => return false,
         }
         true
+    }
+
+    /// Rebuild every menu (shortcut changes show up in their labels).
+    pub fn reinstall_menus(&mut self) {
+        let overrides = self.ws.settings.shortcuts.iter().filter_map(|(k, v)| k.parse::<usize>().ok().map(|id| (id, v.clone()))).collect();
+        crate::menus::set_shortcut_overrides(overrides);
+        let (bar, set) = crate::menus::build_menus();
+        for (i, (title, m)) in bar.iter().enumerate() {
+            self.menubar.replace(i, crate::menus::realize(*m), title);
+        }
+        self.menus = set;
+        self.reset_recent_key();
     }
 
     /// Menu ticks for the switches handled here.

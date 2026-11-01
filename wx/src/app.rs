@@ -57,7 +57,7 @@ pub struct App {
     pub(crate) postit: bool,
     pub(crate) distraction: bool,
     pub(crate) chrome_vis: [bool; 4],
-    menus: Menus,
+    pub(crate) menus: Menus,
     /// (title, modified) of the tabs as last shown, to rebuild the strip only when it changed.
     tab_key: Vec<(String, bool, bool)>,
     /// Set while the shell itself changes the tab strip, so its events are ignored.
@@ -695,6 +695,10 @@ impl App {
                 self.wbv.set_focus();
             }
         }
+    }
+
+    pub fn reset_recent_key(&mut self) {
+        self.recent_key = (vec![PathBuf::from("\u{0}")], false);
     }
 
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.

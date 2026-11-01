@@ -6,6 +6,7 @@ mod find;
 mod menus;
 mod chrome;
 mod preview;
+mod whiteboard;
 mod sci;
 mod settings_ui;
 mod tables;

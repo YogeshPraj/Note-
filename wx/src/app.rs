@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
 use notepp_core::preview as pcore;
 use notepp_core::sci::{self, Theme};
@@ -17,6 +17,7 @@ use wxdragon::event::WebViewEvents;
 use wxdragon::widgets::webview::WebView;
 
 use crate::chrome::{Act, Chrome, StatusText};
+use crate::whiteboard::{self as wbm, Pending};
 use crate::dispatch;
 use crate::preview;
 use crate::settings_ui;
@@ -32,6 +33,12 @@ pub struct App {
     pub frame: Frame,
     splitter: SplitterWindow,
     editor_pane: Panel,
+    wbv: WebView,
+    wb_loaded: bool,
+    wb_ready: bool,
+    wb_shown: Option<u64>,
+    wb_dark: bool,
+    wb_pending: Option<Pending>,
     mini: StyledTextCtrl,
     stc: StyledTextCtrl,
     view: WebView,
@@ -84,6 +91,11 @@ pub fn start(files: Vec<PathBuf>) {
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     row.add(&stc, 1, SizerFlag::Expand, 0);
     row.add(&mini, 0, SizerFlag::Expand, 0);
+    let wbv = WebView::builder(&editor_pane).build();
+    wbv.add_script_message_handler("ipc");
+    wbv.add_user_script(wbm::BRIDGE, wxdragon::widgets::webview::WebViewUserScriptInjectionTime::AtDocumentStart);
+    wbv.show(false);
+    row.add(&wbv, 1, SizerFlag::Expand, 0);
     editor_pane.set_sizer(row, true);
     let view = WebView::builder(&splitter).build();
     view.add_script_message_handler("ipc");
@@ -122,6 +134,12 @@ pub fn start(files: Vec<PathBuf>) {
         frame,
         splitter,
         editor_pane,
+        wbv,
+        wb_loaded: false,
+        wb_ready: false,
+        wb_shown: None,
+        wb_dark: false,
+        wb_pending: None,
         mini,
         stc,
         view,
@@ -140,6 +158,7 @@ pub fn start(files: Vec<PathBuf>) {
     }));
 
     wire_mini(&app, mini, stc);
+    wire_whiteboard(&app, wbv);
     wire(&app, frame, &stc, &view);
     app.borrow_mut().refresh();
     frame.show(true);
@@ -182,6 +201,36 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
     mini.on_set_focus(move |_| stc.set_focus());
 }
 
+/// One entry for menu items and toolbar buttons. Modeless windows need the shared handle, so they
+/// are opened here, with nothing borrowed.
+fn run_command(a: &Shared, id: usize) {
+    trace(id, "event");
+    match id {
+        ID_FIND | ID_REPLACE => {
+            let initial = a.try_borrow().map(|x| notepp_core::search::selected_text(&x.ws.sci)).unwrap_or_default();
+            return crate::find::open(a, id == ID_REPLACE, &initial);
+        }
+        ID_FINDNEXT | ID_FINDPREV => return crate::find::step(a, id == ID_FINDNEXT),
+        ID_GOTO => return crate::find::goto_line(a),
+        _ => {}
+    }
+    if let Ok(mut app) = a.try_borrow_mut() {
+        app.command(id);
+    }
+}
+
+/// Messages from the Excalidraw page: readiness, scene changes, save requests.
+fn wire_whiteboard(app: &Shared, wbv: WebView) {
+    let a = app.clone();
+    wbv.on_script_message_received(move |e| {
+        let msg = e.get_string().unwrap_or_default();
+        let Some(ev) = wbm::parse(&msg) else { return };
+        if let Ok(mut app) = a.try_borrow_mut() {
+            app.wb_event(ev);
+        }
+    });
+}
+
 fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     // The preview page finished loading: draw the current document in it.
     let a = app.clone();
@@ -216,22 +265,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     });
     // Menu commands.
     let a = app.clone();
-    frame.on_menu(move |e| {
-        let id = e.get_id() as usize;
-        // Modeless windows need the shared handle, so they are opened here, with nothing borrowed.
-        match id {
-            ID_FIND | ID_REPLACE => {
-                let initial = a.try_borrow().map(|x| notepp_core::search::selected_text(&x.ws.sci)).unwrap_or_default();
-                return crate::find::open(&a, id == ID_REPLACE, &initial);
-            }
-            ID_FINDNEXT | ID_FINDPREV => return crate::find::step(&a, id == ID_FINDNEXT),
-            ID_GOTO => return crate::find::goto_line(&a),
-            _ => {}
-        }
-        if let Ok(mut app) = a.try_borrow_mut() {
-            app.command(id);
-        }
-    });
+    frame.on_menu(move |e| run_command(&a, e.get_id() as usize));
 
     // Caret moves, edits and selection changes update the status bar.
     let a = app.clone();
@@ -244,9 +278,13 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     // Toolbar buttons and the tab strip.
     let a = app.clone();
     let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
+        let a2 = a.clone();
         let Ok(mut app) = a.try_borrow_mut() else { return };
         match act {
-            Act::Cmd(id) => return app.command(id),
+            Act::Cmd(id) => {
+                drop(app);
+                return run_command(&a2, id);
+            }
             Act::Select(i) => app.ws.activate(i),
             Act::Close(i) => {
                 let App { ws, ui, .. } = &mut *app;
@@ -285,9 +323,27 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     });
 }
 
+/// With NPP_TRACE=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
+fn trace(id: usize, how: &str) {
+    if let Some(p) = std::env::var_os("NPP_TRACE") {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let _ = std::io::Write::write_all(&mut f, format!("{id} {how}\n").as_bytes());
+        }
+    }
+}
+
 impl App {
     pub fn command(&mut self, id: usize) {
-        if dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
+        // A whiteboard is saved from the page's latest scene, so ask for it first.
+        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wb_ready {
+            self.wb_pending = Some(match id {
+                ID_SAVE => Pending::Save,
+                ID_SAVEAS => Pending::SaveAs,
+                _ => Pending::SaveCopy,
+            });
+            return wbm::request_data(&self.wbv);
+        }        if dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
+            trace(id, "core");
             return self.refresh();
         }
         match id {
@@ -361,9 +417,112 @@ impl App {
                 self.ws.set_theme(if dark { Theme::dark() } else { Theme::light() });
                 self.flash = Some(format!("Theme: {}", preset.map_or(if dark { "Default (dark)" } else { "Default (light)" }, |p| p.name)));
             }
-            _ => self.flash = Some("This command is not available in this build yet".into()),
+            _ => {
+                self.flash = Some("This command is not available in this build yet".into());
+                trace(id, "unported");
+            }
         }
         self.refresh();
+    }
+
+    fn wb_event(&mut self, ev: wbm::Event) {
+        match ev {
+            wbm::Event::Ready => {
+                self.wb_ready = true;
+                self.wb_shown = None;
+                self.wb_dark = !self.ws.theme.dark;
+            }
+            wbm::Event::State(s) => self.wb_apply_scene(s),
+            wbm::Event::Data(s) => {
+                self.wb_apply_scene(s);
+                self.wb_finish_pending();
+            }
+            wbm::Event::SaveRequest => {
+                self.wb_pending = Some(Pending::Save);
+                wbm::request_data(&self.wbv);
+            }
+        }
+        self.refresh();
+    }
+
+    fn wb_apply_scene(&mut self, s: String) {
+        let current = self.ws.is_whiteboard().then(|| self.ws.tabs[self.ws.active].id);
+        // Ignore echoes for a scene that is no longer the one on screen.
+        if current.is_some() && current == self.wb_shown {
+            let t = &mut self.ws.tabs[self.ws.active];
+            if t.content != s {
+                // Pan/zoom and Excalidraw's own re-serialisation are not edits.
+                let edited = !notepp_core::whiteboard::same_drawing(&t.content, &s);
+                t.content = s;
+                if edited {
+                    t.dirty = true;
+                }
+            }
+        }
+    }
+
+    fn wb_finish_pending(&mut self) {
+        let Some(p) = self.wb_pending.take() else { return };
+        if !self.ws.is_whiteboard() {
+            return;
+        }
+        let App { ws, ui, .. } = self;
+        match p {
+            Pending::Save => ws.save(ui),
+            Pending::SaveAs => ws.save_as(ui),
+            Pending::SaveCopy => ws.save_copy_as(ui).is_some(),
+        };
+    }
+
+    /// Show the whiteboard instead of the editor while a whiteboard tab is active, and push the
+    /// tab's scene (and the theme) into the page when needed.
+    fn wb_sync(&mut self) {
+        let wb = self.ws.is_whiteboard();
+        let mut relayout = false;
+        if self.stc.is_shown() == wb {
+            self.stc.show(!wb);
+            relayout = true;
+        }
+        let want_mini = self.ws.minimap && !wb;
+        if self.mini.is_shown() != want_mini {
+            self.mini.show(want_mini);
+            relayout = true;
+        }
+        if self.wbv.is_shown() != wb {
+            self.wbv.show(wb);
+            relayout = true;
+            if wb {
+                self.wb_shown = None;
+                if !self.wb_loaded {
+                    match wbm::page_url() {
+                        Some(url) => {
+                            self.wb_loaded = true;
+                            self.wbv.load_url(&url);
+                        }
+                        None => self.flash = Some("Whiteboard unavailable: assets/whiteboard not found".into()),
+                    }
+                }
+            }
+        }
+        if relayout {
+            self.editor_pane.layout();
+        }
+        if wb && self.wb_ready {
+            let dark = self.ws.theme.dark;
+            if self.wb_dark != dark {
+                self.wb_dark = dark;
+                wbm::set_theme(&self.wbv, dark);
+            }
+            let (id, content) = {
+                let t = &self.ws.tabs[self.ws.active];
+                (t.id, t.content.clone())
+            };
+            if self.wb_shown != Some(id) {
+                self.wb_shown = Some(id);
+                wbm::load(&self.wbv, &content);
+                self.wbv.set_focus();
+            }
+        }
     }
 
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.
@@ -392,10 +551,7 @@ impl App {
         self.menubar.check_item(ID_WRAP as i32, self.ws.wrap);
         self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
         self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
-        if self.mini.is_shown() != self.ws.minimap {
-            self.mini.show(self.ws.minimap);
-            self.editor_pane.layout();
-        }
+        self.wb_sync();
         self.menubar.check_item(ID_PREVIEW as i32, self.preview_on);
         self.preview_update(false);
         {

@@ -291,7 +291,7 @@ fn paint_tools(st: &Rc<RefCell<St>>, panel: &Panel) {
     let dc = AutoBufferedPaintDC::new(panel);
     let s = st.borrow();
     let lk = s.look;
-    let (w, h) = dc.get_size();
+    let (w, h) = { let c = panel.get_client_size(); (c.width, c.height) };
     fill(&dc, R::new(0, 0, w, h), lk.base());
     for (i, (item, r)) in s.tools.iter().enumerate() {
         match item {
@@ -321,7 +321,7 @@ fn paint_tabs(st: &Rc<RefCell<St>>, panel: &Panel) {
     if let Some(f) = &s.font {
         dc.set_font(f);
     }
-    let (w, h) = dc.get_size();
+    let (w, h) = { let c = panel.get_client_size(); (c.width, c.height) };
     fill(&dc, R::new(0, 0, w, h), lk.base());
     layout_tabs(&dc, w, &mut s);
     fill(&dc, R::new(0, h - 1, w, h), mix(lk.base(), lk.ink(), 0x30));
@@ -406,7 +406,7 @@ fn paint_status(st: &Rc<RefCell<St>>, panel: &Panel) {
     if let Some(f) = &s.font {
         dc.set_font(f);
     }
-    let (w, h) = dc.get_size();
+    let (w, h) = { let c = panel.get_client_size(); (c.width, c.height) };
     fill(&dc, R::new(0, 0, w, h), STATUS_BG);
     let t = s.status.clone();
     text_at(&dc, &t.position, R::new(10, 0, w / 3, h), WHITE, false);
@@ -492,6 +492,18 @@ impl Chrome {
         self.menu.refresh(false, None);
     }
 
+    /// Where menu `i`'s popup goes (screen coordinates) and how many menus there are, usable while the
+    /// application is busy showing one.
+    pub fn menu_locator(&self) -> (Box<dyn Fn(i32) -> (i32, i32)>, i32) {
+        let (st, panel) = (self.st.clone(), self.menu);
+        let n = st.borrow().menu_items.len() as i32;
+        let at = move |i: i32| {
+            let (x, y) = st.borrow().menu_rects.get(i as usize).map_or((0, MENU_H), |r| (r.l, r.b));
+            let p = panel.client_to_screen(Point::new(x, y));
+            (p.x, p.y)
+        };
+        (Box::new(at), n)
+    }
     pub fn set_handler(&self, h: Rc<dyn Fn(Act)>) {
         self.st.borrow_mut().handler = Some(h);
     }
@@ -544,7 +556,7 @@ fn paint_menu(st: &Rc<RefCell<St>>, panel: &Panel) {
     if let Some(f) = &s.font {
         dc.set_font(f);
     }
-    let (w, h) = dc.get_size();
+    let (w, h) = { let c = panel.get_client_size(); (c.width, c.height) };
     fill(&dc, R::new(0, 0, w, h), lk.base());
     let mut x = 6;
     let mut rects = Vec::new();

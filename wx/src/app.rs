@@ -300,12 +300,12 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
         if let Act::Menu(i, x, y) = act {
             // Modal: nothing may be borrowed while the menu is open (its commands re-enter the app).
-            let (bar, menu, frame) = match a.try_borrow() {
-                Ok(app) => (app.menu_bar, app.chrome.menu, app.frame),
+            let (bar, frame, (at, count)) = match a.try_borrow() {
+                Ok(app) => (app.menu_bar, app.frame, app.chrome.menu_locator()),
                 Err(_) => return,
             };
-            let p = menu.client_to_screen(Point::new(x, y));
-            crate::winmenu::popup(bar, frame.get_handle() as isize, i as i32, p.x, p.y);
+            let _ = (x, y);
+            crate::winmenu::popup(bar, frame.get_handle() as isize, i as i32, count, &*at);
             return;
         }
         let a2 = a.clone();

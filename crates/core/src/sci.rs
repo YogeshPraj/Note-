@@ -233,6 +233,7 @@ pub type Rgb = (u8, u8, u8);
 
 /// Editor colours. `light()` matches the Electron app's default look.
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct Theme {
     pub dark: bool,
     pub fg: Rgb,

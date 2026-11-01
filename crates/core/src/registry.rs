@@ -78,12 +78,16 @@ impl std::fmt::Debug for CommandSpec {
 impl CommandSpec {
     /// The text a tool-tip shows: the name without mnemonic, and the shortcut when there is one.
     pub fn tooltip(&self) -> String {
-        let name = if self.menu.is_empty() { self.palette.rsplit(": ").next().unwrap_or(self.palette) } else { self.menu };
-        let name = name.replace('&', "").trim_end_matches("...").to_string();
-        let key = self.hint();
-        if key.is_empty() { name } else { format!("{name} ({key})") }
+        self.tooltip_with(None)
     }
 
+    /// Like [`CommandSpec::tooltip`] with the user's own shortcut text (`Some("")` = none) instead of the default.
+    pub fn tooltip_with(&self, key: Option<&str>) -> String {
+        let name = if self.menu.is_empty() { self.palette.rsplit(": ").next().unwrap_or(self.palette) } else { self.menu };
+        let name = name.replace('&', "").trim_end_matches("...").to_string();
+        let key = key.unwrap_or_else(|| self.hint());
+        if key.is_empty() { name } else { format!("{name} ({key})") }
+    }
     /// The shortcut text the palette shows beside the command.
     pub fn hint(&self) -> &'static str {
         if self.shortcut.is_empty() { self.menu_key } else { self.shortcut }
@@ -351,7 +355,6 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_SYNC_V, "Synchronize Vertical Scrolling", "", "", ""),
     row(ID_SYNC_H, "Synchronize Horizontal Scrolling", "", "", ""),
     row(ID_PALETTE, "Command Palette...", "", "Ctrl+Shift+P", ""),
-    row(ID_LANG_BASE, "Normal Text", "", "", ""),
     row(ID_PRESET_BASE, "Default (light)", "", "", ""),
 ];
 
@@ -385,7 +388,12 @@ pub fn default_shortcut(id: usize) -> Option<&'static str> {
     spec(id).map(|s| s.shortcut).filter(|k| crate::shortcuts::parse(k).is_some())
 }
 
-/// The frequent commands under a typed name, so code does not pass magic numbers around.
+/// How many recent files the File menu can hold.
+pub const RECENT_SLOTS: usize = 100;
+
+/// Commands under a typed name, so code does not pass magic numbers around. The first group are the frequent fixed
+/// commands; the rest are families, one command per item of a list that is built from current state (the recent
+/// files, the encodings, the languages). A family command carries its index into that list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     FileNew,
@@ -405,10 +413,21 @@ pub enum Command {
     ViewToggleWordWrap,
     ViewZoomIn,
     ViewZoomOut,
+    /// Open entry `n` of the recent-files list.
+    OpenRecent(usize),
+    /// Reopen the file as the n-th of [`crate::tables::ENCODE_IN`].
+    EncodeIn(usize),
+    /// Convert the text to the n-th of [`crate::tables::ENCODE_IN`].
+    ConvertTo(usize),
+    /// Reopen as character set n of [`crate::doc::CHARSETS`]; `CHARSETS.len()` stands for Windows-1252.
+    SetCharset(usize),
+    /// Use language n of [`crate::lang::LANGUAGES`] (0 is Normal Text).
+    SetLanguage(usize),
 }
 
 impl Command {
-    pub const ALL: [Command; 17] = [
+    /// The fixed commands, for tests and tooling.
+    pub const FIXED: [Command; 17] = [
         Command::FileNew,
         Command::FileOpen,
         Command::FileSave,
@@ -447,18 +466,33 @@ impl Command {
             Command::ViewToggleWordWrap => ID_WRAP,
             Command::ViewZoomIn => ID_ZOOMIN,
             Command::ViewZoomOut => ID_ZOOMOUT,
+            Command::OpenRecent(i) => ID_RECENT_BASE + i,
+            Command::EncodeIn(i) => ID_ENCODE_BASE + i,
+            Command::ConvertTo(i) => ID_CONVERT_BASE + i,
+            Command::SetCharset(i) => ID_CHARSET_BASE + i,
+            Command::SetLanguage(i) => ID_LANG_BASE + i,
         }
     }
 
+    /// The command behind a numeric id (what a menu or the keyboard reports), family members included.
     pub fn from_id(id: usize) -> Option<Command> {
-        Command::ALL.into_iter().find(|c| c.id() == id)
+        let member = |base: usize, len: usize| id.checked_sub(base).filter(|i| *i < len);
+        if let Some(c) = Command::FIXED.into_iter().find(|c| c.id() == id) {
+            return Some(c);
+        }
+        member(ID_RECENT_BASE, RECENT_SLOTS)
+            .map(Command::OpenRecent)
+            .or_else(|| member(ID_ENCODE_BASE, crate::tables::ENCODE_IN.len()).map(Command::EncodeIn))
+            .or_else(|| member(ID_CONVERT_BASE, crate::tables::ENCODE_IN.len()).map(Command::ConvertTo))
+            .or_else(|| member(ID_CHARSET_BASE, crate::doc::CHARSETS.len() + 1).map(Command::SetCharset))
+            .or_else(|| member(ID_LANG_BASE, crate::lang::LANGUAGES.len()).map(Command::SetLanguage))
     }
 
-    pub fn spec(self) -> &'static CommandSpec {
-        spec(self.id()).unwrap_or(&SPECS[0])
+    /// The registry row of a fixed command (family members have none: their text comes from a menu provider).
+    pub fn spec(self) -> Option<&'static CommandSpec> {
+        spec(self.id())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,21 +514,21 @@ mod tests {
 
     #[test]
     fn every_typed_command_has_a_spec_and_round_trips() {
-        for c in Command::ALL {
-            assert!(spec(c.id()).is_some(), "{c:?} is not registered");
+        for c in Command::FIXED {
+            assert!(c.spec().is_some(), "{c:?} is not registered");
             assert_eq!(Command::from_id(c.id()), Some(c));
         }
     }
 
     #[test]
     fn tooltip_names_the_command_and_its_shortcut() {
-        assert_eq!(Command::FileSave.spec().tooltip(), "Save (Ctrl+S)");
-        assert_eq!(Command::FileOpen.spec().tooltip(), "Open (Ctrl+O)");
+        assert_eq!(Command::FileSave.spec().map(CommandSpec::tooltip).unwrap_or_default(), "Save (Ctrl+S)");
+        assert_eq!(Command::FileOpen.spec().map(CommandSpec::tooltip).unwrap_or_default(), "Open (Ctrl+O)");
     }
 
     #[test]
     fn menu_text_uses_the_override_when_given() {
-        let s = Command::FileNew.spec();
+        let s = Command::FileNew.spec().expect("registered");
         assert_eq!(s.menu_text(None), "&New\tCtrl+N");
         assert_eq!(s.menu_text(Some("Ctrl+Alt+N")), "&New\tCtrl+Alt+N");
         assert_eq!(s.menu_text(Some("")), "&New");
@@ -514,6 +548,23 @@ mod tests {
         let s = CommandState { can_undo: true, ..CommandState::default() };
         assert!(is_enabled(ID_UNDO, &s));
         assert!(!is_enabled(ID_REDO, &s));
+    }
+
+    #[test]
+    fn family_members_decode_to_typed_commands_and_back() {
+        for id in [ID_RECENT_BASE, ID_RECENT_BASE + 7, ID_ENCODE_BASE + 4, ID_CONVERT_BASE + 2, ID_CHARSET_BASE + crate::doc::CHARSETS.len(), ID_LANG_BASE, ID_LANG_BASE + 5] {
+            let c = Command::from_id(id).expect("a family member");
+            assert_eq!(c.id(), id);
+        }
+        assert_eq!(Command::from_id(ID_RECENT_BASE + 3), Some(Command::OpenRecent(3)));
+        assert_eq!(Command::from_id(ID_LANG_BASE + 1), Some(Command::SetLanguage(1)));
+    }
+
+    #[test]
+    fn ids_outside_every_family_are_not_commands() {
+        assert_eq!(Command::from_id(ID_RECENT_BASE + RECENT_SLOTS), None);
+        assert_eq!(Command::from_id(ID_ENCODE_BASE + crate::tables::ENCODE_IN.len()), None);
+        assert_eq!(Command::from_id(ID_LANG_BASE + crate::lang::LANGUAGES.len()), None);
     }
 
     #[test]

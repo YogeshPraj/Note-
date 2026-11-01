@@ -228,6 +228,7 @@ pub fn resolve_vault_refs(text: &str, cache: &mut HashMap<String, Option<String>
 
 // ---- sending --------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct Response {
     pub status: u16,
     pub status_text: String,

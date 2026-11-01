@@ -35,3 +35,5 @@ pub mod tables;
 pub mod secret;
 pub mod num;
 pub mod registry;
+pub mod menu_provider;
+pub mod keymap;

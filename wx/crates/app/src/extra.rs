@@ -301,8 +301,12 @@ impl App {
 
     /// Rebuild every menu (shortcut changes show up in their labels).
     pub fn reinstall_menus(&mut self) {
-        let overrides = self.ws.settings.shortcuts.iter().filter_map(|(k, v)| k.parse::<usize>().ok().map(|id| (id, v.clone()))).collect();
-        crate::menus::set_shortcut_overrides(overrides);
+        self.keymap = notepp_core::keymap::KeyMap::build(&self.ws.settings.shortcuts);
+        crate::menus::set_keymap(&self.keymap);
+        self.chrome.refresh_tips(&self.keymap);
+        if let Some(p) = self.keymap.problems().first() {
+            self.flash = Some(p.to_string());
+        }
         let (bar, set) = crate::menus::build_menus();
         for (i, (title, m)) in bar.iter().enumerate() {
             self.menubar.replace(i, crate::menus::realize(*m), title);

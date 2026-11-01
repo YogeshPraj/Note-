@@ -12,6 +12,7 @@ pub const ACCENT: Rgb = (0x00, 0x7A, 0xCC);
 
 /// Light or dark scheme, with the editor's colours so the active tab can merge into the page.
 #[derive(Clone, Copy)]
+#[derive(Debug)]
 pub struct Look {
     pub dark: bool,
     pub editor_bg: Rgb,

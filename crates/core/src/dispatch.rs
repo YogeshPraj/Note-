@@ -3,6 +3,7 @@
 
 #![allow(unused_imports, unused_variables, unused_mut)]
 use crate::bookmarks;
+use crate::registry::Command;
 use crate::commands::{ID_NEW_WB, ID_NEW, ID_OPEN, ID_SAVE, ID_SAVEAS, ID_SAVEALL, ID_CLOSE, ID_CLOSE_ALL, ID_CLOSE_OTHERS, ID_CLOSE_LEFT, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_SAVE_COPY, ID_RENAME, ID_RECYCLE, ID_LOAD_SESSION, ID_SAVE_SESSION, ID_TAB_PIN, ID_TAB_COLOR_NONE, ID_TAB_COLOR_BASE, ID_PW_LOCK, ID_ENC_LOCK, ID_ENCRYPT, ID_DECRYPT, ID_ENC_TOGGLE, ID_RESTORE_CLOSED, ID_OPEN_ALL_RECENT, ID_UNDO, ID_REDO, ID_CUT, ID_COPY, ID_PASTE, ID_SELALL, ID_EOL_CRLF, ID_EOL_LF, ID_EOL_CR, ID_WRAP, ID_THEME, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET, ID_L_DUP, ID_L_DEL, ID_L_UP, ID_L_DOWN, ID_C_UPPER, ID_C_LOWER, ID_L_SORT_ASC, ID_L_SORT_DESC, ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_DEDUP, ID_L_RM_CONSEC, ID_L_NOEMPTY, ID_L_RM_BLANK, ID_L_REVERSE, ID_L_RANDOM, ID_L_JOIN, ID_L_SPLIT, ID_L_TRIM, ID_B_TRIM_LEAD, ID_B_TRIM_BOTH, ID_B_EOL_SPACE, ID_B_UNNECESSARY, ID_B_TAB_SPACE, ID_B_SPACE_TAB_ALL, ID_B_SPACE_TAB_LEAD, ID_COMMENT, ID_CMT_LINE, ID_UNCMT_LINE, ID_CMT_BLOCK, ID_UNCMT_BLOCK, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_CUT, ID_L_COPY, ID_L_TRANSPOSE, ID_CASE_PROPER, ID_CASE_PROPER_BLEND, ID_CASE_SENTENCE, ID_CASE_SENTENCE_BLEND, ID_CASE_INVERT, ID_CASE_RANDOM, ID_DELETE, ID_BEGIN_END_SEL, ID_BEGIN_END_COL, ID_INDENT_INC, ID_INDENT_DEC, ID_AC_FUNC, ID_AC_WORD, ID_AC_HINT, ID_AC_PATH, ID_ENGINE_BASE, ID_SYM_WS, ID_SYM_EOL, ID_SYM_NONPRINT, ID_SYM_CTRL, ID_SYM_ALL, ID_SYM_INDENT, ID_SYM_WRAP, ID_OPEN_NEW_INSTANCE, ID_MOVE_NEW_INSTANCE, ID_TAB_BASE, ID_MOVE_TAB_FWD, ID_MOVE_TAB_BACK, ID_HIDE_LINES, ID_FOLD_ALL, ID_UNFOLD_ALL, ID_FOLD_CUR, ID_UNFOLD_CUR, ID_FOLD_LEVEL_BASE, ID_UNFOLD_LEVEL_BASE, ID_READONLY, ID_CLEAR_RO, ID_BM_TOGGLE, ID_BM_NEXT, ID_BM_PREV, ID_BM_CLEAR, ID_RECENT_CLEAR, ID_RECENT_BASE, ID_NEXT_TAB, ID_PREV_TAB, ID_BRACE_GOTO, ID_BRACE_SEL, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_CLEAR_STYLE_BASE, ID_JUMP_UP_BASE, ID_JUMP_DOWN_BASE, ID_BM_DELETE, ID_BM_DELETE_UNMARKED, ID_BM_INVERT, ID_EXPORT_THEME, ID_B64_ENC, ID_B64_DEC, ID_URL_ENC, ID_URL_DEC, ID_JSON_PRETTY, ID_JSON_MIN, ID_XML_PRETTY, ID_XML_MIN, ID_WINDOW_DOC_BASE, ID_ENCODE_BASE, ID_CHARSET_BASE, ID_CONVERT_BASE, ID_LANG_BASE};
 use crate::doc::{CHARSETS, Enc, Eol};
 use crate::edit::{self, ColumnNumbers, NumFormat, SortKind};
@@ -22,6 +23,11 @@ use crate::tables::{md_fmt, SLOT_NAMES, theme_json, WINDOW_DOCS_SHOWN, ENCODE_IN
 /// Run command `id` if it needs nothing but the workspace. False when the shell must handle it.
 pub fn command_core<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash: &mut Option<String>, id: usize) -> bool {
     let sci = ws.sci;
+    if let Some(cmd) = Command::from_id(id)
+        && run_family(ws, ui, flash, cmd)
+    {
+        return true;
+    }
     match id {
             ID_NEW_WB => {
                 ws.new_whiteboard();
@@ -274,16 +280,6 @@ pub fn command_core<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, fla
             }
             ID_BM_CLEAR => ws.clear_bookmarks(),
             ID_RECENT_CLEAR => ws.recent.clear(),
-            _ if (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id) => {
-                if let Some(p) = ws.recent.get(id - ID_RECENT_BASE).cloned() {
-                    if p.exists() {
-                        ws.open_path(ui, &p);
-                    } else {
-                        ws.prune_recent();
-                        *flash = Some(format!("{} no longer exists", p.display()));
-                    }
-                }
-            }
             ID_NEXT_TAB => ws.next_tab(1),
             ID_PREV_TAB => ws.next_tab(-1),
             ID_BRACE_GOTO => {
@@ -347,18 +343,43 @@ pub fn command_core<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, fla
                 *flash = ws.text_tool(op);
             }
             _ if (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id) => ws.activate(id - ID_WINDOW_DOC_BASE),
-            _ if (ID_ENCODE_BASE..ID_ENCODE_BASE + ENCODE_IN.len()).contains(&id) => {
-                ws.reload_as(ui, ENCODE_IN[id - ID_ENCODE_BASE]);
+        _ => return false,
+    }
+    true
+}
+
+/// The family commands carry their index, so nothing here does id arithmetic.
+fn run_family<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash: &mut Option<String>, cmd: Command) -> bool {
+    match cmd {
+        Command::OpenRecent(i) => {
+            if let Some(p) = ws.recent.get(i).cloned() {
+                if p.exists() {
+                    ws.open_path(ui, &p);
+                } else {
+                    ws.prune_recent();
+                    *flash = Some(format!("{} no longer exists", p.display()));
+                }
             }
-            _ if (ID_CHARSET_BASE..=ID_CHARSET_BASE + CHARSETS.len()).contains(&id) => {
-                let i = id - ID_CHARSET_BASE;
-                // The last entry is Windows-1252, which is the app's ANSI.
-                ws.reload_as(ui, if i == CHARSETS.len() { Enc::Ansi } else { Enc::Cs(crate::num::to_u8(i)) });
+        }
+        Command::EncodeIn(i) => {
+            if let Some(enc) = ENCODE_IN.get(i) {
+                ws.reload_as(ui, *enc);
             }
-            _ if (ID_CONVERT_BASE..ID_CONVERT_BASE + ENCODE_IN.len()).contains(&id) => {
-                *flash = ws.convert_to(ui, ENCODE_IN[id - ID_CONVERT_BASE]);
+        }
+        Command::ConvertTo(i) => {
+            if let Some(enc) = ENCODE_IN.get(i) {
+                *flash = ws.convert_to(ui, *enc);
             }
-            _ if (ID_LANG_BASE..ID_LANG_BASE + LANGUAGES.len()).contains(&id) => ws.set_language(LANGUAGES[id - ID_LANG_BASE].0),
+        }
+        // The last charset index is Windows-1252, which is the app's ANSI.
+        Command::SetCharset(i) => {
+            ws.reload_as(ui, if i == CHARSETS.len() { Enc::Ansi } else { Enc::Cs(crate::num::to_u8(i)) });
+        }
+        Command::SetLanguage(i) => {
+            if let Some((name, _)) = LANGUAGES.get(i) {
+                ws.set_language(name);
+            }
+        }
         _ => return false,
     }
     true

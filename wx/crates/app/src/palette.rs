@@ -14,23 +14,14 @@ use crate::widgets::quick_pick::{Item, pick};
 
 /// The effective shortcut text of a command (the user's own, else the default).
 fn shortcut_text(app: &crate::app::App, id: usize, default: &str) -> String {
-    app.ws.settings.shortcuts.get(&id.to_string()).cloned().unwrap_or_else(|| default.to_string())
+    app.keymap.shown(id).map_or_else(|| default.to_string(), str::to_string)
 }
 
 pub fn open_commands(app: &Shared) {
     let (frame, items) = {
         let Ok(a) = app.try_borrow() else { return };
         let mut v: Vec<Item> = notepp_core::registry::palette().map(|c| Item { label: c.palette.to_string(), hint: shortcut_text(&a, c.id, c.hint()), id: c.id }).collect();
-        for (i, e) in ENCODE_IN.iter().enumerate() {
-            v.push(Item { label: format!("Encoding: Encode in {}", e.label()), hint: String::new(), id: ID_ENCODE_BASE + i });
-            v.push(Item { label: format!("Encoding: Convert to {}", e.label()), hint: String::new(), id: ID_CONVERT_BASE + i });
-        }
-        for (i, c) in CHARSETS.iter().enumerate() {
-            v.push(Item { label: format!("Encoding: Character set {} ({})", c.label, c.group), hint: String::new(), id: ID_CHARSET_BASE + i });
-        }
-        for (i, (label, _)) in LANGUAGES.iter().enumerate() {
-            v.push(Item { label: format!("Language: {label}"), hint: String::new(), id: ID_LANG_BASE + i });
-        }
+        v.extend(notepp_core::menu_provider::palette_items().into_iter().filter_map(|i| Some(Item { label: i.palette?, hint: String::new(), id: i.command.id() })));
         (a.frame, v)
     };
     if let Some(id) = pick(&frame, items) {

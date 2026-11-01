@@ -72,6 +72,12 @@ struct State {
     handler: Option<Rc<dyn Fn(TabEvent)>>,
 }
 
+impl std::fmt::Debug for TabStrip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TabStrip").finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone)]
 pub struct TabStrip {
     panel: Panel,

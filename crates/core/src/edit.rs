@@ -872,6 +872,7 @@ pub fn search_url(engine: usize, query: &str) -> String {
 
 /// What a line operation covers when nothing is selected.
 #[derive(Clone, Copy, PartialEq)]
+#[derive(Debug)]
 pub enum Scope {
     WholeDocument,
     CurrentLine,

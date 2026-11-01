@@ -7,6 +7,12 @@ use wxdragon::prelude::*;
 
 use super::theme;
 
+impl std::fmt::Debug for Dock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Dock").finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Dock {
     host: Panel,

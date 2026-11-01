@@ -192,6 +192,17 @@ impl Chrome {
         );
     }
 
+    /// Tool-tips that come from the registry show the keymap's effective shortcut.
+    pub fn refresh_tips(&self, keymap: &notepp_core::keymap::KeyMap) {
+        for (cmd, _, tip) in toolbar_table() {
+            if let (Some(cmd), None) = (cmd, tip) {
+                if let Some(spec) = notepp_core::registry::spec(cmd) {
+                    self.tool_bar.set_tip(cmd, spec.tooltip_with(keymap.shown(cmd)));
+                }
+            }
+        }
+    }
+
     pub fn set_enabled(&self, cmd: usize, on: bool) {
         self.tool_bar.set_enabled(cmd, on);
     }

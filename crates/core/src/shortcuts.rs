@@ -1,7 +1,7 @@
 //! Keyboard shortcuts as text ("Ctrl+Shift+K") and as Windows virtual-key
 //! chords, for the Shortcut Mapper.
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Chord {
     pub ctrl: bool,
     pub alt: bool,

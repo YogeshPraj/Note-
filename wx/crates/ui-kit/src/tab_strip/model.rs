@@ -29,6 +29,7 @@ pub enum Btn {
 
 /// Vertical placement, so the model needs no knowledge of the strip's height.
 #[derive(Clone, Copy)]
+#[derive(Debug)]
 pub struct Rows {
     pub tab_top: i32,
     pub tab_bottom: i32,

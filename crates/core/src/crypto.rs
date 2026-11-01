@@ -31,6 +31,7 @@ const RECOVERY_INFO: &[u8] = b"notepp-recovery";
 
 /// The data-encryption key. Wiped from memory when dropped.
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct Dek(Zeroizing<[u8; DEK_BYTES]>);
 
 impl Dek {
@@ -424,6 +425,7 @@ pub fn strength(password: &str) -> (u8, &'static str) {
 
 /// What the running app knows: the profile on disk and, while unlocked, the key.
 #[derive(Default, Clone)]
+#[derive(Debug)]
 pub struct Vault {
     pub profile: Option<Profile>,
     pub dek: Option<Dek>,

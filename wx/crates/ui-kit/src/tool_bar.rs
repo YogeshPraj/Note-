@@ -20,6 +20,7 @@ const LEFT: i32 = 6;
 const SEP_W: i32 = 8;
 
 /// What goes in the row.
+#[derive(Debug)]
 pub enum Item {
     Separator,
     /// aded is the icon shown while the command is not available (when absent the normal icon is used).
@@ -27,7 +28,7 @@ pub enum Item {
 }
 
 /// A coloured notice at the right edge that acts like a button.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Pill {
     pub text: String,
     pub colour: Rgb,
@@ -82,6 +83,12 @@ impl State {
     }
 }
 
+impl std::fmt::Debug for ToolBar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolBar").finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone)]
 pub struct ToolBar {
     panel: Panel,
@@ -126,6 +133,18 @@ impl ToolBar {
     pub fn set_pill(&self, pill: Option<Pill>) {
         self.st.borrow_mut().pill = pill.map(|p| (p, Rect::default()));
         self.panel.refresh(false, None);
+    }
+
+    /// Change the tool-tip of the button that runs cmd.
+    pub fn set_tip(&self, cmd: usize, tip: String) {
+        for item in &mut self.st.borrow_mut().items {
+            if let Item::Button { cmd: c, tip: t, .. } = item {
+                if *c == cmd {
+                    *t = tip;
+                    return;
+                }
+            }
+        }
     }
 
     /// A disabled button is drawn faded and ignores the pointer.

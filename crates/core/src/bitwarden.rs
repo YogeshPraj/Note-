@@ -191,6 +191,7 @@ const QUICK: Duration = Duration::from_secs(30);
 // ---- installing -----------------------------------------------------------------------------
 
 /// What the Passwords dialog shows about the installation.
+#[derive(Debug)]
 pub struct InstallInfo {
     pub installed: bool,
     pub supported: bool,
@@ -299,6 +300,7 @@ pub enum AuthState {
     Unknown(String),
 }
 
+#[derive(Debug)]
 pub struct Auth {
     pub state: AuthState,
     pub email: Option<String>,
@@ -494,6 +496,7 @@ pub fn split_reference(reference: &str) -> (String, &'static str) {
 // ---- writing --------------------------------------------------------------------------------
 
 #[derive(Default, Clone)]
+#[derive(Debug)]
 pub struct NewItem {
     pub title: String,
     pub username: String,
@@ -531,6 +534,7 @@ pub fn create_item(item: &NewItem) -> Result<(), Error> {
     if r.ok { Ok(()) } else { Err(Error::Cli(nonempty(r.stderr, "bw create item failed"))) }
 }
 
+#[derive(Debug)]
 pub struct GenOpts {
     pub length: u32,
     pub upper: bool,

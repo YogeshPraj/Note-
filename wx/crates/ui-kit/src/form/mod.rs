@@ -13,6 +13,7 @@ mod layout;
 use crate::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
 
 #[derive(Clone, Copy, PartialEq)]
+#[derive(Debug)]
 pub enum Kind {
     Label,
     Edit,
@@ -34,6 +35,7 @@ pub enum Kind {
     MultiList,
 }
 
+#[derive(Debug)]
 pub struct Ctl {
     pub id: usize,
     pub kind: Kind,
@@ -56,6 +58,12 @@ enum W {
     List(ListView),
     /// A masked box with a plain twin at the same place; "masked" says which one shows.
     Pw(TextBox, TextBox, Rc<std::cell::Cell<bool>>),
+}
+
+impl std::fmt::Debug for Form {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Form").finish_non_exhaustive()
+    }
 }
 
 /// Live access to the controls while the form is open.
@@ -210,6 +218,7 @@ impl Form {
 }
 
 /// What the user entered, read just before the form closed.
+#[derive(Debug)]
 pub struct Values {
     text: HashMap<usize, String>,
     checked: HashMap<usize, bool>,
@@ -231,6 +240,12 @@ thread_local! {
 /// Called with the id of an edit box whenever its text changes, for the next form only.
 pub fn on_edit(hook: fn(&Form, usize)) {
     EDIT_HOOK.with(|h| h.set(Some(hook)));
+}
+
+impl<'a> std::fmt::Debug for Spec<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Spec").finish_non_exhaustive()
+    }
 }
 
 pub struct Spec<'a> {

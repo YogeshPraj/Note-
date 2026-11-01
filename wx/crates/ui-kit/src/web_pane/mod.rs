@@ -29,6 +29,12 @@ struct State {
     dark: Option<bool>,
 }
 
+impl std::fmt::Debug for WebPane {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebPane").finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone)]
 pub struct WebPane {
     view: WebView,

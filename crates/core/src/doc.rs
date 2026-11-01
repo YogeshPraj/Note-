@@ -1,6 +1,7 @@
 //! File encoding and line-ending detection. Portable, no Scintilla involved.
 
 /// A legacy single- or double-byte character set, from Notepad++'s "Character sets" menu.
+#[derive(Debug)]
 pub struct Charset {
     pub group: &'static str,
     pub label: &'static str,

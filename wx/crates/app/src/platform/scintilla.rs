@@ -12,6 +12,7 @@ use wxdragon::prelude::*;
 type Direct = unsafe extern "C" fn(*mut c_void, u32, usize, isize) -> isize;
 
 #[derive(Clone, Copy)]
+#[derive(Debug)]
 pub struct WxSci {
     f: Direct,
     p: *mut c_void,

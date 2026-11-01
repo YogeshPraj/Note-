@@ -79,7 +79,7 @@ fn editor_spec(entries: Vec<Option<(&str, usize, &str)>>, shortcuts: &std::colle
 pub fn editor_menu(app: &Shared, at: Point) {
     let (frame, shortcuts) = {
         let Ok(a) = app.try_borrow() else { return };
-        (a.frame, a.ws.settings.shortcuts.clone())
+        (a.frame, a.keymap.overrides())
     };
     let text = std::fs::read_to_string(context_menu_path()).unwrap_or_default();
     let text = if text.is_empty() { crate::extra::default_context_menu().to_string() } else { text };

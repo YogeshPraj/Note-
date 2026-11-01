@@ -13,6 +13,7 @@ use notepp_core::{edit, settings};
 use wxdragon::prelude::Menu;
 
 use crate::menu_spec::{Entry as MenuEntry, MenuSpec};
+use notepp_core::menu_provider::{CharsetGroups, ConvertToItems, EncodeInItems, GroupedMenuProvider, Languages, MenuProvider, RecentFiles};
 
 use notepp_core::tables::{SLOT_NAMES, BROWSERS, ENCODE_IN};
 
@@ -32,11 +33,29 @@ thread_local! {
     static OVERRIDES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
 }
 
-/// Show the user's own shortcuts in the menus (call before building them).
-pub fn set_shortcut_overrides(map: HashMap<usize, String>) {
+/// Show the effective shortcuts of the keymap in the menus (call before building them).
+pub fn set_keymap(keymap: &notepp_core::keymap::KeyMap) {
+    let map = keymap.overrides().into_iter().filter_map(|(k, v)| k.parse::<usize>().ok().map(|id| (id, v))).collect();
     OVERRIDES.with(|o| *o.borrow_mut() = map);
 }
 
+/// Lay out a provider's items. Choosing one runs its command through `execute()`, like any other menu item.
+fn add_items(m: M, provider: &dyn MenuProvider) {
+    for item in provider.items() {
+        B::add(m, item.command.id(), &item.label);
+    }
+}
+
+/// Lay out a provider's groups as submenus.
+fn add_groups(parent: M, provider: &dyn GroupedMenuProvider) {
+    for group in provider.groups() {
+        let sub = B::popup();
+        for item in &group.items {
+            B::add(sub, item.command.id(), &item.label);
+        }
+        B::submenu(parent, &group.title, sub);
+    }
+}
 pub struct B;
 
 impl B {
@@ -181,10 +200,7 @@ pub fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     if recent.is_empty() {
         B::add_state(r, 0, "(no recent files)", false);
     }
-    for (i, p) in recent.iter().enumerate() {
-        let mnemonic = if i < 9 { format!("&{}", i + 1) } else { "1&0".to_string() };
-        B::add(r, ID_RECENT_BASE + i, &format!("{mnemonic}: {}", p.display().to_string().replace('&', "&&")));
-    }
+    add_items(r, &RecentFiles { files: recent });
     B::sep(r);
     B::add_state(r, ID_OPEN_ALL_RECENT, "Open All Recent Files", !recent.is_empty());
     B::add_state(r, ID_RECENT_CLEAR, "Empty Recent Files List", !recent.is_empty());
@@ -488,46 +504,17 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::cmd(view, ID_QUICKOPEN);
 
     let enc = B::popup();
-    for (i, e) in ENCODE_IN.iter().enumerate() {
-        B::add(enc, ID_ENCODE_BASE + i, &format!("Encode in {}", e.label()));
-    }
-    // Character sets, one submenu per region.
+    add_items(enc, &EncodeInItems);
     let charsets = B::popup();
-    let mut regions: Vec<(&str, M)> = Vec::new();
-    for (i, c) in CHARSETS.iter().enumerate() {
-        let sub = if let Some((_, m)) = regions.iter().find(|(g, _)| *g == c.group) { *m } else {
-            let m = B::popup();
-            if c.group == "Western European" {
-                B::add(m, ID_CHARSET_BASE + CHARSETS.len(), "Windows-1252");
-            }
-            regions.push((c.group, m));
-            B::submenu(charsets, c.group, m);
-            m
-        };
-        B::add(sub, ID_CHARSET_BASE + i, c.label);
-    }
+    add_groups(charsets, &CharsetGroups);
     B::submenu(enc, "Character sets", charsets);
     B::sep(enc);
-    for (i, e) in ENCODE_IN.iter().enumerate() {
-        B::add(enc, ID_CONVERT_BASE + i, &format!("Convert to {}", e.label()));
-    }
+    add_items(enc, &ConvertToItems);
 
     // Languages: "Normal Text", then one submenu per initial letter.
     let lang = B::popup();
-    B::cmd(lang, ID_LANG_BASE);
-    let mut by_letter: std::collections::BTreeMap<char, Vec<usize>> = std::collections::BTreeMap::new();
-    for (i, (label, _)) in LANGUAGES.iter().enumerate().skip(1) {
-        by_letter.entry(label.chars().next().unwrap_or('#').to_ascii_uppercase()).or_default().push(i);
-    }
-    for (letter, mut items) in by_letter {
-        items.sort_by_key(|i| LANGUAGES[*i].0.to_lowercase());
-        let sub = B::popup();
-        for i in items {
-            B::add(sub, ID_LANG_BASE + i, &LANGUAGES[i].0.replace('&', "&&"));
-        }
-        B::submenu(lang, &letter.to_string(), sub);
-    }
-
+    add_items(lang, &Languages);
+    add_groups(lang, &Languages);
     let help = B::popup();
     B::cmd(help, ID_ABOUT);
     B::sep(help);
@@ -639,5 +626,34 @@ mod golden {
                 std::fs::write(&path, &text).unwrap();
             }
         }
+    }
+
+    fn label_of(spec: &MenuSpec, wanted: usize) -> Option<String> {
+        spec.entries().iter().find_map(|e| match e {
+            MenuEntry::Item { id, label, .. } if *id == wanted => Some(label.clone()),
+            MenuEntry::Sub { menu, .. } => label_of(menu, wanted),
+            _ => None,
+        })
+    }
+
+    fn built_label(keymap: &notepp_core::keymap::KeyMap, id: usize) -> String {
+        set_keymap(keymap);
+        let (bar, _) = build_menus();
+        bar.iter().find_map(|(_, m)| label_of(&spec(*m), id)).unwrap_or_default()
+    }
+
+    fn keymap_of(pairs: &[(usize, &str)]) -> notepp_core::keymap::KeyMap {
+        notepp_core::keymap::KeyMap::build(&pairs.iter().map(|(id, t)| (id.to_string(), (*t).to_string())).collect())
+    }
+
+    #[test]
+    fn menus_show_the_effective_shortcut_not_the_default() {
+        use notepp_core::commands::{ID_OPEN, ID_SAVE};
+        assert_eq!(built_label(&keymap_of(&[]), ID_SAVE), "&Save\tCtrl+S");
+        assert_eq!(built_label(&keymap_of(&[(ID_SAVE, "Ctrl+Alt+K")]), ID_SAVE), "&Save\tCtrl+Alt+K");
+        assert_eq!(built_label(&keymap_of(&[(ID_SAVE, "")]), ID_SAVE), "&Save");
+        // Ctrl+O belongs to Open, so Save's request is refused and Save keeps its default in the menu.
+        assert_eq!(built_label(&keymap_of(&[(ID_SAVE, "Ctrl+O")]), ID_SAVE), "&Save\tCtrl+S");
+        assert!(built_label(&keymap_of(&[(ID_SAVE, "Ctrl+O")]), ID_OPEN).ends_with("Ctrl+O"));
     }
 }

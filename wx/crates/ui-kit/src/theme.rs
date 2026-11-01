@@ -70,6 +70,12 @@ impl Theme {
 /// Called with each new theme; returns false once its owner is gone, which removes it.
 type Listener = Rc<dyn Fn(&Theme) -> bool>;
 
+impl std::fmt::Debug for Hub {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hub").finish_non_exhaustive()
+    }
+}
+
 /// The current theme and who wants to hear about changes.
 #[derive(Default)]
 pub struct Hub {
@@ -161,6 +167,7 @@ pub fn adopt<W: WxWidget + Copy + 'static>(w: W, role: Role) {
 
 /// What a widget is for, which decides its background.
 #[derive(Clone, Copy, PartialEq)]
+#[derive(Debug)]
 pub enum Role {
     /// Panels, labels, buttons and check boxes.
     Surface,

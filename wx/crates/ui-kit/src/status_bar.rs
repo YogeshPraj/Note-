@@ -18,6 +18,7 @@ const SEGMENT_PAD: i32 = 22;
 
 /// One right-aligned piece of text; clickable when it has an id.
 #[derive(Clone, Default)]
+#[derive(Debug)]
 pub struct Segment {
     pub text: String,
     pub id: Option<isize>,
@@ -58,6 +59,12 @@ struct State {
     segments: Vec<Segment>,
     rects: Vec<Rect>,
     handler: Option<Rc<dyn Fn(StatusEvent)>>,
+}
+
+impl std::fmt::Debug for StatusBar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StatusBar").finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone)]

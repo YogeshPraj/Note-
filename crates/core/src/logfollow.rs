@@ -27,6 +27,7 @@ pub struct Update {
     pub skipped_bytes: u64,
 }
 
+#[derive(Debug)]
 pub struct Follower {
     pub path: PathBuf,
     offset: u64,

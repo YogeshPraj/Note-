@@ -65,15 +65,13 @@ pub struct App {
     syncing: bool,
     /// What the menus and toolbar were last enabled for (see [crate::command::App::sync_command_state]).
     pub(crate) cmd_state: Option<notepp_core::registry::CommandState>,
+    /// Defaults plus the user's overrides; what menus, tool-tips and the palette show.
+    pub keymap: notepp_core::keymap::KeyMap,
     session_key: (usize, usize, usize, u64),
     recent_key: (Vec<PathBuf>, bool),
 }
 
 pub type Shared = Rc<RefCell<App>>;
-
-fn shortcut_overrides(s: &Settings) -> HashMap<usize, String> {
-    s.shortcuts.iter().filter_map(|(k, v)| k.parse::<usize>().ok().map(|id| (id, v.clone()))).collect()
-}
 
 /// Build the window and run. Files named on the command line open as tabs.
 /// Where a second launch leaves the files it was asked to open for the running one.
@@ -95,7 +93,8 @@ pub fn start(files: Vec<PathBuf>) {
     }
     std::mem::forget(checker);
     let settings = Settings::load();
-    menus::set_shortcut_overrides(shortcut_overrides(&settings));
+    let keymap = notepp_core::keymap::KeyMap::build(&settings.shortcuts);
+    menus::set_keymap(&keymap);
 
     let frame = Frame::builder().with_title("Note++").with_size(Size::new(1200, 800)).build();
 
@@ -191,9 +190,20 @@ pub fn start(files: Vec<PathBuf>) {
         tab_key: Vec::new(),
         syncing: false,
         cmd_state: None,
+        keymap,
         session_key: (usize::MAX, 0, 0, 0),
         recent_key: (vec![PathBuf::from("\u{0}")], false),
     }));
+    {
+        let mut a = app.borrow_mut();
+        a.chrome.refresh_tips(&a.keymap.clone());
+        for p in a.keymap.problems() {
+            trace(0, &format!("keymap: {p}"));
+        }
+        if let Some(p) = a.keymap.problems().first() {
+            a.flash = Some(p.to_string());
+        }
+    }
 
     findpanel::wire(&app);
     crate::widgets::theme::subscribe(move |_| {

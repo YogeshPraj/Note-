@@ -146,6 +146,7 @@ pub const ROLES: &[(&str, &str)] = &[
 ];
 
 /// A ready-made colour scheme: name, dark?, and the colours in `ROLES` order.
+#[derive(Debug)]
 pub struct Preset {
     pub name: &'static str,
     pub dark: bool,

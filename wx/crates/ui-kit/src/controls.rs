@@ -22,6 +22,12 @@ macro_rules! themed {
         #[derive(Clone, Copy)]
         pub struct $name($inner);
 
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
         impl $name {
             /// Take over a stock widget: it follows the theme from now on.
             pub fn adopt(inner: $inner) -> Self {

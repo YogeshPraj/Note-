@@ -24,6 +24,7 @@ use super::sci::{self, Send, Theme};
 use super::session::{Session, SessionTab};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub enum Confirm {
     Save,
     Discard,
@@ -141,6 +142,7 @@ pub const TAB_COLORS: [(&str, (u8, u8, u8)); 8] = [
     ("Pink", (0xD0, 0x5E, 0xA8)),
 ];
 
+#[derive(Debug)]
 pub struct Tab {
     /// Stable identity (indices shift when tabs close).
     pub id: u64,
@@ -180,6 +182,7 @@ pub fn stamp_of(path: &Path) -> Option<Stamp> {
 }
 
 /// What the tab strip needs to draw one tab.
+#[derive(Debug)]
 pub struct TabInfo {
     pub title: String,
     pub dirty: bool,
@@ -190,6 +193,7 @@ pub struct TabInfo {
     pub color: Option<(u8, u8, u8)>,
 }
 
+#[derive(Debug)]
 pub struct Workspace<S: Send> {
     pub sci: S,
     /// Optional second view onto the same document, drawn tiny as a minimap.
@@ -293,6 +297,7 @@ pub enum PathText {
     AllPaths,
 }
 
+#[derive(Debug)]
 pub struct Status {
     pub position: String,
     pub lines: String,

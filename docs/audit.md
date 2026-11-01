@@ -87,3 +87,21 @@ Not measured yet; to be filled in after Phase 2. Likely largest groups: `too_man
    already free of `core` types.
 3. **Typed errors** add `thiserror` (a new dependency) and change many signatures in `core`.
 4. **Packaging and CI** for the wx build do not exist yet; the crate move should land before they are written.
+
+
+## Lint debt (Phase 2)
+
+Gates now in force: `unsafe_code` is `forbid` in the root workspace (`notepp-core`) and `deny` in the `wx` workspace, where only
+the FFI modules opt out with `#[allow(unsafe_code)]` (`ui-kit::native`, `ui-kit::controls`, app `platform`, `sci`, one call in
+`pwdialogs`). `unwrap_used` and `dbg_macro` are `deny`: **0 errors** in both workspaces (11 production `unwrap`s fixed,
+`build.rs` exempt by design). `clippy` pedantic warnings remain, to be burned down:
+
+| Workspace | Warnings | Largest groups |
+|---|---|---|
+| `notepp-core` | 461 | 179 `isize`/`usize` sign casts (Scintilla's pointer-sized API), 48 missing `# Errors` docs, 18 missing `Debug` |
+| `wx` (ui-kit + app) | 391 | 47 `Debug` missing, 50 `usize`→`i32` casts (wx pixel coordinates), 24 redundant closures, 22 collapsible `if` |
+
+Decision needed later: the cast lints are inherent to the Scintilla and wx APIs; either allow them in the two manifests or wrap
+them in checked helpers. Typed errors: `notepp_core::error::Error` (thiserror) now covers `crypto`; the other `Result<_, String>`
+sites (bitwarden 12, search 6, textools 4, update 3, http 2, …) are still to migrate. `scripts/check-architecture.sh` enforces
+the crate boundaries (needs Git Bash on Windows).

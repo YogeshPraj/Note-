@@ -77,7 +77,7 @@ pub fn same_drawing(a: &str, b: &str) -> bool {
 
 /// Lowest unused `whiteboard-N` title (same gap-filling rule as `new N`).
 pub fn next_title<'a>(existing: impl Iterator<Item = &'a str> + Clone) -> String {
-    let n = (1..).find(|n| !existing.clone().any(|t| t == format!("whiteboard-{n}") || t.starts_with(&format!("whiteboard-{n}.")))).unwrap();
+    let n = (1..).find(|n| !existing.clone().any(|t| t == format!("whiteboard-{n}") || t.starts_with(&format!("whiteboard-{n}.")))).unwrap_or(1);
     format!("whiteboard-{n}")
 }
 

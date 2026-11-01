@@ -14,6 +14,8 @@ mod chrome;
 mod command;
 mod handlers;
 mod palette;
+// Raw operating-system calls.
+#[allow(unsafe_code)]
 mod platform;
 mod panels;
 mod pwdialogs;
@@ -21,6 +23,8 @@ mod popups;
 mod preview;
 mod streams;
 mod whiteboard;
+// Scintilla's direct-call interface and lexer registration are raw FFI.
+#[allow(unsafe_code)]
 mod sci;
 mod state;
 mod services;

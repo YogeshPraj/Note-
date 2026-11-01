@@ -556,7 +556,7 @@ impl App {
                             let lines: Vec<String> = hits
                                 .iter()
                                 .map(|h| {
-                                    let p = h.path.as_ref().unwrap();
+                                    let p = h.path.as_deref().unwrap_or(std::path::Path::new(""));
                                     let rel = p.strip_prefix(&dir).unwrap_or(p);
                                     format!("{} ({}):  {}", rel.display(), h.line, h.text)
                                 })

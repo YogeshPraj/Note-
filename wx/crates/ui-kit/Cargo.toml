@@ -4,6 +4,9 @@ version.workspace = true
 edition = "2024"
 description = "Note++ UI kit: themed controls, custom-painted bars, tab strip and other reusable wxWidgets components. No editor or business logic."
 
+[lints]
+workspace = true
+
 [dependencies]
 wxdragon = { version = "0.9", features = ["webview"] }
 wxdragon-sys = "0.9"

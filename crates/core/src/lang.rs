@@ -217,7 +217,7 @@ pub fn apply_lexer<S: Send>(sci: &S, name: &str, theme: &Theme) {
         sci.send(sci::SCI_CLEARDOCUMENTSTYLE, 0, 0);
     }
     for (i, kw) in keyword_sets(name).iter().enumerate() {
-        let c = CString::new(*kw).unwrap();
+        let Ok(c) = CString::new(*kw) else { continue };
         sci.send(sci::SCI_SETKEYWORDS, i, c.as_ptr() as isize);
     }
     sci::setup_folding(sci, theme);

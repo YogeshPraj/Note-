@@ -105,9 +105,9 @@ pub fn markdown_to_html_in(src: &str, base: Option<&Path>) -> String {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if lang.split_whitespace().next() == Some("mermaid") => {
                 mermaid = Some(String::new());
             }
-            Event::Text(t) if mermaid.is_some() => mermaid.as_mut().unwrap().push_str(&t),
+            Event::Text(t) if mermaid.is_some() => mermaid.iter_mut().for_each(|m| m.push_str(&t)),
             Event::End(TagEnd::CodeBlock) if mermaid.is_some() => {
-                let code = mermaid.take().unwrap();
+                let code = mermaid.take().unwrap_or_default();
                 events.push(Event::Html(format!("<pre class=\"mermaid\">{}</pre>\n", escape(&code)).into()));
             }
             Event::Start(Tag::Image { link_type, dest_url, title, id }) => {

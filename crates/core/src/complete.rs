@@ -71,10 +71,11 @@ pub fn path_candidates(fragment: &str, base: Option<&Path>) -> (usize, Vec<Strin
             Some(b) => b.to_path_buf(),
             None => return (name.len(), Vec::new()),
         }
-    } else if Path::new(dir_part).is_absolute() || base.is_none() {
-        Path::new(dir_part).to_path_buf()
     } else {
-        base.unwrap().join(dir_part)
+        match base {
+            Some(b) if !Path::new(dir_part).is_absolute() => b.join(dir_part),
+            _ => Path::new(dir_part).to_path_buf(),
+        }
     };
     let lower = name.to_lowercase();
     let mut found: Vec<String> = std::fs::read_dir(dir)

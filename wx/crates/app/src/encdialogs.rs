@@ -87,7 +87,7 @@ pub fn unlock(frame: &Frame, profile: &Profile, what: &str) -> Option<Unlocked> 
                 false
             }
             Err(e) => {
-                f.set_text(U_STATUS, &e);
+                f.set_text(U_STATUS, &e.to_string());
                 f.set_text(U_PW, "");
                 f.focus(U_PW);
                 true

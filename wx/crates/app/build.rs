@@ -1,5 +1,7 @@
 // Embed the icon, the visual-styles manifest and version information (what Task Manager and
 // "Open with" show). On non-Windows targets this does nothing.
+// A build script reports to cargo on stdout and aborts the build by panicking.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout)]
 use std::path::PathBuf;
 
 fn root_version(root: &std::path::Path) -> String {

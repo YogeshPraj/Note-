@@ -1245,7 +1245,7 @@ impl<S: Send> Workspace<S> {
     pub fn new_tab(&mut self) -> usize {
         let n = (1..)
             .find(|n| !self.tabs.iter().any(|t| t.path.is_none() && t.title == format!("new {n}")))
-            .unwrap();
+            .unwrap_or(1);
         let eol = match self.settings.new_doc_eol.as_str() {
             "crlf" => Eol::Crlf,
             "lf" => Eol::Lf,

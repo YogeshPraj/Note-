@@ -29,6 +29,7 @@ pub mod workspace;
 #[cfg(test)]
 mod fuzz;
 pub mod dispatch;
+pub mod error;
 pub mod schedule;
 pub mod tables;
 pub mod secret;

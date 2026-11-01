@@ -123,7 +123,9 @@ pub fn command_core<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, fla
                 ws.set_theme(next);
             }
             _ if md_fmt(id).is_some() => {
-                *flash = ws.md_format(md_fmt(id).unwrap());
+                if let Some(f) = md_fmt(id) {
+                    *flash = ws.md_format(f);
+                }
             }
             ID_ZOOMIN => drop(sci.send(sci::SCI_ZOOMIN, 0, 0)),
             ID_ZOOMOUT => drop(sci.send(sci::SCI_ZOOMOUT, 0, 0)),

@@ -300,7 +300,7 @@ pub fn expand(rep: &str, caps: &Captures<'_, str>) -> String {
         match (c, it.peek().copied()) {
             ('\\' | '$', Some(d)) if d.is_ascii_digit() => {
                 it.next();
-                if let Some(g) = caps.get(d.to_digit(10).unwrap() as usize) {
+                if let Some(g) = d.to_digit(10).and_then(|n| caps.get(n as usize)) {
                     put(&mut out, g.as_str(), mode, &mut once);
                 }
             }

@@ -8,6 +8,9 @@ description = "Note++ with a wxWidgets shell (native widgets on Windows, macOS a
 name = "notepp-wx"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 notepp-core = { path = "../../../crates/core" }
 ui-kit = { path = "../ui-kit" }

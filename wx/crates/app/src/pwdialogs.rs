@@ -58,7 +58,10 @@ fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnc
     let mut shown = (u32::MAX, String::new());
     loop {
         // Let the dialog repaint and answer the mouse while the worker runs.
-        unsafe { wxdragon_sys::wxd_Note_SafeYield() };
+        #[allow(unsafe_code)]
+        unsafe {
+            wxdragon_sys::wxd_Note_SafeYield()
+        };
         let now = prog.lock().map(|p| p.clone()).unwrap_or_default();
         if now != shown {
             f.set_text(status, &if now.0 > 0 && now.0 < 100 { format!("{} - {}%", now.1, now.0) } else { now.1.clone() });
@@ -407,7 +410,9 @@ fn add_screen(host: &Frame) -> bool {
         }
         match work(f, A_STATUS, "Adding to your vault...", move |_| bw::create_item(&item)) {
             Ok(()) => {
-                *flag.lock().unwrap() = true;
+                if let Ok(mut g) = flag.lock() {
+                    *g = true;
+                }
                 false
             }
             Err(e) => {
@@ -443,8 +448,7 @@ fn add_screen(host: &Frame) -> bool {
         on_apply: Some(Rc::new(apply)),
     };
     let _ = form::run(host, spec, |f| f.focus(A_TITLE));
-    let added = *done.lock().unwrap();
-    added
+    done.lock().is_ok_and(|g| *g)
 }
 
 // ---- the whole flow -------------------------------------------------------------------------

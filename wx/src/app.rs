@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_INCR, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
 use notepp_core::preview as pcore;
 use notepp_core::sci::{self, Theme};
@@ -39,6 +39,8 @@ pub struct App {
     wbv: WebView,
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
+    pub(crate) mdbar: Panel,
+    pub(crate) monitoring: HashMap<u64, u64>,
     pub(crate) upd: crate::updates::State,
     /// Digest of a password put on the clipboard, and when: it is cleared after 30 seconds and kept out of the history.
     pub(crate) clip_secret: Option<(Vec<u8>, std::time::Instant)>,
@@ -130,6 +132,8 @@ pub fn start(files: Vec<PathBuf>) {
     sizer.add(&chrome.menu, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tools, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tabs, 0, SizerFlag::Expand, 0);
+    let mdbar = crate::mdbar::create(&frame);
+    sizer.add(&mdbar, 0, SizerFlag::Expand, 0);
     sizer.add(&splitter, 1, SizerFlag::Expand, 0);
     sizer.add(&findpanel::container(&frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
@@ -163,6 +167,8 @@ pub fn start(files: Vec<PathBuf>) {
         menu_bar: 0,
         panels,
         side_key: None,
+        mdbar,
+        monitoring: HashMap::new(),
         upd: Default::default(),
         clip_secret: None,
         log: None,
@@ -200,6 +206,7 @@ pub fn start(files: Vec<PathBuf>) {
 
     findpanel::wire(&app);
     panels::wire(&app);
+    crate::mdbar::wire(&app);
     app.borrow_mut().update_startup();
     {
         // First look 8 seconds after start; then every 6 hours.
@@ -307,6 +314,7 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
         ID_REPLACE => return crate::find::open_panel(a, Mode::Replace),
         ID_PALETTE => return crate::palette::open_commands(a),
         ID_QUICKOPEN => return crate::palette::open_files(a),
+        ID_INCR => return crate::incr::open(a),
         ID_FIF => return crate::find::open_panel(a, Mode::InFiles),
         ID_MARK => return crate::find::open_panel(a, Mode::Mark),
         ID_FINDNEXT | ID_FINDPREV => return crate::find::step(a, id == ID_FINDNEXT),
@@ -456,6 +464,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     stream.on_tick(move |_| {
         if let Ok(mut app) = a.try_borrow_mut() {
             app.update_poll();
+            app.monitor_tick();
             app.stream_tick();
         }
     });

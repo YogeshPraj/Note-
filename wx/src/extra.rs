@@ -139,6 +139,20 @@ fn shell_open(target: &str) {
     let _ = std::process::Command::new("xdg-open").arg(target).spawn();
 }
 
+/// Open `path` with a named program (a browser).
+fn open_with(program: &str, path: &Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // `start` resolves registered programs such as chrome.exe; raw_arg keeps the quoting.
+        let _ = std::process::Command::new("cmd").raw_arg(format!("/C start \"\" {program} \"{}\"", path.display())).creation_flags(0x0800_0000).spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new(program.trim_end_matches(".exe")).arg(path).spawn();
+    }
+}
+
 /// Files that run code when "opened" (programs, scripts, shortcuts, installers).
 fn runs_code(path: &Path) -> bool {
     const RUNNABLE: [&str; 28] = [
@@ -397,6 +411,80 @@ fn column_editor(app: &mut App) -> Option<String> {
     app.ws.column_edit(None, Some(&numbers))
 }
 
+/// Search > Find characters in range: stays open so Find can be pressed repeatedly.
+fn find_chars_dialog(app: &App) {
+    const NON_ASCII: usize = 100;
+    const ASCII: usize = 101;
+    const MY_RANGE: usize = 102;
+    const FROM: usize = 103;
+    const TO: usize = 104;
+    const UP: usize = 121;
+    const DOWN: usize = 122;
+    const WRAP: usize = 123;
+    const STATUS: usize = 130;
+    fn react(f: &crate::form::Form, _id: usize) {
+        let mine = f.checked(MY_RANGE);
+        f.enable(FROM, mine);
+        f.enable(TO, mine);
+    }
+    // Decimal, or hex with a 0x prefix.
+    fn number(s: &str) -> Option<u32> {
+        let s = s.trim();
+        match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            Some(h) => u32::from_str_radix(h, 16).ok(),
+            None => s.parse().ok(),
+        }
+    }
+    let sci = app.ws.sci;
+    let apply = std::rc::Rc::new(move |v: &crate::form::Values, f: &crate::form::Form| {
+        let (lo, hi) = if v.checked(NON_ASCII) {
+            (0x80, u32::MAX)
+        } else if v.checked(ASCII) {
+            (0x00, 0x7F)
+        } else {
+            match (number(v.text(FROM)), number(v.text(TO))) {
+                (Some(a), Some(b)) if a <= b => (a, b),
+                _ => {
+                    f.set_text(STATUS, "Enter a valid range, e.g. 0 to 255");
+                    return true;
+                }
+            }
+        };
+        let found = search::find_char(&sci, lo, hi, v.checked(DOWN), v.checked(WRAP));
+        f.set_text(STATUS, if found { "Found" } else { "No character in that range" });
+        true
+    });
+    let spec = Spec {
+        title: "Find characters in range",
+        size: (360, 270),
+        ctls: vec![
+            ctl(110, Kind::Group, "Search mode", 12, 8, 336, 118),
+            ctl(NON_ASCII, Kind::Radio(true), "&Non-ASCII characters (128 - 255 and above)", 26, 28, 310, 20),
+            ctl(ASCII, Kind::Radio(false), "&ASCII characters (0 - 127)", 26, 52, 310, 20),
+            ctl(MY_RANGE, Kind::Radio(false), "&My range:", 26, 80, 90, 20),
+            ctl(FROM, Kind::Edit, "0", 120, 78, 60, 22),
+            ctl(111, Kind::Label, "to", 188, 81, 16, 18),
+            ctl(TO, Kind::Edit, "255", 208, 78, 60, 22),
+            ctl(112, Kind::Label, "(decimal, or 0x for hex)", 26, 102, 250, 18),
+            ctl(120, Kind::Group, "Direction", 12, 132, 336, 48),
+            ctl(UP, Kind::Radio(true), "&Up", 26, 150, 80, 20),
+            ctl(DOWN, Kind::Radio(false), "&Down", 120, 150, 80, 20),
+            ctl(WRAP, Kind::Check, "&Wrap around", 26, 188, 200, 20),
+            ctl(STATUS, Kind::Label, "", 12, 214, 336, 18),
+        ],
+        ok: "Find",
+        buttons: None,
+        on_change: Some(react),
+        on_apply: Some(apply),
+    };
+    let _ = run(&app.frame, spec, |f| {
+        f.set_checked(NON_ASCII, true);
+        f.set_checked(DOWN, true);
+        f.set_checked(WRAP, true);
+        react(f, 0);
+    });
+}
+
 // ---- the commands ---------------------------------------------------------------------------------------
 
 impl App {
@@ -544,6 +632,43 @@ impl App {
             }
             c::ID_COLUMN_EDITOR => self.flash = column_editor(self),
             c::ID_SUMMARY => summary(self),
+            c::ID_FIND_CHARS => find_chars_dialog(self),
+            c::ID_MD_TOOLBAR => {
+                let mut s = self.ws.settings.clone();
+                s.md_toolbar = !s.md_toolbar;
+                crate::settings_ui::apply_settings(&mut self.ws, s);
+            }
+            c::ID_RESULTS => {
+                if crate::findpanel::visible() {
+                    crate::findpanel::close();
+                } else if self.hits.is_empty() {
+                    self.flash = Some("No search results yet".into());
+                } else {
+                    let mode = if self.hits_root.as_os_str().is_empty() { crate::findpanel::Mode::Find } else { crate::findpanel::Mode::InFiles };
+                    let (last, dir) = (self.ws.search.find.clone(), self.hits_root.display().to_string());
+                    crate::findpanel::open(mode, "", &last, &dir);
+                }
+            }
+            _ if (c::ID_BROWSER_BASE..c::ID_BROWSER_BASE + crate::tables::BROWSERS.len()).contains(&id) => match self.ws.tabs[self.ws.active].path.clone() {
+                Some(p) => open_with(crate::tables::BROWSERS[id - c::ID_BROWSER_BASE].1, &p),
+                None => self.flash = Some("Save the file first".into()),
+            },
+            c::ID_MONITOR => {
+                let (tab_id, path) = (self.ws.tabs[self.ws.active].id, self.ws.tabs[self.ws.active].path.clone());
+                match (path, self.monitoring.contains_key(&tab_id)) {
+                    (None, _) => self.flash = Some("Save the file first".into()),
+                    (Some(_), true) => {
+                        self.monitoring.remove(&tab_id);
+                        self.ws.set_read_only(false);
+                    }
+                    (Some(p), false) => {
+                        let len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                        self.monitoring.insert(tab_id, len);
+                        self.ws.set_read_only(true);
+                        self.flash = Some("Monitoring: new lines are shown as the file grows".into());
+                    }
+                }
+            }
             c::ID_PW_LOCK => {
                 notepp_core::bitwarden::lock();
                 self.flash = Some("Passwords locked".into());
@@ -691,9 +816,36 @@ impl App {
         }
     }
 
+    /// Monitoring (tail -f): reload the active file when it has changed on disk.
+    pub fn monitor_tick(&mut self) {
+        let alive: Vec<u64> = self.ws.tabs.iter().map(|t| t.id).collect();
+        self.monitoring.retain(|id, _| alive.contains(id));
+        if self.monitoring.is_empty() {
+            return;
+        }
+        let t = &self.ws.tabs[self.ws.active];
+        let (id, path) = (t.id, t.path.clone());
+        let (Some(last), Some(path)) = (self.monitoring.get(&id).copied(), path) else { return };
+        let Ok(md) = std::fs::metadata(&path) else { return };
+        if md.len() == last || self.ws.is_dirty(self.ws.active) {
+            return;
+        }
+        let App { ws, ui, .. } = self;
+        if ws.reload_from_disk(ui) {
+            let end = sci::length(&ws.sci).max(0) as usize;
+            notepp_core::sci::Send::send(&ws.sci, sci::SCI_GOTOPOS, end, 0);
+            notepp_core::sci::Send::send(&ws.sci, sci::SCI_SCROLLCARET, 0, 0);
+        }
+        self.monitoring.insert(id, md.len());
+        self.refresh();
+    }
+
     /// Menu ticks for the switches handled here.
     pub fn extra_ticks(&self) {
         self.menubar.check_item(c::ID_UPDATE_AUTO as i32, self.ws.settings.auto_update);
+        self.menubar.check_item(c::ID_MD_TOOLBAR as i32, self.ws.settings.md_toolbar);
+        let monitored = self.monitoring.contains_key(&self.ws.tabs[self.ws.active].id);
+        self.menubar.check_item(c::ID_MONITOR as i32, monitored);
         self.menubar.check_item(c::ID_ON_TOP as i32, is_topmost(self));
         self.menubar.check_item(c::ID_DISTRACTION as i32, self.distraction);
         self.menubar.check_item(c::ID_POSTIT as i32, self.postit);
@@ -713,6 +865,11 @@ impl App {
             !self.postit && !self.distraction && s.show_tabbar,
             !self.postit && !self.distraction && s.show_statusbar,
         ];
+        let md = self.ws.is_markdown() && s.md_toolbar && !self.postit && !self.distraction;
+        if md != self.mdbar.is_shown() {
+            self.mdbar.show(md);
+            self.frame.layout();
+        }
         if want != self.chrome_vis {
             self.chrome_vis = want;
             self.chrome.menu.show(want[0]);

@@ -7,6 +7,8 @@ mod encdialogs;
 mod extra;
 mod find;
 mod findpanel;
+mod incr;
+mod mdbar;
 mod menus;
 mod chrome;
 mod form;

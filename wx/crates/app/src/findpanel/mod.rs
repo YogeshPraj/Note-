@@ -265,6 +265,7 @@ pub enum Cmd {
 }
 
 /// Build the controls and hook them to the application.
+#[allow(clippy::too_many_lines, reason = "wires each control of the panel to its action, one block per control")]
 pub fn wire(app: &Shared) {
     let Some(host) = DOCK.with(|d| d.borrow().map(|d| d.panel())) else { return };
     let label = |t: &str| Label::new(&host, t);

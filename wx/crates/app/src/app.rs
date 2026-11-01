@@ -76,8 +76,8 @@ fn inbox() -> PathBuf {
     session::config_dir().join("inbox")
 }
 
-pub fn start(files: &[PathBuf]) {
-    // A second launch hands its files to the running Note++ and exits.
+/// A second launch hands its files to the running Note++ and exits.
+fn hand_off_to_running_instance(files: &[PathBuf]) {
     let checker = if session::standalone() {
         None
     } else {
@@ -96,25 +96,23 @@ pub fn start(files: &[PathBuf]) {
         std::process::exit(0);
     }
     std::mem::forget(checker);
-    let settings = Settings::load();
-    let keymap = notepp_core::keymap::KeyMap::build(&settings.shortcuts);
-    menus::set_keymap(&keymap);
+}
 
-    let frame = Frame::builder().with_title("Note++").with_size(Size::new(1200, 800)).build();
+/// The widgets of the editor area and the window's vertical layout around them.
+struct Widgets {
+    splitter: SplitterWindow,
+    editor_pane: Panel,
+    stc: StyledTextCtrl,
+    mini: StyledTextCtrl,
+    panels: Panels,
+    wbv: WebPane,
+    view: WebPane,
+    mdbar: crate::widgets::dock::Dock,
+}
 
-    // Menu bar.
-    let (bar, menu_set) = menus::build_menus();
-    let mut mb = MenuBar::builder();
-    for (title, m) in &bar {
-        mb = mb.append(menus::realize(*m), title);
-    }
-    let menubar = mb.build();
-    frame.set_menu_bar(menubar);
-
-    // Toolbar and tab strip above the editor, status bar below it.
-    let chrome = Chrome::new(&frame);
+fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     // The editor, with the preview pane beside it when that is switched on.
-    let splitter = SplitterWindow::builder(&frame).build();
+    let splitter = SplitterWindow::builder(frame).build();
     let editor_pane = Panel::builder(&splitter).build();
     let stc = StyledTextCtrl::builder(&editor_pane).build();
     let mini = StyledTextCtrl::builder(&editor_pane).build();
@@ -139,29 +137,137 @@ pub fn start(files: &[PathBuf]) {
     sizer.add(&chrome.menu, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tools, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tabs, 0, SizerFlag::Expand, 0);
-    let mdbar = crate::mdbar::create(&frame);
+    let mdbar = crate::mdbar::create(frame);
     sizer.add(&mdbar.panel(), 0, SizerFlag::Expand, 0);
     sizer.add(&splitter, 1, SizerFlag::Expand, 0);
-    sizer.add(&findpanel::container(&frame), 0, SizerFlag::Expand, 0);
+    sizer.add(&findpanel::container(frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
+    Widgets { splitter, editor_pane, stc, mini, panels, wbv, view, mdbar }
+}
 
-    let ui = WxUi { frame };
-    let sci = WxSci::of(&stc);
+/// The workspace: settings, the last session, then the files named on the command line.
+fn load_workspace(ui: &WxUi, stc: &StyledTextCtrl, mini: &StyledTextCtrl, settings: Settings, files: &[PathBuf]) -> Workspace<WxSci> {
+    let sci = WxSci::of(stc);
     let mut ws = Workspace::new(sci);
     ws.set_settings(settings);
-    ws.attach_minimap(WxSci::of(&mini));
+    ws.attach_minimap(WxSci::of(mini));
     if !session::standalone()
         && let Some(s) = Session::load(&session::session_path())
     {
-        ws.restore(&ui, &s);
+        ws.restore(ui, &s);
     }
     for f in files {
-        ws.open_path(&ui, f);
+        ws.open_path(ui, f);
     }
     if ws.tabs.is_empty() {
         ws.new_tab();
     }
+    ws
+}
+
+/// Files dropped on the window or the editor open as tabs; folders become the workspace.
+fn attach_drop_targets(app: &Shared, frame: Frame, stc: StyledTextCtrl) {
+    let drop = |a: Shared| {
+        move |files: Vec<String>, _: i32, _: i32| {
+            let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
+            if let Ok(mut app) = a.try_borrow_mut() {
+                app.open_from_outside(&paths);
+            }
+            true
+        }
+    };
+    let _ = FileDropTarget::builder(&frame).with_on_drop_files(drop(app.clone())).build();
+    let _ = FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build();
+}
+
+/// The editor's own popup is replaced by the configurable one.
+fn replace_editor_popup(app: &Shared, stc: StyledTextCtrl) {
+    use notepp_core::sci::Send;
+    WxSci::of(&stc).send(2371, 0, 0); // SCI_USEPOPUP: never
+    let (a, s) = (app.clone(), stc);
+    stc.on_mouse_right_up(move |e| {
+        if let wxdragon::event::WindowEventData::MouseButton(m) = &e
+            && let Some(p) = m.get_position()
+        {
+            popups::editor_menu(&a, s.client_to_screen(p));
+        }
+    });
+}
+
+/// Everything that needs the finished `App`: tool-tips, key-map report, event wiring, then show the window.
+#[allow(clippy::too_many_lines, reason = "start-up wiring, in order")]
+fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini: StyledTextCtrl, wbv: &WebPane, view: &WebPane, bar: &[(String, menus::M)]) {
+    {
+        let mut a = app.borrow_mut();
+        a.chrome.refresh_tips(&a.keymap.clone());
+        for p in a.keymap.problems() {
+            trace(0, &format!("keymap: {p}"));
+        }
+        if let Some(p) = a.keymap.problems().first() {
+            a.flash = Some(p.to_string());
+        }
+    }
+
+    findpanel::wire(app);
+    panels::wire(app);
+    crate::mdbar::wire(app);
+    app.borrow_mut().update_startup();
+    crate::widgets::theme::subscribe(move |_| {
+        // Popup menus, the title bar and native controls follow the theme.
+        crate::widgets::native::current().set_app_dark(crate::widgets::theme::is_dark());
+        crate::widgets::theme::style_native(&frame);
+    });
+    attach_drop_targets(app, frame, stc);
+    {
+        let mut a = app.borrow_mut();
+        if let Some(dir) = a.ws.workspace.clone() {
+            a.open_workspace(dir);
+        }
+    }
+    replace_editor_popup(app, stc);
+    wire_mini(app, mini, stc);
+    wire_whiteboard(app, wbv);
+    wire(app, frame, &stc, view);
+    app.borrow_mut().refresh();
+    frame.show(true);
+    frame.centre();
+    {
+        // Our own menu bar replaces the native one (which cannot follow the theme); the native menus stay
+        // attached so shortcuts and ticks keep working.
+        let hwnd = frame.get_handle() as isize;
+        let mut a = app.borrow_mut();
+        a.menu_bar = crate::widgets::native::current().detach_menu_bar(hwnd);
+        a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.replace('&', "")).collect());
+    }
+    frame.layout();
+    stc.set_focus();
+}
+
+pub fn start(files: &[PathBuf]) {
+    hand_off_to_running_instance(files);
+    let settings = Settings::load();
+    let keymap = notepp_core::keymap::KeyMap::build(&settings.shortcuts);
+    menus::set_keymap(&keymap);
+
+    let frame = Frame::builder().with_title("Note++").with_size(Size::new(1200, 800)).build();
+
+    // Menu bar.
+    let (bar, menu_set) = menus::build_menus();
+    let mut mb = MenuBar::builder();
+    for (title, m) in &bar {
+        mb = mb.append(menus::realize(*m), title);
+    }
+    let menubar = mb.build();
+    frame.set_menu_bar(menubar);
+
+    // Toolbar and tab strip above the editor, status bar below it.
+    let chrome = Chrome::new(&frame);
+    let w = build_widgets(&frame, &chrome);
+    let Widgets { splitter, editor_pane, stc, mini, panels, wbv, view, mdbar } = w;
+
+    let ui = WxUi { frame };
+    let ws = load_workspace(&ui, &stc, &mini, settings, files);
 
     let Some(menubar) = frame.get_menu_bar() else { return };
     let app: Shared = Rc::new(RefCell::new(App {
@@ -198,75 +304,7 @@ pub fn start(files: &[PathBuf]) {
         session_key: (usize::MAX, 0, 0, 0),
         recent_key: (vec![PathBuf::from("\u{0}")], false),
     }));
-    {
-        let mut a = app.borrow_mut();
-        a.chrome.refresh_tips(&a.keymap.clone());
-        for p in a.keymap.problems() {
-            trace(0, &format!("keymap: {p}"));
-        }
-        if let Some(p) = a.keymap.problems().first() {
-            a.flash = Some(p.to_string());
-        }
-    }
-
-    findpanel::wire(&app);
-    panels::wire(&app);
-    crate::mdbar::wire(&app);
-    app.borrow_mut().update_startup();
-    crate::widgets::theme::subscribe(move |_| {
-        // Popup menus, the title bar and native controls follow the theme.
-        crate::widgets::native::current().set_app_dark(crate::widgets::theme::is_dark());
-        crate::widgets::theme::style_native(&frame);
-    });
-    {
-        // Files dropped on the window or the editor open as tabs; folders become the workspace.
-        let drop = |a: Shared| {
-            move |files: Vec<String>, _: i32, _: i32| {
-                let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
-                if let Ok(mut app) = a.try_borrow_mut() {
-                    app.open_from_outside(&paths);
-                }
-                true
-            }
-        };
-        let _ = FileDropTarget::builder(&frame).with_on_drop_files(drop(app.clone())).build();
-        let _ = FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build();
-    }
-    {
-        let mut a = app.borrow_mut();
-        if let Some(dir) = a.ws.workspace.clone() {
-            a.open_workspace(dir);
-        }
-    }
-    {
-        // The editor's own popup is replaced by the configurable one.
-        use notepp_core::sci::Send;
-        WxSci::of(&stc).send(2371, 0, 0); // SCI_USEPOPUP: never
-        let (a, s) = (app.clone(), stc);
-        stc.on_mouse_right_up(move |e| {
-            if let wxdragon::event::WindowEventData::MouseButton(m) = &e
-                && let Some(p) = m.get_position()
-            {
-                popups::editor_menu(&a, s.client_to_screen(p));
-            }
-        });
-    }
-    wire_mini(&app, mini, stc);
-    wire_whiteboard(&app, &wbv);
-    wire(&app, frame, &stc, &view);
-    app.borrow_mut().refresh();
-    frame.show(true);
-    frame.centre();
-    {
-        // Our own menu bar replaces the native one (which cannot follow the theme); the native menus stay
-        // attached so shortcuts and ticks keep working.
-        let hwnd = frame.get_handle() as isize;
-        let mut a = app.borrow_mut();
-        a.menu_bar = crate::widgets::native::current().detach_menu_bar(hwnd);
-        a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.replace('&', "")).collect());
-    }
-    frame.layout();
-    stc.set_focus();
+    finish_start(&app, frame, stc, mini, &wbv, &view, &bar);
 }
 
 /// The minimap is a second view of the document: clicking or dragging in it scrolls the editor.
@@ -337,6 +375,12 @@ fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
 }
 
 fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
+    wire_events(app, frame, stc, view);
+    wire_timers(app, frame);
+}
+
+#[allow(clippy::too_many_lines, reason = "wires each window event to its action, one block per event")]
+fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     // The preview page finished loading: draw the current document in it.
     let a = app.clone();
     view.on_loaded(move |_| {
@@ -434,7 +478,10 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
         app.stc.set_focus();
     });
     app.borrow().chrome.set_handler(handler);
+}
 
+/// One timer for every periodic job, and saving the session when the window closes.
+fn wire_timers(app: &Shared, frame: Frame) {
     // One timer drives every periodic job; the schedule says how often each runs.
     #[derive(Clone, Copy, PartialEq)]
     enum Job {
@@ -567,51 +614,8 @@ impl App {
                 search::clear_marks(&sci, search::INDIC_FIND);
                 note = Some("Marks cleared".into());
             }
-            Cmd::FindAll => match search::find_all(&sci, &opts) {
-                Ok(mut hits) => {
-                    let total = hits.len();
-                    hits.truncate(search::MAX_LIST);
-                    let lines: Vec<String> = hits.iter().map(|h| format!("Line {}:  {}", h.line, h.text)).collect();
-                    note = Some(if total > hits.len() {
-                        format!("{total} hits (listing the first {})", hits.len())
-                    } else {
-                        format!("{total} hits in the current document")
-                    });
-                    self.results.hits = hits;
-                    findpanel::set_results(&lines);
-                }
-                Err(e) => note = Some(format!("Invalid regular expression: {e}")),
-            },
-            Cmd::InFiles => {
-                let (dir, filters) = findpanel::read_dir_filter();
-                if dir.as_os_str().is_empty() || !dir.is_dir() {
-                    note = Some("Choose an existing directory first".into());
-                } else {
-                    match search::find_in_files(&dir, &filters, &opts) {
-                        Ok(hits) => {
-                            let files: std::collections::HashSet<_> = hits.iter().filter_map(|h| h.path.as_ref()).collect();
-                            note = Some(format!(
-                                "{} hits in {} files{}",
-                                hits.len(),
-                                files.len(),
-                                if hits.len() >= search::MAX_HITS { " (limit reached)" } else { "" }
-                            ));
-                            let lines: Vec<String> = hits
-                                .iter()
-                                .map(|h| {
-                                    let p = h.path.as_deref().unwrap_or(std::path::Path::new(""));
-                                    let rel = p.strip_prefix(&dir).unwrap_or(p);
-                                    format!("{} ({}):  {}", rel.display(), h.line, h.text)
-                                })
-                                .collect();
-                            self.results.hits = hits;
-                            self.results.root = dir;
-                            findpanel::set_results(&lines);
-                        }
-                        Err(e) => note = Some(format!("Invalid regular expression: {e}")),
-                    }
-                }
-            }
+            Cmd::FindAll => note = Some(self.find_all_note(&opts)),
+            Cmd::InFiles => note = Some(self.in_files_note(&opts)),
             Cmd::Browse => {
                 let d = DirDialog::builder(&self.frame, "Select a folder to search", "").build();
                 if d.show_modal() == ID_OK
@@ -633,6 +637,55 @@ impl App {
             findpanel::set_status(&n);
         }
         self.refresh();
+    }
+
+    /// "Find All" in the current document: list the hits and say how many.
+    fn find_all_note(&mut self, opts: &notepp_core::search::Opts) -> String {
+        use notepp_core::search;
+        match search::find_all(&self.ws.sci, opts) {
+            Ok(mut hits) => {
+                let total = hits.len();
+                hits.truncate(search::MAX_LIST);
+                let lines: Vec<String> = hits.iter().map(|h| format!("Line {}:  {}", h.line, h.text)).collect();
+                let note = if total > hits.len() {
+                    format!("{total} hits (listing the first {})", hits.len())
+                } else {
+                    format!("{total} hits in the current document")
+                };
+                self.results.hits = hits;
+                findpanel::set_results(&lines);
+                note
+            }
+            Err(e) => format!("Invalid regular expression: {e}"),
+        }
+    }
+
+    /// "Find in Files": search the folder in the panel, list the hits and say how many.
+    fn in_files_note(&mut self, opts: &notepp_core::search::Opts) -> String {
+        use notepp_core::search;
+        let (dir, filters) = findpanel::read_dir_filter();
+        if dir.as_os_str().is_empty() || !dir.is_dir() {
+            return "Choose an existing directory first".into();
+        }
+        match search::find_in_files(&dir, &filters, opts) {
+            Ok(hits) => {
+                let files: std::collections::HashSet<_> = hits.iter().filter_map(|h| h.path.as_ref()).collect();
+                let note = format!("{} hits in {} files{}", hits.len(), files.len(), if hits.len() >= search::MAX_HITS { " (limit reached)" } else { "" });
+                let lines: Vec<String> = hits
+                    .iter()
+                    .map(|h| {
+                        let p = h.path.as_deref().unwrap_or(std::path::Path::new(""));
+                        let rel = p.strip_prefix(&dir).unwrap_or(p);
+                        format!("{} ({}):  {}", rel.display(), h.line, h.text)
+                    })
+                    .collect();
+                self.results.hits = hits;
+                self.results.root = dir;
+                findpanel::set_results(&lines);
+                note
+            }
+            Err(e) => format!("Invalid regular expression: {e}"),
+        }
     }
 
     /// Open result `idx` of the last search in the editor.

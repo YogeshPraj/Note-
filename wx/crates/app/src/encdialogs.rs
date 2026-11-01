@@ -309,6 +309,7 @@ fn status_text(v: &Vault) -> String {
 }
 
 /// Settings > Encryption. Changes made here are written back to `vault`.
+#[allow(clippy::too_many_lines, reason = "a declarative dialog spec: one line per control")]
 pub fn settings(frame: &Frame, vault: &mut Vault) {
     OWNER.with(|o| *o.borrow_mut() = Some(*frame));
     loop {

@@ -305,6 +305,70 @@ fn ctx_fill_menu(f: &Form, select: Option<usize>) {
     }
 }
 
+/// Add the picked commands after the selected menu row.
+fn ctx_add(f: &Form, sel: Option<usize>) {
+    let picked = f.list_selected_all(CTX_AVAIL);
+    if picked.is_empty() {
+        return;
+    }
+    let at = sel.map_or(usize::MAX, |s| s + 1);
+    let first = CTX.with(|c| {
+        let mut c = c.borrow_mut();
+        let names: Vec<String> = picked.iter().filter_map(|&r| c.shown.get(r).map(|&i| c.all[i].clone())).collect();
+        let at = at.min(c.menu.len());
+        for (k, n) in names.iter().enumerate() {
+            c.menu.insert(at + k, n.clone());
+        }
+        at
+    });
+    ctx_fill_avail(f);
+    ctx_fill_menu(f, Some(first));
+}
+
+fn ctx_separator(f: &Form, sel: Option<usize>) {
+    let at = CTX.with(|c| {
+        let mut c = c.borrow_mut();
+        let at = sel.map_or(c.menu.len(), |s| s + 1).min(c.menu.len());
+        c.menu.insert(at, CTX_SEP.into());
+        at
+    });
+    ctx_fill_menu(f, Some(at));
+}
+
+fn ctx_remove(f: &Form, sel: Option<usize>) {
+    let Some(s) = sel else { return };
+    CTX.with(|c| {
+        c.borrow_mut().menu.remove(s);
+    });
+    ctx_fill_avail(f);
+    ctx_fill_menu(f, Some(s.min(CTX.with(|c| c.borrow().menu.len()).saturating_sub(1))));
+}
+
+fn ctx_move(f: &Form, sel: Option<usize>, up: bool) {
+    let Some(s) = sel else { return };
+    let to = CTX.with(|c| {
+        let mut c = c.borrow_mut();
+        let to = if up { s.checked_sub(1) } else { (s + 1 < c.menu.len()).then_some(s + 1) };
+        if let Some(t) = to {
+            c.menu.swap(s, t);
+        }
+        to
+    });
+    if let Some(t) = to {
+        ctx_fill_menu(f, Some(t));
+    }
+}
+
+fn ctx_reset(f: &Form) {
+    CTX.with(|c| {
+        let mut c = c.borrow_mut();
+        let c = &mut *c;
+        c.menu.clone_from(&c.default);
+    });
+    ctx_fill_avail(f);
+    ctx_fill_menu(f, Some(0));
+}
+
 fn ctx_click(f: &Form, id: usize) {
     const ADD: usize = 103;
     const REMOVE: usize = 104;
@@ -315,64 +379,11 @@ fn ctx_click(f: &Form, id: usize) {
     const TEXT: usize = 109;
     let sel = f.list_selected(CTX_MENU);
     match id {
-        ADD => {
-            let picked = f.list_selected_all(CTX_AVAIL);
-            if picked.is_empty() {
-                return;
-            }
-            let at = sel.map_or(usize::MAX, |s| s + 1);
-            let first = CTX.with(|c| {
-                let mut c = c.borrow_mut();
-                let names: Vec<String> = picked.iter().filter_map(|&r| c.shown.get(r).map(|&i| c.all[i].clone())).collect();
-                let at = at.min(c.menu.len());
-                for (k, n) in names.iter().enumerate() {
-                    c.menu.insert(at + k, n.clone());
-                }
-                at
-            });
-            ctx_fill_avail(f);
-            ctx_fill_menu(f, Some(first));
-        }
-        SEP => {
-            let at = CTX.with(|c| {
-                let mut c = c.borrow_mut();
-                let at = sel.map_or(c.menu.len(), |s| s + 1).min(c.menu.len());
-                c.menu.insert(at, CTX_SEP.into());
-                at
-            });
-            ctx_fill_menu(f, Some(at));
-        }
-        REMOVE => {
-            let Some(s) = sel else { return };
-            CTX.with(|c| {
-                c.borrow_mut().menu.remove(s);
-            });
-            ctx_fill_avail(f);
-            ctx_fill_menu(f, Some(s.min(CTX.with(|c| c.borrow().menu.len()).saturating_sub(1))));
-        }
-        UP | DOWN => {
-            let Some(s) = sel else { return };
-            let to = CTX.with(|c| {
-                let mut c = c.borrow_mut();
-                let to = if id == UP { s.checked_sub(1) } else { (s + 1 < c.menu.len()).then_some(s + 1) };
-                if let Some(t) = to {
-                    c.menu.swap(s, t);
-                }
-                to
-            });
-            if let Some(t) = to {
-                ctx_fill_menu(f, Some(t));
-            }
-        }
-        RESET => {
-            CTX.with(|c| {
-                let mut c = c.borrow_mut();
-                let c = &mut *c;
-                c.menu.clone_from(&c.default);
-            });
-            ctx_fill_avail(f);
-            ctx_fill_menu(f, Some(0));
-        }
+        ADD => ctx_add(f, sel),
+        SEP => ctx_separator(f, sel),
+        REMOVE => ctx_remove(f, sel),
+        UP | DOWN => ctx_move(f, sel, id == UP),
+        RESET => ctx_reset(f),
         TEXT => {
             CTX.with(|c| c.borrow_mut().as_text = true);
             f.close(true);

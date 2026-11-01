@@ -177,6 +177,7 @@ fn ask_date_format(app: &App, current: &str) -> Option<String> {
 }
 
 /// The Column Editor: insert the same text, or a counting sequence, on every selected line.
+#[allow(clippy::too_many_lines, reason = "a declarative dialog spec: one line per control")]
 fn column_editor(app: &mut App) -> Option<String> {
     const TEXT_R: usize = 100;
     const TEXT: usize = 101;
@@ -247,6 +248,7 @@ fn column_editor(app: &mut App) -> Option<String> {
 }
 
 /// Search > Find characters in range: stays open so Find can be pressed repeatedly.
+#[allow(clippy::too_many_lines, reason = "a declarative dialog spec: one line per control")]
 fn find_chars_dialog(app: &App) {
     const NON_ASCII: usize = 100;
     const ASCII: usize = 101;

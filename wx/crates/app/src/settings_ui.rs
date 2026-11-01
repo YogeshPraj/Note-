@@ -31,6 +31,7 @@ fn pick_font(owner: &Frame, family: &str, size: i32) -> Option<(String, i32)> {
 }
 
 /// Settings > Preferences. Returns the edited settings on OK. Laid out exactly like the Win32 shell's.
+#[allow(clippy::too_many_lines, reason = "a declarative dialog spec: one line per control")]
 pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
     use crate::widgets::form::{Kind, Spec, ctl, run};
     const FONT: usize = 101;

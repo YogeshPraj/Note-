@@ -150,6 +150,16 @@ impl TabStrip {
     }
 
     fn wire(&self) {
+        self.wire_motion_and_press();
+        self.wire_release_and_clicks();
+    }
+
+    fn wire_motion_and_press(&self) {
+        self.wire_motion_and_press_1();
+        self.wire_motion_and_press_2();
+    }
+
+    fn wire_motion_and_press_1(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_paint(move |_| paint(&st, p));
 
@@ -188,7 +198,9 @@ impl TabStrip {
             }
             p.refresh(false, None);
         });
+    }
 
+    fn wire_motion_and_press_2(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_left_down(move |e| {
             let (x, y) = pos(&e);
@@ -222,7 +234,9 @@ impl TabStrip {
             }
             p.refresh(false, None);
         });
+    }
 
+    fn wire_release_and_clicks(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_left_up(move |_| {
             let was_drag = {

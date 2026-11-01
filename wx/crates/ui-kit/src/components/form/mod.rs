@@ -249,12 +249,15 @@ impl Values {
     }
 }
 
+/// Called with the form and the id of the control that changed.
+pub type EditHook = fn(&Form, usize);
+
 thread_local! {
-    static EDIT_HOOK: std::cell::Cell<Option<fn(&Form, usize)>> = const { std::cell::Cell::new(None) };
+    static EDIT_HOOK: std::cell::Cell<Option<EditHook>> = const { std::cell::Cell::new(None) };
 }
 
 /// Called with the id of an edit box whenever its text changes, for the next form only.
-pub fn on_edit(hook: fn(&Form, usize)) {
+pub fn on_edit(hook: EditHook) {
     EDIT_HOOK.with(|h| h.set(Some(hook)));
 }
 
@@ -331,6 +334,7 @@ struct Built {
 }
 
 impl Built {
+    #[allow(clippy::too_many_lines, reason = "one arm per kind of control")]
     fn add(&mut self, d: &Dialog, c: &Ctl) {
         let (p, s) = (Point::new(c.rect.0, c.rect.1), Size::new(c.rect.2, c.rect.3));
         match c.kind {

@@ -45,6 +45,7 @@ fn row(parent: &Panel, caption: &str, add: impl FnOnce(&Panel) -> Box<dyn Fn(&Bo
     row
 }
 
+#[allow(clippy::too_many_lines, reason = "an example that lists every component")]
 fn main() {
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
     let start_dark = std::env::args().any(|a| a == "dark");

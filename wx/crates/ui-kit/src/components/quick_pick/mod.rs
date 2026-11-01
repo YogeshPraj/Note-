@@ -34,6 +34,46 @@ const KEY_DOWN: i32 = 317;
 const KEY_PAGE_UP: i32 = 366;
 const KEY_PAGE_DOWN: i32 = 367;
 
+/// Keys in the edit box: arrows and paging move the selection, Escape cancels, the rest are typed.
+fn handle_key(e: &WindowEventData, list: ListBox, d: Dialog) {
+    let key = match e {
+        WindowEventData::Keyboard(k) => k.get_key_code().unwrap_or(0),
+        _ => 0,
+    };
+    let nav = match key {
+        KEY_UP => Some(Nav::Up),
+        KEY_DOWN => Some(Nav::Down),
+        KEY_PAGE_UP => Some(Nav::PageUp),
+        KEY_PAGE_DOWN => Some(Nav::PageDown),
+        _ => None,
+    };
+    match (nav, key) {
+        (Some(n), _) => {
+            let to = navigate(list.get_selection().map_or(-1, crate::num::to_i32), crate::num::to_i32(list.get_count()), PAGE, n);
+            if to >= 0 {
+                list.set_selection(crate::num::to_u32(to), true);
+            }
+        }
+        (None, KEY_ESCAPE) => d.end_modal(ID_CANCEL),
+        _ => e.skip(true),
+    }
+}
+
+/// The function that refills `list` with the items matching what is typed in `edit`, remembering which items it listed.
+fn refiller(items: Rc<Vec<Item>>, shown: Rc<RefCell<Vec<usize>>>, edit: TextBox, list: ListBox) -> impl Fn() + Clone {
+    move || {
+        let rows = rank(&items, &edit.get_value(), MAX_ROWS);
+        list.clear();
+        for i in &rows {
+            list.append(&items[*i].row_text());
+        }
+        if !rows.is_empty() {
+            list.set_selection(0, true);
+        }
+        *shown.borrow_mut() = rows;
+    }
+}
+
 /// Show the list over `frame`; the id of the chosen item, if any.
 pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
     let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(frame, "").with_style(DialogStyle::StayOnTop).build());
@@ -49,20 +89,7 @@ pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
     let items = Rc::new(items);
     // Indices into `items` of the rows currently listed.
     let shown: Rc<RefCell<Vec<usize>>> = Rc::new(RefCell::new(Vec::new()));
-    let refilter = {
-        let (items, shown) = (items.clone(), shown.clone());
-        move || {
-            let rows = rank(&items, &edit.get_value(), MAX_ROWS);
-            list.clear();
-            for i in &rows {
-                list.append(&items[*i].row_text());
-            }
-            if !rows.is_empty() {
-                list.set_selection(0, true);
-            }
-            *shown.borrow_mut() = rows;
-        }
-    };
+    let refilter = refiller(items.clone(), shown.clone(), edit, list);
     refilter();
     {
         let r = refilter.clone();
@@ -87,29 +114,7 @@ pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
         let a = accept.clone();
         list.on_item_double_clicked(move |_| a());
     }
-    edit.on_key_down(move |e| {
-        let key = match &e {
-            WindowEventData::Keyboard(k) => k.get_key_code().unwrap_or(0),
-            _ => 0,
-        };
-        let nav = match key {
-            KEY_UP => Some(Nav::Up),
-            KEY_DOWN => Some(Nav::Down),
-            KEY_PAGE_UP => Some(Nav::PageUp),
-            KEY_PAGE_DOWN => Some(Nav::PageDown),
-            _ => None,
-        };
-        match (nav, key) {
-            (Some(n), _) => {
-                let to = navigate(list.get_selection().map_or(-1, crate::num::to_i32), crate::num::to_i32(list.get_count()), PAGE, n);
-                if to >= 0 {
-                    list.set_selection(crate::num::to_u32(to), true);
-                }
-            }
-            (None, KEY_ESCAPE) => d.end_modal(ID_CANCEL),
-            _ => e.skip(true),
-        }
-    });
+    edit.on_key_down(move |e| handle_key(&e, list, d));
     edit.set_focus();
     d.show_modal();
 

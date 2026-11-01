@@ -12,6 +12,7 @@ mod chrome;
 mod form;
 mod palette;
 mod panels;
+mod pwdialogs;
 mod popups;
 mod preview;
 mod streams;

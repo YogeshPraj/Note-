@@ -311,9 +311,32 @@ impl App {
         self.editor_pane.layout();
     }
 
+    /// Once a minute-ish tasks: clear a copied password after 30 seconds, lock the vault when idle.
+    pub fn clip_tick(&mut self) {
+        use sha2::{Digest, Sha256};
+        if let Some((d, at)) = self.clip_secret.clone() {
+            if at.elapsed().as_secs() >= 30 {
+                self.clip_secret = None;
+                if Clipboard::get().get_text().is_some_and(|t| Sha256::digest(t.as_bytes()).as_slice() == d.as_slice()) {
+                    Clipboard::get().clear();
+                }
+            }
+        }
+        if notepp_core::bitwarden::tick_auto_lock() {
+            self.flash = Some("Passwords locked (idle)".into());
+        }
+    }
+
     /// Remember a copied text (newest first, no repeats).
     pub fn poll_clipboard(&mut self) {
         let Some(text) = Clipboard::get().get_text() else { return };
+        // A copied password stays out of the history.
+        if let Some((d, _)) = &self.clip_secret {
+            use sha2::{Digest, Sha256};
+            if Sha256::digest(text.as_bytes()).as_slice() == d.as_slice() {
+                return;
+            }
+        }
         if text.is_empty() || HISTORY.with(|h| h.borrow().first() == Some(&text)) {
             return;
         }

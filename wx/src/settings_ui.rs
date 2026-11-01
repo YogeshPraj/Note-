@@ -10,6 +10,7 @@ use crate::sci::WxSci;
 /// Take new settings: the workspace restyles its views, and they are saved.
 pub fn apply_settings(ws: &mut Workspace<WxSci>, s: Settings) {
     notepp_core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
+    notepp_core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
     ws.set_settings(s);
     let _ = ws.settings.save();
     ws.set_margins_visible(true);

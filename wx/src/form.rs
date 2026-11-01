@@ -60,6 +60,7 @@ pub struct Form {
     dialog: Dialog,
     map: Rc<HashMap<usize, W>>,
     ok: Rc<std::cell::Cell<Option<Button>>>,
+    cancel: Rc<std::cell::Cell<Option<Button>>>,
 }
 
 impl Form {
@@ -111,8 +112,8 @@ impl Form {
         }
     }
     pub fn enable(&self, id: usize, on: bool) {
-        if id == 1 {
-            if let Some(b) = self.ok.get() {
+        if id == 1 || id == 2 {
+            if let Some(b) = if id == 1 { self.ok.get() } else { self.cancel.get() } {
                 b.enable(on);
             }
             return;
@@ -358,17 +359,20 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let (bw, bh, by) = (80, 26, spec.size.1 - 36);
     let ((okx, oky), (cx, cy)) = spec.buttons.unwrap_or(((spec.size.0 - 2 * bw - 24, by), (spec.size.0 - bw - 12, by)));
     let mut ok_btn: Option<Button> = None;
+    let mut cancel_btn: Option<Button> = None;
     if !spec.ok.is_empty() {
         let ok = Button::builder(&d).with_label(spec.ok).with_pos(Point::new(okx, oky)).with_size(Size::new(bw, bh)).build();
         ok.set_default();
         let cancel = Button::builder(&d).with_label("Cancel").with_pos(Point::new(cx, cy)).with_size(Size::new(bw, bh)).build();
         cancel.on_click(move |_| d.end_modal(ID_CANCEL));
         ok_btn = Some(ok);
+        cancel_btn = Some(cancel);
     }
     d.set_escape_id(ID_CANCEL);
 
     let ok_cell = Rc::new(std::cell::Cell::new(ok_btn));
-    let form = Form { dialog: d, map: Rc::new(map), ok: ok_cell };
+    let cancel_cell = Rc::new(std::cell::Cell::new(cancel_btn));
+    let form = Form { dialog: d, map: Rc::new(map), ok: ok_cell, cancel: cancel_cell };
     if let Some(on) = spec.on_change {
         for (id, b) in &click_ids {
             let (f, id) = (form.clone(), *id);

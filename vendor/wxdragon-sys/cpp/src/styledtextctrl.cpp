@@ -1230,3 +1230,10 @@ wxd_StyledTextCtrl_GetWrapMode(wxd_StyledTextCtrl_t* self)
 }
 
 #endif
+
+// Note++ addition: let pending events run while a worker thread is busy.
+WXD_EXPORTED void
+wxd_Note_SafeYield(void)
+{
+    wxYield();
+}

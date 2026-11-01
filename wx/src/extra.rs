@@ -544,6 +544,11 @@ impl App {
             }
             c::ID_COLUMN_EDITOR => self.flash = column_editor(self),
             c::ID_SUMMARY => summary(self),
+            c::ID_PW_LOCK => {
+                notepp_core::bitwarden::lock();
+                self.flash = Some("Passwords locked".into());
+            }
+            c::ID_PASSWORDS | c::ID_PW_TOOLBAR => self.passwords(),
             c::ID_ENC_SETTINGS => {
                 let mut vault = self.ws.vault.clone();
                 crate::encdialogs::settings(&self.frame, &mut vault);
@@ -665,6 +670,25 @@ impl App {
         }
         self.menus = set;
         self.reset_recent_key();
+    }
+
+    /// Passwords (Bitwarden): pick an item and insert it at the cursor or copy it for 30 seconds.
+    fn passwords(&mut self) {
+        use crate::pwdialogs::{run, Outcome};
+        use sha2::{Digest, Sha256};
+        match run(&self.frame, !self.ws.is_whiteboard()) {
+            Outcome::Insert(secret) => {
+                self.ws.insert_text(&secret);
+                self.flash = Some("Inserted at the cursor (the clipboard was not used)".into());
+            }
+            Outcome::Copy(secret) => {
+                if clipboard_set(&secret) {
+                    self.clip_secret = Some((Sha256::digest(secret.as_bytes()).to_vec(), std::time::Instant::now()));
+                    self.flash = Some("Copied - the clipboard is cleared in 30 seconds".into());
+                }
+            }
+            Outcome::Closed => {}
+        }
     }
 
     /// Menu ticks for the switches handled here.

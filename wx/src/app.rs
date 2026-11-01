@@ -39,6 +39,8 @@ pub struct App {
     wbv: WebView,
     pub(crate) panels: Panels,
     pub(crate) side_key: Option<(isize, isize)>,
+    /// Digest of a password put on the clipboard, and when: it is cleared after 30 seconds and kept out of the history.
+    pub(crate) clip_secret: Option<(Vec<u8>, std::time::Instant)>,
     pub(crate) log: Option<(u64, notepp_core::logfollow::Follower)>,
     pub(crate) log_shown: Option<u64>,
     pub(crate) http_last: Option<(isize, String)>,
@@ -160,6 +162,7 @@ pub fn start(files: Vec<PathBuf>) {
         menu_bar: 0,
         panels,
         side_key: None,
+        clip_secret: None,
         log: None,
         log_shown: None,
         http_last: None,
@@ -413,6 +416,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     let a = app.clone();
     clip.on_tick(move |_| {
         if let Ok(mut app) = a.try_borrow_mut() {
+            app.clip_tick();
             app.poll_clipboard();
         }
     });

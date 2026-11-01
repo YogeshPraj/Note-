@@ -150,6 +150,9 @@ wxd_StyledTextCtrl_GetDirectFunction(wxd_StyledTextCtrl_t* self);
 WXD_EXPORTED void*
 wxd_StyledTextCtrl_GetDirectPointer(wxd_StyledTextCtrl_t* self);
 
+// Note++ addition: let pending events run while a worker thread is busy.
+WXD_EXPORTED void wxd_Note_SafeYield(void);
+
 // Margin operations
 WXD_EXPORTED void
 wxd_StyledTextCtrl_SetMarginType(wxd_StyledTextCtrl_t* self, int margin, int margin_type);

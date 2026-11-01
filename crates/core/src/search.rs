@@ -85,23 +85,23 @@ pub fn unescape_ext(s: &str) -> String {
         match it.peek().copied() {
             Some('n') => {
                 it.next();
-                out.push('\n')
+                out.push('\n');
             }
             Some('r') => {
                 it.next();
-                out.push('\r')
+                out.push('\r');
             }
             Some('t') => {
                 it.next();
-                out.push('\t')
+                out.push('\t');
             }
             Some('0') => {
                 it.next();
-                out.push('\0')
+                out.push('\0');
             }
             Some('\\') => {
                 it.next();
-                out.push('\\')
+                out.push('\\');
             }
             Some(k @ ('x' | 'd' | 'o' | 'b' | 'u')) => {
                 it.next();
@@ -113,7 +113,7 @@ pub fn unescape_ext(s: &str) -> String {
                     _ => (16, 4),
                 };
                 if let Some(ch) = number(&mut it, radix, max) {
-                    out.push(ch)
+                    out.push(ch);
                 } else {
                     out.push('\\');
                     out.push(k);

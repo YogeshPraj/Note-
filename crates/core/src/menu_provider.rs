@@ -105,16 +105,15 @@ impl GroupedMenuProvider for CharsetGroups {
     fn groups(&self) -> Vec<MenuGroup> {
         let mut groups: Vec<MenuGroup> = Vec::new();
         for (i, c) in CHARSETS.iter().enumerate() {
-            let at = match groups.iter().position(|g| g.title == c.group) {
-                Some(at) => at,
-                None => {
-                    let mut items = Vec::new();
-                    if c.group == "Western European" {
-                        items.push(MenuItemSpec { command: Command::SetCharset(CHARSETS.len()), label: "Windows-1252".into(), palette: None });
-                    }
-                    groups.push(MenuGroup { title: c.group.to_string(), items });
-                    groups.len() - 1
+            let at = if let Some(at) = groups.iter().position(|g| g.title == c.group) {
+                at
+            } else {
+                let mut items = Vec::new();
+                if c.group == "Western European" {
+                    items.push(MenuItemSpec { command: Command::SetCharset(CHARSETS.len()), label: "Windows-1252".into(), palette: None });
                 }
+                groups.push(MenuGroup { title: c.group.to_string(), items });
+                groups.len() - 1
             };
             groups[at].items.push(MenuItemSpec {
                 command: Command::SetCharset(i),

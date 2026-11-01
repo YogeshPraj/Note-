@@ -22,7 +22,7 @@ use wxdragon::prelude::*;
 
 use self::model::{Btn, Layout, Rows, Scroll};
 use crate::geom::Rect;
-use crate::paint::{Look, Rgb, colour, fill, mix, pos, text_at, text_w, wash};
+use crate::paint::{Look, colour, fill, mix, pos, text_at, text_w, wash};
 
 pub const HEIGHT: i32 = 32;
 

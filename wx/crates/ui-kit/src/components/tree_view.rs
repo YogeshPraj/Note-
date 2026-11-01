@@ -9,7 +9,6 @@
 use super::themed::themed;
 use crate::theme::Role;
 use wxdragon::prelude::TreeCtrl as WxTreeCtrl;
-use wxdragon::prelude::*;
 
 themed!(
     /// A tree.

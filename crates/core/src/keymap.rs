@@ -69,10 +69,10 @@ impl KeyMap {
                 }
             }
             for (id, (_, chord)) in &accepted {
-                if registry::spec(*id).is_none() {
-                    if let Some(chord) = chord {
-                        owners.entry(*chord).or_default().push((*id, true));
-                    }
+                if registry::spec(*id).is_none()
+                    && let Some(chord) = chord
+                {
+                    owners.entry(*chord).or_default().push((*id, true));
                 }
             }
             let mut dropped = Vec::new();

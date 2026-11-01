@@ -105,3 +105,52 @@ Decision needed later: the cast lints are inherent to the Scintilla and wx APIs;
 them in checked helpers. Typed errors: `notepp_core::error::Error` (thiserror) now covers `crypto`; the other `Result<_, String>`
 sites (bitwarden 12, search 6, textools 4, update 3, http 2, …) are still to migrate. `scripts/check-architecture.sh` enforces
 the crate boundaries (needs Git Bash on Windows).
+
+
+## Status at the end of the restructuring (Phase 7)
+
+Verification: `cargo fmt --all -- --check`, `cargo clippy --all-targets`, `cargo test` in both workspaces and
+`scripts/check-architecture.sh` all pass (`bash scripts/check-all.sh`: ALL CHECKS PASSED). `cargo clippy ... -D warnings`
+does **not** pass yet: 143 warnings in `core` and 141 in `wx` remain (see Lint debt). Tests: core 202, ui-kit 57 + 1 token
+test, app 82.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | Kit depends on core | **Fixed.** `ui-kit` has its own `Tab`; `platform` is split into `ui_kit::native` and `app::platform`; enforced by `check-architecture.sh`. |
+| 2 | Pure logic in the shell | **Fixed.** `dispatch`, `tables`, `schedule` and the secret guard are in core; `form`, `data_list`, `quick_pick`, `web_pane` models are in the kit. |
+| 3 | Command execution split three ways | **Fixed in structure, partly in content.** One registry and `execute()`; `command_core` and the handler chain remain as the two executors behind it. `extra::handle` (301 lines) is not split yet. |
+| 4 | Imperative menus | **Fixed.** 212 items generated from the registry, 5 families from providers, snapshot-tested. `build_menus` is still a long function (it lays out the structure). |
+| 5 | Files over 400 lines | **Remaining.** 21 files (largest: `workspace.rs` 2267, `edit.rs` 1128, `search.rs` 951, `app.rs` 939). No new file was split; the restructuring concentrated on boundaries. |
+| 6 | Functions over 60 lines | **Remaining.** 8 in core and 15 in the shell (clippy `too_many_lines`). |
+| 7 | `app.rs` god object | **Remaining.** `App` has about 46 fields; command state and key map moved onto it as fields rather than out of it. |
+| 8 | Hard-coded colours | **Fixed in the kit and the shell** (token test). Remaining: the editor's own palette in `core` (`sci.rs`, `settings.rs`), which is data of the editor colour scheme, not UI chrome. |
+| 9 | Two theming mechanisms | **Fixed.** `Look` is derived from `Theme`. |
+| 10 | No spacing, radius, font tokens | **Partly fixed.** Tokens and `Theme::px` exist and fonts are used; component pixel constants and the Win32-parity dialog positions are still literals by design. |
+| 11 | `unwrap`/`expect` in production | **Fixed** for `unwrap` (denied). `expect` remains in two places with a documented invariant (`crypto.rs` key length, app start-up). |
+| 12 | No typed errors | **Fixed.** `notepp_core::error::Error` (`thiserror`) replaces every `Result<_, String>`; the app has `AppError`. |
+| 13 | `println!` in the shell | **Fixed.** Routed through `PROBLEM_SINK` and the trace helper. |
+| 14 | `unsafe` | **Fixed.** `core` forbids it; the workspace denies it and only FFI modules allow it, each with a comment. `ui-kit::components` controls allow it for one trait method wxdragon makes unsafe. |
+| 15 | Duplicated native-dialog code | **Remaining.** 14 `MessageDialog`/`FileDialog`/`DirDialog` builders in the app; no kit dialog helpers yet. |
+| 16 | Global mutable state | **Remaining.** 12 files still hold `thread_local!` state. The theme hub, the menu arena and the key-map copy used by menus are deliberate. |
+| 17 | Raw widget use | **Remaining.** Choice, font, colour and text-entry dialogs are not wrapped yet. |
+| 18 | Long work on the UI thread | **Remaining** (UX debt; behaviour change). |
+| 19 | No lint config or docs | **Fixed.** `[workspace.lints]` in both workspaces, `clippy.toml`, `rustfmt.toml`, `docs/architecture.md`, `docs/ux.md`, new `CLAUDE.md`, `scripts/check-all.sh`, the Claude hook. |
+| 20 | Platform code mixed with UI | **Fixed.** |
+
+### Lint debt after Phase 7
+
+| Workspace | Warnings | Largest groups |
+|---|---|---|
+| `notepp-core` | 143 | 48 `missing_errors_doc`, 11 `assert!(x.is_empty())` style, 8 `too_many_lines`, 6 identical match arms, 6 structs with more than 3 bools |
+| `wx` | 141 | 11 `assert!` on emptiness, 10 `format!` appended to a `String`, 9 by-reference small arguments, 9 items after statements, 15 `too_many_lines`, dead code (`mdbar::wire`, `panels::wire`, `Flow`) |
+
+Cast, `Debug` and `unwrap` lints are at zero.
+
+## Behaviour differences introduced
+
+- Undo, Redo, Cut, Copy, Delete and Reload are greyed (menu and toolbar) when they cannot run, as in Notepad++.
+- Toolbar tool-tips for Undo, Redo, Zoom In/Out, Word Wrap and Dark Mode read slightly differently (derived from the registry).
+- A shortcut override that clashes with another command is now refused at start-up (the command keeps its default) and
+  reported on the status line; before, both bound the same chord.
+- Update-pill colours changed slightly (`info`, `warning`, `success` tokens); the tab badge and dirty dot use tokens with
+  the same values as before.

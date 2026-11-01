@@ -2078,7 +2078,7 @@ impl<S: Send> Workspace<S> {
                         continue;
                     }
                     if let Some(t) = self.decrypt_for(ui, &env, &st.title) {
-                        saved_text = Some(t)
+                        saved_text = Some(t);
                     } else {
                         declined = true;
                         continue;

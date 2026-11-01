@@ -19,8 +19,8 @@
 .DS_Store
 Thumbs.db
 *.log
-.claude/
-
+.claude/*
+!.claude/settings.json
 # Code-signing private key; the public .cer is committed, the .pfx must stay local.
 .signing/
 *.pfx

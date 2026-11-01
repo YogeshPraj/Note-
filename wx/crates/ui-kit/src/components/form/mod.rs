@@ -171,9 +171,9 @@ impl Form {
             Some(W::Edit(t)) => t.set_focus(),
             Some(W::Pw(m, p, on)) => {
                 if on.get() {
-                    m.set_focus()
+                    m.set_focus();
                 } else {
-                    p.set_focus()
+                    p.set_focus();
                 }
             }
             _ => {}
@@ -258,7 +258,7 @@ pub fn on_edit(hook: fn(&Form, usize)) {
     EDIT_HOOK.with(|h| h.set(Some(hook)));
 }
 
-impl<'a> std::fmt::Debug for Spec<'a> {
+impl std::fmt::Debug for Spec<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Spec").finish_non_exhaustive()
     }

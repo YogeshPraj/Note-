@@ -152,11 +152,11 @@ impl ToolBar {
     /// Change the tool-tip of the button that runs cmd.
     pub fn set_tip(&self, cmd: usize, tip: String) {
         for item in &mut self.st.borrow_mut().items {
-            if let Item::Button { cmd: c, tip: t, .. } = item {
-                if *c == cmd {
-                    *t = tip;
-                    return;
-                }
+            if let Item::Button { cmd: c, tip: t, .. } = item
+                && *c == cmd
+            {
+                *t = tip;
+                return;
             }
         }
     }

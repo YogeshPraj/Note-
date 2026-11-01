@@ -10,7 +10,6 @@
 use super::themed::themed;
 use crate::theme::Role;
 use wxdragon::prelude::RadioButton as WxRadioButton;
-use wxdragon::prelude::*;
 
 themed!(
     /// A radio button.

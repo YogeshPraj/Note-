@@ -35,6 +35,7 @@ pub struct App {
     splitter: SplitterWindow,
     editor_pane: Panel,
     wbv: WebView,
+    menu_bar: isize,
     pub hits: Vec<notepp_core::search::Hit>,
     pub hit_cursor: usize,
     pub hits_root: PathBuf,
@@ -108,6 +109,7 @@ pub fn start(files: Vec<PathBuf>) {
     splitter.set_minimum_pane_size(120);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
+    sizer.add(&chrome.menu, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tools, 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.tabs, 0, SizerFlag::Expand, 0);
     sizer.add(&splitter, 1, SizerFlag::Expand, 0);
@@ -140,6 +142,7 @@ pub fn start(files: Vec<PathBuf>) {
         splitter,
         editor_pane,
         wbv,
+        menu_bar: 0,
         hits: Vec::new(),
         hit_cursor: 0,
         hits_root: PathBuf::new(),
@@ -172,6 +175,15 @@ pub fn start(files: Vec<PathBuf>) {
     app.borrow_mut().refresh();
     frame.show(true);
     frame.centre();
+    {
+        // Our own menu bar replaces the native one (which cannot follow the theme); the native menus stay
+        // attached so shortcuts and ticks keep working.
+        let hwnd = frame.get_handle() as isize;
+        let mut a = app.borrow_mut();
+        a.menu_bar = crate::winmenu::detach(hwnd);
+        a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.replace('&', "")).collect());
+    }
+    frame.layout();
     stc.set_focus();
 }
 
@@ -286,6 +298,16 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     // Toolbar buttons and the tab strip.
     let a = app.clone();
     let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
+        if let Act::Menu(i, x, y) = act {
+            // Modal: nothing may be borrowed while the menu is open (its commands re-enter the app).
+            let (bar, menu, frame) = match a.try_borrow() {
+                Ok(app) => (app.menu_bar, app.chrome.menu, app.frame),
+                Err(_) => return,
+            };
+            let p = menu.client_to_screen(Point::new(x, y));
+            crate::winmenu::popup(bar, frame.get_handle() as isize, i as i32, p.x, p.y);
+            return;
+        }
         let a2 = a.clone();
         let Ok(mut app) = a.try_borrow_mut() else { return };
         match act {
@@ -304,6 +326,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
             Act::Move(from, to) => app.ws.move_tab_to(from, to),
             Act::Context(i) => app.ws.activate(i),
             Act::Status(_) => {}
+            Act::Menu(..) => {}
         }
         app.refresh();
         app.stc.set_focus();

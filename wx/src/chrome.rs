@@ -14,6 +14,7 @@ use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::event::WindowEventData;
 use wxdragon::prelude::*;
 
+pub const MENU_H: i32 = 26;
 pub const TOOL_H: i32 = 34;
 pub const TAB_H: i32 = 32;
 pub const STATUS_H: i32 = 24;
@@ -40,6 +41,8 @@ pub enum Act {
     Move(usize, usize),
     Context(usize),
     Status(isize),
+    /// Open menu i; (x, y) is where its popup goes, in the menu bar's coordinates.
+    Menu(usize, i32, i32),
 }
 
 pub const SEG_ENC: isize = 1;
@@ -125,6 +128,9 @@ struct St {
     look: Look,
     font: Option<Font>,
     handler: Option<Rc<dyn Fn(Act)>>,
+    menu_items: Vec<String>,
+    menu_rects: Vec<R>,
+    menu_hot: Option<usize>,
     tools: Vec<(Tool, R)>,
     tool_hot: Option<usize>,
     tool_down: Option<usize>,
@@ -145,6 +151,7 @@ struct St {
 }
 
 pub struct Chrome {
+    pub menu: Panel,
     pub tools: Panel,
     pub tabs: Panel,
     pub status: Panel,
@@ -444,6 +451,9 @@ impl Chrome {
             look,
             font,
             handler: None,
+            menu_items: Vec::new(),
+            menu_rects: Vec::new(),
+            menu_hot: None,
             tools,
             tool_hot: None,
             tool_down: None,
@@ -462,17 +472,24 @@ impl Chrome {
             status_hits: Vec::new(),
         }));
 
+        let menu_p = Panel::builder(parent).build();
         let tools_p = Panel::builder(parent).build();
         let tabs_p = Panel::builder(parent).build();
         let status_p = Panel::builder(parent).build();
-        for (p, h) in [(&tools_p, TOOL_H), (&tabs_p, TAB_H), (&status_p, STATUS_H)] {
+        for (p, h) in [(&menu_p, MENU_H), (&tools_p, TOOL_H), (&tabs_p, TAB_H), (&status_p, STATUS_H)] {
             p.set_background_style(BackgroundStyle::Paint);
             p.set_min_size(Size::new(-1, h));
         }
+        wire_menu(&st, menu_p);
         wire_tools(&st, tools_p);
         wire_tabs(&st, tabs_p);
         wire_status(&st, status_p);
-        Chrome { tools: tools_p, tabs: tabs_p, status: status_p, st }
+        Chrome { menu: menu_p, tools: tools_p, tabs: tabs_p, status: status_p, st }
+    }
+
+    pub fn set_menu_titles(&self, titles: Vec<String>) {
+        self.st.borrow_mut().menu_items = titles;
+        self.menu.refresh(false, None);
     }
 
     pub fn set_handler(&self, h: Rc<dyn Fn(Act)>) {
@@ -493,7 +510,7 @@ impl Chrome {
 
     pub fn set_theme(&self, dark: bool, editor_bg: Rgb, editor_fg: Rgb) {
         self.st.borrow_mut().look = Look { dark, editor_bg, editor_fg };
-        for p in [&self.tools, &self.tabs] {
+        for p in [&self.menu, &self.tools, &self.tabs] {
             p.refresh(false, None);
         }
     }
@@ -518,6 +535,61 @@ impl Chrome {
         }
         self.tools.refresh(false, None);
     }
+}
+
+fn paint_menu(st: &Rc<RefCell<St>>, panel: &Panel) {
+    let dc = AutoBufferedPaintDC::new(panel);
+    let mut s = st.borrow_mut();
+    let lk = s.look;
+    if let Some(f) = &s.font {
+        dc.set_font(f);
+    }
+    let (w, h) = dc.get_size();
+    fill(&dc, R::new(0, 0, w, h), lk.base());
+    let mut x = 6;
+    let mut rects = Vec::new();
+    for (i, label) in s.menu_items.iter().enumerate() {
+        let wd = text_w(&dc, label) + 20;
+        let r = R::new(x, 2, x + wd, h - 2);
+        if s.menu_hot == Some(i) {
+            fill(&dc, r, mix(lk.base(), lk.ink(), 0x1C));
+        }
+        text_at(&dc, label, r, lk.fg(), true);
+        rects.push(r);
+        x += wd;
+    }
+    s.menu_rects = rects;
+}
+
+fn wire_menu(st: &Rc<RefCell<St>>, p: Panel) {
+    let s = st.clone();
+    p.on_paint(move |_| paint_menu(&s, &p));
+    let s = st.clone();
+    p.on_mouse_motion(move |e| {
+        let (x, y) = pos(&e);
+        let mut m = s.borrow_mut();
+        let hot = m.menu_rects.iter().position(|r| r.has(x, y));
+        if hot != m.menu_hot {
+            m.menu_hot = hot;
+            drop(m);
+            p.refresh(false, None);
+        }
+    });
+    let s = st.clone();
+    p.on_mouse_leave(move |_| {
+        s.borrow_mut().menu_hot = None;
+        p.refresh(false, None);
+    });
+    let s = st.clone();
+    p.on_mouse_left_down(move |e| {
+        let (x, y) = pos(&e);
+        let hit = s.borrow().menu_rects.iter().position(|r| r.has(x, y));
+        if let Some(i) = hit {
+            let r = s.borrow().menu_rects[i];
+            emit(&s, Act::Menu(i, r.l, r.b));
+            p.refresh(false, None);
+        }
+    });
 }
 
 fn wire_tools(st: &Rc<RefCell<St>>, p: Panel) {

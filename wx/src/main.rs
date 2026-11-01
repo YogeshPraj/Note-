@@ -9,6 +9,7 @@ mod chrome;
 mod form;
 mod preview;
 mod whiteboard;
+mod winmenu;
 mod sci;
 mod settings_ui;
 mod tables;

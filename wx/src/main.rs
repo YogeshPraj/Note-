@@ -25,6 +25,7 @@ mod whiteboard;
 mod sci;
 mod state;
 mod settings_ui;
+mod side;
 mod tables;
 mod ui;
 mod updates;

@@ -30,6 +30,10 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 - State lives in small structs (`state.rs`: whiteboard, preview, streams, search results, clipboard) owned by `App`.
 - OS differences go through `platform::current()`; do not add `cfg(windows)` outside `src/platform/`.
 
+## Side list
+
+`side/` is the right-hand list as a strategy: each of the Character table, Clipboard history, Document list and Function list is a `Content` (columns, rows, what activating a row does), and `Side` only tracks which one is shown. It is toolkit-free and tested; `panels.rs` fills the list control from it.
+
 ## Widgets
 
 `widgets/` holds reusable controls. Each is a thin wx panel over a toolkit-free model that is unit tested.

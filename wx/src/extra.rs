@@ -372,8 +372,8 @@ impl App {
         self.menubar.check_item(c::ID_ON_TOP as i32, crate::platform::current().is_topmost(self.frame.get_handle() as isize));
         self.menubar.check_item(c::ID_DISTRACTION as i32, self.distraction);
         self.menubar.check_item(c::ID_POSTIT as i32, self.postit);
-        let side = crate::panels::mode();
-        for (id, m) in [(c::ID_CHAR_PANEL, crate::panels::Mode::Characters), (c::ID_CLIP_HISTORY, crate::panels::Mode::Clipboard), (c::ID_DOC_LIST, crate::panels::Mode::Documents), (c::ID_FUNC_LIST, crate::panels::Mode::Functions)] {
+        let side = self.side.mode;
+        for (id, m) in [(c::ID_CHAR_PANEL, crate::side::Mode::Characters), (c::ID_CLIP_HISTORY, crate::side::Mode::Clipboard), (c::ID_DOC_LIST, crate::side::Mode::Documents), (c::ID_FUNC_LIST, crate::side::Mode::Functions)] {
             self.menubar.check_item(id as i32, side == Some(m));
         }
         self.menubar.check_item(c::ID_WORKSPACE_TOGGLE as i32, self.tree_visible());

@@ -10,25 +10,16 @@ use wxdragon::prelude::*;
 
 use crate::command::CommandHandler;
 use crate::app::{App, Shared};
+use crate::side::{Activate, Mode, SIDE_W};
 use crate::widgets::controls::{Button, Label, ListView, Panel, TreeView};
 use crate::widgets::theme::Role;
 
 pub const TREE_W: i32 = 260;
-pub const SIDE_W: i32 = 250;
 const HEADER_H: i32 = 26;
-const MAX_HISTORY: usize = 50;
 const MAX_PER_DIR: usize = 5000;
 const HIDDEN: [&str; 1] = [".git"];
 /// The placeholder child that makes an unread folder expandable.
 const DUMMY: &str = "\u{2026}";
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Mode {
-    Characters,
-    Clipboard,
-    Documents,
-    Functions,
-}
 
 #[derive(Clone, Copy)]
 pub struct Panels {
@@ -39,48 +30,7 @@ pub struct Panels {
 }
 
 thread_local! {
-    static MODE: Cell<Option<Mode>> = const { Cell::new(None) };
-    static HISTORY: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    /// Rows of the Documents / Functions views: cell texts and the target they open.
-    static ROWS: RefCell<Vec<(Vec<String>, usize)>> = const { RefCell::new(Vec::new()) };
     static ROOT: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
-}
-
-pub fn mode() -> Option<Mode> {
-    MODE.with(|m| m.get())
-}
-
-const CONTROL_NAMES: [&str; 32] = [
-    "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "TAB", "LF", "VT", "FF", "CR", "SO", "SI", "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB", "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS",
-    "US",
-];
-
-/// The character a table row stands for (Windows-1252 above 127).
-fn char_for(n: u8) -> char {
-    if n < 128 {
-        n as char
-    } else {
-        encoding_rs::WINDOWS_1252.decode(&[n]).0.chars().next().unwrap_or('?')
-    }
-}
-
-fn label_for(n: u8) -> String {
-    match n {
-        0..=31 => CONTROL_NAMES[n as usize].to_string(),
-        127 => "DEL".into(),
-        128..=159 if char_for(n) == '\u{FFFD}' || char_for(n).is_control() => String::new(),
-        _ => char_for(n).to_string(),
-    }
-}
-
-/// One-line, length-limited form of a clipboard entry.
-fn preview(s: &str) -> String {
-    let flat: String = s.chars().map(|c| if c == '\r' || c == '\n' { '\u{21B5}' } else if c == '\t' { ' ' } else { c }).collect();
-    let mut out: String = flat.chars().take(120).collect();
-    if flat.chars().count() > 120 {
-        out.push('\u{2026}');
-    }
-    out
 }
 
 /// Directories first, then files, each alphabetical (case-insensitive).
@@ -157,20 +107,14 @@ pub fn wire(app: &Shared) {
     });
     let a = app.clone();
     p.side.on_key_down(move |e| {
-        let key = e.get_key_code().unwrap_or(0);
-        if key == 127 && mode() == Some(Mode::Clipboard) {
-            let n = side.get_first_selected_item();
-            if n >= 0 {
-                HISTORY.with(|h| {
-                    let mut h = h.borrow_mut();
-                    if (n as usize) < h.len() {
-                        h.remove(n as usize);
-                    }
-                });
-                if let Ok(app) = a.try_borrow() {
-                    app.fill_side();
-                }
-                return;
+        // Delete removes the selected row where the content allows it (the clipboard history).
+        if e.get_key_code().unwrap_or(0) != 127 {
+            return;
+        }
+        let Some(n) = side.selected() else { return };
+        if let Ok(mut app) = a.try_borrow_mut() {
+            if app.side.content_mut().is_some_and(|c| c.remove(n)) {
+                app.fill_side();
             }
         }
     });
@@ -285,17 +229,15 @@ impl App {
 
     /// Switch the side list to `want`, or hide it when it already shows that.
     pub fn toggle_side(&mut self, want: Mode) {
-        if mode() == Some(want) {
-            MODE.with(|m| m.set(None));
-            self.panels.side.show(false);
-        } else {
+        if self.side.toggle(want) {
             if want == Mode::Clipboard {
                 self.poll_clipboard();
             }
-            MODE.with(|m| m.set(Some(want)));
             self.side_key = None;
             self.panels.side.show(true);
             self.fill_side();
+        } else {
+            self.panels.side.show(false);
         }
         self.editor_pane.layout();
     }
@@ -326,55 +268,38 @@ impl App {
                 return;
             }
         }
-        if text.is_empty() || HISTORY.with(|h| h.borrow().first() == Some(&text)) {
-            return;
-        }
-        HISTORY.with(|h| {
-            let mut h = h.borrow_mut();
-            h.retain(|x| x != &text);
-            h.insert(0, text.clone());
-            h.truncate(MAX_HISTORY);
-        });
-        if mode() == Some(Mode::Clipboard) {
+        if self.side.history.record(&text) && self.side.mode == Some(Mode::Clipboard) {
             self.fill_side();
         }
     }
 
+    /// Show the current content in the side list.
     pub fn fill_side(&self) {
         let l = self.panels.side;
-        match mode() {
-            Some(Mode::Characters) => {
-                l.set_columns(&[("Value", 60), ("Hex", 60), ("Char", 100)]);
-                let rows: Vec<Vec<String>> = (0..=255u8).map(|n| vec![n.to_string(), format!("{n:02X}"), label_for(n)]).collect();
-                l.fill(&rows);
-            }
-            Some(Mode::Clipboard) => {
-                l.set_columns(&[("Clipboard History", SIDE_W - 24)]);
-                let rows: Vec<Vec<String>> = HISTORY.with(|h| h.borrow().iter().map(|s| vec![preview(s)]).collect());
-                l.fill(&rows);
-            }
-            Some(m) => {
-                let cols: &[(&str, i32)] = if m == Mode::Documents { &[("Name", 100), ("Path", SIDE_W - 124)] } else { &[("Function", SIDE_W - 74), ("Line", 50)] };
-                l.set_columns(cols);
-                let rows: Vec<Vec<String>> = ROWS.with(|r| r.borrow().iter().map(|(cells, _)| cells.clone()).collect());
-                l.fill(&rows);
+        match self.side.content() {
+            Some(c) => {
+                l.set_columns(&c.columns());
+                l.fill(&c.rows());
             }
             None => l.fill(&[]),
         }
     }
-    /// Replace the rows of the Documents / Functions views. Does nothing if unchanged.
-    fn set_side_rows(&self, rows: Vec<(Vec<String>, usize)>) {
-        if ROWS.with(|r| *r.borrow() != rows) {
-            ROWS.with(|r| *r.borrow_mut() = rows);
-            if matches!(mode(), Some(Mode::Documents | Mode::Functions)) {
-                self.fill_side();
-            }
+
+    /// Replace the rows of the Documents / Functions views; the list is refilled only if they changed.
+    fn set_side_rows(&mut self, rows: Vec<(Vec<String>, usize)>) {
+        let changed = match self.side.mode {
+            Some(Mode::Documents) => self.side.documents.set_rows(rows),
+            Some(Mode::Functions) => self.side.functions.set_rows(rows),
+            _ => false,
+        };
+        if changed {
+            self.fill_side();
         }
     }
 
     /// Keep the Documents / Functions lists in step with the workspace.
     pub fn refresh_side(&mut self) {
-        match mode() {
+        match self.side.mode {
             Some(Mode::Documents) => {
                 let rows = self
                     .ws
@@ -409,30 +334,17 @@ impl App {
 
     /// What a double-click in the side list does.
     fn side_activate(&mut self, n: usize) {
-        match mode() {
-            Some(Mode::Characters) => self.ws.insert_text(&char_for(n as u8).to_string()),
-            Some(Mode::Clipboard) => {
-                if let Some(t) = HISTORY.with(|h| h.borrow().get(n).cloned()) {
-                    self.ws.insert_text(&t);
-                }
-            }
-            Some(Mode::Documents) => {
-                if let Some(i) = ROWS.with(|r| r.borrow().get(n).map(|x| x.1)) {
-                    self.ws.activate(i);
-                }
-            }
-            Some(Mode::Functions) => {
-                if let Some(line) = ROWS.with(|r| r.borrow().get(n).map(|x| x.1)) {
-                    search::goto_line(&self.ws.sci, line + 1);
-                }
+        match self.side.content().and_then(|c| c.activate(n)) {
+            Some(Activate::Insert(text)) => self.ws.insert_text(&text),
+            Some(Activate::Document(i)) => self.ws.activate(i),
+            Some(Activate::Goto(line)) => {
+                search::goto_line(&self.ws.sci, line + 1);
             }
             None => {}
         }
         self.refresh();
         self.stc.set_focus();
     }
-
-
 }
 
 /// Side panels: workspace tree, document and function lists, clipboard history, character panel.

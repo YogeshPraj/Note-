@@ -3,3 +3,4 @@
 pub mod geom;
 pub mod paint;
 pub mod tab_strip;
+pub mod theme;

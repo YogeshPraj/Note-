@@ -47,7 +47,7 @@ fn layout() -> Vec<Slot> {
 /// The (initially hidden) empty bar inside `frame`; its buttons are added by [`wire`].
 pub fn create(frame: &Frame) -> Panel {
     let bar = Panel::builder(frame).build();
-    crate::theme::own_background(bar);
+    crate::widgets::theme::own_background(bar);
     bar.set_min_size(Size::new(-1, HEIGHT));
     bar.show(false);
     bar
@@ -55,6 +55,12 @@ pub fn create(frame: &Frame) -> Panel {
 
 pub fn wire(app: &Shared) {
     let bar = app.borrow().mdbar;
+    // Coloured for the theme now and whenever it changes (its buttons are added below, so re-apply then too).
+    let style = move || {
+        crate::widgets::theme::paint(&bar, crate::widgets::theme::Role::Surface);
+        crate::widgets::theme::style_native(&bar);
+    };
+    crate::widgets::theme::subscribe(move |_| style());
     let (mut x, y, gap) = (8, 5, 8);
     for slot in layout() {
         match slot {
@@ -78,4 +84,5 @@ pub fn wire(app: &Shared) {
             }
         }
     }
+    crate::widgets::theme::style_native(&bar);
 }

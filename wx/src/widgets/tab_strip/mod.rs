@@ -88,6 +88,11 @@ impl TabStrip {
         }));
         let strip = TabStrip { panel, st };
         strip.wire();
+        let (p, st) = (strip.panel, strip.st.clone());
+        super::theme::subscribe(move |t| {
+            st.borrow_mut().look = t.look();
+            p.refresh(false, None);
+        });
         strip
     }
 
@@ -102,11 +107,6 @@ impl TabStrip {
 
     pub fn set_font(&self, font: Option<Font>) {
         self.st.borrow_mut().font = font;
-    }
-
-    pub fn set_look(&self, look: Look) {
-        self.st.borrow_mut().look = look;
-        self.panel.refresh(false, None);
     }
 
     pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {

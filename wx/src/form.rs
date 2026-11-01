@@ -455,7 +455,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
 
 /// Colour the dialog and its controls for the current theme (a no-op change in the light theme).
 fn style_dialog(d: &Dialog, form: &Form) {
-    use crate::theme::{self, Role};
+    use crate::widgets::theme::{self, Role};
     theme::paint(d, Role::Surface);
     for w in form.map.values() {
         match w {

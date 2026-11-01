@@ -243,6 +243,14 @@ impl Chrome {
         wire_menu(&st, menu_p);
         wire_tools(&st, tools_p);
         wire_status(&st, status_p);
+        {
+            let (st, menu, tools) = (st.clone(), menu_p, tools_p);
+            crate::widgets::theme::subscribe(move |t| {
+                st.borrow_mut().look = t.look();
+                menu.refresh(false, None);
+                tools.refresh(false, None);
+            });
+        }
         Chrome { menu: menu_p, tools: tools_p, tabs: tabs_p, strip, status: status_p, st }
     }
 
@@ -283,15 +291,6 @@ impl Chrome {
 
     pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {
         self.strip.set_tabs(tabs, active);
-    }
-
-    pub fn set_theme(&self, dark: bool, editor_bg: Rgb, editor_fg: Rgb) {
-        let look = Look { dark, editor_bg, editor_fg };
-        self.st.borrow_mut().look = look;
-        self.strip.set_look(look);
-        for p in [&self.menu, &self.tools] {
-            p.refresh(false, None);
-        }
     }
 
     pub fn set_status(&self, t: StatusText) {

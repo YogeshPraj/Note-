@@ -65,7 +65,7 @@ thread_local! {
 /// The empty container, placed in the window's layout; the controls are added by [`wire`].
 pub fn container(frame: &Frame) -> Panel {
     let p = Panel::builder(frame).build();
-    crate::theme::own_background(p);
+    crate::widgets::theme::own_background(p);
     p.show(false);
     HOST.with(|h| *h.borrow_mut() = Some(p));
     FRAME.with(|f| *f.borrow_mut() = Some(*frame));
@@ -90,7 +90,7 @@ fn results_visible() -> bool {
 
 /// Recolour the panel for the current theme.
 pub fn restyle() {
-    use crate::theme::{self, Role};
+    use crate::widgets::theme::{self, Role};
     let Some(p) = p() else { return };
     theme::paint(&p.panel, Role::Surface);
     let surface: [&dyn WxWidget; 22] = [
@@ -363,6 +363,8 @@ pub fn wire(app: &Shared) {
     panel.filt.set_value("*.*");
     panel.next.set_default();
     PANEL.with(|c| *c.borrow_mut() = Some(panel));
+    // Recolour whenever the theme changes, and now if one is already set.
+    crate::widgets::theme::subscribe(|_| restyle());
 
     let fire = |app: &Shared, cmd: Cmd| {
         if let Ok(mut a) = app.try_borrow_mut() {

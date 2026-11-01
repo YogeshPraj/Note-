@@ -145,9 +145,9 @@ impl Scroll {
         let end = full - if right { SLOT } else { 0 } + 4;
 
         let mut tabs = Vec::with_capacity(n);
-        for i in 0..n {
+        for (i, w) in widths.iter().enumerate().take(n) {
             let l = if i >= first { x0 + span(first, i) } else { x0 - span(i, first) };
-            tabs.push(Rect::new(l, rows.tab_top, l + widths[i], rows.tab_bottom));
+            tabs.push(Rect::new(l, rows.tab_top, l + w, rows.tab_bottom));
         }
         let plus_x = if right { end } else { (x0 + span(first, n) + 4).min(end) };
         Layout {

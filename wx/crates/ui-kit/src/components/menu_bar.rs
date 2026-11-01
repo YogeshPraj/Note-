@@ -57,6 +57,9 @@ impl std::fmt::Debug for MenuBar {
     }
 }
 
+/// Where menu `i`'s popup goes, as a function of `i`.
+pub type Locator = Box<dyn Fn(i32) -> (i32, i32)>;
+
 #[derive(Clone)]
 pub struct MenuBar {
     panel: Panel,
@@ -101,7 +104,7 @@ impl MenuBar {
 
     /// Where menu `i`'s popup goes (screen coordinates) and how many menus there are; usable while the
     /// application is busy showing one.
-    pub fn locator(&self) -> (Box<dyn Fn(i32) -> (i32, i32)>, i32) {
+    pub fn locator(&self) -> (Locator, i32) {
         let (st, panel) = (self.st.clone(), self.panel);
         let n = crate::num::to_i32(st.borrow().titles.len());
         let at = move |i: i32| {
@@ -114,7 +117,7 @@ impl MenuBar {
 
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
-        p.on_paint(move |_| paint(&st, &p));
+        p.on_paint(move |_| paint(&st, p));
 
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_motion(move |e| {
@@ -153,8 +156,8 @@ impl MenuBar {
     }
 }
 
-fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
-    let dc = AutoBufferedPaintDC::new(panel);
+fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
+    let dc = AutoBufferedPaintDC::new(&panel);
     let mut s = st.borrow_mut();
     let lk = s.look;
     if let Some(f) = &s.font {

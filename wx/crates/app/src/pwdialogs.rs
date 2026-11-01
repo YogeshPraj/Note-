@@ -75,7 +75,7 @@ fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnc
     f.enable(1, true);
     f.enable(2, true);
     BUSY.with(|b| b.set(false));
-    handle.join().expect("background job panicked")
+    handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 fn busy() -> bool {

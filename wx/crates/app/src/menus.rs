@@ -182,17 +182,9 @@ pub struct Menus {
     pub close_multi: M,
     pub print: M,
     pub recent: M,
-    pub edit: M,
-    pub sym: M,
-    pub search: M,
-    pub on_sel: M,
-    pub engine: M,
-    pub view: M,
     pub enc: M,
     pub eol: M,
     pub lang: M,
-    pub window: M,
-    pub help: M,
 }
 
 pub fn eol_menu() -> M {
@@ -248,7 +240,8 @@ pub fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::cmd(f, ID_EXIT);
 }
 
-pub fn build_menus() -> (Vec<(String, M)>, Menus) {
+/// The File menu and the submenus `fill_file_menu` fills later.
+fn menu_file() -> (M, M, M, M, M) {
     let file = B::popup();
     let open_folder = B::popup();
     B::cmd(open_folder, ID_OPEN_FOLDER_EXPLORER);
@@ -264,7 +257,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::cmd(print, ID_PRINT_NOW);
     B::cmd(print, ID_PAGE_SETUP);
     let recent = B::popup();
+    (file, open_folder, close_multi, print, recent)
+}
 
+/// The Edit menu: clipboard, insert, indent and case operations.
+fn menu_edit_basic() -> M {
     let edit = B::popup();
     B::cmd(edit, ID_UNDO);
     B::cmd(edit, ID_REDO);
@@ -309,7 +306,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::cmd(case, ID_CASE_INVERT);
     B::cmd(case, ID_CASE_RANDOM);
     B::submenu(edit, "Convert Case &to", case);
+    edit
+}
 
+/// Edit menu: line, comment, completion and EOL operations. Returns the EOL submenu.
+fn menu_edit_lines(edit: M) -> M {
     let lines = B::popup();
     B::cmd(lines, ID_L_DUP);
     B::cmd(lines, ID_L_DEDUP);
@@ -371,7 +372,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::cmd(blank, ID_B_SPACE_TAB_ALL);
     B::cmd(blank, ID_B_SPACE_TAB_LEAD);
     B::submenu(edit, "Blank Operations", blank);
+    eol_sub
+}
 
+/// Edit menu: paste special, on-selection and read-only.
+fn menu_edit_rest(edit: M) {
     let paste_special = B::popup();
     B::cmd(paste_special, ID_PS_HTML);
     B::cmd(paste_special, ID_PS_RTF);
@@ -400,7 +405,10 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::sep(edit);
     B::cmd(edit, ID_READONLY);
     B::cmd(edit, ID_CLEAR_RO);
+}
 
+/// The Search menu.
+fn menu_search() -> M {
     let search = B::popup();
     B::cmd(search, ID_FIND);
     B::cmd(search, ID_FIF);
@@ -451,7 +459,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::submenu(search, "&Bookmark", bm);
     B::sep(search);
     B::cmd(search, ID_FIND_CHARS);
+    search
+}
 
+/// The View menu: modes, symbols, zoom and the other-view commands.
+fn menu_view_basic() -> M {
     let view = B::popup();
     B::cmd(view, ID_ON_TOP);
     B::cmd(view, ID_FULLSCREEN);
@@ -485,6 +497,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::cmd(moveclone, ID_MOVE_NEW_INSTANCE);
     B::cmd(moveclone, ID_OPEN_NEW_INSTANCE);
     B::submenu(view, "Move/Clone Current Document", moveclone);
+    view
+}
+
+/// View menu: tabs, folding, projects, panels and the Note++ extras.
+fn menu_view_rest(view: M) {
     let tab = B::popup();
     for i in 0..9 {
         B::add(tab, ID_TAB_BASE + i, &format!("Tab {}", i + 1));
@@ -539,7 +556,10 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::cmd(view, ID_THEME);
     B::cmd(view, ID_PALETTE);
     B::cmd(view, ID_QUICKOPEN);
+}
 
+/// The Encoding and Language menus.
+fn menu_encoding_language() -> (M, M) {
     let enc = B::popup();
     add_items(enc, &EncodeInItems);
     let charsets = B::popup();
@@ -552,13 +572,21 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     let lang = B::popup();
     add_items(lang, &Languages);
     add_groups(lang, &Languages);
+    (enc, lang)
+}
+
+/// The ? menu.
+fn menu_help() -> M {
     let help = B::popup();
     B::cmd(help, ID_ABOUT);
     B::sep(help);
     B::cmd(help, ID_UPDATE_CHECK);
     B::cmd(help, ID_UPDATE_AUTO);
+    help
+}
 
-    // Settings
+/// The Settings menu.
+fn menu_settings() -> M {
     let settings_menu = B::popup();
     B::cmd(settings_menu, ID_PREFS);
     B::cmd(settings_menu, ID_STYLE_CFG);
@@ -579,8 +607,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::sep(settings_menu);
     B::cmd(settings_menu, ID_ENC_SETTINGS);
     B::cmd(settings_menu, ID_EDIT_CONTEXT);
+    settings_menu
+}
 
-    // Tools: one submenu per digest, then the text tools.
+/// The Tools menu: one submenu per digest, then the text tools.
+fn menu_tools() -> M {
     let tools = B::popup();
     for (i, algo) in ALGOS.iter().enumerate() {
         let sub = B::popup();
@@ -605,10 +636,23 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     B::sep(tools);
     B::cmd(tools, ID_PASSWORDS);
     B::cmd(tools, ID_HTTP_SEND);
+    tools
+}
 
+pub fn build_menus() -> (Vec<(String, M)>, Menus) {
+    let (file, open_folder, close_multi, print, recent) = menu_file();
+    let edit = menu_edit_basic();
+    let eol_sub = menu_edit_lines(edit);
+    menu_edit_rest(edit);
+    let search = menu_search();
+    let view = menu_view_basic();
+    menu_view_rest(view);
+    let (enc, lang) = menu_encoding_language();
+    let help = menu_help();
+    let settings_menu = menu_settings();
+    let tools = menu_tools();
     // Window: Sort By, Windows..., then the open documents (filled as the menu opens).
     let window = B::popup();
-
     let bar = vec![
         ("File".to_string(), file),
         ("Edit".to_string(), edit),
@@ -621,8 +665,7 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
         ("Window".to_string(), window),
         ("?".to_string(), help),
     ];
-    let menus =
-        Menus { file, open_folder, close_multi, print, recent, edit, sym, search, on_sel: on_selection, engine, view, enc, eol: eol_sub, lang, window, help };
+    let menus = Menus { file, open_folder, close_multi, print, recent, enc, eol: eol_sub, lang };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
 }
@@ -656,12 +699,11 @@ mod golden {
             dump(&spec(*m), 0, &mut text);
         }
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("menus.golden");
-        match std::fs::read_to_string(&path) {
-            Ok(old) => assert_eq!(old.replace("\r\n", "\n"), text, "menus changed; delete {} to accept", path.display()),
-            Err(_) => {
-                let _ = std::fs::create_dir_all(path.parent().unwrap());
-                std::fs::write(&path, &text).unwrap();
-            }
+        if let Ok(old) = std::fs::read_to_string(&path) {
+            assert_eq!(old.replace("\r\n", "\n"), text, "menus changed; delete {} to accept", path.display());
+        } else {
+            let _ = std::fs::create_dir_all(path.parent().unwrap());
+            std::fs::write(&path, &text).unwrap();
         }
     }
 

@@ -47,6 +47,7 @@ impl History {
         self.items.get(row).map(String::as_str)
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.items.len()
     }

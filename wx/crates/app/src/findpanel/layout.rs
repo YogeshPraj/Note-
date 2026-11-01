@@ -57,10 +57,12 @@ pub enum Ctl {
 pub struct Layout {
     pub placed: Vec<(Ctl, Rect)>,
     /// Height of the whole panel.
+    #[cfg(test)]
     pub height: i32,
 }
 
 impl Layout {
+    #[cfg(test)]
     pub fn rect(&self, c: Ctl) -> Option<Rect> {
         self.placed.iter().find(|(k, _)| *k == c).map(|(_, r)| *r)
     }
@@ -144,7 +146,11 @@ pub fn layout(mode: Mode, width: i32, results: bool) -> Layout {
     if results {
         v.push((Ctl::List, at(8, height - RESULTS_H, (width - 16).max(0), RESULTS_H - 8)));
     }
-    Layout { placed: v, height }
+    Layout {
+        placed: v,
+        #[cfg(test)]
+        height,
+    }
 }
 
 #[cfg(test)]

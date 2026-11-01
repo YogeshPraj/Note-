@@ -33,6 +33,7 @@ impl MenuSpec {
         MenuSpec::default()
     }
 
+    #[cfg(test)]
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -89,7 +90,7 @@ impl MenuSpec {
                         out.push(Entry::Sub { label, menu });
                     }
                 }
-                other => out.push(other),
+                other @ Entry::Item { .. } => out.push(other),
             }
         }
         while matches!(out.last(), Some(Entry::Sep)) {
@@ -99,6 +100,7 @@ impl MenuSpec {
     }
 
     /// The ids of every item, submenus included.
+    #[cfg(test)]
     pub fn ids(&self) -> Vec<usize> {
         let mut v = Vec::new();
         for e in &self.entries {

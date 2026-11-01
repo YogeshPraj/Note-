@@ -23,6 +23,7 @@ impl Targets {
         Targets { kind, columns, rows: Vec::new() }
     }
 
+    #[cfg(test)]
     pub fn kind(&self) -> Kind {
         self.kind
     }
@@ -36,6 +37,7 @@ impl Targets {
         true
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.rows.len()
     }

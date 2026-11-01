@@ -23,11 +23,6 @@ pub fn page_html(remote_images: bool) -> String {
     PAGE.replacen(OPEN, if remote_images { OPEN } else { "img-src data:;" }, 1)
 }
 
-/// Run `js` in the page (kept until the page is ready).
-pub fn eval(pane: &WebPane, js: &str) {
-    pane.eval(js);
-}
-
 /// Push content to the page. `kind` is "markdown" | "html" | "mermaid" | "json" | "message".
 pub fn render(pane: &WebPane, kind: &str, payload: &str) {
     pane.call("window.np.render", &[kind, payload]);
@@ -39,10 +34,6 @@ pub fn call(pane: &WebPane, name: &str, payload: &str) {
 
 pub fn set_theme(pane: &WebPane, dark: bool) {
     pane.eval(&format!("window.np.setTheme({dark})"));
-}
-/// Scroll the rendered Markdown so source line `line` (0-based, fractional) is at the top.
-pub fn scroll_to_line(pane: &WebPane, line: f64, total_lines: usize) {
-    pane.eval(&format!("window.np.scrollToLine({line:.3},{total_lines})"));
 }
 
 /// Inject Mermaid (once), then tell the page to draw the diagrams it was waiting on.

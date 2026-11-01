@@ -48,7 +48,7 @@ impl AppearanceCommands {
         let Some(e) = settings_ui::style_configurator(&app.frame, &app.ws.theme) else { return };
         let dark = app.ws.theme.dark;
         let base = if dark { Theme::dark() } else { Theme::light() };
-        let diff = if e.reset { Default::default() } else { settings::diff_from(&base, &e.entered) };
+        let diff = if e.reset { std::collections::BTreeMap::default() } else { settings::diff_from(&base, &e.entered) };
         let bad = e.entered.iter().filter(|(_, h)| settings::parse_hex(h).is_none()).count();
         let mut s = app.ws.settings.clone();
         if dark {

@@ -162,7 +162,7 @@ fn mapper_click(f: &Form, id: usize) {
             };
             match result {
                 Ok(canon) => {
-                    ROWS.with(|r| r.borrow_mut()[i].current = canon.clone());
+                    ROWS.with(|r| r.borrow_mut()[i].current.clone_from(&canon));
                     f.set_text(EDIT, &canon);
                     refresh_row(f, i);
                     f.set_text(STATUS, if canon.is_empty() { "Shortcut removed" } else { "Shortcut set" });
@@ -367,7 +367,8 @@ fn ctx_click(f: &Form, id: usize) {
         RESET => {
             CTX.with(|c| {
                 let mut c = c.borrow_mut();
-                c.menu = c.default.clone();
+                let c = &mut *c;
+                c.menu.clone_from(&c.default);
             });
             ctx_fill_avail(f);
             ctx_fill_menu(f, Some(0));

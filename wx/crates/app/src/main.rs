@@ -45,5 +45,5 @@ fn main() {
         args.retain(|a| a != "--new-instance");
     }
     let files: Vec<std::path::PathBuf> = args.into_iter().map(std::path::PathBuf::from).collect();
-    let _ = wxdragon::main(move |_| app::start(files.clone()));
+    let _ = wxdragon::main(move |_| app::start(&files));
 }

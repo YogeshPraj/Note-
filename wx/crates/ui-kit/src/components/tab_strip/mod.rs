@@ -151,7 +151,7 @@ impl TabStrip {
 
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
-        p.on_paint(move |_| paint(&st, &p));
+        p.on_paint(move |_| paint(&st, p));
 
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_motion(move |e| {
@@ -311,8 +311,8 @@ fn tab_width(dc: &impl DeviceContext, info: &Tab) -> i32 {
     (text_w(dc, &info.title) + 56 + extra).clamp(96, 260)
 }
 
-fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
-    let dc = AutoBufferedPaintDC::new(panel);
+fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
+    let dc = AutoBufferedPaintDC::new(&panel);
     let mut s = st.borrow_mut();
     let lk = s.look;
     if let Some(f) = &s.font {

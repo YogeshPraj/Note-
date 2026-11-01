@@ -195,6 +195,7 @@ impl Theme {
     }
 
     /// This theme with the editor's colours (they come from the editor's own colour scheme, not from ours).
+    #[must_use]
     pub fn with_editor(self, bg: Rgb, fg: Rgb) -> Theme {
         Theme { editor_bg: bg, editor_fg: fg, ..self }
     }
@@ -224,7 +225,8 @@ impl Theme {
         self.colors.input
     }
 
-    pub fn ink(self) -> Rgb {
+    /// Text colour on the surface and input backgrounds.
+    pub fn text(self) -> Rgb {
         self.colors.text
     }
 
@@ -480,7 +482,7 @@ mod tests {
         assert_eq!(t.background(Role::Editor), (10, 20, 30));
         assert_eq!(t.foreground(Role::Editor), (200, 210, 220));
         assert_eq!(t.background(Role::Surface), t.surface());
-        assert_eq!(t.foreground(Role::Input), t.ink());
+        assert_eq!(t.foreground(Role::Input), t.text());
     }
 
     #[test]
@@ -519,6 +521,6 @@ mod tests {
         let (d, l) = (dark(), Theme::default());
         assert_ne!(d.surface(), l.surface());
         assert_ne!(d.input(), d.surface());
-        assert!(d.ink().0 > d.surface().0 && l.ink().0 < l.surface().0);
+        assert!(d.text().0 > d.surface().0 && l.text().0 < l.surface().0);
     }
 }

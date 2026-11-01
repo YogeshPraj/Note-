@@ -117,9 +117,8 @@ impl App {
                         .build()
                         .show_modal();
                 }
-                Ok(None) => {}
                 Err(e) if manual => self.ui.error(&format!("Cannot check for updates\n\n{e}")),
-                Err(_) => {}
+                Ok(None) | Err(_) => {}
             }
         }
         if let Some(result) = done {

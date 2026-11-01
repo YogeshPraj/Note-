@@ -58,7 +58,7 @@ enum W {
     Check(CheckBox),
     Radio(RadioButton),
     Button(Button),
-    Swatch(Panel),
+    Swatch,
     List(ListView),
     /// A masked box with a plain twin at the same place; "masked" says which one shows.
     Pw(TextBox, TextBox, Rc<std::cell::Cell<bool>>),
@@ -160,7 +160,7 @@ impl Form {
                 m.enable(on);
                 p.enable(on);
             }
-            Some(W::Swatch(_)) | None => {}
+            Some(W::Swatch) | None => {}
             Some(W::List(l)) => {
                 l.enable(on);
             }
@@ -264,17 +264,23 @@ impl std::fmt::Debug for Spec<'_> {
     }
 }
 
+/// Positions of the OK and Cancel buttons.
+pub type ButtonPositions = ((i32, i32), (i32, i32));
+
+/// Called when OK is pressed with the entered values; returning true keeps the form open.
+pub type ApplyHook = Rc<dyn Fn(&Values, &Form) -> bool>;
+
 pub struct Spec<'a> {
     pub title: &'a str,
     pub size: (i32, i32),
     pub ctls: Vec<Ctl>,
     pub ok: &'a str,
     /// Positions of the OK and Cancel buttons; by default they sit at the bottom right.
-    pub buttons: Option<((i32, i32), (i32, i32))>,
+    pub buttons: Option<ButtonPositions>,
     /// Called after a button, check box or radio button is clicked; gets the control's id.
     pub on_change: Option<fn(&Form, usize)>,
     /// Called when OK is pressed; returning true keeps the form open.
-    pub on_apply: Option<Rc<dyn Fn(&Values, &Form) -> bool>>,
+    pub on_apply: Option<ApplyHook>,
 }
 
 fn collect(kinds: &[(usize, Kind)], form: &Form) -> Values {
@@ -297,7 +303,7 @@ const BTN_W: i32 = 80;
 const BTN_H: i32 = 26;
 
 /// Where OK and Cancel go: the spec's own positions, else the bottom right.
-fn button_positions(spec: &Spec) -> ((i32, i32), (i32, i32)) {
+fn button_positions(spec: &Spec) -> ButtonPositions {
     let by = spec.size.1 - 36;
     spec.buttons.unwrap_or(((spec.size.0 - 2 * BTN_W - 24, by), (spec.size.0 - BTN_W - 12, by)))
 }
@@ -314,116 +320,117 @@ fn problems(spec: &Spec) -> Vec<String> {
     layout::check(spec.size, &placed, &buttons).iter().map(std::string::ToString::to_string).collect()
 }
 
-pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> {
-    if cfg!(debug_assertions) {
-        for p in problems(&spec) {
-            let line = format!("dialog '{}': {p}", spec.title);
-            eprintln!("{line}");
-            if let Some(sink) = PROBLEM_SINK.get() {
-                sink(&line);
-            }
-        }
-    }
-    let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(owner, spec.title).build());
-    d.set_client_size(Size::new(spec.size.0, spec.size.1));
-    let pos = |r: (i32, i32, i32, i32)| (Point::new(r.0, r.1), Size::new(r.2, r.3));
-    let mut map: HashMap<usize, W> = HashMap::new();
-    let mut kinds = Vec::new();
-    let mut first_edit = None;
-    let mut click_ids: Vec<(usize, Button)> = Vec::new();
-    let mut swatches: Vec<(Panel, usize)> = Vec::new();
-    let mut lists: Vec<(usize, ListView)> = Vec::new();
-    for c in &spec.ctls {
-        let (p, s) = pos(c.rect);
+/// Everything created for a spec's controls, for wiring them afterwards.
+struct Built {
+    map: HashMap<usize, W>,
+    kinds: Vec<(usize, Kind)>,
+    first_edit: Option<usize>,
+    click_ids: Vec<(usize, Button)>,
+    swatches: Vec<(Panel, usize)>,
+    lists: Vec<(usize, ListView)>,
+}
+
+impl Built {
+    fn add(&mut self, d: &Dialog, c: &Ctl) {
+        let (p, s) = (Point::new(c.rect.0, c.rect.1), Size::new(c.rect.2, c.rect.3));
         match c.kind {
             Kind::Group => {
                 // A section heading with an etched line under it.
                 let (x, y, w, _) = c.rect;
-                let _line = StaticLine::builder(&d).with_pos(Point::new(x, y + 18)).with_size(Size::new(w, 2)).build();
-                let l = Label::adopt(StaticText::builder(&d).with_label(&c.text).with_pos(Point::new(x, y)).with_size(Size::new(w, 18)).build());
-                map.insert(c.id, W::Label(l));
+                let _line = StaticLine::builder(d).with_pos(Point::new(x, y + 18)).with_size(Size::new(w, 2)).build();
+                let l = Label::adopt(StaticText::builder(d).with_label(&c.text).with_pos(Point::new(x, y)).with_size(Size::new(w, 18)).build());
+                self.map.insert(c.id, W::Label(l));
             }
             Kind::Label => {
-                let l = Label::adopt(StaticText::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build());
-                map.insert(c.id, W::Label(l));
+                let l = Label::adopt(StaticText::builder(d).with_label(&c.text).with_pos(p).with_size(s).build());
+                self.map.insert(c.id, W::Label(l));
             }
             Kind::Password => {
-                let m = TextBox::adopt(TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).with_style(TextCtrlStyle::Password).build());
-                let pl = TextBox::adopt(TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s).build());
+                let m = TextBox::adopt(TextCtrl::builder(d).with_value(&c.text).with_pos(p).with_size(s).with_style(TextCtrlStyle::Password).build());
+                let pl = TextBox::adopt(TextCtrl::builder(d).with_value(&c.text).with_pos(p).with_size(s).build());
                 pl.show(false);
-                first_edit.get_or_insert(c.id);
-                map.insert(c.id, W::Pw(m, pl, Rc::new(std::cell::Cell::new(true))));
-                kinds.push((c.id, c.kind));
+                self.first_edit.get_or_insert(c.id);
+                self.map.insert(c.id, W::Pw(m, pl, Rc::new(std::cell::Cell::new(true))));
+                self.kinds.push((c.id, c.kind));
             }
             Kind::Edit | Kind::MultiEdit(_) => {
-                let mut b = TextCtrl::builder(&d).with_value(&c.text).with_pos(p).with_size(s);
+                let mut b = TextCtrl::builder(d).with_value(&c.text).with_pos(p).with_size(s);
                 b = match c.kind {
                     Kind::MultiEdit(true) => b.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly),
                     Kind::MultiEdit(false) => b.with_style(TextCtrlStyle::MultiLine),
                     _ => b,
                 };
                 let t = TextBox::adopt(b.build());
-                first_edit.get_or_insert(c.id);
-                map.insert(c.id, W::Edit(t));
-                kinds.push((c.id, c.kind));
+                self.first_edit.get_or_insert(c.id);
+                self.map.insert(c.id, W::Edit(t));
+                self.kinds.push((c.id, c.kind));
             }
             Kind::Check => {
-                let ch = CheckBox::adopt(wxdragon::prelude::CheckBox::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build());
-                map.insert(c.id, W::Check(ch));
-                kinds.push((c.id, c.kind));
+                let ch = CheckBox::adopt(wxdragon::prelude::CheckBox::builder(d).with_label(&c.text).with_pos(p).with_size(s).build());
+                self.map.insert(c.id, W::Check(ch));
+                self.kinds.push((c.id, c.kind));
             }
             Kind::Radio(group) => {
-                let mut b = wxdragon::prelude::RadioButton::builder(&d).with_label(&c.text).with_pos(p).with_size(s);
+                let mut b = wxdragon::prelude::RadioButton::builder(d).with_label(&c.text).with_pos(p).with_size(s);
                 if group {
                     b = b.with_style(RadioButtonStyle::GroupStart);
                 }
                 let r = RadioButton::adopt(b.build());
-                map.insert(c.id, W::Radio(r));
-                kinds.push((c.id, c.kind));
+                self.map.insert(c.id, W::Radio(r));
+                self.kinds.push((c.id, c.kind));
             }
             Kind::Swatch => {
-                let sw = Panel::builder(&d).with_pos(p).with_size(s).with_style(PanelStyle::BorderSimple).build();
+                let sw = Panel::builder(d).with_pos(p).with_size(s).with_style(PanelStyle::BorderSimple).build();
                 if let Ok(edit) = c.text.parse::<usize>() {
-                    swatches.push((sw, edit));
+                    self.swatches.push((sw, edit));
                 }
-                map.insert(c.id, W::Swatch(sw));
+                self.map.insert(c.id, W::Swatch);
             }
             Kind::List | Kind::MultiList => {
                 let style = if c.kind == Kind::List { ListCtrlStyle::Report | ListCtrlStyle::SingleSel } else { ListCtrlStyle::Report };
-                let l = ListView::adopt(ListCtrl::builder(&d).with_pos(p).with_size(s).with_style(style).build());
-                lists.push((c.id, l));
-                map.insert(c.id, W::List(l));
+                let l = ListView::adopt(ListCtrl::builder(d).with_pos(p).with_size(s).with_style(style).build());
+                self.lists.push((c.id, l));
+                self.map.insert(c.id, W::List(l));
             }
             Kind::Button | Kind::DefButton => {
-                let b = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label(&c.text).with_pos(p).with_size(s).build());
+                let b = Button::adopt(wxdragon::prelude::Button::builder(d).with_label(&c.text).with_pos(p).with_size(s).build());
                 if c.kind == Kind::DefButton {
                     b.set_default();
                 }
-                click_ids.push((c.id, b));
-                map.insert(c.id, W::Button(b));
+                self.click_ids.push((c.id, b));
+                self.map.insert(c.id, W::Button(b));
             }
         }
     }
-    let (bw, bh) = (BTN_W, BTN_H);
-    let ((okx, oky), (cx, cy)) = button_positions(&spec);
-    let mut ok_btn: Option<Button> = None;
-    let mut cancel_btn: Option<Button> = None;
-    if !spec.ok.is_empty() {
-        let ok = Button::adopt(wxdragon::prelude::Button::builder(&d).with_label(spec.ok).with_pos(Point::new(okx, oky)).with_size(Size::new(bw, bh)).build());
-        ok.set_default();
-        let cancel =
-            Button::adopt(wxdragon::prelude::Button::builder(&d).with_label("Cancel").with_pos(Point::new(cx, cy)).with_size(Size::new(bw, bh)).build());
-        cancel.on_click(move |_| d.end_modal(ID_CANCEL));
-        ok_btn = Some(ok);
-        cancel_btn = Some(cancel);
-    }
-    d.set_escape_id(ID_CANCEL);
+}
 
-    let ok_cell = Rc::new(std::cell::Cell::new(ok_btn));
-    let cancel_cell = Rc::new(std::cell::Cell::new(cancel_btn));
-    let form = Form { dialog: d, map: Rc::new(map), ok: ok_cell, cancel: cancel_cell };
-    if let Some(on) = spec.on_change {
-        for (id, b) in &click_ids {
+fn build_controls(d: &Dialog, ctls: &[Ctl]) -> Built {
+    let mut built = Built { map: HashMap::new(), kinds: Vec::new(), first_edit: None, click_ids: Vec::new(), swatches: Vec::new(), lists: Vec::new() };
+    for c in ctls {
+        built.add(d, c);
+    }
+    built
+}
+
+/// The OK and Cancel buttons (none for a spec without an OK label); Cancel closes the dialog.
+fn add_buttons(d: &Dialog, ok_label: &str, ok_at: (i32, i32), cancel_at: (i32, i32)) -> (Option<Button>, Option<Button>) {
+    if ok_label.is_empty() {
+        return (None, None);
+    }
+    let size = Size::new(BTN_W, BTN_H);
+    let ok = Button::adopt(wxdragon::prelude::Button::builder(d).with_label(ok_label).with_pos(Point::new(ok_at.0, ok_at.1)).with_size(size).build());
+    ok.set_default();
+    let cancel =
+        Button::adopt(wxdragon::prelude::Button::builder(d).with_label("Cancel").with_pos(Point::new(cancel_at.0, cancel_at.1)).with_size(size).build());
+    let dialog = *d;
+    cancel.on_click(move |_| dialog.end_modal(ID_CANCEL));
+    (Some(ok), Some(cancel))
+}
+
+/// `on_change` for clicks, toggles and list selections; the edit hook for text changes.
+fn wire_events(form: &Form, on_change: Option<fn(&Form, usize)>, built: &Built) {
+    if let Some(on) = on_change {
+        for (id, b) in &built.click_ids {
             let (f, id) = (form.clone(), *id);
             b.on_click(move |_| on(&f, id));
         }
@@ -439,9 +446,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
                 _ => {}
             }
         }
-    }
-    if let Some(on) = spec.on_change {
-        for (id, l) in &lists {
+        for (id, l) in &built.lists {
             let (f, id) = (form.clone(), *id);
             l.on_item_selected(move |_| on(&f, id));
         }
@@ -463,21 +468,10 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             }
         }
     }
-    let result: Rc<RefCell<Option<Values>>> = Rc::new(RefCell::new(None));
-    if let Some(ok) = ok_btn {
-        let (f, k, r) = (form.clone(), kinds.clone(), result.clone());
-        let apply = spec.on_apply.clone();
-        ok.on_click(move |_| {
-            let v = collect(&k, &f);
-            if let Some(a) = &apply
-                && a(&v, &f)
-            {
-                return;
-            }
-            *r.borrow_mut() = Some(v);
-            f.close(true);
-        });
-    }
+}
+
+/// A swatch shows the colour typed in its edit box.
+fn wire_swatches(form: &Form, swatches: Vec<(Panel, usize)>) {
     for (sw, edit) in swatches {
         let paint = move |hex: &str| {
             if let Some(c) = parse_hex(hex) {
@@ -491,13 +485,54 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
             t.on_text_updated(move |_| paint(&t2.get_value()));
         }
     }
+}
+
+fn report_problems(spec: &Spec) {
+    if cfg!(debug_assertions) {
+        for p in problems(spec) {
+            let line = format!("dialog '{}': {p}", spec.title);
+            eprintln!("{line}");
+            if let Some(sink) = PROBLEM_SINK.get() {
+                sink(&line);
+            }
+        }
+    }
+}
+
+/// Show the form modally. Returns the values when it was accepted with OK, `None` when cancelled.
+pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option<Values> {
+    report_problems(&spec);
+    let (ok_at, cancel_at) = button_positions(&spec);
+    let Spec { title, size, ctls, ok, on_change, on_apply, .. } = spec;
+    let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(owner, title).build());
+    d.set_client_size(Size::new(size.0, size.1));
+    let built = build_controls(&d, &ctls);
+    let (ok_btn, cancel_btn) = add_buttons(&d, ok, ok_at, cancel_at);
+    d.set_escape_id(ID_CANCEL);
+    let form =
+        Form { dialog: d, map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(ok_btn)), cancel: Rc::new(std::cell::Cell::new(cancel_btn)) };
+    wire_events(&form, on_change, &built);
+    let result: Rc<RefCell<Option<Values>>> = Rc::new(RefCell::new(None));
+    if let Some(ok) = ok_btn {
+        let (f, k, r) = (form.clone(), built.kinds.clone(), result.clone());
+        ok.on_click(move |_| {
+            let v = collect(&k, &f);
+            if let Some(a) = &on_apply
+                && a(&v, &f)
+            {
+                return;
+            }
+            *r.borrow_mut() = Some(v);
+            f.close(true);
+        });
+    }
+    wire_swatches(&form, built.swatches);
     init(&form);
-    if let Some(id) = first_edit {
+    if let Some(id) = built.first_edit {
         form.focus(id);
     }
     d.centre();
     d.show_modal();
-
     result.borrow_mut().take()
 }
 

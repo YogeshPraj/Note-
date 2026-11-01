@@ -1,7 +1,6 @@
 //! Find Next / Previous and Go To Line (the docked Find panel itself is in `findpanel`).
 
 use notepp_core::search::{self, Found};
-use wxdragon::prelude::*;
 
 use crate::app::Shared;
 use crate::findpanel::{self, Mode};

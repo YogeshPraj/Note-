@@ -64,41 +64,6 @@ pub fn check(size: (i32, i32), controls: &[Placed], buttons: &[(i32, i32, i32, i
     out
 }
 
-/// Places controls in rows down a column: each call takes the next row and moves down.
-#[derive(Clone, Copy, Debug)]
-pub struct Flow {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    /// Space between rows.
-    pub gap: i32,
-}
-
-impl Flow {
-    pub fn new(x: i32, y: i32, w: i32) -> Flow {
-        Flow { x, y, w, gap: 8 }
-    }
-
-    /// The next row of height `h`, as (x, y, width, height).
-    pub fn row(&mut self, h: i32) -> (i32, i32, i32, i32) {
-        let r = (self.x, self.y, self.w, h);
-        self.y += h + self.gap;
-        r
-    }
-
-    /// The next row split into a label `label_w` wide and a field filling the rest: (label, field).
-    pub fn labelled(&mut self, label_w: i32, h: i32) -> ((i32, i32, i32, i32), (i32, i32, i32, i32)) {
-        let (x, y, w, _) = self.row(h);
-        // A label's text sits a little lower than a field's top edge.
-        ((x, y + 4, label_w, h - 6), (x + label_w, y, (w - label_w).max(0), h))
-    }
-
-    /// Where the flow has got to: the bottom of the last row.
-    pub fn bottom(&self) -> i32 {
-        self.y - self.gap
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,35 +111,5 @@ mod tests {
     fn touching_a_button_is_not_overlapping() {
         let c = [p(1, (200, 130, 80, 30))];
         assert!(check((300, 200), &c, &[(200, 160, 80, 26)]).is_empty());
-    }
-
-    #[test]
-    fn flow_rows_stack_with_the_gap() {
-        let mut f = Flow::new(10, 20, 200);
-        assert_eq!(f.row(24), (10, 20, 200, 24));
-        assert_eq!(f.row(24), (10, 52, 200, 24));
-        assert_eq!(f.bottom(), 76);
-    }
-
-    #[test]
-    fn a_labelled_row_splits_label_and_field() {
-        let mut f = Flow::new(10, 10, 300);
-        let (label, field) = f.labelled(90, 24);
-        assert_eq!(label.0, 10);
-        assert_eq!(field.0, 100);
-        assert_eq!(field.2, 210);
-        assert_eq!(field.3, 24);
-        assert!(label.1 > field.1, "the label text sits slightly lower than the field");
-    }
-
-    #[test]
-    fn flow_output_passes_the_checker() {
-        let mut f = Flow::new(12, 12, 276);
-        let mut placed = Vec::new();
-        for id in 10..14 {
-            let (_, field) = f.labelled(90, 24);
-            placed.push(p(id, field));
-        }
-        assert!(check((300, f.bottom() + 12 + 40), &placed, &[(210, f.bottom() + 20, 80, 26)]).is_empty());
     }
 }

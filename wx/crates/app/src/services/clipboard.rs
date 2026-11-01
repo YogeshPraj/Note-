@@ -10,8 +10,6 @@ use std::time::Instant;
 use notepp_core::secret::{SECRET_TTL, SecretGuard};
 use wxdragon::prelude::Clipboard;
 
-/// How long a copied password stays on the clipboard.
-
 /// The clipboard service: the system clipboard plus the password guard.
 #[derive(Default)]
 pub struct ClipboardService {

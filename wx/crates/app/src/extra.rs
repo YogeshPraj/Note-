@@ -323,8 +323,6 @@ fn find_chars_dialog(app: &App) {
 // ---- the commands ---------------------------------------------------------------------------------------
 
 impl App {
-    /// Commands implemented here; true when `id` was one of them.
-
     /// Rebuild every menu (shortcut changes show up in their labels).
     pub fn reinstall_menus(&mut self) {
         self.keymap = notepp_core::keymap::KeyMap::build(&self.ws.settings.shortcuts);
@@ -467,7 +465,7 @@ fn handle_1(app: &mut App, id: usize) -> bool {
             let text = if id == c::ID_INS_DATE_CUSTOM {
                 let current = app.ws.date_format.clone();
                 ask_date_format(app, &current).map(|f| {
-                    app.ws.date_format = f.clone();
+                    app.ws.date_format.clone_from(&f);
                     edit::format_date_time(&f, &crate::platform::current().local_time())
                 })
             } else {

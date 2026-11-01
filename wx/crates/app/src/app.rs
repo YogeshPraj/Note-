@@ -60,11 +60,7 @@ pub struct App {
     pub(crate) distraction: bool,
     pub(crate) chrome_vis: [bool; 4],
     pub(crate) menus: Menus,
-    /// (title, modified) of the tabs as last shown, to rebuild the strip only when it changed.
-    tab_key: Vec<(String, bool, bool)>,
-    /// Set while the shell itself changes the tab strip, so its events are ignored.
-    syncing: bool,
-    /// What the menus and toolbar were last enabled for (see [crate::command::App::sync_command_state]).
+    /// What the menus and toolbar were last enabled for (see [`crate::command::App::sync_command_state`]).
     pub(crate) cmd_state: Option<notepp_core::registry::CommandState>,
     /// Defaults plus the user's overrides; what menus, tool-tips and the palette show.
     pub keymap: notepp_core::keymap::KeyMap,
@@ -80,7 +76,7 @@ fn inbox() -> PathBuf {
     session::config_dir().join("inbox")
 }
 
-pub fn start(files: Vec<PathBuf>) {
+pub fn start(files: &[PathBuf]) {
     // A second launch hands its files to the running Note++ and exits.
     let checker = if session::standalone() {
         None
@@ -160,20 +156,21 @@ pub fn start(files: Vec<PathBuf>) {
     {
         ws.restore(&ui, &s);
     }
-    for f in &files {
+    for f in files {
         ws.open_path(&ui, f);
     }
     if ws.tabs.is_empty() {
         ws.new_tab();
     }
 
+    let Some(menubar) = frame.get_menu_bar() else { return };
     let app: Shared = Rc::new(RefCell::new(App {
         bus: CommandBus::standard(),
-        results: Default::default(),
-        clipboard: Default::default(),
-        streams: Default::default(),
-        wb: Default::default(),
-        preview: Default::default(),
+        results: crate::state::SearchResults::default(),
+        clipboard: crate::services::clipboard::ClipboardService::default(),
+        streams: crate::state::StreamState::default(),
+        wb: crate::state::WhiteboardState::default(),
+        preview: crate::state::PreviewState::default(),
         ws,
         ui,
         flash: None,
@@ -183,10 +180,10 @@ pub fn start(files: Vec<PathBuf>) {
         wbv: wbv.clone(),
         menu_bar: 0,
         panels,
-        side: Default::default(),
+        side: crate::side::Side::default(),
         side_key: None,
         mdbar,
-        upd: Default::default(),
+        upd: crate::updates::State::default(),
         mini,
         stc,
         view: view.clone(),
@@ -194,10 +191,8 @@ pub fn start(files: Vec<PathBuf>) {
         postit: false,
         distraction: false,
         chrome_vis: [true; 4],
-        menubar: frame.get_menu_bar().expect("menu bar"),
+        menubar,
         menus: menu_set,
-        tab_key: Vec::new(),
-        syncing: false,
         cmd_state: None,
         keymap,
         session_key: (usize::MAX, 0, 0, 0),
@@ -215,6 +210,9 @@ pub fn start(files: Vec<PathBuf>) {
     }
 
     findpanel::wire(&app);
+    panels::wire(&app);
+    crate::mdbar::wire(&app);
+    app.borrow_mut().update_startup();
     crate::widgets::theme::subscribe(move |_| {
         // Popup menus, the title bar and native controls follow the theme.
         crate::widgets::native::current().set_app_dark(crate::widgets::theme::is_dark());
@@ -231,8 +229,8 @@ pub fn start(files: Vec<PathBuf>) {
                 true
             }
         };
-        std::mem::forget(FileDropTarget::builder(&frame).with_on_drop_files(drop(app.clone())).build());
-        std::mem::forget(FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build());
+        let _ = FileDropTarget::builder(&frame).with_on_drop_files(drop(app.clone())).build();
+        let _ = FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build();
     }
     {
         let mut a = app.borrow_mut();
@@ -254,7 +252,7 @@ pub fn start(files: Vec<PathBuf>) {
         });
     }
     wire_mini(&app, mini, stc);
-    wire_whiteboard(&app, wbv);
+    wire_whiteboard(&app, &wbv);
     wire(&app, frame, &stc, &view);
     app.borrow_mut().refresh();
     frame.show(true);
@@ -327,7 +325,7 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
     }
 }
 /// Messages from the Excalidraw page: readiness, scene changes, save requests.
-fn wire_whiteboard(app: &Shared, wbv: WebPane) {
+fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
     let a = app.clone();
     wbv.on_script_message_received(move |e| {
         let msg = e.get_string().unwrap_or_default();
@@ -528,7 +526,7 @@ impl App {
             trace(id, "unported");
         }
         self.refresh();
-        if handled { Ok(()) } else { Err(AppError::NotAvailable(id)) }
+        if handled { Ok(()) } else { Err(AppError::NotAvailable) }
     }
     /// Actions from the Find panel.
     pub fn panel_command(&mut self, cmd: Cmd) {

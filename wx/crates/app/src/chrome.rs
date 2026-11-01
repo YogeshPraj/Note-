@@ -13,16 +13,11 @@ use notepp_core::commands::{
 use notepp_core::workspace::TabInfo;
 use wxdragon::prelude::*;
 
-use crate::widgets::menu_bar::{self, MenuBar, MenuEvent};
+use crate::widgets::menu_bar::{MenuBar, MenuEvent};
 use crate::widgets::paint::Rgb;
-use crate::widgets::status_bar::{self, Segment, StatusBar, StatusEvent};
-use crate::widgets::tab_strip::{self, TabEvent, TabStrip};
-use crate::widgets::tool_bar::{self, Item, Pill, ToolBar, ToolEvent};
-
-pub const MENU_H: i32 = menu_bar::HEIGHT;
-pub const TOOL_H: i32 = tool_bar::HEIGHT;
-pub const TAB_H: i32 = tab_strip::HEIGHT;
-pub const STATUS_H: i32 = status_bar::HEIGHT;
+use crate::widgets::status_bar::{Segment, StatusBar, StatusEvent};
+use crate::widgets::tab_strip::{TabEvent, TabStrip};
+use crate::widgets::tool_bar::{Item, Pill, ToolBar, ToolEvent};
 
 const ICON: i32 = 18;
 
@@ -136,7 +131,8 @@ fn toolbar_items() -> Vec<Item> {
         .into_iter()
         .map(|(cmd, data, tip)| match cmd {
             Some(cmd) => {
-                let tip = tip.map_or_else(|| notepp_core::registry::spec(cmd).map(|s| s.tooltip()).unwrap_or_default(), str::to_string);
+                let tip =
+                    tip.map_or_else(|| notepp_core::registry::spec(cmd).map(notepp_core::registry::CommandSpec::tooltip).unwrap_or_default(), str::to_string);
                 Item::Button { cmd, tip, icon: bitmap(data), faded: bitmap(&faded_svg(data)) }
             }
             None => Item::Separator,
@@ -163,7 +159,7 @@ impl Chrome {
 
     /// Where menu `i`'s popup goes (screen coordinates) and how many menus there are, usable while the
     /// application is busy showing one.
-    pub fn menu_locator(&self) -> (Box<dyn Fn(i32) -> (i32, i32)>, i32) {
+    pub fn menu_locator(&self) -> (crate::widgets::menu_bar::Locator, i32) {
         self.menu_bar.locator()
     }
 
@@ -212,10 +208,10 @@ impl Chrome {
     /// Tool-tips that come from the registry show the keymap's effective shortcut.
     pub fn refresh_tips(&self, keymap: &notepp_core::keymap::KeyMap) {
         for (cmd, _, tip) in toolbar_table() {
-            if let (Some(cmd), None) = (cmd, tip) {
-                if let Some(spec) = notepp_core::registry::spec(cmd) {
-                    self.tool_bar.set_tip(cmd, spec.tooltip_with(keymap.shown(cmd)));
-                }
+            if let (Some(cmd), None) = (cmd, tip)
+                && let Some(spec) = notepp_core::registry::spec(cmd)
+            {
+                self.tool_bar.set_tip(cmd, spec.tooltip_with(keymap.shown(cmd)));
             }
         }
     }

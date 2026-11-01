@@ -16,7 +16,7 @@ pub fn apply_settings(ws: &mut Workspace<WxSci>, s: Settings) {
     ws.set_margins_visible(true);
 }
 
-fn number(s: String, fallback: i32) -> i32 {
+fn number(s: &str, fallback: i32) -> i32 {
     s.trim().parse().unwrap_or(fallback)
 }
 
@@ -149,17 +149,17 @@ pub fn preferences(frame: &Frame, cur: &Settings) -> Option<Settings> {
     })?;
     let mut s = Settings {
         font: v.text(FONT).trim().to_string(),
-        font_size: number(v.text(SIZE).into(), cur.font_size),
-        tab_width: number(v.text(TAB).into(), cur.tab_width),
+        font_size: number(v.text(SIZE), cur.font_size),
+        tab_width: number(v.text(TAB), cur.tab_width),
         use_spaces: v.checked(SPACES),
-        edge_column: number(v.text(EDGE).into(), cur.edge_column),
+        edge_column: number(v.text(EDGE), cur.edge_column),
         line_numbers: v.checked(LINENO),
         fold_margin: v.checked(FOLD),
         bookmark_margin: v.checked(BOOKMARK),
         caret_line: v.checked(CARET),
         smart_highlight: v.checked(SMART),
         preview_remote_images: v.checked(REMOTE),
-        passwords_auto_lock_min: crate::platform::wx::to_u32(number(v.text(LOCKMIN).into(), crate::platform::wx::to_i32(cur.passwords_auto_lock_min)).max(0)),
+        passwords_auto_lock_min: crate::platform::wx::to_u32(number(v.text(LOCKMIN), crate::platform::wx::to_i32(cur.passwords_auto_lock_min)).max(0)),
         show_toolbar: v.checked(TOOLBAR),
         show_tabbar: v.checked(TABBAR),
         show_statusbar: v.checked(STATUS),

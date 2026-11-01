@@ -50,7 +50,7 @@ pub enum AppError {
     /// The command exists but its enabled rule says not now (nothing selected, nothing to undo, ...).
     Disabled(String),
     /// The command has no handler in this build.
-    NotAvailable(usize),
+    NotAvailable,
     Core(notepp_core::error::Error),
 }
 
@@ -58,7 +58,7 @@ impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppError::Disabled(name) => write!(f, "{name} is not available right now"),
-            AppError::NotAvailable(_) => f.write_str("This command is not available in this build yet"),
+            AppError::NotAvailable => f.write_str("This command is not available in this build yet"),
             AppError::Core(e) => e.fmt(f),
         }
     }
@@ -77,7 +77,7 @@ impl From<notepp_core::error::Error> for AppError {
 pub fn execute(app: &mut App, id: usize) -> Result<(), AppError> {
     let state = CommandState::of(&app.ws);
     if !registry::is_enabled(id, state) {
-        let name = registry::spec(id).map_or_else(String::new, |s| s.tooltip());
+        let name = registry::spec(id).map_or_else(String::new, notepp_core::registry::CommandSpec::tooltip);
         return Err(AppError::Disabled(name));
     }
     app.dispatch_command(id)

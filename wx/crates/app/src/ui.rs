@@ -17,12 +17,6 @@ impl WxUi {
     fn message(&self, text: &str, caption: &str, style: MessageDialogStyle) -> i32 {
         MessageDialog::builder(&self.frame, text, caption).with_style(style).build().show_modal()
     }
-
-    /// Ask for a password (hidden). None when cancelled.
-    fn password(&self, message: &str, caption: &str) -> Option<String> {
-        let d = TextEntryDialog::builder(&self.frame, message, caption).password().build();
-        (d.show_modal() == ID_OK).then(|| d.get_value()).flatten()
-    }
 }
 
 impl Ui for WxUi {

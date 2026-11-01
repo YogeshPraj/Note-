@@ -114,7 +114,7 @@ impl StatusBar {
 
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
-        p.on_paint(move |_| paint(&st, &p));
+        p.on_paint(move |_| paint(&st, p));
 
         let st = self.st.clone();
         self.panel.on_mouse_left_down(move |e| {
@@ -133,8 +133,8 @@ impl StatusBar {
     }
 }
 
-fn paint(st: &Rc<RefCell<State>>, panel: &Panel) {
-    let dc = AutoBufferedPaintDC::new(panel);
+fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
+    let dc = AutoBufferedPaintDC::new(&panel);
     let mut s = st.borrow_mut();
     if let Some(f) = &s.font {
         dc.set_font(f);

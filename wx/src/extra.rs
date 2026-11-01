@@ -71,14 +71,6 @@ fn mapper_rows(s: &notepp_core::settings::Settings) -> Vec<dialogs::MapRow> {
         .collect()
 }
 
-fn clipboard_set(text: &str) -> bool {
-    Clipboard::get().set_text(text)
-}
-
-fn clipboard_get() -> Option<String> {
-    Clipboard::get().get_text()
-}
-
 /// Files that run code when "opened" (programs, scripts, shortcuts, installers).
 fn runs_code(path: &Path) -> bool {
     const RUNNABLE: [&str; 28] = [
@@ -323,15 +315,13 @@ impl App {
     /// Passwords (Bitwarden): pick an item and insert it at the cursor or copy it for 30 seconds.
     fn passwords(&mut self) {
         use crate::pwdialogs::{run, Outcome};
-        use sha2::{Digest, Sha256};
         match run(&self.frame, !self.ws.is_whiteboard()) {
             Outcome::Insert(secret) => {
                 self.ws.insert_text(&secret);
                 self.flash = Some("Inserted at the cursor (the clipboard was not used)".into());
             }
             Outcome::Copy(secret) => {
-                if clipboard_set(&secret) {
-                    self.clipboard.secret = Some((Sha256::digest(secret.as_bytes()).to_vec(), std::time::Instant::now()));
+                if self.clipboard.copy_secret(&secret) {
                     self.flash = Some("Copied - the clipboard is cleared in 30 seconds".into());
                 }
             }
@@ -451,7 +441,7 @@ impl CommandHandler<App> for ExtraCommands {
                     _ => PathText::AllPaths,
                 };
                 app.flash = Some(match app.ws.path_text(kind) {
-                    Some(t) if clipboard_set(&t) => "Copied to the clipboard".into(),
+                    Some(t) if crate::services::clipboard::copy(&t) => "Copied to the clipboard".into(),
                     Some(_) => "The clipboard is busy".into(),
                     None => "Save the file first".into(),
                 });
@@ -505,14 +495,14 @@ impl CommandHandler<App> for ExtraCommands {
                 let text = bookmarks::marked_text(&sci, eol);
                 if text.is_empty() && bookmarks::lines(&sci).is_empty() {
                     app.flash = Some("No bookmarks".into());
-                } else if clipboard_set(&text) {
+                } else if crate::services::clipboard::copy(&text) {
                     if id == c::ID_BM_CUT {
                         bookmarks::delete_lines(&sci, true);
                     }
                     app.flash = Some("Bookmarked lines copied".into());
                 }
             }
-            c::ID_BM_PASTE => match clipboard_get() {
+            c::ID_BM_PASTE => match crate::services::clipboard::paste() {
                 Some(t) => {
                     let t = t.trim_end_matches(['\r', '\n']).to_string();
                     app.flash = Some(format!("{} line(s) replaced", bookmarks::replace_lines(&sci, &t)));
@@ -525,7 +515,7 @@ impl CommandHandler<App> for ExtraCommands {
                 let text = search::styled_text(&sci, &slots);
                 app.flash = Some(if text.is_empty() {
                     "Nothing is styled".into()
-                } else if clipboard_set(&text) {
+                } else if crate::services::clipboard::copy(&text) {
                     "Styled text copied".into()
                 } else {
                     "The clipboard is busy".into()
@@ -703,7 +693,7 @@ impl CommandHandler<App> for ExtraCommands {
                             app.flash = Some("Select some text first".into());
                         } else {
                             let digest = algo.hash_bytes(sel.as_bytes());
-                            app.flash = Some(if clipboard_set(&digest) { format!("{} copied: {digest}", algo.name()) } else { "The clipboard is busy".into() });
+                            app.flash = Some(if crate::services::clipboard::copy(&digest) { format!("{} copied: {digest}", algo.name()) } else { "The clipboard is busy".into() });
                         }
                     }
                 }

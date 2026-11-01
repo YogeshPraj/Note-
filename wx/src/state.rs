@@ -41,10 +41,3 @@ pub struct SearchResults {
     /// Folder of the last Find in Files; empty after a current-document search.
     pub root: std::path::PathBuf,
 }
-
-/// A password put on the clipboard.
-#[derive(Default)]
-pub struct ClipboardState {
-    /// Digest of the secret and when it was copied: cleared after 30 seconds and kept out of the history.
-    pub secret: Option<(Vec<u8>, std::time::Instant)>,
-}

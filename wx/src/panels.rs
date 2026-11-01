@@ -242,17 +242,9 @@ impl App {
         self.editor_pane.layout();
     }
 
-    /// Once a minute-ish tasks: clear a copied password after 30 seconds, lock the vault when idle.
+    /// Clear a copied password after 30 seconds, and lock the vault when idle.
     pub fn clip_tick(&mut self) {
-        use sha2::{Digest, Sha256};
-        if let Some((d, at)) = self.clipboard.secret.clone() {
-            if at.elapsed().as_secs() >= 30 {
-                self.clipboard.secret = None;
-                if Clipboard::get().get_text().is_some_and(|t| Sha256::digest(t.as_bytes()).as_slice() == d.as_slice()) {
-                    Clipboard::get().clear();
-                }
-            }
-        }
+        self.clipboard.expire_secret();
         if notepp_core::bitwarden::tick_auto_lock() {
             self.flash = Some("Passwords locked (idle)".into());
         }
@@ -260,19 +252,15 @@ impl App {
 
     /// Remember a copied text (newest first, no repeats).
     pub fn poll_clipboard(&mut self) {
-        let Some(text) = Clipboard::get().get_text() else { return };
+        let Some(text) = crate::services::clipboard::paste() else { return };
         // A copied password stays out of the history.
-        if let Some((d, _)) = &self.clipboard.secret {
-            use sha2::{Digest, Sha256};
-            if Sha256::digest(text.as_bytes()).as_slice() == d.as_slice() {
-                return;
-            }
+        if self.clipboard.secret.is_secret(&text) {
+            return;
         }
         if self.side.history.record(&text) && self.side.mode == Some(Mode::Clipboard) {
             self.fill_side();
         }
     }
-
     /// Show the current content in the side list.
     pub fn fill_side(&self) {
         let l = self.panels.side;

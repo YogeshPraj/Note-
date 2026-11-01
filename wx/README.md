@@ -30,6 +30,10 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 - State lives in small structs (`state.rs`: whiteboard, preview, streams, search results, clipboard) owned by `App`.
 - OS differences go through `platform::current()`; do not add `cfg(windows)` outside `src/platform/`.
 
+## Services
+
+`services/` holds background services. `clipboard` keeps one copy/paste API and the rule for a copied password (a fingerprint, cleared after 30 s if still on the clipboard, never recorded in the history). `schedule` says how often each periodic job runs on a single timer. Both rules are pure and tested.
+
 ## Menus
 
 `menu_spec.rs` describes any menu as plain data (`MenuSpec`) and realizes it in one place. The menu bar, the status-bar popups and the tab / editor context menus all go through it; tidying (no stray separators, no empty submenus) and accelerator handling are pure and tested.

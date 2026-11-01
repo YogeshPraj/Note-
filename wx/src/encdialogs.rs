@@ -189,7 +189,7 @@ fn recovery_click(f: &Form, id: usize) {
     match id {
         R_SAVED => f.enable(1, f.checked(R_SAVED)),
         R_COPY => {
-            Clipboard::get().set_text(&key);
+            crate::services::clipboard::copy(&key);
         }
         R_SAVE => {
             let Some(frame) = owner() else { return };

@@ -146,7 +146,7 @@ impl App {
         if self.ws.is_whiteboard() {
             return;
         }
-        match Clipboard::get().get_text() {
+        match crate::services::clipboard::paste() {
             Some(t) if !t.is_empty() => self.show_compare("Clipboard", &t),
             _ => self.flash = Some("The clipboard has no text to compare".into()),
         }

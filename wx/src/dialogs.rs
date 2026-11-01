@@ -9,9 +9,6 @@ use wxdragon::prelude::*;
 
 use crate::form::{self, ctl, Form, Kind, Spec};
 
-fn clipboard_set(text: &str) -> bool {
-    Clipboard::get().set_text(text)
-}
 
 // ── Windows ──────────────────────────────────────────────────────────────────
 
@@ -425,7 +422,7 @@ pub fn hash_text(frame: &Frame, algo: Algo) {
         let digest = algo.hash_bytes(v.text(INPUT).as_bytes());
         f.set_text(RESULT, &digest);
         if v.checked(COPY) {
-            clipboard_set(&digest);
+            crate::services::clipboard::copy(&digest);
         }
         true
     });
@@ -450,7 +447,7 @@ pub fn hash_text(frame: &Frame, algo: Algo) {
 /// A read-only block of text with a Copy button.
 pub fn text_result(frame: &Frame, title: &str, text: &str) {
     let apply = std::rc::Rc::new(|v: &form::Values, _f: &Form| {
-        clipboard_set(v.text(101));
+        crate::services::clipboard::copy(v.text(101));
         true
     });
     let spec = Spec {

@@ -19,7 +19,8 @@ use crate::widgets::web_pane::WebPane;
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
 use crate::command::CommandBus;
-use crate::state::{ClipboardState, PreviewState, SearchResults, StreamState, WhiteboardState};
+use crate::services::schedule::Schedule;
+use crate::state::{PreviewState, SearchResults, StreamState, WhiteboardState};
 use crate::dispatch;
 use crate::panels::{self, Panels};
 use crate::popups;
@@ -31,7 +32,7 @@ use crate::ui::WxUi;
 
 pub struct App {
     pub(crate) results: SearchResults,
-    pub(crate) clipboard: ClipboardState,
+    pub(crate) clipboard: crate::services::clipboard::ClipboardService,
     pub(crate) streams: StreamState,
     pub(crate) wb: WhiteboardState,
     pub(crate) preview: PreviewState,
@@ -415,41 +416,42 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     });
     app.borrow().chrome.set_handler(handler);
 
-    // Keep the session file current (a crash or power cut then loses at most a few seconds).
-    let autosave = Timer::new(&frame);
+    // One timer drives every periodic job; the schedule says how often each runs.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Job {
+        /// Followed logs, HTTP responses, the update check, files dropped by a second launch.
+        Stream,
+        /// Clipboard History records what is copied, whichever program copies it; a copied password is cleared.
+        Clipboard,
+        /// Keep the session file current (a crash or power cut then loses at most a few seconds).
+        Autosave,
+    }
+    let schedule = Schedule::new(500).every(Job::Stream, 500).every(Job::Clipboard, 1000).every(Job::Autosave, 10_000);
+    let ticker = Timer::new(&frame);
     let a = app.clone();
-    autosave.on_tick(move |_| {
-        if let Ok(mut app) = a.try_borrow_mut() {
-            app.autosave_session();
+    let beat = std::cell::Cell::new(0u64);
+    let base = schedule.base_ms() as i32;
+    ticker.on_tick(move |_| {
+        beat.set(beat.get() + 1);
+        let Ok(mut app) = a.try_borrow_mut() else { return };
+        for job in schedule.due(beat.get()) {
+            match job {
+                Job::Stream => {
+                    app.update_poll();
+                    app.check_inbox();
+                    app.monitor_tick();
+                    app.stream_tick();
+                }
+                Job::Clipboard => {
+                    app.clip_tick();
+                    app.poll_clipboard();
+                }
+                Job::Autosave => app.autosave_session(),
+            }
         }
     });
-    autosave.start(10_000, false);
-    std::mem::forget(autosave);
-    // Clipboard History records what is copied, whichever program copies it.
-    let clip = Timer::new(&frame);
-    let a = app.clone();
-    clip.on_tick(move |_| {
-        if let Ok(mut app) = a.try_borrow_mut() {
-            app.clip_tick();
-            app.poll_clipboard();
-        }
-    });
-    clip.start(1000, false);
-    std::mem::forget(clip);
-    // Followed logs and HTTP responses.
-    let stream = Timer::new(&frame);
-    let a = app.clone();
-    stream.on_tick(move |_| {
-        if let Ok(mut app) = a.try_borrow_mut() {
-            app.update_poll();
-            app.check_inbox();
-            app.monitor_tick();
-            app.stream_tick();
-        }
-    });
-    stream.start(500, false);
-    std::mem::forget(stream);
-
+    ticker.start(base, false);
+    std::mem::forget(ticker);
     // Closing the window saves the session; unsaved text comes back next time.
     let a = app.clone();
     frame.on_close(move |e| {

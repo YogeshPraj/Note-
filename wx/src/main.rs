@@ -25,6 +25,7 @@ mod streams;
 mod whiteboard;
 mod sci;
 mod state;
+mod services;
 mod settings_ui;
 mod side;
 mod tables;

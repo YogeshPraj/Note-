@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_IMPORT_THEME, ID_PREFS, ID_PRESET_BASE, ID_STYLE_CFG, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_ABOUT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_FULLSCREEN, ID_MINIMAP, ID_INCR, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_RELOAD, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
+use notepp_core::commands::{ID_SAVE, ID_SAVEAS, ID_SAVE_COPY, ID_PREVIEW, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_REPLACE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_MINIMAP, ID_INCR, ID_PALETTE, ID_QUICKOPEN, ID_NEXT_RESULT, ID_PREV_RESULT, ID_FIF, ID_MARK, ID_THEME, ID_WRAP, PALETTE_COMMANDS};
 use notepp_core::session::{self, Session};
 use notepp_core::preview as pcore;
-use notepp_core::sci::{self, Theme};
-use notepp_core::settings::{self, Settings};
+use notepp_core::sci::{self};
+use notepp_core::settings::Settings;
 use notepp_core::shortcuts;
 use notepp_core::workspace::Workspace;
 use wxdragon::prelude::*;
@@ -18,18 +18,18 @@ use wxdragon::widgets::webview::WebView;
 
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
+use crate::command::CommandBus;
 use crate::dispatch;
 use crate::panels::{self, Panels};
 use crate::popups;
 use crate::findpanel::{self, Cmd, Mode};
 use crate::preview;
-use crate::settings_ui;
-use crate::tables;
 use crate::menus::{self, Menus};
 use crate::sci::WxSci;
 use crate::ui::WxUi;
 
 pub struct App {
+    bus: Rc<CommandBus>,
     pub ws: Workspace<WxSci>,
     pub ui: WxUi,
     pub flash: Option<String>,
@@ -174,6 +174,7 @@ pub fn start(files: Vec<PathBuf>) {
     }
 
     let app: Shared = Rc::new(RefCell::new(App {
+        bus: CommandBus::standard(),
         ws,
         ui,
         flash: None,
@@ -508,93 +509,16 @@ impl App {
             trace(id, "core");
             return self.refresh();
         }
-        match id {
-            ID_EXIT => self.frame.close(false),
-            ID_RELOAD => {
-                if self.ws.reload_from_disk(&self.ui) {
-                    self.flash = Some("Reloaded from disk".into());
-                }
-            }
-            ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
-            ID_NEXT_RESULT | ID_PREV_RESULT => return self.step_result(id == ID_NEXT_RESULT),
-            _ if self.panel_cmd(id) => {}
-            _ if self.update_cmd(id) => {}
-            _ if self.stream_cmd(id) => {}
-            _ if self.extra_command(id) => {}
-            ID_PREVIEW => {
-                let on = !self.preview_on;
-                self.set_preview(on);
-            }
-            ID_FULLSCREEN => {
-                let on = !self.frame.is_full_screen();
-                self.frame.show_full_screen(on);
-            }
-            ID_ABOUT => {
-                let build = if cfg!(debug_assertions) { "debug" } else { "release" };
-                let text = format!(
-                    "Note++\nVersion {} ({build} build)\n\nA developer-focused text editor in Rust, built on the Scintilla editing component and Lexilla lexers.\n\nAuthor: Yogesh Prajapati\nhttps://github.com/YogeshPraj/Note-\n\nComponents:\n\u{2022} Scintilla 5.5.2 and Lexilla 5.5.4 \u{2014} Neil Hodgson (HPND license)\n\u{2022} fancy-regex \u{2014} regular-expression search\n\u{2022} resvg \u{2014} toolbar icon rendering\n\u{2022} wxWidgets \u{2014} the cross-platform windowing toolkit",
-                    notepp_core::update::VERSION
-                );
-                MessageDialog::builder(&self.frame, &text, "About Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
-            }            ID_PREFS => {
-                if let Some(s) = settings_ui::preferences(&self.frame, &self.ws.settings) {
-                    settings_ui::apply_settings(&mut self.ws, s);
-                }
-            }
-            ID_STYLE_CFG => {
-                if let Some(e) = settings_ui::style_configurator(&self.frame, &self.ws.theme) {
-                    let dark = self.ws.theme.dark;
-                    let base = if dark { Theme::dark() } else { Theme::light() };
-                    let diff = if e.reset { Default::default() } else { settings::diff_from(&base, &e.entered) };
-                    let bad = e.entered.iter().filter(|(_, h)| settings::parse_hex(h).is_none()).count();
-                    let mut s = self.ws.settings.clone();
-                    if dark {
-                        s.dark_colors = diff;
-                    } else {
-                        s.light_colors = diff;
-                    }
-                    settings_ui::apply_settings(&mut self.ws, s);
-                    if bad > 0 {
-                        self.flash = Some(format!("{bad} colour(s) were not valid #RRGGBB and were ignored"));
-                    }
-                }
-            }
-            ID_IMPORT_THEME => {
-                if let Some(p) = notepp_core::workspace::Ui::pick_open(&self.ui).into_iter().next() {
-                    let imported = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| {
-                        let mut s = self.ws.settings.clone();
-                        tables::import_theme(&mut s, &t).map(|n| (s, n))
-                    });
-                    match imported {
-                        Ok((s, n)) => {
-                            settings_ui::apply_settings(&mut self.ws, s);
-                            self.flash = Some(format!("Imported {n} colour(s)"));
-                        }
-                        Err(e) => notepp_core::workspace::Ui::error(&self.ui, &format!("Cannot import the theme\n\n{e}")),
-                    }
-                }
-            }
-            _ if (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id) => {
-                let i = id - ID_PRESET_BASE;
-                let (dark, preset) = match i {
-                    0 => (false, None),
-                    1 => (true, None),
-                    _ => (settings::PRESETS[i - 2].dark, Some(&settings::PRESETS[i - 2])),
-                };
-                let mut s = self.ws.settings.clone();
-                s.apply_preset(dark, preset);
-                settings_ui::apply_settings(&mut self.ws, s);
-                self.ws.set_theme(if dark { Theme::dark() } else { Theme::light() });
-                self.flash = Some(format!("Theme: {}", preset.map_or(if dark { "Default (dark)" } else { "Default (light)" }, |p| p.name)));
-            }
-            _ => {
-                self.flash = Some("This command is not available in this build yet".into());
-                trace(id, "unported");
-            }
+        if matches!(id, ID_NEXT_RESULT | ID_PREV_RESULT) {
+            return self.step_result(id == ID_NEXT_RESULT);
+        }
+        let bus = self.bus.clone();
+        if bus.dispatch(self, id).is_none() {
+            self.flash = Some("This command is not available in this build yet".into());
+            trace(id, "unported");
         }
         self.refresh();
     }
-
     /// Actions from the Find panel.
     pub fn panel_command(&mut self, cmd: Cmd) {
         use notepp_core::search::{self, Found};

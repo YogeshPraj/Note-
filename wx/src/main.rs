@@ -11,6 +11,8 @@ mod incr;
 mod mdbar;
 mod menus;
 mod chrome;
+mod command;
+mod handlers;
 mod form;
 mod palette;
 mod panels;

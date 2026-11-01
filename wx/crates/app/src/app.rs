@@ -66,6 +66,7 @@ pub struct App {
     pub keymap: notepp_core::keymap::KeyMap,
     session_key: (usize, usize, usize, u64),
     recent_key: (Vec<PathBuf>, bool),
+    window_key: (Vec<String>, usize),
 }
 
 pub type Shared = Rc<RefCell<App>>;
@@ -228,6 +229,7 @@ fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini: StyledTex
     replace_editor_popup(app, stc);
     wire_mini(app, mini, stc);
     wire_whiteboard(app, wbv);
+    wire_menu_keys(app, frame);
     wire(app, frame, &stc, view);
     app.borrow_mut().refresh();
     frame.show(true);
@@ -238,7 +240,7 @@ fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini: StyledTex
         let hwnd = frame.get_handle() as isize;
         let mut a = app.borrow_mut();
         a.menu_bar = crate::widgets::native::current().detach_menu_bar(hwnd);
-        a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.replace('&', "")).collect());
+        a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.clone()).collect());
     }
     frame.layout();
     stc.set_focus();
@@ -303,6 +305,7 @@ pub fn start(files: &[PathBuf]) {
         keymap,
         session_key: (usize::MAX, 0, 0, 0),
         recent_key: (vec![PathBuf::from("\u{0}")], false),
+        window_key: (vec!["\u{0}".into()], 0),
     }));
     finish_start(&app, frame, stc, mini, &wbv, &view, &bar);
 }
@@ -348,6 +351,41 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
         }
     });
     mini.on_set_focus(move |_| stc.set_focus());
+}
+
+/// Open menu `i` of the menu bar. Modal: nothing may be borrowed while it is open (its commands re-enter the app).
+fn open_menu(a: &Shared, i: usize) {
+    let (bar, frame, (at, count)) = match a.try_borrow() {
+        Ok(app) => (app.menu_bar, app.frame, app.chrome.menu_locator()),
+        Err(_) => return,
+    };
+    crate::widgets::native::current().popup_menu(bar, frame.get_handle() as isize, crate::platform::wx::to_i32(i), count, &*at);
+}
+
+/// Alt+letter opens the menu whose title underlines that letter; F10 opens the first.
+fn wire_menu_keys(app: &Shared, frame: Frame) {
+    let a = app.clone();
+    frame.on_char_hook(move |e| {
+        let wxdragon::event::WindowEventData::Keyboard(k) = &e else {
+            e.skip(true);
+            return;
+        };
+        let code = k.get_key_code().unwrap_or(0);
+        let target = if k.alt_down() && !k.control_down() {
+            u8::try_from(code).ok().filter(u8::is_ascii_graphic).and_then(|b| {
+                let titles = a.try_borrow().ok()?.chrome.menu_titles();
+                crate::widgets::menu_bar::menu_for_key(&titles, char::from(b))
+            })
+        } else if code == 344 && !k.alt_down() && !k.control_down() {
+            Some(0) // WXK_F10
+        } else {
+            None
+        };
+        match target {
+            Some(i) => open_menu(&a, i),
+            None => e.skip(true),
+        }
+    });
 }
 
 /// One entry for menu items and toolbar buttons. Modeless windows need the shared handle, so they
@@ -434,15 +472,8 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
     // Toolbar buttons and the tab strip.
     let a = app.clone();
     let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
-        if let Act::Menu(i, x, y) = act {
-            // Modal: nothing may be borrowed while the menu is open (its commands re-enter the app).
-            let (bar, frame, (at, count)) = match a.try_borrow() {
-                Ok(app) => (app.menu_bar, app.frame, app.chrome.menu_locator()),
-                Err(_) => return,
-            };
-            let _ = (x, y);
-            crate::widgets::native::current().popup_menu(bar, frame.get_handle() as isize, crate::platform::wx::to_i32(i), count, &*at);
-            return;
+        if let Act::Menu(i) = act {
+            return open_menu(&a, i);
         }
         // Popup menus are modal: nothing may be borrowed while they are open (their commands re-enter the app).
         match act {
@@ -859,6 +890,7 @@ impl App {
 
     pub fn reset_recent_key(&mut self) {
         self.recent_key = (vec![PathBuf::from("\u{0}")], false);
+        self.window_key = (vec!["\u{0}".into()], 0);
     }
 
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.
@@ -902,6 +934,7 @@ impl App {
             }
         }
         self.sync_file_menu();
+        self.sync_window_menu();
         self.sync_command_state();
     }
 
@@ -970,8 +1003,19 @@ impl App {
         }
         menus::fill_file_menu(&self.menus, &key.0, key.1);
         let new = menus::realize(self.menus.file);
-        self.menubar.replace(0, new, "File");
+        self.menubar.replace(0, new, "&File");
         self.recent_key = key;
+    }
+
+    /// The Window menu lists the open documents: rebuild it when the tabs or the active one change.
+    fn sync_window_menu(&mut self) {
+        let key = (self.ws.tab_infos().into_iter().map(|t| t.title).collect::<Vec<_>>(), self.ws.active);
+        if key == self.window_key {
+            return;
+        }
+        menus::fill_window_menu(self.menus.window, &key.0, key.1);
+        self.menubar.replace(8, menus::realize(self.menus.window), "&Window");
+        self.window_key = key;
     }
 
     pub fn save_session(&mut self) {

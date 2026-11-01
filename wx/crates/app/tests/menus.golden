@@ -1,4 +1,4 @@
-# File
+# &File
 1001	&New	Ctrl+N	true	None
 1008	New &Whiteboard	true	None
 1002	&Open...	Ctrl+O	true	None
@@ -41,7 +41,7 @@
 1119	Restore Recent Closed File	Ctrl+Shift+T	false	None
 -
 1007	E&xit	Alt+F4	true	None
-# Edit
+# &Edit
 2001	&Undo	Ctrl+Z or Alt+Backspace	true	None
 2002	&Redo	Ctrl+Y or Ctrl+Shift+Z	true	None
 -
@@ -157,7 +157,7 @@
 -
 2334	Set Read-Only	true	Some(false)
 2335	Clear Read-Only Flag	true	None
-# Search
+# &Search
 5001	&Find...	Ctrl+F	true	None
 5006	Find in Files...	Ctrl+Shift+F	true	None
 5003	Find &Next	F3	true	None
@@ -228,7 +228,7 @@
   5110	Inverse Bookmark	true	None
 -
 5021	Find characters in range...	true	None
-# View
+# &View
 3101	Always on Top	true	Some(false)
 3102	Toggle Full Screen Mode	F11	true	Some(false)
 3103	Post-It	F12	true	Some(false)
@@ -324,7 +324,7 @@
 3005	Dark mode	true	Some(false)
 5201	Command Palette...	Ctrl+Shift+P	true	None
 5202	Quick Open...	Ctrl+P	true	None
-# Encoding
+# E&ncoding
 7000	Encode in ANSI	true	None
 7001	Encode in UTF-8	true	None
 7002	Encode in UTF-8-BOM	true	None
@@ -386,7 +386,7 @@
 7202	Convert to UTF-8-BOM	true	None
 7203	Convert to UTF-16 BE BOM	true	None
 7204	Convert to UTF-16 LE BOM	true	None
-# Language
+# &Language
 8000	Normal Text	true	None
 > A
   8001	ActionScript	true	None
@@ -501,7 +501,7 @@
   8089	YAML	true	None
 > Z
   8090	Zig	true	None
-# Settings
+# Set&tings
 3301	Preferences...	true	None
 3302	Style Configurator...	true	None
 3303	Shortcut Mapper...	true	None
@@ -528,7 +528,7 @@
 -
 3340	Encryption...	true	None
 3307	Edit Popup ContextMenu	true	None
-# Tools
+# T&ools
 > MD5
   3400	Generate...	true	None
   3401	Generate from files...	true	None
@@ -560,8 +560,20 @@
 -
 3341	Passwords (Bitwarden)...	true	None
 3342	Send HTTP Request	Ctrl+Enter (.http / .rest files)	true	None
-# Window
-# ?
+# &Window
+> &Sort By
+  3610	Name A to Z	true	None
+  3611	Name Z to A	true	None
+  3612	Path A to Z	true	None
+  3613	Path Z to A	true	None
+  3614	Type A to Z	true	None
+  3615	Type Z to A	true	None
+  3616	Content Length Ascending	true	None
+  3617	Content Length Descending	true	None
+  3618	Modified Time Ascending	true	None
+  3619	Modified Time Descending	true	None
+3600	&Windows...	true	None
+# &?
 9001	&About Note++	true	None
 -
 3351	Check for Updates &Now	true	None

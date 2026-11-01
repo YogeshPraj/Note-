@@ -27,7 +27,8 @@ use notepp_core::commands::{
     ID_SAVEAS, ID_SEL_FIND_NEXT, ID_SEL_FIND_PREV, ID_SEL_FOLDER, ID_SEL_OPEN, ID_SEL_SEARCH, ID_SELALL, ID_SHORTCUTS, ID_STYLE_ALL_BASE, ID_STYLE_CFG,
     ID_STYLE_ONE_BASE, ID_SUMMARY, ID_SYM_ALL, ID_SYM_CTRL, ID_SYM_EOL, ID_SYM_INDENT, ID_SYM_NONPRINT, ID_SYM_WRAP, ID_SYM_WS, ID_SYNC_H, ID_SYNC_V,
     ID_TAB_BASE, ID_THEME, ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL, ID_UNFOLD_CUR, ID_UNFOLD_LEVEL_BASE, ID_UPDATE_AUTO, ID_UPDATE_CHECK,
-    ID_URL_DEC, ID_URL_ENC, ID_VOL_NEXT, ID_VOL_PREV, ID_WORKSPACE_TOGGLE, ID_WRAP, ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
+    ID_URL_DEC, ID_URL_ENC, ID_VOL_NEXT, ID_VOL_PREV, ID_WINDOW_DOC_BASE, ID_WINDOW_SORT_BASE, ID_WINDOWS, ID_WORKSPACE_TOGGLE, ID_WRAP, ID_XML_MIN,
+    ID_XML_PRETTY, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
 };
 use notepp_core::hash::ALGOS;
 use notepp_core::{edit, settings};
@@ -36,7 +37,7 @@ use wxdragon::prelude::Menu;
 use crate::menu_spec::{Entry as MenuEntry, MenuSpec};
 use notepp_core::menu_provider::{CharsetGroups, ConvertToItems, EncodeInItems, GroupedMenuProvider, Languages, MenuProvider, RecentFiles};
 
-use notepp_core::tables::{BROWSERS, SLOT_NAMES};
+use notepp_core::tables::{BROWSERS, SLOT_NAMES, WINDOW_DOCS_SHOWN};
 
 /// A handle to a menu under construction (like an HMENU: cheap to copy and reuse).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -185,6 +186,26 @@ pub struct Menus {
     pub enc: M,
     pub eol: M,
     pub lang: M,
+    pub window: M,
+}
+
+/// The Window menu: Sort By, Windows..., then the first nine open documents (the active one is ticked).
+pub fn fill_window_menu(m: M, titles: &[String], active: usize) {
+    B::clear(m);
+    let sort = B::popup();
+    for (i, (name, ..)) in crate::dialogs::SORTS.iter().enumerate() {
+        B::add(sort, ID_WINDOW_SORT_BASE + i, name);
+    }
+    B::submenu(m, "&Sort By", sort);
+    B::add(m, ID_WINDOWS, "&Windows...");
+    if titles.is_empty() {
+        return;
+    }
+    B::sep(m);
+    for (i, title) in titles.iter().take(WINDOW_DOCS_SHOWN).enumerate() {
+        let tick = if i == active { "  \u{2713}" } else { "" };
+        B::add(m, ID_WINDOW_DOC_BASE + i, &format!("&{} {}{tick}", i + 1, title.replace('&', "&&")));
+    }
 }
 
 pub fn eol_menu() -> M {
@@ -651,21 +672,22 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     let help = menu_help();
     let settings_menu = menu_settings();
     let tools = menu_tools();
-    // Window: Sort By, Windows..., then the open documents (filled as the menu opens).
+    // Window: Sort By, Windows..., then the open documents (see `fill_window_menu`).
     let window = B::popup();
+    fill_window_menu(window, &[], 0);
     let bar = vec![
-        ("File".to_string(), file),
-        ("Edit".to_string(), edit),
-        ("Search".to_string(), search),
-        ("View".to_string(), view),
-        ("Encoding".to_string(), enc),
-        ("Language".to_string(), lang),
-        ("Settings".to_string(), settings_menu),
-        ("Tools".to_string(), tools),
-        ("Window".to_string(), window),
-        ("?".to_string(), help),
+        ("&File".to_string(), file),
+        ("&Edit".to_string(), edit),
+        ("&Search".to_string(), search),
+        ("&View".to_string(), view),
+        ("E&ncoding".to_string(), enc),
+        ("&Language".to_string(), lang),
+        ("Set&tings".to_string(), settings_menu),
+        ("T&ools".to_string(), tools),
+        ("&Window".to_string(), window),
+        ("&?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, print, recent, enc, eol: eol_sub, lang };
+    let menus = Menus { file, open_folder, close_multi, print, recent, enc, eol: eol_sub, lang, window };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
 }

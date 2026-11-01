@@ -102,6 +102,10 @@ impl MenuBar {
         self.panel.refresh(false, None);
     }
 
+    pub fn titles(&self) -> Vec<String> {
+        self.st.borrow().titles.clone()
+    }
+
     /// Where menu `i`'s popup goes (screen coordinates) and how many menus there are; usable while the
     /// application is busy showing one.
     pub fn locator(&self) -> (Locator, i32) {
@@ -156,6 +160,36 @@ impl MenuBar {
     }
 }
 
+/// "E&ncoding" -> ("Encoding", Some(1)): the title without the marker and the index of the underlined letter.
+pub fn split_mnemonic(title: &str) -> (String, Option<usize>) {
+    let mut clean = String::new();
+    let mut key = None;
+    let mut chars = title.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            match chars.peek() {
+                Some('&') => {
+                    chars.next();
+                    clean.push('&');
+                }
+                Some(_) if key.is_none() => key = Some(clean.chars().count()),
+                _ => {}
+            }
+        } else {
+            clean.push(c);
+        }
+    }
+    (clean, key)
+}
+
+/// The menu whose mnemonic is `key` (case-insensitive).
+pub fn menu_for_key(titles: &[String], key: char) -> Option<usize> {
+    titles.iter().position(|t| {
+        let (clean, at) = split_mnemonic(t);
+        at.and_then(|i| clean.chars().nth(i)).is_some_and(|c| c.eq_ignore_ascii_case(&key))
+    })
+}
+
 fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     let dc = AutoBufferedPaintDC::new(&panel);
     let mut s = st.borrow_mut();
@@ -165,13 +199,21 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     }
     let size = panel.get_client_size();
     fill(&dc, Rect::new(0, 0, size.width, size.height), lk.base());
-    let widths: Vec<i32> = s.titles.iter().map(|t| text_w(&dc, t)).collect();
+    let parts: Vec<(String, Option<usize>)> = s.titles.iter().map(|t| split_mnemonic(t)).collect();
+    let widths: Vec<i32> = parts.iter().map(|(t, _)| text_w(&dc, t)).collect();
     s.rects = layout(&widths, size.height);
-    for (i, (label, r)) in s.titles.iter().zip(&s.rects).enumerate() {
+    for (i, ((label, key), r)) in parts.iter().zip(&s.rects).enumerate() {
         if s.pointer.hot() == Some(i) {
             wash(&dc, *r, mix(lk.base(), lk.ink(), 0x1C), 0.0);
         }
         text_at(&dc, label, *r, lk.fg(), true);
+        if let Some(k) = key {
+            let before: String = label.chars().take(*k).collect();
+            let letter: String = label.chars().skip(*k).take(1).collect();
+            let x = r.l + (r.w() - text_w(&dc, label)) / 2 + text_w(&dc, &before);
+            let y = r.b - 5;
+            fill(&dc, Rect::new(x, y, x + text_w(&dc, &letter), y + 1), lk.fg());
+        }
     }
 }
 
@@ -192,5 +234,21 @@ mod tests {
     #[test]
     fn no_titles_no_rectangles() {
         assert!(layout(&[], HEIGHT).is_empty());
+    }
+
+    #[test]
+    fn the_marker_names_the_underlined_letter() {
+        assert_eq!(split_mnemonic("E&ncoding"), ("Encoding".to_string(), Some(1)));
+        assert_eq!(split_mnemonic("File"), ("File".to_string(), None));
+        assert_eq!(split_mnemonic("A&&B"), ("A&B".to_string(), None));
+    }
+
+    #[test]
+    fn alt_plus_a_letter_finds_its_menu() {
+        let t: Vec<String> = ["&File", "&Edit", "E&ncoding", "Set&tings"].iter().map(ToString::to_string).collect();
+        assert_eq!(menu_for_key(&t, 'f'), Some(0));
+        assert_eq!(menu_for_key(&t, 'N'), Some(2));
+        assert_eq!(menu_for_key(&t, 't'), Some(3));
+        assert_eq!(menu_for_key(&t, 'z'), None);
     }
 }

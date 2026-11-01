@@ -34,7 +34,7 @@ pub enum Act {
     /// A status segment was clicked; (x, y) is its top-left corner in the status bar.
     Status(isize, i32, i32),
     /// Open menu i; (x, y) is where its popup goes, in the menu bar's coordinates.
-    Menu(usize, i32, i32),
+    Menu(usize),
 }
 
 pub const SEG_ENC: isize = 1;
@@ -157,6 +157,10 @@ impl Chrome {
         self.menu_bar.set_titles(titles);
     }
 
+    pub fn menu_titles(&self) -> Vec<String> {
+        self.menu_bar.titles()
+    }
+
     /// Where menu `i`'s popup goes (screen coordinates) and how many menus there are, usable while the
     /// application is busy showing one.
     pub fn menu_locator(&self) -> (crate::widgets::menu_bar::Locator, i32) {
@@ -176,7 +180,7 @@ impl Chrome {
             });
         });
         let a = h.clone();
-        self.menu_bar.on_event(move |MenuEvent::Open(i, x, y)| a(Act::Menu(i, x, y)));
+        self.menu_bar.on_event(move |MenuEvent::Open(i, ..)| a(Act::Menu(i)));
         let a = h.clone();
         self.tool_bar.on_event(move |ToolEvent::Command(c)| a(Act::Cmd(c)));
         self.status_bar.on_event(move |StatusEvent::Clicked(id, x, y)| h(Act::Status(id, x, y)));

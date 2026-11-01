@@ -11,7 +11,7 @@ Native shell for Windows, macOS and Linux on top of the portable `notepp-core` c
 | Adapters | `src/ui.rs` (`WxUi`), `src/sci.rs` (`WxSci`) | Implement the ports with wx. |
 | Commands | `src/command.rs`, `src/handlers.rs` | Command pattern, see below. |
 | Features | `findpanel`, `encdialogs`, `pwdialogs`, `streams`, `updates`, `mdbar`, … | One module per feature. |
-| Chrome / widgets | `chrome.rs`, `form.rs` | Custom-painted bars; declarative dialog builder. |
+| Chrome / widgets | `chrome.rs`, `form.rs`, `widgets/` | Custom-painted bars; declarative dialog builder; reusable controls. |
 | Composition root | `app.rs` (`start`, `wire`) | Builds the window, wires events. |
 
 ## Commands (open/closed)
@@ -29,6 +29,13 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 - The app is `Rc<RefCell<App>>`; event handlers use `try_borrow_mut`. Modal dialogs run with nothing borrowed.
 - State lives in small structs (`state.rs`: whiteboard, preview, streams, search results, clipboard) owned by `App`.
 - OS differences go through `platform::current()`; do not add `cfg(windows)` outside `src/platform/`.
+
+## Widgets
+
+`widgets/` holds reusable controls. Each is a thin wx panel over a toolkit-free model that is unit tested.
+
+- `tab_strip` - scrollable, reorderable tabs with dirty dot, badge, pin, colour bar, close button and `+`. `model.rs` does the layout and scrolling; scrolling is by tab index (the idea behind wxWidgets' `wxAuiTabContainer`), and a scroll arrow exists, and takes room, only while there is something to scroll to. It reports `TabEvent`s and holds no application state.
+- `geom` / `paint` - `Rect`, colour mixing, the light/dark `Look` and drawing helpers.
 
 ## Platforms
 

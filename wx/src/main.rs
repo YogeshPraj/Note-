@@ -29,6 +29,7 @@ mod tables;
 mod theme;
 mod ui;
 mod updates;
+mod widgets;
 
 use wxdragon::prelude::*;
 

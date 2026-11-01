@@ -19,6 +19,7 @@ use wxdragon::widgets::webview::WebView;
 use crate::chrome::{Act, Chrome, StatusText};
 use crate::whiteboard::{self as wbm, Pending};
 use crate::dispatch;
+use crate::panels::{self, Panels};
 use crate::popups;
 use crate::findpanel::{self, Cmd, Mode};
 use crate::preview;
@@ -34,8 +35,10 @@ pub struct App {
     pub flash: Option<String>,
     pub frame: Frame,
     splitter: SplitterWindow,
-    editor_pane: Panel,
+    pub(crate) editor_pane: Panel,
     wbv: WebView,
+    pub(crate) panels: Panels,
+    pub(crate) side_key: Option<(isize, isize)>,
     menu_bar: isize,
     pub hits: Vec<notepp_core::search::Hit>,
     pub hit_cursor: usize,
@@ -98,6 +101,8 @@ pub fn start(files: Vec<PathBuf>) {
     let mini = StyledTextCtrl::builder(&editor_pane).build();
     mini.set_min_size(Size::new(110, -1));
     let row = BoxSizer::builder(Orientation::Horizontal).build();
+    let panels = panels::create(&editor_pane);
+    row.add(&panels.tree_box, 0, SizerFlag::Expand, 0);
     row.add(&stc, 1, SizerFlag::Expand, 0);
     row.add(&mini, 0, SizerFlag::Expand, 0);
     let wbv = WebView::builder(&editor_pane).build();
@@ -105,6 +110,7 @@ pub fn start(files: Vec<PathBuf>) {
     wbv.add_user_script(wbm::BRIDGE, wxdragon::widgets::webview::WebViewUserScriptInjectionTime::AtDocumentStart);
     wbv.show(false);
     row.add(&wbv, 1, SizerFlag::Expand, 0);
+    row.add(&panels.side, 0, SizerFlag::Expand, 0);
     editor_pane.set_sizer(row, true);
     let view = WebView::builder(&splitter).build();
     view.add_script_message_handler("ipc");
@@ -147,6 +153,8 @@ pub fn start(files: Vec<PathBuf>) {
         editor_pane,
         wbv,
         menu_bar: 0,
+        panels,
+        side_key: None,
         hits: Vec::new(),
         hit_cursor: 0,
         hits_root: PathBuf::new(),
@@ -176,6 +184,13 @@ pub fn start(files: Vec<PathBuf>) {
     }));
 
     findpanel::wire(&app);
+    panels::wire(&app);
+    {
+        let mut a = app.borrow_mut();
+        if let Some(dir) = a.ws.workspace.clone() {
+            a.open_workspace(dir);
+        }
+    }
     {
         // The editor's own popup is replaced by the configurable one.
         use notepp_core::sci::Send;
@@ -383,6 +398,16 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
     });
     autosave.start(10_000, false);
     std::mem::forget(autosave);
+    // Clipboard History records what is copied, whichever program copies it.
+    let clip = Timer::new(&frame);
+    let a = app.clone();
+    clip.on_tick(move |_| {
+        if let Ok(mut app) = a.try_borrow_mut() {
+            app.poll_clipboard();
+        }
+    });
+    clip.start(1000, false);
+    std::mem::forget(clip);
 
     // Closing the window saves the session; unsaved text comes back next time.
     let a = app.clone();
@@ -395,7 +420,7 @@ fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebView) {
 }
 
 /// With NPP_TRACE=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
-fn trace(id: usize, how: &str) {
+pub(crate) fn trace(id: usize, how: &str) {
     if let Some(p) = std::env::var_os("NPP_TRACE") {
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
             let _ = std::io::Write::write_all(&mut f, format!("{id} {how}\n").as_bytes());
@@ -426,6 +451,7 @@ impl App {
             }
             ID_MINIMAP => self.ws.minimap = !self.ws.minimap,
             ID_NEXT_RESULT | ID_PREV_RESULT => return self.step_result(id == ID_NEXT_RESULT),
+            _ if self.panel_cmd(id) => {}
             _ if self.extra_command(id) => {}
             ID_PREVIEW => {
                 let on = !self.preview_on;
@@ -760,6 +786,8 @@ impl App {
         self.menubar.check_item(ID_THEME as i32, self.ws.theme.dark);
         self.menubar.check_item(ID_MINIMAP as i32, self.ws.minimap);
         self.wb_sync();
+        self.refresh_side();
+        self.style_panels();
         self.sync_chrome();
         self.extra_ticks();
         self.menubar.check_item(ID_PREVIEW as i32, self.preview_on);

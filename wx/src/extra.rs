@@ -409,7 +409,11 @@ impl App {
                 Some(p) => match id {
                     c::ID_OPEN_FOLDER_EXPLORER => explorer_select(&p),
                     c::ID_OPEN_FOLDER_CMD => open_command_prompt(p.parent()),
-                    c::ID_OPEN_FOLDER_WS => self.flash = Some("The workspace tree is not available in this build yet".into()),
+                    c::ID_OPEN_FOLDER_WS => {
+                        if let Some(d) = p.parent() {
+                            self.open_workspace(d.to_path_buf());
+                        }
+                    }
                     _ if runs_code(&p) && !self.ui.ask_yes_no(&format!("{} is a program or script. Opening it will run it.\n\nRun it?", p.display())) => {}
                     _ => shell_open(&p.display().to_string()),
                 },
@@ -453,7 +457,7 @@ impl App {
                         let App { ws, ui, .. } = self;
                         ws.open_path(ui, &p);
                     }
-                    Some(_) => self.flash = Some("The workspace tree is not available in this build yet".into()),
+                    Some(p) => self.open_workspace(p),
                 }
             }
             c::ID_SEL_SEARCH => {
@@ -663,6 +667,11 @@ impl App {
         self.menubar.check_item(c::ID_ON_TOP as i32, is_topmost(self));
         self.menubar.check_item(c::ID_DISTRACTION as i32, self.distraction);
         self.menubar.check_item(c::ID_POSTIT as i32, self.postit);
+        let side = crate::panels::mode();
+        for (id, m) in [(c::ID_CHAR_PANEL, crate::panels::Mode::Characters), (c::ID_CLIP_HISTORY, crate::panels::Mode::Clipboard), (c::ID_DOC_LIST, crate::panels::Mode::Documents), (c::ID_FUNC_LIST, crate::panels::Mode::Functions)] {
+            self.menubar.check_item(id as i32, side == Some(m));
+        }
+        self.menubar.check_item(c::ID_WORKSPACE_TOGGLE as i32, self.tree_visible());
     }
 
     /// Show or hide the menu bar, toolbar, tab bar and status bar from the settings and the view modes.

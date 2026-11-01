@@ -16,6 +16,7 @@ path = "src/main.rs"
 notepp-core = { path = "../crates/core" }
 wxdragon = { version = "0.9", features = ["stc", "webview", "aui"] }
 wxdragon-sys = "0.9"
+encoding_rs = "0.8.42"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.10"
 

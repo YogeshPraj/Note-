@@ -989,6 +989,7 @@ dependencies = [
 name = "notepp-wx"
 version = "2.0.1"
 dependencies = [
+ "encoding_rs",
  "notepp-core",
  "serde_json",
  "sha2 0.10.9",

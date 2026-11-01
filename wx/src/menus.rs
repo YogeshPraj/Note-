@@ -89,7 +89,7 @@ fn checkable(id: usize) -> bool {
     matches!(
         id,
         ID_WRAP | ID_THEME | ID_MINIMAP | ID_PREVIEW | ID_LOG_FOLLOW | ID_MD_TOOLBAR | ID_UPDATE_AUTO | ID_READONLY | ID_CHAR_PANEL
-            | ID_CLIP_HISTORY | ID_FULLSCREEN | ID_ON_TOP | ID_POSTIT | ID_DISTRACTION | ID_MONITOR | ID_WORKSPACE_TOGGLE
+            | ID_CLIP_HISTORY | ID_DOC_LIST | ID_FUNC_LIST | ID_FULLSCREEN | ID_ON_TOP | ID_POSTIT | ID_DISTRACTION | ID_MONITOR | ID_WORKSPACE_TOGGLE
             | ID_EOL_CRLF | ID_EOL_LF | ID_EOL_CR
     ) || PALETTE_COMMANDS.iter().any(|(name, i, _)| *i == id && name.starts_with("View: Show "))
         || (ID_ENGINE_BASE..ID_ENGINE_BASE + edit::SEARCH_ENGINES.len()).contains(&id)

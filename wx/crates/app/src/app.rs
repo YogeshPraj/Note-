@@ -252,6 +252,7 @@ fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini: StyledTex
         // attached so shortcuts and ticks keep working.
         let hwnd = frame.get_handle() as isize;
         let mut a = app.borrow_mut();
+        crate::widgets::native::current().set_app_icon(hwnd);
         a.menu_bar = crate::widgets::native::current().detach_menu_bar(hwnd);
         a.chrome.set_menu_titles(bar.iter().map(|(t, _)| t.clone()).collect());
     }

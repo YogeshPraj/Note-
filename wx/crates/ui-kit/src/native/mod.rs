@@ -24,6 +24,8 @@ pub trait Native: Sync {
     fn grab_keys(&self, _on_key: Option<fn(u32, bool) -> bool>) -> bool {
         false
     }
+    /// Give a top-level window the application icon (the first icon embedded in the executable): title bar, taskbar, Alt+Tab.
+    fn set_app_icon(&self, _window: isize) {}
     /// Remove the 3-D edge the system draws around a control (in the system colours, so it is white in a dark theme).
     fn remove_edge(&self, _window: isize) {}
     /// Does this program own the foreground window?

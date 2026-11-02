@@ -19,6 +19,9 @@ unsafe extern "system" {
     fn CallNextHookEx(hook: isize, code: i32, wparam: usize, lparam: isize) -> isize;
     fn GetKeyState(vk: i32) -> i16;
     fn GetForegroundWindow() -> isize;
+    fn LoadImageW(instance: isize, name: usize, kind: u32, cx: i32, cy: i32, flags: u32) -> isize;
+    fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+    fn GetSystemMetrics(index: i32) -> i32;
     fn GetClassNameW(hwnd: isize, name: *mut u16, max: i32) -> i32;
     fn GetWindowThreadProcessId(hwnd: isize, process: *mut u32) -> u32;
     fn EnumChildWindows(parent: isize, proc: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
@@ -28,6 +31,7 @@ unsafe extern "system" {
 unsafe extern "system" {
     fn GetCurrentThreadId() -> u32;
     fn GetCurrentProcessId() -> u32;
+    fn GetModuleHandleW(name: *const u16) -> isize;
 }
 
 #[link(name = "dwmapi")]
@@ -166,6 +170,22 @@ impl Native for Windows {
                     HOOK.with(|c| c.set(0));
                 }
                 true
+            }
+        }
+    }
+
+    fn set_app_icon(&self, window: isize) {
+        const IMAGE_ICON: u32 = 1;
+        const WM_SETICON: u32 = 0x80;
+        const APP_ICON_ID: usize = 1; // the ICON resource app.rc embeds first
+        unsafe {
+            let module = GetModuleHandleW(std::ptr::null());
+            // (WM_SETICON size, system metric for its width, for its height): the big icon is the taskbar's, the small one the title bar's.
+            for (which, cx, cy) in [(1usize, 11, 12), (0usize, 49, 50)] {
+                let icon = LoadImageW(module, APP_ICON_ID, IMAGE_ICON, GetSystemMetrics(cx), GetSystemMetrics(cy), 0);
+                if icon != 0 {
+                    SendMessageW(window, WM_SETICON, which, icon);
+                }
             }
         }
     }

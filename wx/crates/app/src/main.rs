@@ -1,4 +1,6 @@
 //! Note++ with a wxWidgets shell.
+// A release build is a GUI program: no console window. Debug builds keep the console for tracing.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
 mod chrome;

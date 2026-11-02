@@ -46,6 +46,9 @@ pub const SCI_SETTABWIDTH: u32 = 2036;
 pub const SCI_SETUSETABS: u32 = 2124;
 pub const SCI_SETSELFORE: u32 = 2067;
 pub const SCI_SETSELBACK: u32 = 2068;
+pub const SCI_SETELEMENTCOLOUR: u32 = 2753;
+/// The selection's background while the editor does not have the focus (for example after Find).
+pub const SC_ELEMENT_SELECTION_INACTIVE_BACK: usize = 17;
 pub const SCI_SETCODEPAGE: u32 = 2037;
 pub const SCI_SETEOLMODE: u32 = 2031;
 pub const SCI_COLOURISE: u32 = 4003;
@@ -325,6 +328,8 @@ pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
 
     sci.send(SCI_SETCARETFORE, crate::num::to_usize(rgb(theme.fg.0, theme.fg.1, theme.fg.2)), 0);
     sci.send(SCI_SETSELBACK, 1, rgb(theme.sel_bg.0, theme.sel_bg.1, theme.sel_bg.2));
+    // Scintilla's default for an unfocused selection is a light grey, which all but vanishes on a dark theme.
+    sci.send(SCI_SETELEMENTCOLOUR, SC_ELEMENT_SELECTION_INACTIVE_BACK, rgb(theme.sel_bg.0, theme.sel_bg.1, theme.sel_bg.2) | 0xFF00_0000);
     sci.send(SCI_SETCARETLINEVISIBLE, 1, 0);
     sci.send(SCI_SETCARETLINEBACK, crate::num::to_usize(rgb(theme.caret_line.0, theme.caret_line.1, theme.caret_line.2)), 0);
 

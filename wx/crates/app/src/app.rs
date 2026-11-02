@@ -480,6 +480,10 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
 /// are opened here, with nothing borrowed.
 pub(crate) fn run_command(a: &Shared, id: usize) {
     trace(id, "event");
+    // The enabled rule first: some commands below open their window directly instead of going through `execute`.
+    if a.try_borrow().is_ok_and(|app| !notepp_core::registry::is_enabled(id, notepp_core::registry::CommandState::of(&app.ws))) {
+        return;
+    }
     match id {
         notepp_core::commands::ID_PREFS => return crate::settings_window::open(a, "general"),
         notepp_core::commands::ID_STYLE_CFG => return crate::settings_window::open(a, "colours"),
@@ -703,6 +707,30 @@ fn wire_timers(app: &Shared, frame: Frame) {
     });
 }
 
+/// Does this Find panel action search the current document (rather than files)?
+fn searches_document(cmd: &Cmd, mode: Mode) -> bool {
+    matches!(cmd, Cmd::Prev | Cmd::Replace | Cmd::ReplaceAll | Cmd::Count | Cmd::Mark | Cmd::FindAll) || (matches!(cmd, Cmd::Next) && mode != Mode::InFiles)
+}
+
+/// The Find panel's note for a Find Next / Previous / Replace.
+fn found_note(f: notepp_core::search::Found) -> String {
+    use notepp_core::search::Found;
+    match f {
+        Found::At { wrapped: true } => "Found (wrapped around the document)".to_string(),
+        Found::At { wrapped: false } => String::new(),
+        Found::NotFound => "Not found".to_string(),
+        Found::BadPattern(e) => format!("Invalid regular expression: {e}"),
+    }
+}
+
+/// The Find panel's note for a Count / Replace All / Mark: how many, or why it could not run.
+fn count_note(r: Result<usize, notepp_core::error::Error>, what: &str) -> String {
+    match r {
+        Ok(n) => format!("{n} {what}"),
+        Err(e) => format!("Invalid regular expression: {e}"),
+    }
+}
+
 /// With `NPP_TRACE`=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
 pub(crate) fn trace(id: usize, how: &str) {
     if let Some(p) = std::env::var_os("NPP_TRACE")
@@ -752,23 +780,18 @@ impl App {
     }
     /// Actions from the Find panel.
     pub fn panel_command(&mut self, cmd: Cmd) {
-        use notepp_core::search::{self, Found};
+        use notepp_core::search;
         let sci = self.ws.sci;
         let mode = findpanel::mode();
         let opts = findpanel::read_opts();
         if !matches!(cmd, Cmd::Close | Cmd::Browse | Cmd::OpenHit(_) | Cmd::Clear) {
             self.ws.search = opts.clone();
         }
-        let found = |f: Found| match f {
-            Found::At { wrapped: true } => "Found (wrapped around the document)".to_string(),
-            Found::At { wrapped: false } => String::new(),
-            Found::NotFound => "Not found".to_string(),
-            Found::BadPattern(e) => format!("Invalid regular expression: {e}"),
-        };
-        let outcome = |r: Result<usize, notepp_core::error::Error>, what: &str| match r {
-            Ok(n) => format!("{n} {what}"),
-            Err(e) => format!("Invalid regular expression: {e}"),
-        };
+        // Searching the current document means nothing on a whiteboard: the editor behind it holds another tab's text.
+        if searches_document(&cmd, mode) && self.ws.is_whiteboard() {
+            return findpanel::set_status("Not available on a whiteboard: switch to a text tab");
+        }
+        let (found, outcome) = (found_note, count_note);
         let mut note: Option<String> = None;
         match cmd {
             Cmd::Next => match mode {
@@ -867,6 +890,10 @@ impl App {
     fn open_hit(&mut self, idx: usize) {
         use notepp_core::search;
         if let Some(h) = self.results.hits.get(idx).cloned() {
+            // A hit in "the current document" (Find All) has no file to open; on a whiteboard there is no text to select.
+            if h.path.is_none() && self.ws.is_whiteboard() {
+                return;
+            }
             let App { ws, ui, .. } = self;
             if let Some(p) = &h.path {
                 ws.open_path(ui, p);

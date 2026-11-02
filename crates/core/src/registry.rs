@@ -17,11 +17,11 @@ use crate::commands::{
     ID_CLEAR_RO, ID_CLIP_HISTORY, ID_CLONE_OTHER_VIEW, ID_CLOSE, ID_CLOSE_ALL, ID_CLOSE_LEFT, ID_CLOSE_OTHERS, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED,
     ID_CMT_BLOCK, ID_CMT_LINE, ID_COLUMN_EDITOR, ID_COLUMN_MODE, ID_COMMENT, ID_CONVERT_BASE, ID_COPY, ID_CP_ALLNAMES, ID_CP_ALLPATHS, ID_CP_DIR,
     ID_CP_FULLPATH, ID_CP_NAME, ID_CUT, ID_DECRYPT, ID_DELETE, ID_DISTRACTION, ID_DOC_LIST, ID_EDIT_CONTEXT, ID_ENC_LOCK, ID_ENC_SETTINGS, ID_ENCODE_BASE,
-    ID_ENCRYPT, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_EXPORT_THEME, ID_FIF, ID_FIND, ID_FIND_CHARS, ID_FINDNEXT, ID_FINDPREV, ID_FOCUS_OTHER,
-    ID_FOLD_ALL, ID_FOLD_CUR, ID_FULLSCREEN, ID_FUNC_LIST, ID_GOTO, ID_HASH_BASE, ID_HIDE_LINES, ID_HTTP_SEND, ID_IMPORT_THEME, ID_INCR, ID_INDENT_DEC,
-    ID_INDENT_INC, ID_INS_DATE_CUSTOM, ID_INS_DATE_LONG, ID_INS_DATE_SHORT, ID_JSON_MIN, ID_JSON_PRETTY, ID_L_COPY, ID_L_CUT, ID_L_DEDUP, ID_L_DEL, ID_L_DOWN,
-    ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC, ID_L_SORT_ASC,
-    ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC,
+    ID_ENCRYPT, ID_ENGINE_BASE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_EXPORT_THEME, ID_FIF, ID_FIND, ID_FIND_CHARS, ID_FINDNEXT, ID_FINDPREV,
+    ID_FOCUS_OTHER, ID_FOLD_ALL, ID_FOLD_CUR, ID_FULLSCREEN, ID_FUNC_LIST, ID_GOTO, ID_HASH_BASE, ID_HIDE_LINES, ID_HTTP_SEND, ID_IMPORT_THEME, ID_INCR,
+    ID_INDENT_DEC, ID_INDENT_INC, ID_INS_DATE_CUSTOM, ID_INS_DATE_LONG, ID_INS_DATE_SHORT, ID_JSON_MIN, ID_JSON_PRETTY, ID_L_COPY, ID_L_CUT, ID_L_DEDUP,
+    ID_L_DEL, ID_L_DOWN, ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC,
+    ID_L_SORT_ASC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC,
     ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SPLIT, ID_L_TRANSPOSE, ID_L_TRIM, ID_L_UP, ID_LANG_BASE, ID_LOG_FOLLOW, ID_LTR, ID_MARK, ID_MD_BOLD,
     ID_MD_BULLET, ID_MD_CODE, ID_MD_CODEBLOCK, ID_MD_H1, ID_MD_H2, ID_MD_H3, ID_MD_H4, ID_MD_H5, ID_MD_H6, ID_MD_IMAGE, ID_MD_ITALIC, ID_MD_LINK,
     ID_MD_NUMBERED, ID_MD_QUOTE, ID_MD_RULE, ID_MD_STRIKE, ID_MD_TABLE, ID_MD_TASK, ID_MD_TOOLBAR, ID_MINIMAP, ID_MONITOR, ID_MOVE_NEW_INSTANCE,
@@ -32,9 +32,9 @@ use crate::commands::{
     ID_RELOAD, ID_REPLACE, ID_REPORT_ISSUE, ID_RESTORE_CLOSED, ID_RESULTS, ID_RTL, ID_SAVE, ID_SAVE_COPY, ID_SAVEALL, ID_SAVEAS, ID_SEL_FIND_NEXT,
     ID_SEL_FIND_PREV, ID_SEL_FOLDER, ID_SEL_OPEN, ID_SEL_SEARCH, ID_SELALL, ID_SHORTCUTS, ID_STYLE_ALL_BASE, ID_STYLE_CFG, ID_SUMMARY, ID_SYM_ALL, ID_SYM_CTRL,
     ID_SYM_EOL, ID_SYM_INDENT, ID_SYM_NONPRINT, ID_SYM_WRAP, ID_SYM_WS, ID_SYNC_H, ID_SYNC_V, ID_TAB_CMP_CLIP, ID_TAB_CMP_FILE, ID_TAB_COLOR_CUSTOM,
-    ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_TAB_REVEAL, ID_THEME, ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL, ID_UNFOLD_CUR, ID_UPDATE_AUTO,
-    ID_UPDATE_CHECK, ID_URL_DEC, ID_URL_ENC, ID_VOL_NEXT, ID_VOL_PREV, ID_WINDOWS, ID_WORKSPACE_TOGGLE, ID_WRAP, ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN,
-    ID_ZOOMOUT, ID_ZOOMRESET,
+    ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_TAB_REVEAL, ID_THEME, ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL, ID_UNFOLD_CUR, ID_UNFOLD_LEVEL_BASE,
+    ID_UPDATE_AUTO, ID_UPDATE_CHECK, ID_URL_DEC, ID_URL_ENC, ID_VOL_NEXT, ID_VOL_PREV, ID_WINDOWS, ID_WORKSPACE_TOGGLE, ID_WRAP, ID_XML_MIN, ID_XML_PRETTY,
+    ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
 };
 use crate::sci::{self, Send};
 use crate::workspace::Workspace;
@@ -46,6 +46,8 @@ pub struct CommandState {
     pub can_undo: bool,
     pub can_redo: bool,
     pub has_path: bool,
+    /// The active tab is a whiteboard, so the editor's text is not what the user sees (see [`needs_text`]).
+    pub whiteboard: bool,
 }
 
 impl CommandState {
@@ -56,9 +58,52 @@ impl CommandState {
             can_undo: sci.send(sci::SCI_CANUNDO, 0, 0) != 0,
             can_redo: sci.send(sci::SCI_CANREDO, 0, 0) != 0,
             has_path: ws.tabs.get(ws.active).is_some_and(|t| t.path.is_some()),
+            whiteboard: ws.is_whiteboard(),
         }
     }
 }
+
+/// Does command `id` read or change the editor's text? A whiteboard tab has none: the editor behind it still holds the
+/// last text tab's document, so these commands must not run while a whiteboard is in front (they would edit a tab the
+/// user is not looking at). The Edit, Search, Encoding and Language menus, folding, the text tools and the like.
+pub fn needs_text(id: usize) -> bool {
+    // In the Edit or Search menu but about the file, a setting, a panel or the Find in Files results.
+    let exempt = matches!(
+        id,
+        ID_CP_FULLPATH..=ID_CP_ALLPATHS
+            | ID_ENGINE_BASE..=2329
+            | ID_COLUMN_MODE
+            | ID_CHAR_PANEL
+            | ID_CLIP_HISTORY
+            | ID_CLEAR_RO
+            | ID_FIF
+            | ID_RESULTS
+            | ID_NEXT_RESULT
+            | ID_PREV_RESULT
+    );
+    let text = matches!(
+        id,
+        ID_UNDO..=ID_CLEAR_RO
+            | ID_FIND..=ID_BM_INVERT
+            | ID_HIDE_LINES
+            | ID_FOLD_ALL..=ID_UNFOLD_LEVEL_LAST
+            | ID_SUMMARY
+            | ID_RTL
+            | ID_LTR
+            | ID_MONITOR
+            | ID_B64_ENC..=ID_XML_MIN
+            | ID_ENCODE_BASE..=ID_CONVERT_LAST
+            | ID_LANG_BASE..=ID_LANG_LAST
+    );
+    // Tools > hashes: Generate (a dialog) and from files are fine; "from selection" reads the editor.
+    let hash_of_selection = (ID_HASH_BASE..ID_B64_ENC).contains(&id) && (id - ID_HASH_BASE) % 10 == 2;
+    !exempt && (text || hash_of_selection)
+}
+
+/// The last id of the Unfold Level family, the Convert to family and the Language family.
+const ID_UNFOLD_LEVEL_LAST: usize = ID_UNFOLD_LEVEL_BASE + 7;
+const ID_CONVERT_LAST: usize = ID_CONVERT_BASE + 99;
+const ID_LANG_LAST: usize = ID_LANG_BASE + 999;
 
 pub type Enabled = fn(CommandState) -> bool;
 
@@ -394,9 +439,15 @@ pub fn spec(id: usize) -> Option<&'static CommandSpec> {
     index().get(&id).copied()
 }
 
-/// Is command `id` allowed to run now? Commands without a spec are always allowed.
+/// Is command `id` allowed to run now? Text commands never run on a whiteboard; otherwise commands without a spec are
+/// always allowed.
 pub fn is_enabled(id: usize, state: CommandState) -> bool {
-    spec(id).is_none_or(|s| (s.enabled)(state))
+    !(state.whiteboard && needs_text(id)) && spec(id).is_none_or(|s| (s.enabled)(state))
+}
+
+/// Every fixed command, in table order.
+pub fn all() -> impl Iterator<Item = &'static CommandSpec> {
+    SPECS.iter()
 }
 
 /// The commands whose availability changes with the state of the application.
@@ -558,6 +609,32 @@ mod tests {
         assert_eq!(s.menu_text(None), "&New\tCtrl+N");
         assert_eq!(s.menu_text(Some("Ctrl+Alt+N")), "&New\tCtrl+Alt+N");
         assert_eq!(s.menu_text(Some("")), "&New");
+    }
+
+    #[test]
+    fn text_commands_do_not_run_on_a_whiteboard() {
+        // On a whiteboard the editor still holds the last text tab's document: editing it would change a hidden tab.
+        let wb = CommandState { whiteboard: true, has_selection: true, can_undo: true, ..CommandState::default() };
+        for id in [ID_UNDO, ID_PASTE, ID_CUT, ID_L_SORT_ASC, ID_C_UPPER, ID_EOL_LF, ID_FIND, ID_REPLACE, ID_FINDNEXT, ID_GOTO, ID_BM_TOGGLE] {
+            assert!(!is_enabled(id, wb), "{id} ran on a whiteboard");
+            assert!(is_enabled(id, CommandState { whiteboard: false, ..wb }), "{id} is blocked on a text tab");
+        }
+        for id in [ID_ENCODE_BASE, ID_CHARSET_BASE + 3, ID_CONVERT_BASE + 1, ID_LANG_BASE + 40, ID_UNFOLD_LEVEL_BASE + 7, ID_JSON_PRETTY, ID_HASH_BASE + 12] {
+            assert!(!is_enabled(id, wb), "{id} ran on a whiteboard");
+        }
+    }
+
+    #[test]
+    fn file_window_and_tool_commands_still_run_on_a_whiteboard() {
+        let wb = CommandState { whiteboard: true, has_path: true, ..CommandState::default() };
+        for id in
+            [ID_SAVE, ID_SAVEAS, ID_CLOSE, ID_NEW, ID_FIF, ID_NEXT_RESULT, ID_CP_FULLPATH, ID_CLIP_HISTORY, ID_ENGINE_BASE + 2, ID_HASH_BASE, ID_HASH_BASE + 11]
+        {
+            assert!(is_enabled(id, wb), "{id} is blocked on a whiteboard");
+        }
+        for id in [ID_THEME, ID_PREVIEW, ID_PREFS, ID_WINDOWS, ID_ABOUT, ID_NEXT_TAB, ID_TAB_PIN] {
+            assert!(!needs_text(id), "{id} should not need text");
+        }
     }
 
     #[test]

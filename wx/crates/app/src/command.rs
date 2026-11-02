@@ -72,6 +72,9 @@ impl From<notepp_core::error::Error> for AppError {
     }
 }
 
+/// The id span that holds every text command, fixed or in a family (see [`registry::needs_text`]).
+const TEXT_IDS: (usize, usize) = (2000, 9000);
+
 /// Run a command by id. Everything that can start an action goes through here: it checks the command's enabled
 /// rule from the registry, then hands it to the core and the registered handlers.
 pub fn execute(app: &mut App, id: usize) -> Result<(), AppError> {
@@ -89,11 +92,22 @@ impl App {
         if self.cmd_state == Some(state) {
             return;
         }
+        // Switching between a whiteboard and a text tab greys or restores every text command, families included.
+        let tab_kind_changed = self.cmd_state.is_none_or(|old| old.whiteboard != state.whiteboard);
         self.cmd_state = Some(state);
         for spec in registry::state_dependent() {
-            let on = (spec.enabled)(state);
+            let on = registry::is_enabled(spec.id, state);
             self.menubar.enable_item(crate::platform::wx::to_i32(spec.id), on);
             self.chrome.set_enabled(spec.id, on);
+        }
+        if tab_kind_changed {
+            for id in (TEXT_IDS.0..TEXT_IDS.1).filter(|&id| registry::needs_text(id)) {
+                let wx_id = crate::platform::wx::to_i32(id);
+                if self.menubar.find_item(wx_id).is_some() {
+                    self.menubar.enable_item(wx_id, registry::is_enabled(id, state));
+                }
+                self.chrome.set_enabled(id, registry::is_enabled(id, state));
+            }
         }
     }
 }

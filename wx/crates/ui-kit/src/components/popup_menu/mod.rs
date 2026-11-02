@@ -149,10 +149,19 @@ fn on_virtual_key(vk: u32, plain: bool, alt: bool) -> bool {
 /// Show `entries` with its top-left corner at `at` (screen coordinates). `flip_up` lets a menu that would run off the bottom of the
 /// screen open upwards instead (context menus); menus hanging from a bar are pushed up instead.
 pub fn show(owner: &Frame, entries: Vec<Entry>, at: (i32, i32), flip_up: bool, handlers: Handlers) {
+    show_from(owner, entries, at, flip_up, false, handlers);
+}
+
+/// Like `show`, for a menu opened from the keyboard: its first item is already highlighted, so Enter picks it.
+pub fn show_for_keyboard(owner: &Frame, entries: Vec<Entry>, at: (i32, i32), flip_up: bool, handlers: Handlers) {
+    show_from(owner, entries, at, flip_up, true, handlers);
+}
+
+fn show_from(owner: &Frame, entries: Vec<Entry>, at: (i32, i32), flip_up: bool, first_row: bool, handlers: Handlers) {
     close_all();
     let s: Shared = Rc::new(Session { levels: RefCell::new(Vec::new()), handlers, owner: *owner, foreground: crate::native::current().is_foreground() });
     CURRENT.with(|c| *c.borrow_mut() = Some(s.clone()));
-    open_level(&s, entries, Anchor::Top(at, flip_up), false);
+    open_level(&s, entries, Anchor::Top(at, flip_up), first_row);
     crate::native::current().grab_keys(Some(on_virtual_key));
     crate::native::current().grab_clicks(Some(on_press));
 }

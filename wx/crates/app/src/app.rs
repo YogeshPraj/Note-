@@ -408,17 +408,17 @@ pub(crate) fn take_focus_for_menu(app: &Shared) {
     }
 }
 
-/// Open menu `i` of the menu bar.
-fn open_menu(a: &Shared, i: usize) {
-    popups::bar_menu(a, i);
+/// Open menu `i` of the menu bar; from the keyboard its first item is highlighted.
+fn open_menu(a: &Shared, i: usize, keyboard: bool) {
+    popups::bar_menu(a, i, keyboard);
 }
 
 /// Open the menu whose title underlines key (Alt+letter); an empty key is F10 and opens the first.
 pub(crate) fn open_menu_for_key(a: &Shared, key: &str) {
-    let Some(ch) = key.chars().next() else { return open_menu(a, 0) };
+    let Some(ch) = key.chars().next() else { return open_menu(a, 0, true) };
     let Some(titles) = a.try_borrow().ok().map(|app| app.chrome.menu_titles()) else { return };
     if let Some(i) = crate::widgets::menu_bar::menu_for_key(&titles, ch) {
-        open_menu(a, i);
+        open_menu(a, i, true);
     }
 }
 
@@ -437,7 +437,7 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             crate::widgets::menu_bar::menu_for_key(&titles, char::from(b))
         });
         if let Some(i) = alt_menu {
-            open_menu(&a, i);
+            open_menu(&a, i, true);
             return;
         }
         // An open menu takes every other key.
@@ -451,7 +451,7 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             return;
         }
         if code == 344 && !k.alt_down() && !k.control_down() {
-            open_menu(&a, 0); // WXK_F10
+            open_menu(&a, 0, true); // WXK_F10
         } else {
             e.skip(true);
         }
@@ -607,7 +607,7 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
     let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
         refocus_editor(&a);
         if let Act::Menu(i) = act {
-            return open_menu(&a, i);
+            return open_menu(&a, i, false);
         }
         // Popup menus are modal: nothing may be borrowed while they are open (their commands re-enter the app).
         match act {

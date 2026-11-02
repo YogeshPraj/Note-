@@ -51,7 +51,7 @@ fn show(app: &Shared, frame: &Frame, spec: MenuSpec, at: Point) {
 
 /// Open menu `i` of the menu bar below its title. Opening the one that is already showing closes it instead (the
 /// click that got here has already taken the focus from it).
-pub fn bar_menu(app: &Shared, i: usize) {
+pub fn bar_menu(app: &Shared, i: usize, keyboard: bool) {
     if OPEN.with(Cell::get).1 == Some(i) {
         return;
     }
@@ -72,7 +72,7 @@ pub fn bar_menu(app: &Shared, i: usize) {
         pick: pick_handler(app),
         nav: Rc::new(move |dir| {
             let n = crate::platform::wx::to_i32(usize::try_from(count).unwrap_or(1).max(1));
-            bar_menu(&a, usize::try_from((crate::platform::wx::to_i32(i) + dir).rem_euclid(n)).unwrap_or(0));
+            bar_menu(&a, usize::try_from((crate::platform::wx::to_i32(i) + dir).rem_euclid(n)).unwrap_or(0), true);
         }),
         moved: Rc::new(move |(x, y)| {
             if let Ok(app) = m.try_borrow() {
@@ -88,7 +88,11 @@ pub fn bar_menu(app: &Shared, i: usize) {
         }),
     };
     crate::app::take_focus_for_menu(app);
-    pm::show(&frame, list, at, false, handlers);
+    if keyboard {
+        pm::show_for_keyboard(&frame, list, at, false, handlers);
+    } else {
+        pm::show(&frame, list, at, false, handlers);
+    }
 }
 
 fn set_bar_open(app: &Shared, i: Option<usize>) {

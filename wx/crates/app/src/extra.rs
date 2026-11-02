@@ -351,10 +351,13 @@ impl App {
                 s.shortcuts.insert(r.id.to_string(), r.current);
             }
         }
-        let _ = s.save();
+        let saved = s.save();
         self.ws.settings = s;
         self.reinstall_menus();
-        self.flash = Some("Shortcuts updated".into());
+        self.flash = Some(match saved {
+            Ok(()) => "Shortcuts updated".into(),
+            Err(e) => format!("Shortcuts updated, but they could not be saved: {e}"),
+        });
     }
 
     /// The rows of the shortcut mapper.
@@ -657,7 +660,7 @@ fn handle_4(app: &mut App, id: usize) -> bool {
         c::ID_MD_TOOLBAR => {
             let mut s = app.ws.settings.clone();
             s.md_toolbar = !s.md_toolbar;
-            crate::settings_ui::apply_settings(&mut app.ws, s);
+            crate::settings_ui::apply_settings(app, s);
         }
         c::ID_RESULTS => {
             if crate::findpanel::visible() {

@@ -57,7 +57,7 @@ impl AppearanceCommands {
         } else {
             s.light_colors = diff;
         }
-        settings_ui::apply_settings(&mut app.ws, s);
+        settings_ui::apply_settings(app, s);
         if bad > 0 {
             app.flash = Some(format!("{bad} colour(s) were not valid #RRGGBB and were ignored"));
         }
@@ -71,7 +71,7 @@ impl AppearanceCommands {
         });
         match imported {
             Ok((s, n)) => {
-                settings_ui::apply_settings(&mut app.ws, s);
+                settings_ui::apply_settings(app, s);
                 app.flash = Some(format!("Imported {n} colour(s)"));
             }
             Err(e) => notepp_core::workspace::Ui::error(&app.ui, &format!("Cannot import the theme\n\n{e}")),
@@ -87,7 +87,7 @@ impl AppearanceCommands {
         };
         let mut s = app.ws.settings.clone();
         s.apply_preset(dark, preset);
-        settings_ui::apply_settings(&mut app.ws, s);
+        settings_ui::apply_settings(app, s);
         app.ws.set_theme(if dark { Theme::dark() } else { Theme::light() });
         app.flash = Some(format!("Theme: {}", preset.map_or(if dark { "Default (dark)" } else { "Default (light)" }, |p| p.name)));
     }

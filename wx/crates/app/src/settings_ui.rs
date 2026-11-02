@@ -2,18 +2,17 @@
 
 use notepp_core::sci::Theme;
 use notepp_core::settings::{self, Settings};
-use notepp_core::workspace::Workspace;
 use wxdragon::prelude::*;
 
-use crate::sci::WxSci;
-
-/// Take new settings: the workspace restyles its views, and they are saved.
-pub fn apply_settings(ws: &mut Workspace<WxSci>, s: Settings) {
+/// Take new settings: the workspace restyles its views, and they are saved. Distraction Free mode keeps its margins
+/// hidden; a save that fails is said on the status bar (the change still holds until the program closes).
+pub fn apply_settings(app: &mut crate::app::App, s: Settings) {
     notepp_core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
-    notepp_core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
-    ws.set_settings(s);
-    let _ = ws.settings.save();
-    ws.set_margins_visible(true);
+    app.ws.set_settings(s);
+    app.ws.set_margins_visible(!app.distraction);
+    if let Err(e) = app.ws.settings.save() {
+        app.flash = Some(format!("Settings could not be saved: {e}"));
+    }
 }
 
 pub(crate) fn pick_font(owner: &Frame, family: &str, size: i32) -> Option<(String, i32)> {

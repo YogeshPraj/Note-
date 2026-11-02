@@ -247,7 +247,7 @@ impl CommandHandler<App> for UpdateCommands {
                 let mut s = app.ws.settings.clone();
                 s.auto_update = !s.auto_update;
                 let on = s.auto_update;
-                crate::settings_ui::apply_settings(&mut app.ws, s);
+                crate::settings_ui::apply_settings(app, s);
                 app.flash =
                     Some(if on { "Updates download in the background and install the next time you start Note++" } else { "Automatic updates are off" }.into());
             }

@@ -286,7 +286,7 @@ fn changed(app: &Shared, key: &str, v: &Value) -> bool {
             let mut s = a.ws.settings.clone();
             if apply_value(&mut s, key, v) {
                 s.clamp();
-                crate::settings_ui::apply_settings(&mut a.ws, s);
+                crate::settings_ui::apply_settings(&mut a, s);
                 a.sync_chrome();
                 a.refresh();
             }
@@ -302,7 +302,7 @@ impl App {
             s.font = name;
             s.font_size = pt;
             s.clamp();
-            crate::settings_ui::apply_settings(&mut self.ws, s);
+            crate::settings_ui::apply_settings(self, s);
             self.refresh();
         }
     }

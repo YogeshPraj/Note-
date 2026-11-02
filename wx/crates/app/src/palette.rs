@@ -34,8 +34,10 @@ pub fn open_files(app: &Shared) {
         let ws = &a.ws;
         // Open tabs, then recent files, then everything under the project root.
         let mut list: Vec<PathBuf> = Vec::new();
-        let push = |p: &PathBuf, list: &mut Vec<PathBuf>| {
-            if !list.contains(p) {
+        // A set for the duplicate check: thousands of scanned files against a list was quadratic, on the UI thread.
+        let mut seen = std::collections::HashSet::new();
+        let mut push = |p: &PathBuf, list: &mut Vec<PathBuf>| {
+            if seen.insert(p.clone()) {
                 list.push(p.clone());
             }
         };

@@ -48,7 +48,7 @@ fn button(key: &'static str, title: &str, desc: &str, label: &str) -> Row {
 /// The pages, filled from the current settings.
 pub fn pages(env: &Env) -> Vec<Page> {
     let s = &env.settings;
-    vec![general(s), editor(s), appearance(env), shortcuts(env), context_menu(env), security(env)]
+    vec![general(s), editor(s), appearance(env), colours(env), shortcuts(env), context_menu(env), security(env)]
 }
 
 fn general(s: &Settings) -> Page {
@@ -102,7 +102,6 @@ fn appearance(env: &Env) -> Page {
         vec![
             Row::heading("Theme"),
             choice("theme", "Colour theme", "Light or dark.", &[("light", "Light"), ("dark", "Dark")], if dark { "dark" } else { "light" }),
-            custom::colours(env.app.as_ref(), &env.theme),
             Row::heading("Window"),
             toggle("toolbar", "Toolbar", "Show the toolbar.", s.show_toolbar),
             toggle("tabbar", "Tab bar", "Show the tab bar.", s.show_tabbar),
@@ -113,6 +112,10 @@ fn appearance(env: &Env) -> Page {
             toggle("bookmark", "Bookmark margin", "Show the bookmark margin.", s.bookmark_margin),
         ],
     )
+}
+
+fn colours(env: &Env) -> Page {
+    Page::new("colours", "Colours", 1, vec![custom::colours(env.app.as_ref(), &env.theme)])
 }
 
 fn shortcuts(env: &Env) -> Page {

@@ -36,7 +36,7 @@ pub struct StyleEdit {
 
 /// The size of the colour editor's area in the settings window, for a theme with `roles` colours.
 pub fn colours_size(roles: usize) -> (i32, i32) {
-    (366, 40 + crate::platform::wx::to_i32(roles) * 26 + 40)
+    (720, crate::platform::wx::to_i32(roles.div_ceil(2)) * 26 + 44)
 }
 
 const FIRST: usize = 100; // edit i is FIRST + i
@@ -92,15 +92,17 @@ pub fn embed_colours(parent: &impl WxWidget, owner: &Frame, theme: &Theme, apply
     });
     let mut ctls = Vec::new();
     for (i, (label, key)) in settings::ROLES.iter().enumerate() {
-        let y = crate::platform::wx::to_i32(i) * 26;
+        // Two columns, filled down the left first.
+        let half = settings::ROLES.len().div_ceil(2);
+        let (y, x) = (crate::platform::wx::to_i32(i % half) * 26, if i < half { 0 } else { 360 });
         let hex = settings::color_of(theme, key).map(settings::to_hex).unwrap_or_default();
-        ctls.push(ctl(400 + i, Kind::Label, label, 0, y + 3, 170, 18));
-        ctls.push(ctl(FIRST + i, Kind::Edit, &hex, 174, y, 84, 22));
-        ctls.push(ctl(500 + i, Kind::Swatch, &(FIRST + i).to_string(), 266, y, 28, 22));
-        ctls.push(ctl(PICK + i, Kind::Button, "...", 300, y - 1, 30, 24));
+        ctls.push(ctl(400 + i, Kind::Label, label, x, y + 3, 170, 18));
+        ctls.push(ctl(FIRST + i, Kind::Edit, &hex, x + 174, y, 84, 22));
+        ctls.push(ctl(500 + i, Kind::Swatch, &(FIRST + i).to_string(), x + 266, y, 28, 22));
+        ctls.push(ctl(PICK + i, Kind::Button, "...", x + 300, y - 1, 30, 24));
     }
-    let n = crate::platform::wx::to_i32(settings::ROLES.len());
-    ctls.push(ctl(RESET, Kind::Button, "Reset every colour to the default", 0, n * 26 + 8, 220, 26));
+    let rows = crate::platform::wx::to_i32(settings::ROLES.len().div_ceil(2));
+    ctls.push(ctl(RESET, Kind::Button, "Reset every colour to the default", 0, rows * 26 + 8, 220, 26));
     let spec =
         Spec { title: "Colours", size: colours_size(settings::ROLES.len()), ctls, ok: "", buttons: None, on_change: Some(colour_clicked), on_apply: None };
     embed(parent, spec, |_| {});

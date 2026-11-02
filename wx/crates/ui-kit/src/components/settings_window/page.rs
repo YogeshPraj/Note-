@@ -22,8 +22,11 @@ impl View {
     }
 }
 
-/// How wide a description wraps, before scaling.
-const WRAP: i32 = 560;
+/// How wide a description wraps, before scaling: in a two-column group, and across a whole page.
+const WRAP_CELL: i32 = 300;
+const WRAP_FULL: i32 = 560;
+/// Space around the page's content and between its groups, before scaling.
+const MARGIN: i32 = 20;
 
 pub fn build(parent: &impl WxWidget, page: &Page, on_change: &Report) -> View {
     let t = theme::current();
@@ -35,11 +38,24 @@ pub fn build(parent: &impl WxWidget, page: &Page, on_change: &Report) -> View {
     if let Some(f) = t.title_font() {
         title.set_font(&f);
     }
-    col.add(&title, 0, SizerFlag::All, t.px(24));
+    col.add(&title, 0, SizerFlag::All, t.px(MARGIN));
+    let mut cells: Vec<BoxSizer> = Vec::new();
     for row in &page.rows {
-        add_row(&sw, &col, row, on_change);
+        match row.control {
+            Control::Heading => {
+                flush(&sw, &col, &mut cells);
+                add_heading(&sw, &col, row);
+            }
+            Control::Custom(_) => {
+                flush(&sw, &col, &mut cells);
+                let line = cell(&sw, row, on_change, WRAP_FULL);
+                col.add_sizer(&line, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, t.px(MARGIN));
+            }
+            _ => cells.push(cell(&sw, row, on_change, WRAP_CELL)),
+        }
     }
-    col.add_spacer(t.px(24));
+    flush(&sw, &col, &mut cells);
+    col.add_spacer(t.px(MARGIN));
     sw.set_sizer(col, true);
     sw.layout();
     sw.show(false);
@@ -52,12 +68,25 @@ fn strong(label: &Label) {
     }
 }
 
-fn desc(sw: &ScrolledWindow, text: &str) -> Option<Label> {
+/// The rows collected so far, laid out two to a line.
+fn flush(_sw: &ScrolledWindow, col: &BoxSizer, cells: &mut Vec<BoxSizer>) {
+    if cells.is_empty() {
+        return;
+    }
+    let t = theme::current();
+    let grid = GridSizer::builder(0, 2).with_vgap(t.px(14)).with_hgap(t.px(MARGIN)).build();
+    for c in cells.drain(..) {
+        grid.add_sizer(&c, 1, SizerFlag::Expand, 0);
+    }
+    col.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, t.px(MARGIN));
+}
+
+fn desc(sw: &ScrolledWindow, text: &str, wrap: i32) -> Option<Label> {
     if text.is_empty() {
         return None;
     }
     let l = Label::new(sw, text);
-    l.wrap(theme::current().px(WRAP));
+    l.wrap(theme::current().px(wrap));
     Some(l)
 }
 
@@ -76,21 +105,22 @@ fn accent_bar(sw: &ScrolledWindow) -> Panel {
     bar
 }
 
-fn add_row(sw: &ScrolledWindow, col: &BoxSizer, row: &Row, on_change: &Report) {
+fn add_heading(sw: &ScrolledWindow, col: &BoxSizer, row: &Row) {
     let t = theme::current();
-    if matches!(row.control, Control::Heading) {
-        let h = Label::new(sw, &row.title);
-        strong(&h);
-        col.add(&h, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, t.px(24));
-        if let Some(d) = desc(sw, &row.desc) {
-            col.add(&d, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, t.px(24));
-        }
-        col.add_spacer(t.px(4));
-        return;
+    let h = Label::new(sw, &row.title);
+    strong(&h);
+    col.add(&h, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, t.px(MARGIN));
+    if let Some(d) = desc(sw, &row.desc, WRAP_FULL) {
+        col.add(&d, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, t.px(MARGIN));
     }
+}
+
+/// One setting: an accent bar, its title and description, and its control.
+fn cell(sw: &ScrolledWindow, row: &Row, on_change: &Report, wrap: i32) -> BoxSizer {
+    let t = theme::current();
     let line = BoxSizer::builder(Orientation::Horizontal).build();
     line.add(&accent_bar(sw), 0, SizerFlag::Expand, 0);
-    line.add_spacer(t.px(14));
+    line.add_spacer(t.px(12));
     let body = BoxSizer::builder(Orientation::Vertical).build();
     let key = row.key;
     let report = {
@@ -102,24 +132,23 @@ fn add_row(sw: &ScrolledWindow, col: &BoxSizer, row: &Row, on_change: &Report) {
         c.set_value(*on);
         c.on_toggled(move |_| report(Value::Bool(c.is_checked())));
         body.add(&c, 0, SizerFlag::Bottom, t.px(2));
-        add_desc(sw, &body, &row.desc);
+        add_desc(sw, &body, &row.desc, wrap);
     } else {
         let title = Label::new(sw, &row.title);
         strong(&title);
         body.add(&title, 0, SizerFlag::Bottom, t.px(2));
-        add_desc(sw, &body, &row.desc);
+        add_desc(sw, &body, &row.desc, wrap);
         add_control(sw, &body, &row.control, report, on_change);
     }
     line.add_sizer(&body, 1, SizerFlag::Expand, 0);
-    col.add_sizer(&line, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, t.px(24));
+    line
 }
 
-fn add_desc(sw: &ScrolledWindow, body: &BoxSizer, text: &str) {
-    if let Some(d) = desc(sw, text) {
+fn add_desc(sw: &ScrolledWindow, body: &BoxSizer, text: &str, wrap: i32) {
+    if let Some(d) = desc(sw, text, wrap) {
         body.add(&d, 0, SizerFlag::Bottom, theme::current().px(6));
     }
 }
-
 fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: impl Fn(Value) + Clone + 'static, on_change: &Report) {
     let t = theme::current();
     match control {

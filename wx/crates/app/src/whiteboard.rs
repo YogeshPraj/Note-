@@ -16,6 +16,14 @@ window.addEventListener('message', function (e) {
     window.ipc.postMessage(JSON.stringify(d));
   }
 });
+// While the page has the keyboard the window never sees keys, so Ctrl+Tab and Ctrl+Shift+Tab are passed on.
+window.addEventListener('keydown', function (e) {
+  if (e.key === 'Tab' && e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    window.ipc.postMessage(JSON.stringify({ type: 'wb-tab', delta: e.shiftKey ? -1 : 1 }));
+  }
+}, true);
 ";
 
 #[derive(Debug, PartialEq)]
@@ -24,6 +32,8 @@ pub enum Event {
     State(String),
     Data(String),
     SaveRequest,
+    /// Ctrl+Tab (1) or Ctrl+Shift+Tab (-1) pressed inside the page.
+    Tab(i32),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -57,6 +67,7 @@ pub fn parse(msg: &str) -> Option<Event> {
         "wb-state" => Event::State(content()),
         "wb-data" => Event::Data(content()),
         "wb-save-request" => Event::SaveRequest,
+        "wb-tab" => Event::Tab(if v.get("delta").and_then(serde_json::Value::as_i64) == Some(-1) { -1 } else { 1 }),
         _ => return None,
     })
 }

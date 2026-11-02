@@ -123,6 +123,10 @@ body.dark .jsoneditor-poweredBy { display:none; }
   var $ = function (id) { return document.getElementById(id); };
   var zoom = 1, dark = false, pendingMermaid = null;
   var post = function (m) { window.ipc.postMessage(m); };
+  // While this page has the keyboard the window never sees keys: Ctrl+Tab and Ctrl+Shift+Tab are passed on.
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Tab' && e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); post(e.shiftKey ? 'tab:prev' : 'tab:next'); }
+  }, true);
 
   function applyZoom() { $('body').style.zoom = zoom; $('zlabel').textContent = Math.round(zoom * 100) + '%'; }
   function setZoom(z) { zoom = Math.min(4, Math.max(0.3, z)); applyZoom(); }

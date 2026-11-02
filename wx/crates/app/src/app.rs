@@ -410,7 +410,7 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
         // Ctrl+Tab and Ctrl+Shift+Tab switch tabs. Tab is a navigation key, which the toolkit and the editor take
         // before any menu shortcut sees it, so it is handled here.
         if code == KEY_TAB && k.control_down() && !k.alt_down() {
-            run_command(&a, if k.shift_down() { notepp_core::commands::ID_PREV_TAB } else { notepp_core::commands::ID_NEXT_TAB });
+            switch_tab(&a, if k.shift_down() { -1 } else { 1 });
             return;
         }
         let target = if k.alt_down() && !k.control_down() {
@@ -471,8 +471,26 @@ fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
     wbv.on_script_message_received(move |e| {
         let msg = e.get_string().unwrap_or_default();
         let Some(ev) = wbm::parse(&msg) else { return };
+        if let wbm::Event::Tab(delta) = ev {
+            return switch_tab(&a, delta);
+        }
         if let Ok(mut app) = a.try_borrow_mut() {
             app.wb_event(ev);
+        }
+    });
+}
+
+/// Go to the next (1) or previous (-1) tab and give the keyboard to what that tab shows: a page keeps it otherwise.
+pub(crate) fn switch_tab(app: &Shared, delta: i32) {
+    run_command(app, if delta < 0 { notepp_core::commands::ID_PREV_TAB } else { notepp_core::commands::ID_NEXT_TAB });
+    let a = app.clone();
+    let frame = app.borrow().frame;
+    crate::widgets::defer::later(&frame, move || {
+        let Ok(app) = a.try_borrow() else { return };
+        if app.ws.is_whiteboard() {
+            app.wbv.set_focus();
+        } else {
+            app.stc.set_focus();
         }
     });
 }
@@ -503,6 +521,7 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_mermaid(&pv));
             }
+            "tab:next" | "tab:prev" => switch_tab(&a, if msg.trim_matches('"') == "tab:prev" { -1 } else { 1 }),
             "need-jsoneditor" => {
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_json_editor(&pv));
@@ -844,6 +863,7 @@ impl App {
                 self.wb.pending = Some(Pending::Save);
                 wbm::request_data(&self.wbv);
             }
+            wbm::Event::Tab(_) => {} // handled before this, with nothing borrowed
         }
         self.refresh();
     }

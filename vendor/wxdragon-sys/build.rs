@@ -980,7 +980,15 @@ fn build_wxdragon_wrapper(
             println!("cargo:rustc-link-lib=static=wxexpat{debug_suffix}");
 
             if target_env == "gnu" {
-                println!("cargo:rustc-link-lib=stdc++");
+                // Static (Note++ patch): the exe must run on machines that have no libstdc++-6.dll.
+                // Static link: ask the C++ compiler where libstdc++.a is.
+                let gxx = std::env::var("CXX").unwrap_or_else(|_| "g++".into());
+                if let Ok(out) = std::process::Command::new(&gxx).arg("-print-file-name=libstdc++.a").output()
+                    && let Some(dir) = std::path::Path::new(String::from_utf8_lossy(&out.stdout).trim()).parent()
+                {
+                    println!("cargo:rustc-link-search=native={}", dir.display());
+                }
+                println!("cargo:rustc-link-lib=static=stdc++");
             }
         }
 

@@ -1,0 +1,4 @@
+# The Windows build must run on a machine without MinGW: link the C++ and GCC runtimes into the exe
+# (-static makes the linker take libstdc++.a rather than the import library for libstdc++-6.dll).
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-static", "-C", "link-arg=-static-libgcc", "-C", "link-arg=-static-libstdc++"]

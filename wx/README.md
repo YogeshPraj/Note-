@@ -67,7 +67,7 @@ Workspace-only commands live in `dispatch.rs` and run before the bus.
 
 The Win32-only shell that used to live in the repository root was removed on this branch; it remains in git history (`main`).
 
-Packaging, the installer and release CI (`scripts/package.ps1`, `installer/`, `.github/workflows/build.yml`) still describe the old Win32 build and need porting to the wx build.
+Packaging and release CI build this shell: `scripts/package.ps1` (Windows folder, renamed to `notepp.exe`), `scripts/package-unix.sh` (macOS `.app`, Linux tarball) and `.github/workflows/build.yml`. The Windows exe links the C++ runtime statically (`wx/.cargo/config.toml` and a one-line patch in `vendor/wxdragon-sys`) so it runs without MinGW. The macOS and Linux builds are experimental: CI builds them, nobody has run them yet.
 
 ## Build (Windows)
 

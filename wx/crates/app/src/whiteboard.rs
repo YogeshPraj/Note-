@@ -43,7 +43,9 @@ pub fn asset_dir() -> Option<PathBuf> {
 pub fn page_url() -> Option<String> {
     let dir = asset_dir()?.canonicalize().ok()?;
     let p = dir.join("whiteboard.html").to_string_lossy().replace('\\', "/");
+    // "file:///" plus a path that already starts with "/" (macOS, Linux) must not become four slashes.
     let p = p.trim_start_matches("//?/");
+    let p = if cfg!(windows) { p } else { p.trim_start_matches('/') };
     Some(format!("file:///{p}"))
 }
 

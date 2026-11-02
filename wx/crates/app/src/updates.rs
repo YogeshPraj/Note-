@@ -53,6 +53,13 @@ impl App {
 
     /// Ask GitHub for a newer version in the background. `manual`: the user asked, so say the result.
     pub fn update_check(&mut self, manual: bool) {
+        // The in-place update swaps a Windows folder; elsewhere a new version is downloaded by hand.
+        if !cfg!(windows) {
+            if manual {
+                crate::platform::current().open_default("https://github.com/YogeshPraj/Note-/releases/latest");
+            }
+            return;
+        }
         if !matches!(self.upd, State::Idle | State::Available(_)) {
             if manual {
                 self.flash = Some(

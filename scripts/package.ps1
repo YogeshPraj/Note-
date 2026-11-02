@@ -1,13 +1,14 @@
 <#
 .SYNOPSIS
-  Build a release and assemble a self-contained folder (dist\NotePP) to distribute.
+  Build the Windows release and assemble the folder to distribute (dist\NotePP).
 
 .DESCRIPTION
-  The exe restricts DLL loading to System32 and its own folder (a defence against DLL
-  planting), so every library it needs must sit beside it:
-    notepp.exe, Scintilla.dll, WebView2Loader.dll, whiteboard\ (the Excalidraw page).
-  Run scripts\setup.ps1 first. The script fails if a required file is missing, and
-  checks the exe's imports so no stray MinGW runtime DLL is needed.
+  Builds the wxWidgets shell (wx\) in release mode and lays out:
+    notepp.exe     the app (the updater and the installer look for this name)
+    whiteboard\    the Excalidraw page
+  The exe links its C++ runtime statically and has the WebView2 loader built in, so nothing else is needed
+  beside it. The script checks the exe's imports to make sure of that.
+  Run  node scripts\setup-assets.js  first. Needs the toolchain described in wx\README.md.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\package.ps1
@@ -16,45 +17,30 @@ $ErrorActionPreference = 'Stop'
 $proj = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $dist = Join-Path $proj 'dist\NotePP'
 
-Push-Location $proj
+Push-Location (Join-Path $proj 'wx')
 try {
-    cargo build --release
+    cargo build -p notepp-wx --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'cargo build --release failed' }
 } finally { Pop-Location }
 
-$rel = Join-Path $proj 'target\release'
-$loader = Get-ChildItem (Join-Path $rel 'build') -Recurse -Filter WebView2Loader.dll -ErrorAction SilentlyContinue |
-    Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
-$parts = @{
-    'notepp.exe'       = Join-Path $rel 'notepp.exe'
-    'Scintilla.dll'       = Join-Path $proj 'scintilla\bin\Scintilla.dll'
-    'WebView2Loader.dll'  = if ($loader) { $loader.FullName } else { Join-Path $rel 'WebView2Loader.dll' }
-}
-foreach ($k in $parts.Keys) { if (-not (Test-Path $parts[$k])) { throw "Missing $k ($($parts[$k]))" } }
+$exe = Join-Path $proj 'wx\target\release\notepp-wx.exe'
 $wbSrc = Join-Path $proj 'assets\whiteboard'
-if (-not (Test-Path (Join-Path $wbSrc 'whiteboard.html'))) { throw 'assets\whiteboard is missing - run scripts\setup.ps1' }
+if (-not (Test-Path $exe)) { throw "Missing $exe" }
+if (-not (Test-Path (Join-Path $wbSrc 'whiteboard.bundle.js'))) { throw 'assets\whiteboard is incomplete - run: node scripts\setup-assets.js' }
 
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 New-Item -ItemType Directory $dist | Out-Null
-foreach ($k in $parts.Keys) { Copy-Item $parts[$k] (Join-Path $dist $k) }
+Copy-Item $exe (Join-Path $dist 'notepp.exe')
 Copy-Item $wbSrc (Join-Path $dist 'whiteboard') -Recurse
 
-# Every non-system DLL the exe or Scintilla imports must be in the folder.
-$system = 'kernel32|user32|gdi32|gdiplus|advapi32|shell32|shlwapi|ole32|oleaut32|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcrypt|winspool|wtsapi32|winmm|version|crypt32|secur32|ncrypt|bcryptprimitives|combase|propsys|rpcrt4|uxtheme|api-ms-win-.*'
+# Every DLL the exe imports must be a Windows system DLL: the exe restricts loading to System32 and its own folder.
+$system = 'kernel32|user32|gdi32|gdiplus|advapi32|shell32|shlwapi|ole32|oleaut32|oleacc|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcrypt|bcryptprimitives|winspool|wtsapi32|winmm|version|crypt32|secur32|ncrypt|combase|propsys|rpcrt4|uxtheme'
 $objdump = Get-Command objdump -ErrorAction SilentlyContinue
-if ($objdump) {
-    foreach ($bin in 'notepp.exe', 'Scintilla.dll') {
-        $imports = & $objdump.Source -p (Join-Path $dist $bin) | Select-String 'DLL Name:' | ForEach-Object { ($_ -split ':')[1].Trim() } | Sort-Object -Unique
-        foreach ($dll in $imports) {
-            if ($dll -match "^($system)\.(dll|drv)$" -or $dll -match '^api-ms-win-') { continue }
-            if (-not (Test-Path (Join-Path $dist $dll))) { throw "$bin needs $dll, which is neither a Windows system DLL nor in the package" }
-        }
-    }
-    Write-Host 'Import check passed: nothing is loaded from outside System32 or the app folder' -ForegroundColor Green
-} else {
-    Write-Warning 'objdump not found: skipped the DLL import check'
+if (-not $objdump) { throw 'objdump not found (it ships with MinGW): cannot check the exe imports' }
+$imports = & $objdump.Source -p (Join-Path $dist 'notepp.exe') | Select-String 'DLL Name:' | ForEach-Object { ($_ -split ':')[1].Trim() } | Sort-Object -Unique
+foreach ($dll in $imports) {
+    if ($dll -match "^($system)\.(dll|drv)$" -or $dll -match '^api-ms-win-') { continue }
+    throw "notepp.exe needs $dll, which is neither a Windows system DLL nor in the package"
 }
-# The visual-styles manifest must have made it into the exe (modern controls and menus).
-$exeText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $dist 'notepp.exe')))
-if ($exeText -notmatch 'Microsoft\.Windows\.Common-Controls') { throw 'The exe has no comctl32 v6 manifest' }
+Write-Host 'Import check passed: nothing is loaded from outside System32' -ForegroundColor Green
 Write-Host "Package ready: $dist" -ForegroundColor Green

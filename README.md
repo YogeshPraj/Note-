@@ -4,7 +4,7 @@
 
 ### A fast, developer-focused text editor
 
-*Written in Rust on the Scintilla editing engine. Familiar Notepad++ editing, with live previews, a whiteboard, encrypted files, an HTTP scratchpad and a Bitwarden-backed password inserter built in.*
+*Written in Rust on the Scintilla editing engine. Familiar Notepad++ editing, with live previews, a whiteboard, encrypted files, an HTTP scratchpad and a Bitwarden-backed password inserter built in. Now for Windows, macOS and Linux.*
 
 [![Latest release](https://img.shields.io/github/v/release/YogeshPraj/Note-?label=latest&color=2563eb)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/YogeshPraj/Note-/total?label=downloads&color=16a34a)](https://github.com/YogeshPraj/Note-/releases)
@@ -12,7 +12,7 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/YogeshPraj/Note-/build.yml?label=build)](https://github.com/YogeshPraj/Note-/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#license)
 
-[**Download**](https://github.com/YogeshPraj/Note-/releases/latest) • [Features](#features) • [Build from source](#build-from-source) • [Releases](#releases) • [Report a bug](https://github.com/YogeshPraj/Note-/issues/new?labels=bug&title=%5BBug%5D%20) • [Request a feature](https://github.com/YogeshPraj/Note-/issues/new?labels=enhancement&title=%5BFeature%5D%20)
+[**Download**](#download) • [Features](#features) • [Build from source](#build-from-source) • [Releases](#releases) • [Report a bug](https://github.com/YogeshPraj/Note-/issues/new?labels=bug&title=%5BBug%5D%20) • [Request a feature](https://github.com/YogeshPraj/Note-/issues/new?labels=enhancement&title=%5BFeature%5D%20)
 
 </div>
 
@@ -22,9 +22,19 @@
 
 **Note++ 2.0** is a native desktop editor: quick to start, light on memory, and comfortable for anyone who knows Notepad++. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`crates/core` is portable; one wxWidgets shell in `wx/` targets Windows, macOS and Linux behind a `Platform` trait). Menus, tabs and dialogs are native, with previews, the whiteboard and the compare view in the system WebView.
 
-**Platforms:** Windows 10/11 (64-bit) today. macOS and Linux shells are the next step; the 1.x line already ran on all three.
+**Platforms:** Windows 10/11 (64-bit), macOS (Apple Silicon) and Linux (64-bit). Windows is the tested, supported build. The macOS and Linux builds are new in 2.0.2 and **experimental**: they are built from the same code but have had far less testing, so expect rough edges and please [report them](https://github.com/YogeshPraj/Note-/issues/new).
 
 Version 2.0 replaces the earlier 1.x line. It keeps the same data folder (`%APPDATA%\notepp`), so open tabs, unsaved text, settings and the encryption profile carry over on the first start.
+
+## Download
+
+| Platform | Download | Status |
+|---|---|---|
+| **Windows 10/11** (64-bit) | [Installer (`NotePP-Setup-<version>.exe`)](https://github.com/YogeshPraj/Note-/releases/latest) · [Portable zip](https://github.com/YogeshPraj/Note-/releases/latest/download/NotePP-windows-x64.zip) | Supported |
+| **macOS** 11+ (Apple Silicon) | [`NotePP-macos-arm64.zip`](https://github.com/YogeshPraj/Note-/releases/latest/download/NotePP-macos-arm64.zip) | Experimental |
+| **Linux** (x86-64, GTK 3) | [`NotePP-linux-x64.tar.gz`](https://github.com/YogeshPraj/Note-/releases/latest/download/NotePP-linux-x64.tar.gz) | Experimental |
+
+All files are on the [latest release page](https://github.com/YogeshPraj/Note-/releases/latest), each with a `.sha256` checksum. The macOS and Linux files are attached after their build finishes; if one is missing from a release, that build failed, and you can [build from source](#build-from-source) instead. Intel Macs and Linux on ARM have no download yet.
 
 ## Features
 
@@ -56,38 +66,65 @@ Version 2.0 replaces the earlier 1.x line. It keeps the same data folder (`%APPD
 
 ## Install
 
+### Windows
+
 Download **`NotePP-Setup-<version>.exe`** from [Releases](https://github.com/YogeshPraj/Note-/releases/latest) and run it. It installs for the current user (no administrator rights needed), adds Start-menu and desktop shortcuts, lists Note++ under *Open with* and adds *Edit with Note++* to the Explorer menu. An installed 1.x release is replaced automatically.
 
 Prefer no installer? `NotePP-windows-x64.zip` is the same app as a plain folder: unzip it anywhere and run `notepp.exe`.
 
 Requires Windows 10 or 11 (64-bit) with the WebView2 runtime, which ships with Windows 11 and current Windows 10. Data is kept in `%APPDATA%\notepp`.
 
-## Build from source
+### macOS (experimental)
 
-Prerequisites: Windows, [Rust](https://rustup.rs/), MinGW-w64 with the UCRT runtime (`winget install BrechtSanders.WinLibs.POSIX.UCRT`) and Node.js 18+ (only to fetch Mermaid and Excalidraw). The Rust toolchain is pinned to `stable-x86_64-pc-windows-gnu` in `rust-toolchain.toml`.
+Unzip `NotePP-macos-arm64.zip` and drag **Note++.app** to Applications. The app is not signed or notarised, so macOS will refuse the first start: right-click the app and choose *Open*, or run `xattr -dr com.apple.quarantine /Applications/Note++.app`. Data is kept in `~/.config/notepp`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1   # one time; safe to re-run (-Force rebuilds)
-cargo run                                                    # or: cargo test
+### Linux (experimental)
+
+```sh
+tar xzf NotePP-linux-x64.tar.gz
+./NotePP/notepp
 ```
 
-`scripts/setup.ps1` does what the repository deliberately does not store:
+Needs GTK 3 and WebKitGTK 4.1 (Ubuntu/Debian: `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0`). Previews and the whiteboard need WebKitGTK. Data is kept in `~/.config/notepp`.
 
-1. Downloads **Scintilla 5.5.2** and **Lexilla 5.5.4** (checked against pinned SHA-256 hashes) and builds them with MinGW.
-2. Restores `assets/mermaid.min.js` and the Excalidraw whiteboard bundle and fonts, built from the project in `old-src/` (`npm ci` and `build-whiteboard.js`).
+Updates: Windows installs update in place. On macOS and Linux, *Check for Updates* opens the releases page.
 
-`build.rs` links Lexilla statically and stops with a pointer to the setup script if anything is missing. Native crashes are written to `%APPDATA%\notepp\crash.log`.
+## Build from source
+
+The portable core (`crates/core`) builds and tests anywhere: `cargo test`. The app is the wxWidgets shell in `wx/`, a separate Cargo workspace. wxWidgets itself is built from source the first time (10 to 20 minutes, then cached).
+
+First, on every system, fetch the web assets the repository does not store (Node.js 18+; Mermaid and Excalidraw are built from `old-src/`):
+
+```sh
+node scripts/setup-assets.js
+```
+
+**Windows**: [Rust](https://rustup.rs/) with the `stable-x86_64-pc-windows-gnu` toolchain (pinned in `rust-toolchain.toml`), MinGW-w64 with the UCRT runtime including CMake and Ninja (`winget install BrechtSanders.WinLibs.POSIX.UCRT`), and LLVM for `libclang`. See [`wx/README.md`](wx/README.md) for the environment variables.
+
+```powershell
+cd wx
+cargo run -p notepp-wx
+```
+
+**Linux** (Debian/Ubuntu):
+
+```sh
+sudo apt install build-essential cmake ninja-build pkg-config libclang-dev libgtk-3-dev libwebkit2gtk-4.1-dev libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev libx11-dev
+cd wx && RUSTUP_TOOLCHAIN=stable cargo run -p notepp-wx
+```
+
+**macOS**: Xcode command-line tools and `brew install cmake ninja`, then `cd wx && RUSTUP_TOOLCHAIN=stable cargo run -p notepp-wx`. (`RUSTUP_TOOLCHAIN=stable` overrides the Windows toolchain pinned in the repository.)
+
+Native crashes on Windows are written to `%APPDATA%\notepp\crash.log`.
 
 ## Releases
 
-Every push and pull request is built and tested by GitHub Actions ([`build.yml`](.github/workflows/build.yml)); the packaged zip is attached to each run as an artifact. Pushing a tag `vX.Y.Z` that matches the version in `Cargo.toml` also publishes a GitHub release with:
+Every push and pull request is built and tested by GitHub Actions ([`build.yml`](.github/workflows/build.yml)). Pushing a tag `vX.Y.Z` that matches the version in `Cargo.toml` publishes a GitHub release:
 
-- `NotePP-Setup-X.Y.Z.exe`: the installer (NSIS)
-- `latest.yml`: the manifest the 1.x updater reads, so existing 1.x installs are offered the update, which runs this installer silently
-- `NotePP-windows-x64.zip`: the app folder (`notepp.exe`, `Scintilla.dll`, `WebView2Loader.dll`, `whiteboard/`)
-- `NotePP-windows-x64.zip.sha256`: its SHA-256, which this version's in-app updater checks
+- Windows (built first, publishes the release): `NotePP-Setup-X.Y.Z.exe` (installer, NSIS), `NotePP-windows-x64.zip` and its `.sha256` (portable folder; the in-app updater reads this pair), and `latest.yml` (manifest for the 1.x updater).
+- macOS and Linux (experimental, added when their build succeeds): `NotePP-macos-arm64.zip` and `NotePP-linux-x64.tar.gz`, each with a `.sha256`.
 
-To build the same files locally:
+To build the Windows files locally (after the setup above):
 
 ```powershell
 powershell -File scripts\package.ps1    # builds dist\NotePP
@@ -95,6 +132,7 @@ powershell -File scripts\release.ps1    # dist\release\NotePP-windows-x64.zip + 
 powershell -File scripts\installer.ps1  # dist\release\NotePP-Setup-X.Y.Z.exe + latest.yml (needs NSIS: winget install NSIS.NSIS)
 ```
 
+On macOS or Linux, after `cargo build -p notepp-wx --release` in `wx/`: `bash scripts/package-unix.sh macos-arm64` (or `linux-x64`).
 ## Project layout
 
 ```
@@ -103,7 +141,7 @@ wx/              the wxWidgets shell: window, menus, tab strip, dialogs, WebView
 vendor/          patched wxdragon-sys glue
 assets/          icons, preview pages, bundled Mermaid / jsoneditor / whiteboard
 installer/       the NSIS installer script and its sidebar image
-scripts/         setup, package, release and installer scripts
+scripts/         asset setup, package, release and installer scripts, CI checks
 tests/           fixtures
 old-src/         the previous 1.x project, kept for reference and as the source of the bundled web assets
 ```

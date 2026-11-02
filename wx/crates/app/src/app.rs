@@ -557,6 +557,12 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_json_editor(&pv));
             }
+            "max" => {
+                if let Ok(mut app) = a.try_borrow_mut() {
+                    let on = !app.preview.maximized;
+                    app.set_preview_maximized(on);
+                }
+            }
             "close" => {
                 if let Ok(mut app) = a.try_borrow_mut() {
                     app.set_preview(false);
@@ -1084,6 +1090,9 @@ impl App {
         if want == self.preview.split {
             return;
         }
+        if !want && self.preview.maximized {
+            self.set_preview_maximized(false);
+        }
         self.preview.split = want;
         self.preview.sent = None;
         if want {
@@ -1098,6 +1107,22 @@ impl App {
             self.splitter.unsplit(Some(&self.view));
             self.view.show(false);
         }
+    }
+
+    /// Let the preview fill the window (the editor is hidden) or go back beside the editor.
+    fn set_preview_maximized(&mut self, on: bool) {
+        if on == self.preview.maximized || !self.preview.split {
+            return;
+        }
+        self.preview.maximized = on;
+        if on {
+            self.splitter.unsplit(Some(&self.editor_pane));
+        } else {
+            self.editor_pane.show(true);
+            let half = self.frame.get_size().width / 2;
+            self.splitter.split_vertically(&self.editor_pane, &self.view, half);
+        }
+        self.view.eval(&format!("window.np.setMax({on})"));
     }
 
     /// Keep the page scrolled to where the editor is: by source line for Markdown, by proportion for the JSON tree.

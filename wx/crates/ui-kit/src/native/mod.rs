@@ -41,6 +41,8 @@ pub trait Native: Sync {
     }
     /// Show a popup window without taking the focus from the window that opened it. False where that is not
     /// supported; the caller then shows the window normally.
+    /// Hide a window that `show_without_activating` showed (the toolkit does not know it is visible).
+    fn hide_window(&self, _window: isize) {}
     fn show_without_activating(&self, _window: isize) -> bool {
         false
     }

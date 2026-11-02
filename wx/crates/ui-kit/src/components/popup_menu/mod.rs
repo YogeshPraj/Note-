@@ -253,8 +253,10 @@ fn close_from(s: &Shared, depth: usize) {
         lv.drain(at..).collect()
     };
     for l in gone {
-        // Closing is deferred to idle time, which a modal dialog started by the picked command would postpone.
+        // Closing is deferred to idle time, which a modal dialog started by the picked command would postpone, and
+        // the toolkit's own hide does not reach the system window at once either.
         l.frame.show(false);
+        crate::native::current().hide_window(l.frame.get_handle() as isize);
         l.frame.close(true);
     }
     if depth == 0 {

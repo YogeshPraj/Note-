@@ -234,6 +234,10 @@ impl Native for Windows {
         }
     }
 
+    fn hide_window(&self, window: isize) {
+        unsafe { ShowWindow(window, 0) };
+    }
+
     fn show_without_activating(&self, window: isize) -> bool {
         unsafe {
             let ex = GetWindowLongPtrW(window, GWL_EXSTYLE);

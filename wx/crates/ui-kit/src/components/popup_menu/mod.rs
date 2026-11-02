@@ -253,6 +253,8 @@ fn close_from(s: &Shared, depth: usize) {
         lv.drain(at..).collect()
     };
     for l in gone {
+        // Closing is deferred to idle time, which a modal dialog started by the picked command would postpone.
+        l.frame.show(false);
         l.frame.close(true);
     }
     if depth == 0 {

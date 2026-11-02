@@ -28,9 +28,13 @@ pub fn open_commands(app: &Shared) {
     }
 }
 
+/// How long Quick Open waits for the first listing of a folder before showing what it has.
+const FIRST_LISTING_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+
 pub fn open_files(app: &Shared) {
     let (frame, files_list, items) = {
-        let Ok(a) = app.try_borrow() else { return };
+        let Ok(mut a) = app.try_borrow_mut() else { return };
+        let a = &mut *a;
         let ws = &a.ws;
         // Open tabs, then recent files, then everything under the project root.
         let mut list: Vec<PathBuf> = Vec::new();
@@ -51,9 +55,11 @@ pub fn open_files(app: &Shared) {
         }
         let start = ws.tabs[ws.active].path.as_ref().and_then(|p| p.parent().map(std::path::Path::to_path_buf));
         let root = ws.workspace.clone().or_else(|| start.as_ref().map(|d| files::project_root(d)));
+        // The folder is listed in the background (a large tree takes seconds); a stale listing is refreshed meanwhile.
         if let Some(root) = &root {
-            for p in files::scan_files(root, 8000) {
-                push(&p, &mut list);
+            match a.file_index.files_under(root, FIRST_LISTING_WAIT) {
+                Some(found) => found.iter().for_each(|p| push(p, &mut list)),
+                None => a.flash = Some(format!("Still listing the files in {}: they will be offered in a moment", root.display())),
             }
         }
         let items: Vec<Item> = list

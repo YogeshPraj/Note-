@@ -33,6 +33,8 @@ use notepp_core::schedule::Schedule;
 
 pub struct App {
     pub(crate) results: SearchResults,
+    /// The project folder's files for Quick Open, listed in the background.
+    pub(crate) file_index: notepp_core::files::FileIndex,
     pub(crate) clipboard: crate::services::clipboard::ClipboardService,
     pub(crate) streams: StreamState,
     pub(crate) wb: WhiteboardState,
@@ -308,6 +310,7 @@ pub fn start(files: &[PathBuf]) {
     let app: Shared = Rc::new(RefCell::new(App {
         bus: CommandBus::standard(),
         results: crate::state::SearchResults::default(),
+        file_index: notepp_core::files::FileIndex::default(),
         clipboard: crate::services::clipboard::ClipboardService::default(),
         streams: crate::state::StreamState::default(),
         wb: crate::state::WhiteboardState::default(),
@@ -710,6 +713,7 @@ fn wire_timers(app: &Shared, frame: Frame) {
                     app.monitor_tick();
                     app.stream_tick();
                     app.in_files_poll();
+                    app.file_index.poll();
                 }
                 Job::Clipboard => {
                     app.clip_tick();

@@ -2,6 +2,8 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Write `bytes` to `path` so a crash or full disk mid-save can never leave a truncated file:
 /// the data goes to a temporary file in the same folder, is flushed to disk, then replaces the
@@ -75,9 +77,86 @@ pub fn scan_files(root: &Path, limit: usize) -> Vec<PathBuf> {
     out
 }
 
+/// Most files Quick Open lists from a folder.
+pub const INDEX_LIMIT: usize = 8000;
+/// A listing older than this is refreshed in the background the next time it is used.
+const INDEX_REFRESH: Duration = Duration::from_secs(30);
+
+type Listing = Arc<Mutex<Option<Vec<PathBuf>>>>;
+
+/// The files under a project folder for Quick Open, listed on a worker thread (walking a large tree takes seconds, and
+/// must not freeze the window). Callers get the last finished listing; a stale or missing one is refreshed meanwhile.
+#[derive(Debug, Default)]
+pub struct FileIndex {
+    root: Option<PathBuf>,
+    files: Vec<PathBuf>,
+    listed: Option<Instant>,
+    running: Option<(PathBuf, Listing)>,
+}
+
+impl FileIndex {
+    /// The files under `root` as last listed, starting a fresh listing when there is none or it is stale. With no
+    /// earlier listing of `root`, waits up to `wait` for the first one; None if it is still running.
+    pub fn files_under(&mut self, root: &Path, wait: Duration) -> Option<&[PathBuf]> {
+        self.poll();
+        let current = self.root.as_deref() == Some(root);
+        if !current || self.listed.is_none_or(|t| t.elapsed() >= INDEX_REFRESH) {
+            self.start(root);
+        }
+        let deadline = Instant::now() + wait;
+        while self.root.as_deref() != Some(root) && self.running.is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            self.poll();
+        }
+        (self.root.as_deref() == Some(root)).then_some(self.files.as_slice())
+    }
+
+    /// Start listing `root` in the background, unless that is already under way.
+    pub fn start(&mut self, root: &Path) {
+        if self.running.as_ref().is_some_and(|(r, _)| r == root) {
+            return;
+        }
+        let listing: Listing = Arc::new(Mutex::new(None));
+        let (out, dir) = (listing.clone(), root.to_path_buf());
+        std::thread::spawn(move || {
+            let files = scan_files(&dir, INDEX_LIMIT);
+            *out.lock().unwrap_or_else(PoisonError::into_inner) = Some(files);
+        });
+        self.running = Some((root.to_path_buf(), listing));
+    }
+
+    /// Take a finished listing.
+    pub fn poll(&mut self) {
+        let Some((root, listing)) = &self.running else { return };
+        let Some(files) = listing.lock().unwrap_or_else(PoisonError::into_inner).take() else { return };
+        self.root = Some(root.clone());
+        self.files = files;
+        self.listed = Some(Instant::now());
+        self.running = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_index_lists_in_the_background_and_answers_once_done() {
+        let d = std::env::temp_dir().join(format!("notepp_index_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("src")).unwrap();
+        std::fs::write(d.join("a.txt"), "").unwrap();
+        std::fs::write(d.join("src").join("b.rs"), "").unwrap();
+        let mut index = FileIndex::default();
+        let files = index.files_under(&d, Duration::from_secs(10)).map(<[PathBuf]>::len);
+        assert_eq!(files, Some(2));
+        // A listing of another folder does not answer for this one.
+        let other = d.join("src");
+        let mut fresh = FileIndex::default();
+        fresh.start(&d);
+        assert!(fresh.files_under(&other, Duration::ZERO).is_none_or(|f| f.len() == 1));
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn scans_skips_and_finds_root() {

@@ -197,6 +197,8 @@ impl App {
             load_children(&t, &root);
             t.expand(&root);
         }
+        // Quick Open lists this folder: start now, in the background, so it is ready when asked for.
+        self.file_index.start(&dir);
         self.ws.workspace = Some(dir);
         self.set_tree(true);
     }

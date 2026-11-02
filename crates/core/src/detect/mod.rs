@@ -106,19 +106,21 @@ fn sql(body: &str) -> Option<&'static str> {
 
 fn markdown(body: &str) -> Option<&'static str> {
     let lines: Vec<&str> = body.lines().map(str::trim_start).collect();
-    let heading = lines.iter().any(|l| l.starts_with('#') && l.trim_start_matches('#').starts_with(' ') && l.len() - l.trim_start_matches('#').len() <= 6);
-    if !heading {
+    let headings =
+        lines.iter().filter(|l| l.starts_with('#') && l.trim_start_matches('#').starts_with(' ') && l.len() - l.trim_start_matches('#').len() <= 6).count();
+    if headings == 0 {
         return None;
     }
+    // A `# comment` alone proves nothing (scripts have them), so a second kind of Markdown is needed.
     let kinds = [
         lines.iter().any(|l| l.starts_with("```")),
-        lines.iter().any(|l| l.starts_with("- ") || l.starts_with("* ") || l.starts_with("1. ")),
+        lines.iter().filter(|l| l.starts_with("- ") || l.starts_with("* ") || l.starts_with("1. ")).count() >= 2,
         body.contains("]("),
-        body.contains("**"),
+        lines.iter().any(|l| l.matches("**").count() >= 2),
         lines.iter().any(|l| l.starts_with("> ")),
-        lines.iter().filter(|l| l.starts_with("# ")).count() >= 2,
+        headings >= 2 && lines.iter().any(|l| l.starts_with("## ") || l.starts_with("### ")),
     ];
-    (kinds.iter().filter(|k| **k).count() >= 1 && !body.contains(';')).then_some("Markdown")
+    (kinds.iter().filter(|k| **k).count() >= 2).then_some("Markdown")
 }
 
 fn css(body: &str) -> Option<&'static str> {
@@ -192,6 +194,7 @@ mod tests {
     #[test]
     fn documents_and_styles() {
         is("# Title\n\nSome text with a [link](http://x).\n\n- one\n- two", "Markdown");
+        is("### Notes\n- `Build` runs server-side; cost is small.\n- Returns `null` if none.\n\n```\nevent: message\ndata: {\"a\": 1};\n```\n", "Markdown");
         is("body {\n  color: red;\n  margin: 0;\n}\n.a { }", "CSS");
         is("name: app\nversion: 1\nitems:\n  - a\n  - b\nport: 80", "YAML");
     }
@@ -216,5 +219,6 @@ mod tests {
         assert_eq!(detect_language("hello world, this is just a note to myself"), None);
         assert_eq!(detect_language("Select the item you want to buy from the shop."), None);
         assert_eq!(detect_language("short"), None);
+        assert_eq!(detect_language("# install\nsudo apt update\n# done\nvalue = a ** b ** c"), None);
     }
 }

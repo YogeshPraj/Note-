@@ -74,7 +74,7 @@ impl App {
             .collect();
         self.results.hits = hits;
         self.results.root = dir;
-        findpanel::set_results(&lines);
+        findpanel::set_results(lines);
         note
     }
 }

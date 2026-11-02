@@ -895,7 +895,7 @@ impl App {
                     format!("{total} hits in the current document")
                 };
                 self.results.hits = hits;
-                findpanel::set_results(&lines);
+                findpanel::set_results(lines);
                 note
             }
             Err(e) => error_note(&e),

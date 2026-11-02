@@ -7,7 +7,7 @@ use notepp_core::search::Opts;
 use wxdragon::prelude::*;
 
 use crate::app::Shared;
-use crate::widgets::controls::{Button, CheckBox, Label, ListBox, TextBox, ToggleButton};
+use crate::widgets::controls::{Button, CheckBox, Label, ListView, TextBox, ToggleButton};
 use crate::widgets::dock::Dock;
 
 mod layout;
@@ -47,7 +47,7 @@ struct P {
     mark: Button,
     clear: Button,
     close: Button,
-    list: ListBox,
+    list: ListView,
 }
 
 thread_local! {
@@ -216,13 +216,11 @@ pub fn set_searching(on: bool) {
     }
 }
 
-pub fn set_results(lines: &[String]) {
+pub fn set_results(lines: Vec<String>) {
     let Some(p) = p() else { return };
-    p.list.clear();
-    for l in lines {
-        p.list.append(l);
-    }
+    // A virtual list: filling a stock list with 20,000 rows blocked the window for most of a second.
     RESULTS.with(|c| c.set(!lines.is_empty()));
+    p.list.set_virtual_rows(std::rc::Rc::new(lines));
     relayout();
 }
 
@@ -311,7 +309,7 @@ pub fn wire(app: &Shared) {
         mark: button("Mark All"),
         clear: button("Clear all marks"),
         close: button("Close"),
-        list: ListBox::new(&host),
+        list: ListView::new_virtual(&host),
     };
     panel.wrap.set_value(true);
     panel.filt.set_value("*.*");
@@ -364,9 +362,9 @@ pub fn wire(app: &Shared) {
         });
     }
     let a = app.clone();
-    panel.list.on_selection_changed(move |e| {
-        if let Some(i) = e.get_selection() {
-            fire(&a, Cmd::OpenHit(crate::platform::wx::to_usize(i.max(0))));
+    panel.list.on_item_selected(move |e| {
+        if let Ok(i) = usize::try_from(e.get_item_index()) {
+            fire(&a, Cmd::OpenHit(i));
         }
     });
     host.on_size(move |_| arrange());

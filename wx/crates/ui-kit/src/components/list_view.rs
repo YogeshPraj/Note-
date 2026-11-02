@@ -19,7 +19,30 @@ themed!(
     ListView, WxListCtrl, Role::Input
 );
 
+/// Width of the single column of a virtual list: wide enough for long lines, which then scroll sideways.
+const VIRTUAL_COLUMN_W: i32 = 4000;
+
 impl ListView {
+    /// A one-column list without a header whose rows are not stored in the control but given on demand
+    /// ([`ListView::set_virtual_rows`]): tens of thousands of rows appear at once, where filling a stock list row by row
+    /// takes most of a second.
+    pub fn new_virtual(parent: &impl WxWidget) -> ListView {
+        let style = ListCtrlStyle::Report | ListCtrlStyle::Virtual | ListCtrlStyle::NoHeader | ListCtrlStyle::SingleSel;
+        let list = ListView::adopt(WxListCtrl::builder(parent).with_style(style).build());
+        list.0.insert_column(0, "", ListColumnFormat::Left, VIRTUAL_COLUMN_W);
+        list
+    }
+
+    /// Show `rows` in a list made by [`ListView::new_virtual`].
+    pub fn set_virtual_rows(&self, rows: std::rc::Rc<Vec<String>>) {
+        let count = crate::num::to_i64(rows.len());
+        self.0.set_virtual_text_callback(move |row, _col| usize::try_from(row).ok().and_then(|r| rows.get(r)).cloned().unwrap_or_default());
+        self.0.set_item_count(count);
+        if count > 0 {
+            self.0.refresh_items(0, count - 1);
+        }
+    }
+
     /// Set the columns, replacing any it had (the stock list cannot remove a single column).
     pub fn set_columns(&self, columns: &[(&str, i32)]) {
         for op in data_list::column_ops(crate::num::to_usize(self.0.get_column_count().max(0)), columns) {

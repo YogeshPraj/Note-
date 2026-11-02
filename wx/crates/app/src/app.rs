@@ -367,6 +367,18 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
     mini.on_set_focus(move |_| stc.set_focus());
 }
 
+/// Clicking a bar hands it the focus once the click has been handled; give it back to the editor (unless a command has put
+/// it somewhere deliberate, such as the find box).
+pub(crate) fn refocus_editor(app: &Shared) {
+    let Ok(a) = app.try_borrow() else { return };
+    let (frame, stc, bars) = (a.frame, a.stc, [a.chrome.menu, a.chrome.tools, a.chrome.tabs, a.chrome.status]);
+    crate::widgets::defer::later(&frame, move || {
+        if bars.iter().any(WxWidget::has_focus) {
+            stc.set_focus();
+        }
+    });
+}
+
 /// Open menu `i` of the menu bar.
 fn open_menu(a: &Shared, i: usize) {
     popups::bar_menu(a, i);
@@ -495,6 +507,7 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
     // Toolbar buttons and the tab strip.
     let a = app.clone();
     let handler: Rc<dyn Fn(Act)> = Rc::new(move |act| {
+        refocus_editor(&a);
         if let Act::Menu(i) = act {
             return open_menu(&a, i);
         }
@@ -537,7 +550,6 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
             Act::Menu(..) | Act::Context(..) | Act::Status(..) => {}
         }
         app.refresh();
-        app.stc.set_focus();
     });
     app.borrow().chrome.set_handler(handler);
 }

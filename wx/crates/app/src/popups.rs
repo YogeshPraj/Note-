@@ -36,7 +36,10 @@ fn entries(spec: &MenuSpec, live: Option<&MenuBar>) -> Vec<pm::Entry> {
 
 fn pick_handler(app: &Shared) -> Rc<dyn Fn(usize)> {
     let a = app.clone();
-    Rc::new(move |id| crate::app::run_command(&a, id))
+    Rc::new(move |id| {
+        crate::app::run_command(&a, id);
+        crate::app::refocus_editor(&a);
+    })
 }
 
 /// Show `spec` at `at` (screen coordinates); choosing an item runs its command.
@@ -79,6 +82,7 @@ pub fn bar_menu(app: &Shared, i: usize) {
             if OPEN.with(Cell::get).0 == generation {
                 OPEN.with(|o| o.set((generation, None)));
                 set_bar_open(&b, None);
+                crate::app::refocus_editor(&b);
             }
         }),
     };

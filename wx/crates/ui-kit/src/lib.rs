@@ -8,6 +8,7 @@
 //! `examples/gallery.rs` shows every component in the light and the dark theme.
 
 pub mod components;
+pub mod defer;
 pub mod geom;
 pub mod num;
 // Raw operating-system calls: the one place in the kit that needs unsafe code.

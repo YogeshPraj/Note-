@@ -146,7 +146,13 @@ impl Chrome {
         let strip = TabStrip::new(parent);
         strip.set_font(crate::widgets::theme::current().ui_font());
         let status_bar = StatusBar::new(parent);
-        Chrome { menu: menu_bar.panel(), tools: tool_bar.panel(), tabs: strip.panel(), status: status_bar.panel(), menu_bar, tool_bar, strip, status_bar }
+        let chrome =
+            Chrome { menu: menu_bar.panel(), tools: tool_bar.panel(), tabs: strip.panel(), status: status_bar.panel(), menu_bar, tool_bar, strip, status_bar };
+        // Clicking the bars must not take the focus from the editor: typing carries on where it was.
+        for bar in [chrome.menu, chrome.tools, chrome.tabs, chrome.status] {
+            bar.set_can_focus(false);
+        }
+        chrome
     }
 
     pub fn set_pill(&self, p: Option<(String, Rgb, usize)>) {

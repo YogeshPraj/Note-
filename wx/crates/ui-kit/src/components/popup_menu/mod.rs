@@ -15,11 +15,11 @@ mod model;
 mod paint;
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::rc::Rc;
 
 use wxdragon::prelude::*;
 
+use crate::defer::later;
 use crate::geom::Rect;
 use crate::paint::pos;
 use crate::theme;
@@ -79,28 +79,6 @@ type Shared = Rc<Session>;
 thread_local! {
     // The menu being shown, if any.
     static CURRENT: RefCell<Option<Shared>> = const { RefCell::new(None) };
-    // Work that must not run inside the event that asked for it (a window cannot be closed from its own handler).
-    static QUEUE: RefCell<VecDeque<Box<dyn FnOnce()>>> = const { RefCell::new(VecDeque::new()) };
-    static TIMER: RefCell<Option<Timer<Frame>>> = const { RefCell::new(None) };
-}
-
-fn defer(owner: &Frame, f: impl FnOnce() + 'static) {
-    QUEUE.with(|q| q.borrow_mut().push_back(Box::new(f)));
-    TIMER.with(|t| {
-        let mut t = t.borrow_mut();
-        let timer = t.get_or_insert_with(|| {
-            let timer = Timer::new(owner);
-            timer.on_tick(|_| run_deferred());
-            timer
-        });
-        timer.start(10, true);
-    });
-}
-
-fn run_deferred() {
-    while let Some(f) = QUEUE.with(|q| q.borrow_mut().pop_front()) {
-        f();
-    }
 }
 
 fn current() -> Option<Shared> {
@@ -333,7 +311,7 @@ fn choose(s: &Shared, i: usize, row: usize) {
     match entry {
         Some(Entry::Item(item)) if item.enabled => {
             let s = s.clone();
-            defer(&s.owner.clone(), move || {
+            later(&s.owner.clone(), move || {
                 close_from(&s, 0);
                 (s.handlers.pick)(item.id);
             });
@@ -407,7 +385,7 @@ fn on_letter(s: &Shared, i: usize, entries: &[Entry], row: Option<usize>, key: c
 
 fn defer_close(s: &Shared) {
     let s = s.clone();
-    defer(&s.owner.clone(), move || close_from(&s, 0));
+    later(&s.owner.clone(), move || close_from(&s, 0));
 }
 
 fn navigate(s: &Shared, i: usize, dir: i32) {
@@ -415,7 +393,7 @@ fn navigate(s: &Shared, i: usize, dir: i32) {
         return;
     }
     let s = s.clone();
-    defer(&s.owner.clone(), move || {
+    later(&s.owner.clone(), move || {
         close_from(&s, 0);
         (s.handlers.nav)(dir);
     });

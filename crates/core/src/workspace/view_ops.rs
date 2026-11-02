@@ -55,6 +55,7 @@ impl<S: Send> Workspace<S> {
             sci::setup_line_numbers(v, theme, 54);
             sci::setup_folding(v, theme);
             bookmarks::setup(v, theme);
+            crate::gutter::setup(v, theme);
             for (margin, width) in self.margin_widths().into_iter().enumerate() {
                 v.send(sci::SCI_SETMARGINWIDTHN, margin, width);
             }
@@ -130,6 +131,11 @@ impl<S: Send> Workspace<S> {
         let vis = crate::num::to_usize(self.send(sci::SCI_LINESONSCREEN, 0, 0).max(1));
         self.send(sci::SCI_SETFIRSTVISIBLELINE, line.saturating_sub(vis / 2), 0);
         self.sync_minimap();
+    }
+
+    /// Tint the caret's line number in the gutter.
+    pub fn sync_current_line(&self) {
+        crate::gutter::follow(&self.sci);
     }
 
     /// Update the smart highlight if the selection or document size changed.

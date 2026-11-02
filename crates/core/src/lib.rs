@@ -12,6 +12,7 @@ pub mod files;
 pub mod functions;
 #[cfg(test)]
 mod fuzz;
+pub mod gutter;
 pub mod hash;
 pub mod http;
 pub mod jsonpath;

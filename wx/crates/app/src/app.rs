@@ -939,6 +939,7 @@ impl App {
     pub fn refresh(&mut self) {
         if !self.ws.is_whiteboard() {
             self.ws.update_smart();
+            self.ws.sync_current_line();
             self.ws.sync_minimap();
         }
         self.sync_tabs();

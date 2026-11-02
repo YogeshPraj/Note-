@@ -1,6 +1,6 @@
 //! Command handlers for window-level actions, one type per concern.
 
-use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PREFS, ID_PRESET_BASE, ID_PREVIEW, ID_RELOAD, ID_STYLE_CFG};
+use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PRESET_BASE, ID_PREVIEW, ID_RELOAD};
 use notepp_core::sci::Theme;
 use notepp_core::settings;
 use wxdragon::prelude::*;
@@ -44,7 +44,7 @@ impl CommandHandler<App> for ViewCommands {
 pub struct AppearanceCommands;
 
 impl AppearanceCommands {
-    fn style_configurator(app: &mut App) {
+    pub(crate) fn style_configurator(app: &mut App) {
         let Some(e) = settings_ui::style_configurator(&app.frame, &app.ws.theme) else { return };
         let dark = app.ws.theme.dark;
         let base = if dark { Theme::dark() } else { Theme::light() };
@@ -99,12 +99,6 @@ impl CommandHandler<App> for AppearanceCommands {
 
     fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
-            ID_PREFS => {
-                if let Some(s) = settings_ui::preferences(&app.frame, &app.ws.settings) {
-                    settings_ui::apply_settings(&mut app.ws, s);
-                }
-            }
-            ID_STYLE_CFG => Self::style_configurator(app),
             ID_IMPORT_THEME => Self::import_theme(app),
             _ if (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id) => Self::preset(app, id),
             _ => return false,

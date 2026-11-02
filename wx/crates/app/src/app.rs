@@ -428,6 +428,11 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
 pub(crate) fn run_command(a: &Shared, id: usize) {
     trace(id, "event");
     match id {
+        notepp_core::commands::ID_PREFS => return crate::settings_window::open(a, "general"),
+        notepp_core::commands::ID_STYLE_CFG => return crate::settings_window::open(a, "appearance"),
+        notepp_core::commands::ID_SHORTCUTS => return crate::settings_window::open(a, "shortcuts"),
+        notepp_core::commands::ID_EDIT_CONTEXT => return crate::settings_window::open(a, "context"),
+        notepp_core::commands::ID_ENC_SETTINGS => return crate::settings_window::open(a, "security"),
         ID_FIND => return crate::find::open_panel(a, Mode::Find),
         ID_REPLACE => return crate::find::open_panel(a, Mode::Replace),
         ID_PALETTE => return crate::palette::open_commands(a),

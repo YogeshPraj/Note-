@@ -75,6 +75,16 @@ impl Layout {
     }
 }
 
+/// The rows of a vertical strip: one full-width rectangle per tab, stacked from `inset`.
+pub fn column(count: usize, width: i32, row: i32, inset: i32) -> Layout {
+    let tabs = (0..count)
+        .map(|i| {
+            let top = inset + i32::try_from(i).unwrap_or(0) * row;
+            Rect::new(0, top, width, top + row)
+        })
+        .collect();
+    Layout { tabs, left: None, right: None, plus: Rect::default(), clip: (0, width), first: 0 }
+}
 /// Scroll state: which tab is first in view, and whether the active tab must be brought into view.
 #[derive(Debug)]
 pub struct Scroll {
@@ -319,5 +329,16 @@ mod tests {
         assert_eq!(l.button_at(10, 10), None, "no left arrow at the start");
         assert_eq!(l.button_at(sw - 10, 10), Some(Btn::Right));
         assert_eq!(l.button_at(l.plus.l + 2, 10), Some(Btn::Plus));
+    }
+
+    #[test]
+    fn a_column_stacks_full_width_rows_and_hits_them() {
+        let l = column(3, 180, 30, 4);
+        assert_eq!(l.tabs[0], Rect::new(0, 4, 180, 34));
+        assert_eq!(l.tabs[2].t, 64);
+        assert_eq!(l.tab_at(10, 40), Some(1));
+        assert_eq!(l.tab_at(10, 200), None);
+        assert_eq!(l.tab_at(190, 40), None);
+        assert_eq!(l.button_at(10, 40), None);
     }
 }

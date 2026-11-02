@@ -18,7 +18,7 @@ pub mod paint;
 pub mod pointer;
 pub mod theme;
 
-pub use components::{data_list, dock, form, menu_bar, popup_menu, quick_pick, status_bar, tab_strip, tool_bar, web_pane};
+pub use components::{data_list, dock, form, menu_bar, popup_menu, quick_pick, settings_window, status_bar, tab_strip, tool_bar, web_pane};
 
 /// The themed stock controls, under one name.
 pub mod controls {

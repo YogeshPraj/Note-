@@ -24,6 +24,7 @@ mod preview;
 mod pwdialogs;
 mod services;
 mod settings_ui;
+mod settings_window;
 mod side;
 mod state;
 mod streams;

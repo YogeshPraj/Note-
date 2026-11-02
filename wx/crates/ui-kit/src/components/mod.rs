@@ -33,6 +33,7 @@ pub mod quick_pick;
 // wxdragon's get_event_handler_ptr is an unsafe trait method; the wrappers can only forward it.
 #[allow(unsafe_code)]
 pub mod radio_button;
+pub mod settings_window;
 pub mod status_bar;
 pub mod tab_strip;
 // wxdragon's get_event_handler_ptr is an unsafe trait method; the wrappers can only forward it.

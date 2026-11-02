@@ -205,7 +205,7 @@ impl Chrome {
     pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {
         self.strip.set_tabs(
             tabs.into_iter()
-                .map(|t| crate::widgets::tab_strip::Tab { title: t.title, dirty: t.dirty, badge: t.badge, pinned: t.pinned, color: t.color })
+                .map(|t| crate::widgets::tab_strip::Tab { title: t.title, dirty: t.dirty, badge: t.badge, pinned: t.pinned, color: t.color, level: 0 })
                 .collect(),
             active,
         );

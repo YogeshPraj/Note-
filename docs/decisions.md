@@ -23,3 +23,4 @@ One line per decision made without asking, following the "Standing decisions" in
 
 - Allowed `clippy::wildcard_imports` workspace-wide: child modules split out of a large file use `use super::*;` to share the parent's items.
 - Replaced the operating system's popup menus with `ui_kit::popup_menu` (themed, non-activating, mouse-capturing). Reason: on Windows 10.0.26300 the native dark popup renders light items on a dark gutter in every preferred-app mode, so theme tokens could not reach it. Removed `native::set_app_dark` and the TrackPopupMenu loop.
+- One Settings window (`ui_kit::settings_window`) replaces the Preferences dialog: category navigation is a vertical `TabStrip`, rows apply instantly and are saved, with no OK button. Style Configurator, Shortcut Mapper, the right-click menu editor and Encryption keep their own editors, opened from a button on their page; their Settings-menu entries open the window on that page.

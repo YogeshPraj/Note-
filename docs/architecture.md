@@ -93,6 +93,8 @@ wxWidgets is single-threaded: all UI is on the main thread. Reality today:
 - Find in Files, the file-tree scan and log follow still run on the UI thread (audit finding 18). Moving them off the
   thread with progress and cancel is the target, tracked as UX debt.
 
+The Settings window is data-driven: the app builds `Page`/`Row` values from `Settings` (`settings_window.rs`) and gets each change back as a key and a `Value`, which a pure `apply_value` writes into `Settings`.
+
 ## Platform differences
 
 `app::platform` holds OS actions (reveal in the file manager, terminal, open with, recycle, local time) behind a trait

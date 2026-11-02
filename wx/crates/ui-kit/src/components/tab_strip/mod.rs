@@ -7,10 +7,11 @@
 //!
 //! ```ignore
 //! let strip = TabStrip::new(&frame);
-//! strip.set_tabs(vec![Tab { title: "new 1".into(), dirty: true, badge: None, pinned: false, color: None }], 0);
+//! strip.set_tabs(vec![Tab { title: "new 1".into(), dirty: true, badge: None, pinned: false, color: None, level: 0 }], 0);
 //! strip.on_event(|e| match e { TabEvent::Select(i) => { /* activate tab i */ } _ => {} });
 //! ```
 
+mod column;
 pub mod model;
 
 use std::cell::RefCell;
@@ -52,6 +53,8 @@ pub struct Tab {
     pub pinned: bool,
     /// The colour mark of the tab.
     pub color: Option<(u8, u8, u8)>,
+    /// Nesting depth in a vertical strip (indents the row); 0 elsewhere.
+    pub level: u8,
 }
 
 struct Drag {
@@ -61,6 +64,8 @@ struct Drag {
 }
 
 struct State {
+    /// A column of full-width rows (category navigation) instead of a row of tabs.
+    vertical: bool,
     look: Look,
     font: Option<Font>,
     tabs: Vec<Tab>,
@@ -89,11 +94,23 @@ pub struct TabStrip {
 }
 
 impl TabStrip {
-    pub fn new(parent: &Frame) -> TabStrip {
+    pub fn new(parent: &impl WxWidget) -> TabStrip {
         let panel = Panel::builder(parent).build();
-        panel.set_background_style(BackgroundStyle::Paint);
         panel.set_min_size(Size::new(-1, HEIGHT));
+        Self::build(panel, false)
+    }
+
+    /// A vertical strip width pixels wide: one full-width row per tab, selecting only (no close, +, scrolling or dragging).
+    pub fn vertical(parent: &impl WxWidget, width: i32) -> TabStrip {
+        let panel = Panel::builder(parent).build();
+        panel.set_min_size(Size::new(width, -1));
+        Self::build(panel, true)
+    }
+
+    fn build(panel: Panel, vertical: bool) -> TabStrip {
+        panel.set_background_style(BackgroundStyle::Paint);
         let st = Rc::new(RefCell::new(State {
+            vertical,
             look: crate::theme::Theme::light().look(),
             font: None,
             tabs: Vec::new(),
@@ -171,6 +188,8 @@ impl TabStrip {
                 let mut s = st.borrow_mut();
                 if s.drag.is_some() {
                     moved = drag_to(&mut s, x);
+                } else if s.vertical {
+                    s.hot = s.layout.tab_at(x, y).map(|i| (i, false));
                 } else {
                     let hot = s.layout.tab_at(x, y).map(|i| (i, close_rect(&s.layout.tabs[i]).has(x, y) && !s.tabs[i].pinned));
                     s.hot = hot;
@@ -206,7 +225,9 @@ impl TabStrip {
             let (x, y) = pos(&e);
             let event = {
                 let mut s = st.borrow_mut();
-                if let Some(b) = s.layout.button_at(x, y) {
+                if s.vertical {
+                    s.layout.tab_at(x, y).map(TabEvent::Select)
+                } else if let Some(b) = s.layout.button_at(x, y) {
                     s.btn_down = Some(b);
                     if b == Btn::Plus {
                         Some(TabEvent::New)
@@ -227,7 +248,7 @@ impl TabStrip {
                 }
             };
             if let Some(ev) = event {
-                if matches!(ev, TabEvent::Select(_)) {
+                if matches!(ev, TabEvent::Select(_)) && !st.borrow().vertical {
                     p.capture_mouse();
                 }
                 Self::emit(&st, ev);
@@ -256,7 +277,7 @@ impl TabStrip {
             // On empty strip a double-click makes a tab; on a tab or button it does nothing extra.
             let empty = {
                 let s = st.borrow();
-                s.layout.tab_at(x, y).is_none() && s.layout.button_at(x, y).is_none()
+                !s.vertical && s.layout.tab_at(x, y).is_none() && s.layout.button_at(x, y).is_none()
             };
             if empty {
                 Self::emit(&st, TabEvent::New);
@@ -266,7 +287,7 @@ impl TabStrip {
         let st = self.st.clone();
         self.panel.on_mouse_middle_up(move |e| {
             let (x, y) = pos(&e);
-            let hit = st.borrow().layout.tab_at(x, y);
+            let hit = st.borrow().layout.tab_at(x, y).filter(|_| !st.borrow().vertical);
             if let Some(i) = hit {
                 Self::emit(&st, TabEvent::Close(i));
             }
@@ -275,7 +296,7 @@ impl TabStrip {
         let st = self.st.clone();
         self.panel.on_mouse_right_up(move |e| {
             let (x, y) = pos(&e);
-            let hit = st.borrow().layout.tab_at(x, y);
+            let hit = st.borrow().layout.tab_at(x, y).filter(|_| !st.borrow().vertical);
             if let Some(i) = hit {
                 Self::emit(&st, TabEvent::Context(i, x, y));
             }
@@ -326,6 +347,9 @@ fn tab_width(dc: &impl DeviceContext, info: &Tab) -> i32 {
 }
 
 fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
+    if st.borrow().vertical {
+        return column::paint(st, panel);
+    }
     let dc = AutoBufferedPaintDC::new(&panel);
     let mut s = st.borrow_mut();
     let lk = s.look;

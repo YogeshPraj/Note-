@@ -211,7 +211,21 @@ impl Theme {
 
     /// The user-interface font.
     pub fn ui_font(self) -> Option<Font> {
-        let f = Font::builder().with_point_size(self.font.ui_size);
+        self.font_of(self.font.ui_size, FontWeight::Normal)
+    }
+
+    /// The user-interface font in bold (row titles).
+    pub fn strong_font(self) -> Option<Font> {
+        self.font_of(self.font.ui_size, FontWeight::Bold)
+    }
+
+    /// A large heading font (page titles).
+    pub fn title_font(self) -> Option<Font> {
+        self.font_of(self.font.ui_size * 2, FontWeight::Normal)
+    }
+
+    fn font_of(self, size: i32, weight: FontWeight) -> Option<Font> {
+        let f = Font::builder().with_point_size(size).with_weight(weight);
         if self.font.ui_family.is_empty() { f.build() } else { f.with_face_name(self.font.ui_family).build() }
     }
 

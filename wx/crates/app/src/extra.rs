@@ -342,6 +342,47 @@ impl App {
         self.reset_recent_key();
     }
 
+    /// Encryption settings (from the Settings window's Security page).
+    pub fn edit_encryption(&mut self) {
+        let mut vault = self.ws.vault.clone();
+        crate::encdialogs::settings(&self.frame, &mut vault);
+        self.ws.vault = vault;
+    }
+
+    /// The shortcut mapper.
+    pub fn edit_shortcuts(&mut self) {
+        if let Some(done) = dialogs::shortcut_mapper(&self.frame, mapper_rows(&self.ws.settings)) {
+            let mut s = self.ws.settings.clone();
+            s.shortcuts.clear();
+            for r in done {
+                if r.current != r.default {
+                    s.shortcuts.insert(r.id.to_string(), r.current);
+                }
+            }
+            let _ = s.save();
+            self.ws.settings = s;
+            self.reinstall_menus();
+            self.flash = Some("Shortcuts updated".into());
+        }
+    }
+
+    /// The editor's right-click menu.
+    pub fn edit_context_menu(&mut self) {
+        let p = ensure_context_menu_file();
+        let current = context_names(&std::fs::read_to_string(&p).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.into()));
+        let all = notepp_core::registry::palette().map(|c| c.palette.to_string()).collect();
+        if let Some((menu, as_text)) = dialogs::context_menu_editor(&self.frame, all, current.clone(), context_names(DEFAULT_CONTEXT_MENU)) {
+            if menu != current {
+                let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");
+                let _ = std::fs::write(&p, format!("{header}\n{}\n", menu.join("\n")));
+                self.flash = Some("Right-click menu saved".into());
+            }
+            if as_text {
+                let App { ws, ui, .. } = self;
+                ws.open_path(ui, &p);
+            }
+        }
+    }
     /// Passwords (Bitwarden): pick an item and insert it at the cursor or copy it for 30 seconds.
     fn passwords(&mut self) {
         use crate::pwdialogs::{Outcome, run};
@@ -437,14 +478,7 @@ impl CommandHandler<App> for ExtraCommands {
     }
 
     fn handle(&self, app: &mut App, id: usize) -> bool {
-        handle_1(app, id)
-            || handle_2(app, id)
-            || handle_3(app, id)
-            || handle_4(app, id)
-            || handle_5(app, id)
-            || handle_6(app, id)
-            || handle_7(app, id)
-            || handle_8(app, id)
+        handle_1(app, id) || handle_2(app, id) || handle_3(app, id) || handle_4(app, id) || handle_5(app, id) || handle_6(app, id) || handle_7(app, id)
     }
 }
 
@@ -668,11 +702,6 @@ fn handle_5(app: &mut App, id: usize) -> bool {
             app.flash = Some("Passwords locked".into());
         }
         c::ID_PASSWORDS | c::ID_PW_TOOLBAR => app.passwords(),
-        c::ID_ENC_SETTINGS => {
-            let mut vault = app.ws.vault.clone();
-            crate::encdialogs::settings(&app.frame, &mut vault);
-            app.ws.vault = vault;
-        }
         _ => return false,
     }
     true
@@ -728,44 +757,6 @@ fn handle_6(app: &mut App, id: usize) -> bool {
 }
 
 fn handle_7(app: &mut App, id: usize) -> bool {
-    match id {
-        c::ID_SHORTCUTS => {
-            if let Some(done) = dialogs::shortcut_mapper(&app.frame, mapper_rows(&app.ws.settings)) {
-                let mut s = app.ws.settings.clone();
-                s.shortcuts.clear();
-                for r in done {
-                    if r.current != r.default {
-                        s.shortcuts.insert(r.id.to_string(), r.current);
-                    }
-                }
-                let _ = s.save();
-                app.ws.settings = s;
-                app.reinstall_menus();
-                app.flash = Some("Shortcuts updated".into());
-            }
-        }
-        c::ID_EDIT_CONTEXT => {
-            let p = ensure_context_menu_file();
-            let current = context_names(&std::fs::read_to_string(&p).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.into()));
-            let all = notepp_core::registry::palette().map(|c| c.palette.to_string()).collect();
-            if let Some((menu, as_text)) = dialogs::context_menu_editor(&app.frame, all, current.clone(), context_names(DEFAULT_CONTEXT_MENU)) {
-                if menu != current {
-                    let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");
-                    let _ = std::fs::write(&p, format!("{header}\n{}\n", menu.join("\n")));
-                    app.flash = Some("Right-click menu saved".into());
-                }
-                if as_text {
-                    let App { ws, ui, .. } = app;
-                    ws.open_path(ui, &p);
-                }
-            }
-        }
-        _ => return false,
-    }
-    true
-}
-
-fn handle_8(app: &mut App, id: usize) -> bool {
     let sci = app.ws.sci;
     match id {
         _ if (c::ID_HASH_BASE..c::ID_HASH_BASE + notepp_core::hash::ALGOS.len() * 10).contains(&id) => {

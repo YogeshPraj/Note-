@@ -149,10 +149,12 @@ pub fn compile(o: &Opts) -> Result<Regex, Error> {
 /// Turn matches into line-annotated hits.
 pub fn hits_in_text(text: &str, re: &Regex, path: Option<&Path>) -> Vec<Hit> {
     let mut out = Vec::new();
+    // A classic Mac document breaks its lines with a lone CR and has no LF at all.
+    let brk = if !text.contains('\n') && text.contains('\r') { '\r' } else { '\n' };
     let (mut line, mut line_start, mut scanned) = (1usize, 0usize, 0usize);
     for (a, b) in all_matches(text, re) {
-        line += text[scanned..a].matches('\n').count();
-        if let Some(nl) = text[scanned..a].rfind('\n') {
+        line += text[scanned..a].matches(brk).count();
+        if let Some(nl) = text[scanned..a].rfind(brk) {
             line_start = scanned + nl + 1;
         }
         scanned = a;
@@ -193,6 +195,10 @@ pub const MAX_LIST: usize = 20_000;
 
 /// Search every file under `dir` whose name passes `filters`.
 pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, Error> {
+    // An empty pattern matches between every two characters of every file.
+    if o.find.is_empty() {
+        return Err(Error::EmptyPattern);
+    }
     let re = compile(o)?;
     let mut hits = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -860,6 +866,13 @@ mod tests {
     }
 
     #[test]
+    fn hits_in_a_classic_mac_document_have_their_line_numbers() {
+        let re = compile(&opts("x")).unwrap();
+        let hits = hits_in_text("a\rx one\rb\rx two", &re, None);
+        assert_eq!(hits.iter().map(|h| (h.line, h.text.as_str())).collect::<Vec<_>>(), [(2, "x one"), (4, "x two")]);
+    }
+
+    #[test]
     fn find_in_files_walks_and_filters() {
         let d = std::env::temp_dir().join("notepp_fif_native");
         let _ = std::fs::remove_dir_all(&d);
@@ -874,6 +887,8 @@ mod tests {
         assert!(hits.iter().any(|h| h.line == 2 && h.path.as_ref().unwrap().ends_with("a.txt")));
         let only_rs = find_in_files(&d, "*.rs", &opts("world")).unwrap();
         assert_eq!(only_rs.len(), 1);
+        // An empty search box lists nothing (it used to match at every character of every file).
+        assert!(matches!(find_in_files(&d, "*.*", &opts("")), Err(Error::EmptyPattern)));
         let _ = std::fs::remove_dir_all(&d);
     }
 

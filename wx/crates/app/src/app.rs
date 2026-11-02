@@ -746,11 +746,21 @@ fn found_note(f: notepp_core::search::Found) -> String {
     }
 }
 
+/// Why a search could not run, as the Find panel says it: only a bad pattern is a regular-expression problem.
+fn error_note(e: &notepp_core::error::Error) -> String {
+    use notepp_core::error::Error;
+    match e {
+        Error::EmptyPattern => "Type something to search for".into(),
+        Error::Pattern(m) => format!("Invalid regular expression: {m}"),
+        other => other.to_string(),
+    }
+}
+
 /// The Find panel's note for a Count / Replace All / Mark: how many, or why it could not run.
 fn count_note(r: Result<usize, notepp_core::error::Error>, what: &str) -> String {
     match r {
         Ok(n) => format!("{n} {what}"),
-        Err(e) => format!("Invalid regular expression: {e}"),
+        Err(e) => error_note(&e),
     }
 }
 
@@ -877,7 +887,7 @@ impl App {
                 findpanel::set_results(&lines);
                 note
             }
-            Err(e) => format!("Invalid regular expression: {e}"),
+            Err(e) => error_note(&e),
         }
     }
 
@@ -905,7 +915,7 @@ impl App {
                 findpanel::set_results(&lines);
                 note
             }
-            Err(e) => format!("Invalid regular expression: {e}"),
+            Err(e) => error_note(&e),
         }
     }
 

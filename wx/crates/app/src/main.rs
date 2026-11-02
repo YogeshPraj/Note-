@@ -16,6 +16,7 @@ mod mdbar;
 mod menu_spec;
 mod menus;
 mod palette;
+mod paste_special;
 // Raw operating-system calls.
 #[allow(unsafe_code)]
 mod platform;

@@ -168,9 +168,47 @@ pub fn xml_minify(text: &str) -> Result<String, Error> {
         .collect())
 }
 
+/// The fragment of a clipboard "HTML Format" payload: the bytes between its `StartFragment` and `EndFragment`
+/// offsets, or the whole payload when the header is missing or broken.
+pub fn html_fragment(payload: &[u8]) -> String {
+    let text = String::from_utf8_lossy(payload);
+    let offset = |key: &str| -> Option<usize> {
+        let at = text.find(key)? + key.len();
+        text[at..].lines().next()?.trim().parse().ok()
+    };
+    match (offset("StartFragment:"), offset("EndFragment:")) {
+        (Some(a), Some(b)) if a <= b && b <= payload.len() => String::from_utf8_lossy(&payload[a..b]).into_owned(),
+        _ => text.trim_end_matches('\0').to_string(),
+    }
+}
+
+/// How binary text shows as plain text on the clipboard: every NUL byte becomes a space.
+pub fn binary_as_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(&bytes.iter().map(|&b| if b == 0 { b' ' } else { b }).collect::<Vec<u8>>()).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn html_fragment_uses_header_offsets() {
+        let body = "<html><body><!--StartFragment--><b>hi</b><!--EndFragment--></body></html>";
+        let header =
+            |s: usize, e: usize| format!("Version:0.9\r\nStartHTML:0000000000\r\nEndHTML:0000000000\r\nStartFragment:{s:010}\r\nEndFragment:{e:010}\r\n");
+        let hlen = header(0, 0).len();
+        let s = hlen + body.find("<b>").unwrap();
+        let e = hlen + body.find("<!--EndFragment").unwrap();
+        let payload = format!("{}{}", header(s, e), body);
+        assert_eq!(html_fragment(payload.as_bytes()), "<b>hi</b>");
+        assert_eq!(html_fragment(b"<p>plain</p>\0"), "<p>plain</p>");
+        assert_eq!(html_fragment(b"StartFragment:99\r\nEndFragment:5\r\nx"), "StartFragment:99\r\nEndFragment:5\r\nx", "a broken header gives the payload");
+    }
+
+    #[test]
+    fn binary_text_shows_nuls_as_spaces() {
+        assert_eq!(binary_as_text(b"a\0b\0"), "a b ");
+    }
 
     #[test]
     fn base64_round_trips() {

@@ -30,6 +30,19 @@ pub trait Platform: Sync {
         Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Moving files to the trash is not available here yet"))
     }
 
+    /// The raw bytes of the clipboard format called `name` ("HTML Format", "Rich Text Format", a private format), if the
+    /// clipboard holds it. `owner` is the window that opens the clipboard.
+    fn clipboard_format(&self, owner: isize, name: &str) -> Option<Vec<u8>> {
+        let _ = (owner, name);
+        None
+    }
+    /// Replace the clipboard with `bytes` in the private format `name`, plus `text` as its plain-text copy. False when
+    /// the clipboard is busy or named formats are not available on this system.
+    fn set_clipboard_format(&self, owner: isize, name: &str, bytes: &[u8], text: &str) -> bool {
+        let _ = (owner, name, bytes, text);
+        false
+    }
+
     fn local_time(&self) -> DateTime {
         utc_now()
     }

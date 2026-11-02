@@ -25,14 +25,107 @@ struct SystemTime {
     ms: u16,
 }
 
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn OpenClipboard(owner: isize) -> i32;
+    fn CloseClipboard() -> i32;
+    fn EmptyClipboard() -> i32;
+    fn RegisterClipboardFormatW(name: *const u16) -> u32;
+    fn IsClipboardFormatAvailable(format: u32) -> i32;
+    fn GetClipboardData(format: u32) -> isize;
+    fn SetClipboardData(format: u32, mem: isize) -> isize;
+}
+
 #[link(name = "kernel32")]
 unsafe extern "system" {
+    fn GlobalAlloc(flags: u32, bytes: usize) -> isize;
+    fn GlobalFree(mem: isize) -> isize;
+    fn GlobalLock(mem: isize) -> *mut u8;
+    fn GlobalUnlock(mem: isize) -> i32;
+    fn GlobalSize(mem: isize) -> usize;
     fn GetLocalTime(t: *mut SystemTime);
     fn GetDateFormatEx(locale: *const u16, flags: u32, date: *const SystemTime, format: *const u16, out: *mut u16, cch: i32, calendar: *const u16) -> i32;
     fn GetTimeFormatEx(locale: *const u16, flags: u32, time: *const SystemTime, format: *const u16, out: *mut u16, cch: i32) -> i32;
 }
 
+const CF_UNICODETEXT: u32 = 13;
+const GMEM_MOVEABLE: u32 = 2;
+
+/// The clipboard, held open; closed when dropped.
+struct Clipboard;
+
+impl Clipboard {
+    fn open(owner: isize) -> Option<Clipboard> {
+        // Another program may have it open for a moment.
+        for _ in 0..10 {
+            if unsafe { OpenClipboard(owner) } != 0 {
+                return Some(Clipboard);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        None
+    }
+
+    fn read(&self, format: u32) -> Option<Vec<u8>> {
+        unsafe {
+            if IsClipboardFormatAvailable(format) == 0 {
+                return None;
+            }
+            let mem = GetClipboardData(format);
+            let p = if mem == 0 { std::ptr::null_mut() } else { GlobalLock(mem) };
+            if p.is_null() {
+                return None;
+            }
+            let bytes = std::slice::from_raw_parts(p, GlobalSize(mem)).to_vec();
+            GlobalUnlock(mem);
+            Some(bytes)
+        }
+    }
+
+    /// Add `bytes` in `format` (the clipboard owns the memory once this succeeds).
+    fn put(&self, format: u32, bytes: &[u8]) -> bool {
+        unsafe {
+            let mem = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1));
+            let p = if mem == 0 { std::ptr::null_mut() } else { GlobalLock(mem) };
+            if p.is_null() {
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
+            GlobalUnlock(mem);
+            if SetClipboardData(format, mem) == 0 {
+                GlobalFree(mem);
+                return false;
+            }
+            true
+        }
+    }
+}
+
+impl Drop for Clipboard {
+    fn drop(&mut self) {
+        unsafe { CloseClipboard() };
+    }
+}
+
+fn format_id(name: &str) -> u32 {
+    let w: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe { RegisterClipboardFormatW(w.as_ptr()) }
+}
+
 impl Platform for Windows {
+    fn clipboard_format(&self, owner: isize, name: &str) -> Option<Vec<u8>> {
+        let id = format_id(name);
+        Clipboard::open(owner)?.read(id)
+    }
+
+    fn set_clipboard_format(&self, owner: isize, name: &str, bytes: &[u8], text: &str) -> bool {
+        let id = format_id(name);
+        let Some(clip) = Clipboard::open(owner) else { return false };
+        let units: Vec<u8> = text.encode_utf16().chain(std::iter::once(0)).flat_map(u16::to_le_bytes).collect();
+        unsafe { EmptyClipboard() };
+        clip.put(id, bytes) && clip.put(CF_UNICODETEXT, &units)
+    }
+
     fn reveal_in_file_manager(&self, path: &Path) {
         // Explorer wants `/select,"path"` as one argument with its own quotes.
         let _ = std::process::Command::new("explorer").raw_arg(format!("/select,\"{}\"", path.display())).spawn();

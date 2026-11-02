@@ -292,19 +292,6 @@ impl TabStrip {
         });
 
         let st = self.st.clone();
-        self.panel.on_mouse_left_double_click(move |e| {
-            let (x, y) = pos(&e);
-            // On empty strip a double-click makes a tab; on a tab or button it does nothing extra.
-            let empty = {
-                let s = st.borrow();
-                !s.vertical && s.layout.tab_at(x, y).is_none() && s.layout.button_at(x, y).is_none()
-            };
-            if empty {
-                Self::emit(&st, TabEvent::New);
-            }
-        });
-
-        let st = self.st.clone();
         self.panel.on_mouse_middle_up(move |e| {
             let (x, y) = pos(&e);
             let hit = st.borrow().layout.tab_at(x, y).filter(|_| !st.borrow().vertical);

@@ -171,9 +171,15 @@ impl<S: Send> Workspace<S> {
         // use here: a whiteboard has none (0), and selecting 0 makes Scintilla create a stray
         // document that corrupts the view later.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
+        // Swapping documents resets the view's selection and scroll position; put them back too.
+        let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
+        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
+        let first = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
         self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
         let n = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_SETDOCPOINTER, 0, shown);
+        self.send(sci::SCI_SETSEL, anchor, caret);
+        self.send(sci::SCI_SETFIRSTVISIBLELINE, first, 0);
         n
     }
 

@@ -96,9 +96,15 @@ wxWidgets is single-threaded: all UI is on the main thread. Reality today:
 ## Platform differences
 
 `app::platform` holds OS actions (reveal in the file manager, terminal, open with, recycle, local time) behind a trait
-with Windows and Unix implementations. `ui_kit::native` holds window services (dark title bar, native popup menus, RTL,
-topmost). Unsafe code is allowed only in those modules, `ui-kit::components` controls (a trait method wxdragon makes
-unsafe) and the Scintilla adapter; core forbids it.
+with Windows and Unix implementations. `ui_kit::native` holds window services (dark title bar, RTL, topmost, showing a
+popup without taking the focus, a thread-wide key grab). Menus are not native: `ui_kit::popup_menu` draws every popup
+(menu-bar menus, tab, editor and status-bar context menus) from the theme tokens, because the operating system's menus
+cannot follow the application theme (on current Windows builds the dark popup is half light whatever mode is requested).
+The popup never takes the focus: it holds the mouse so a click elsewhere dismisses it, and on Windows a keyboard hook
+(`native::grab_keys`) feeds it the keys; other platforms route keys from the frame's char hook. Enabled and ticked state
+is read from the native menu bar, which stays attached as the state store and for accelerators. Unsafe code is allowed
+only in those modules, `ui-kit::components` controls (a trait method wxdragon makes unsafe) and the Scintilla adapter;
+core forbids it.
 
 ## Build and quality gates
 

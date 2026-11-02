@@ -1,0 +1,422 @@
+//! The popup menu: a themed replacement for the operating system's menus, which cannot follow the application's theme.
+//!
+//! The component draws its rows from the theme tokens and reports what was chosen; the application builds the
+//! [`Entry`] tree and decides what a choice does. Sub-menus open as further levels beside their parent.
+//!
+//! The popup never takes the focus, so the window that opened it stays active: the application forwards key presses
+//! to [`key`] while [`is_open`], and the popup holds the mouse so that a click anywhere else dismisses it.
+//!
+//! ```ignore
+//! let entries = vec![Entry::item(1, "&Open\tCtrl+O", true, None), Entry::Sep, Entry::item(2, "E&xit", true, None)];
+//! popup_menu::show(&frame, entries, (x, y), false, handlers);
+//! ```
+
+mod model;
+mod paint;
+
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
+
+use wxdragon::prelude::*;
+
+use crate::geom::Rect;
+use crate::paint::pos;
+use crate::theme;
+pub use model::{Entry, Item};
+use model::{Layout, by_mnemonic, first, hit, last, layout, place, place_sub, step};
+use paint::{metrics, paint};
+
+/// What the menu tells its owner.
+#[derive(Clone)]
+pub struct Handlers {
+    /// A command was chosen.
+    pub pick: Rc<dyn Fn(usize)>,
+    /// Left (-1) or Right (+1) was pressed on the top level: the owner opens the neighbouring menu.
+    pub nav: Rc<dyn Fn(i32)>,
+    /// The pointer moved outside the menu (screen coordinates): a menu bar uses this to switch menus.
+    pub moved: Rc<dyn Fn((i32, i32))>,
+    /// The menu went away, by whatever route.
+    pub closed: Rc<dyn Fn()>,
+}
+
+impl std::fmt::Debug for Handlers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Handlers").finish_non_exhaustive()
+    }
+}
+
+struct Level {
+    frame: Frame,
+    panel: Panel,
+    entries: Vec<Entry>,
+    layout: Layout,
+    hot: Option<usize>,
+    /// The popup's top-left corner on the screen.
+    origin: (i32, i32),
+}
+
+impl Level {
+    fn contains(&self, p: (i32, i32)) -> bool {
+        Rect::new(self.origin.0, self.origin.1, self.origin.0 + self.layout.width, self.origin.1 + self.layout.height).has(p.0, p.1)
+    }
+
+    fn row_at(&self, p: (i32, i32)) -> Option<usize> {
+        hit(&self.entries, &self.layout, p.0 - self.origin.0, p.1 - self.origin.1)
+    }
+}
+
+struct Session {
+    levels: RefCell<Vec<Level>>,
+    handlers: Handlers,
+    owner: Frame,
+    /// Was the application in the foreground when the menu opened? Only then is losing that a reason to close it.
+    foreground: bool,
+}
+
+type Shared = Rc<Session>;
+
+thread_local! {
+    // The menu being shown, if any.
+    static CURRENT: RefCell<Option<Shared>> = const { RefCell::new(None) };
+    // Work that must not run inside the event that asked for it (a window cannot be closed from its own handler).
+    static QUEUE: RefCell<VecDeque<Box<dyn FnOnce()>>> = const { RefCell::new(VecDeque::new()) };
+    static TIMER: RefCell<Option<Timer<Frame>>> = const { RefCell::new(None) };
+}
+
+fn defer(owner: &Frame, f: impl FnOnce() + 'static) {
+    QUEUE.with(|q| q.borrow_mut().push_back(Box::new(f)));
+    TIMER.with(|t| {
+        let mut t = t.borrow_mut();
+        let timer = t.get_or_insert_with(|| {
+            let timer = Timer::new(owner);
+            timer.on_tick(|_| run_deferred());
+            timer
+        });
+        timer.start(10, true);
+    });
+}
+
+fn run_deferred() {
+    while let Some(f) = QUEUE.with(|q| q.borrow_mut().pop_front()) {
+        f();
+    }
+}
+
+fn current() -> Option<Shared> {
+    CURRENT.with(|c| c.borrow().clone())
+}
+
+/// Is a menu showing?
+pub fn is_open() -> bool {
+    current().is_some()
+}
+
+/// Close the menu, if one is showing.
+pub fn close_all() {
+    if let Some(s) = current() {
+        close_from(&s, 0);
+    }
+}
+
+/// The application's window lost the focus: close the menu if the user went to another program (clicking the menu's own
+/// window also deactivates the window that owns it, and must not close it).
+pub fn deactivated() {
+    if let Some(s) = current()
+        && s.foreground
+        && !crate::native::current().is_foreground()
+    {
+        close_from(&s, 0);
+    }
+}
+
+/// Give a key press to the showing menu. Returns whether there was one (and so the key is spent).
+pub fn key(code: i32, plain: bool) -> bool {
+    match current() {
+        Some(s) => {
+            on_key(&s, code, plain);
+            true
+        }
+        None => false,
+    }
+}
+
+/// A key press as the operating system reports it (Windows virtual-key codes), for platforms that can grab keys.
+fn on_virtual_key(vk: u32, plain: bool) -> bool {
+    let code = match vk {
+        0x10..=0x12 | 0x5B | 0x5C => return false, // modifiers and the Windows keys are left alone
+        0x23 => KEY_END,
+        0x24 => KEY_HOME,
+        0x25 => KEY_LEFT,
+        0x26 => KEY_UP,
+        0x27 => KEY_RIGHT,
+        0x28 => KEY_DOWN,
+        other => i32::try_from(other).unwrap_or(0),
+    };
+    key(code, plain)
+}
+
+/// Show `entries` with its top-left corner at `at` (screen coordinates). `flip_up` lets a menu that would run off the bottom of the
+/// screen open upwards instead (context menus); menus hanging from a bar are pushed up instead.
+pub fn show(owner: &Frame, entries: Vec<Entry>, at: (i32, i32), flip_up: bool, handlers: Handlers) {
+    close_all();
+    let s: Shared = Rc::new(Session { levels: RefCell::new(Vec::new()), handlers, owner: *owner, foreground: crate::native::current().is_foreground() });
+    CURRENT.with(|c| *c.borrow_mut() = Some(s.clone()));
+    open_level(&s, entries, Anchor::Top(at, flip_up), false);
+    crate::native::current().grab_keys(Some(on_virtual_key));
+    if let Some(l) = s.levels.borrow().first() {
+        l.panel.capture_mouse();
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Anchor {
+    Top((i32, i32), bool),
+    Beside { parent: Rect, row_top: i32 },
+}
+
+fn screen_area(p: (i32, i32)) -> Rect {
+    Display::from_point(Point::new(p.0, p.1)).map_or(Rect::new(0, 0, 100_000, 100_000), |d| {
+        let a = d.client_area();
+        Rect::new(a.x, a.y, a.x + a.width, a.y + a.height)
+    })
+}
+
+fn open_level(s: &Shared, entries: Vec<Entry>, anchor: Anchor, pick_first: bool) {
+    let frame = Frame::builder().with_parent(&s.owner).with_style(FrameStyle::StayOnTop | FrameStyle::NoTaskbar).with_size(Size::new(10, 10)).build();
+    let panel = Panel::builder(&frame).build();
+    panel.set_background_style(BackgroundStyle::Paint);
+    // A click must not move the focus into the popup: that would activate it and deactivate the window that owns the menu.
+    panel.set_can_focus(false);
+    let lay = measure(panel, &entries);
+    let size = (lay.width, lay.height);
+    let origin = match anchor {
+        Anchor::Top(at, flip) => place(at, size, screen_area(at), flip),
+        Anchor::Beside { parent, row_top } => place_sub(parent, row_top, size, screen_area((parent.r, row_top))),
+    };
+    frame.set_client_size(Size::new(size.0, size.1));
+    panel.set_size(Size::new(size.0, size.1));
+    frame.move_window(origin.0, origin.1);
+    let hot = if pick_first { first(&entries) } else { None };
+    let i = {
+        let mut lv = s.levels.borrow_mut();
+        lv.push(Level { frame, panel, entries, layout: lay, hot, origin });
+        lv.len() - 1
+    };
+    wire_level(s, i, panel);
+    if !crate::native::current().show_without_activating(frame.get_handle() as isize) {
+        frame.show(true);
+    }
+}
+
+fn measure(panel: Panel, entries: &[Entry]) -> Layout {
+    use wxdragon::dc::{ClientDC, DeviceContext};
+    let dc = ClientDC::new(&panel);
+    if let Some(f) = theme::current().ui_font() {
+        dc.set_font(&f);
+    }
+    layout(entries, &|text| crate::paint::text_w(&dc, text), &metrics())
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mouse {
+    Move,
+    Down,
+    Up,
+}
+
+fn wire_level(s: &Shared, i: usize, panel: Panel) {
+    let w = s.clone();
+    panel.on_paint(move |_| {
+        if let Some(l) = w.levels.borrow().get(i) {
+            paint(panel, &l.entries, &l.layout, l.hot);
+        }
+    });
+    let route = |kind: Mouse| {
+        let w = s.clone();
+        move |e: WindowEventData| {
+            let (x, y) = pos(&e);
+            let p = panel.client_to_screen(Point::new(x, y));
+            mouse(&w, (p.x, p.y), kind);
+        }
+    };
+    panel.on_mouse_motion(route(Mouse::Move));
+    panel.on_mouse_left_down(route(Mouse::Down));
+    panel.on_mouse_right_down(route(Mouse::Down));
+    panel.on_mouse_left_up(route(Mouse::Up));
+}
+
+/// A mouse event at screen position `p`, whichever window of the menu has it.
+fn mouse(s: &Shared, p: (i32, i32), kind: Mouse) {
+    let target = s.levels.borrow().iter().enumerate().rev().find(|(_, l)| l.contains(p)).map(|(j, l)| (j, l.row_at(p)));
+    match (target, kind) {
+        (Some((j, row)), Mouse::Move) => hover(s, j, row),
+        (Some((j, Some(row))), Mouse::Up) => choose(s, j, row),
+        (None, Mouse::Move) => (s.handlers.moved)(p),
+        (None, Mouse::Down) => defer_close(s),
+        _ => {}
+    }
+}
+
+fn close_from(s: &Shared, depth: usize) {
+    let gone: Vec<Level> = {
+        let mut lv = s.levels.borrow_mut();
+        let at = depth.min(lv.len());
+        lv.drain(at..).collect()
+    };
+    for (n, l) in gone.into_iter().enumerate() {
+        if depth + n == 0 && l.panel.has_capture() {
+            l.panel.release_mouse();
+        }
+        l.frame.close(true);
+    }
+    if depth == 0 {
+        let mine = CURRENT.with(|c| {
+            let mut c = c.borrow_mut();
+            let mine = c.as_ref().is_some_and(|x| Rc::ptr_eq(x, s));
+            if mine {
+                *c = None;
+            }
+            mine
+        });
+        if mine {
+            crate::native::current().grab_keys(None);
+            (s.handlers.closed)();
+        }
+    }
+}
+
+fn refresh(s: &Shared, i: usize) {
+    if let Some(l) = s.levels.borrow().get(i) {
+        l.panel.refresh(false, None);
+    }
+}
+
+fn hover(s: &Shared, i: usize, row: Option<usize>) {
+    let changed = {
+        let mut lv = s.levels.borrow_mut();
+        let Some(l) = lv.get_mut(i) else { return };
+        let changed = row.is_some() && l.hot != row;
+        if changed {
+            l.hot = row;
+        }
+        changed
+    };
+    if changed {
+        refresh(s, i);
+        sync_sub(s, i, false);
+    }
+}
+
+/// Show the sub-menu of level `i`'s hot row, and nothing deeper if that row has none.
+fn sync_sub(s: &Shared, i: usize, keyboard: bool) {
+    close_from(s, i + 1);
+    let next = {
+        let lv = s.levels.borrow();
+        let Some(l) = lv.get(i) else { return };
+        let Some(row) = l.hot else { return };
+        match &l.entries[row] {
+            Entry::Sub { items, .. } => {
+                let parent = Rect::new(l.origin.0, l.origin.1, l.origin.0 + l.layout.width, l.origin.1 + l.layout.height);
+                Some((items.clone(), Anchor::Beside { parent, row_top: l.origin.1 + l.layout.rects[row].t - 1 }))
+            }
+            _ => None,
+        }
+    };
+    if let Some((items, anchor)) = next {
+        open_level(s, items, anchor, keyboard);
+    }
+}
+
+fn choose(s: &Shared, i: usize, row: usize) {
+    let entry = s.levels.borrow().get(i).map(|l| l.entries[row].clone());
+    match entry {
+        Some(Entry::Item(item)) if item.enabled => {
+            let s = s.clone();
+            defer(&s.owner.clone(), move || {
+                close_from(&s, 0);
+                (s.handlers.pick)(item.id);
+            });
+        }
+        Some(Entry::Sub { .. }) => {
+            if let Some(l) = s.levels.borrow_mut().get_mut(i) {
+                l.hot = Some(row);
+            }
+            sync_sub(s, i, true);
+        }
+        _ => {}
+    }
+}
+
+const KEY_RETURN: i32 = 13;
+const KEY_ESCAPE: i32 = 27;
+const KEY_SPACE: i32 = 32;
+const KEY_NUMPAD_ENTER: i32 = 370;
+const KEY_END: i32 = 312;
+const KEY_HOME: i32 = 313;
+const KEY_LEFT: i32 = 314;
+const KEY_UP: i32 = 315;
+const KEY_RIGHT: i32 = 316;
+const KEY_DOWN: i32 = 317;
+
+fn set_hot(s: &Shared, i: usize, row: Option<usize>) {
+    if let Some(l) = s.levels.borrow_mut().get_mut(i) {
+        l.hot = row;
+    }
+    refresh(s, i);
+}
+
+/// Keyboard: the deepest open level is the one being driven.
+fn on_key(s: &Shared, code: i32, plain: bool) {
+    let i = s.levels.borrow().len().saturating_sub(1);
+    let (row, entries) = {
+        let lv = s.levels.borrow();
+        let Some(l) = lv.get(i) else { return };
+        (l.hot, l.entries.clone())
+    };
+    let is_sub = row.is_some_and(|r| matches!(entries[r], Entry::Sub { .. }));
+    match code {
+        KEY_ESCAPE => defer_close(s),
+        KEY_UP => set_hot(s, i, step(&entries, row, -1)),
+        KEY_DOWN => set_hot(s, i, step(&entries, row, 1)),
+        KEY_HOME => set_hot(s, i, first(&entries)),
+        KEY_END => set_hot(s, i, last(&entries)),
+        KEY_RETURN | KEY_NUMPAD_ENTER | KEY_SPACE => {
+            if let Some(r) = row {
+                choose(s, i, r);
+            }
+        }
+        KEY_RIGHT if is_sub => sync_sub(s, i, true),
+        KEY_RIGHT => navigate(s, i, 1),
+        KEY_LEFT if i > 0 => close_from(s, i),
+        KEY_LEFT => navigate(s, i, -1),
+        65..=90 | 48..=57 if plain => on_letter(s, i, &entries, row, char::from(u8::try_from(code).unwrap_or(b' '))),
+        _ => {}
+    }
+}
+
+/// A letter picks the row it underlines; when several share it, repeated presses move between them.
+fn on_letter(s: &Shared, i: usize, entries: &[Entry], row: Option<usize>, key: char) {
+    let Some(r) = by_mnemonic(entries, key, row) else { return };
+    set_hot(s, i, Some(r));
+    let unique = by_mnemonic(entries, key, Some(r)).is_none_or(|n| n == r);
+    if unique {
+        choose(s, i, r);
+    }
+}
+
+fn defer_close(s: &Shared) {
+    let s = s.clone();
+    defer(&s.owner.clone(), move || close_from(&s, 0));
+}
+
+fn navigate(s: &Shared, i: usize, dir: i32) {
+    if i > 0 {
+        return;
+    }
+    let s = s.clone();
+    defer(&s.owner.clone(), move || {
+        close_from(&s, 0);
+        (s.handlers.nav)(dir);
+    });
+}

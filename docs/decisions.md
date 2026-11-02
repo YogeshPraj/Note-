@@ -22,3 +22,4 @@ One line per decision made without asking, following the "Standing decisions" in
 | 2026-11-01 | The gallery's WebPane renders blank in PrintWindow captures (WebView2 draws on its own surface). | Screenshot limitation only. |
 
 - Allowed `clippy::wildcard_imports` workspace-wide: child modules split out of a large file use `use super::*;` to share the parent's items.
+- Replaced the operating system's popup menus with `ui_kit::popup_menu` (themed, non-activating, mouse-capturing). Reason: on Windows 10.0.26300 the native dark popup renders light items on a dark gutter in every preferred-app mode, so theme tokens could not reach it. Removed `native::set_app_dark` and the TrackPopupMenu loop.

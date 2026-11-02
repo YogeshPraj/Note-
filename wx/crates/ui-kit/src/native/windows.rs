@@ -1,6 +1,6 @@
-//! Windows: dark mode, window styles and the native menu loop.
+//! Windows: dark title bars, window styles and showing popups without taking the focus.
 
-use super::{Native, winmenu};
+use super::Native;
 
 pub struct Windows;
 
@@ -11,7 +11,22 @@ unsafe extern "system" {
     fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
     fn RedrawWindow(hwnd: isize, rect: *const i32, region: isize, flags: u32) -> i32;
     fn GetAncestor(hwnd: isize, flags: u32) -> isize;
+    fn GetMenu(hwnd: isize) -> isize;
+    fn SetMenu(hwnd: isize, menu: isize) -> i32;
+    fn ShowWindow(hwnd: isize, command: i32) -> i32;
+    fn SetWindowsHookExW(id: i32, proc: unsafe extern "system" fn(i32, usize, isize) -> isize, module: isize, thread: u32) -> isize;
+    fn UnhookWindowsHookEx(hook: isize) -> i32;
+    fn CallNextHookEx(hook: isize, code: i32, wparam: usize, lparam: isize) -> isize;
+    fn GetKeyState(vk: i32) -> i16;
+    fn GetForegroundWindow() -> isize;
+    fn GetWindowThreadProcessId(hwnd: isize, process: *mut u32) -> u32;
     fn EnumChildWindows(parent: isize, proc: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetCurrentThreadId() -> u32;
+    fn GetCurrentProcessId() -> u32;
 }
 
 #[link(name = "dwmapi")]
@@ -22,12 +37,6 @@ unsafe extern "system" {
 #[link(name = "uxtheme")]
 unsafe extern "system" {
     fn SetWindowTheme(hwnd: isize, app: *const u16, ids: *const u16) -> i32;
-}
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn LoadLibraryW(name: *const u16) -> isize;
-    fn GetProcAddress(module: isize, name: usize) -> usize;
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -42,27 +51,42 @@ unsafe extern "system" fn theme_child(hwnd: isize, dark: isize) -> i32 {
 
 const GWL_EXSTYLE: i32 = -20;
 const WS_EX_TOPMOST: isize = 0x8;
+const WS_EX_NOACTIVATE: isize = 0x0800_0000;
+const SW_SHOWNOACTIVATE: i32 = 4;
+const WH_KEYBOARD: i32 = 2;
+const VK_CONTROL: i32 = 0x11;
 
-impl Native for Windows {
-    fn set_app_dark(&self, dark: bool) {
-        // Undocumented uxtheme ordinals (what Explorer uses): 135 SetPreferredAppMode, 136 FlushMenuThemes.
-        type SetMode = unsafe extern "system" fn(i32) -> i32;
-        type Flush = unsafe extern "system" fn();
-        unsafe {
-            let lib = LoadLibraryW(wide("uxtheme.dll").as_ptr());
-            if lib == 0 {
-                return;
+type KeyFn = fn(u32, bool) -> bool;
+
+thread_local! {
+    static KEYS: std::cell::Cell<Option<KeyFn>> = const { std::cell::Cell::new(None) };
+    static HOOK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+    // The key whose press was consumed: its release is consumed too.
+    static EATEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+unsafe extern "system" fn key_hook(code: i32, wparam: usize, lparam: isize) -> isize {
+    if code == 0
+        && let Some(f) = KEYS.with(std::cell::Cell::get)
+    {
+        let released = lparam & (1 << 31) != 0;
+        if released {
+            if EATEN.with(std::cell::Cell::get) == wparam {
+                return 1;
             }
-            let (set, flush) = (GetProcAddress(lib, 135), GetProcAddress(lib, 136));
-            if set != 0 {
-                std::mem::transmute::<usize, SetMode>(set)(if dark { 2 } else { 3 }); // ForceDark / ForceLight
-            }
-            if flush != 0 {
-                std::mem::transmute::<usize, Flush>(flush)();
+        } else {
+            let alt = lparam & (1 << 29) != 0;
+            let ctrl = unsafe { GetKeyState(VK_CONTROL) } < 0;
+            if f(wparam as u32, !alt && !ctrl) {
+                EATEN.with(|e| e.set(wparam));
+                return 1;
             }
         }
     }
+    unsafe { CallNextHookEx(HOOK.with(std::cell::Cell::get), code, wparam, lparam) }
+}
 
+impl Native for Windows {
     fn style_window(&self, window: isize, dark: bool) {
         unsafe {
             if GetAncestor(window, 2) == window {
@@ -78,11 +102,48 @@ impl Native for Windows {
     }
 
     fn detach_menu_bar(&self, window: isize) -> isize {
-        winmenu::detach(window)
+        unsafe {
+            let menu = GetMenu(window);
+            SetMenu(window, 0);
+            menu
+        }
     }
 
-    fn popup_menu(&self, bar: isize, window: isize, index: i32, count: i32, anchor: &dyn Fn(i32) -> (i32, i32)) {
-        winmenu::popup(bar, window, index, count, anchor);
+    fn grab_keys(&self, on_key: Option<fn(u32, bool) -> bool>) -> bool {
+        KEYS.with(|k| k.set(on_key));
+        let installed = HOOK.with(std::cell::Cell::get);
+        match on_key {
+            Some(_) if installed == 0 => {
+                let h = unsafe { SetWindowsHookExW(WH_KEYBOARD, key_hook, 0, GetCurrentThreadId()) };
+                HOOK.with(|c| c.set(h));
+                h != 0
+            }
+            Some(_) => true,
+            None => {
+                if installed != 0 {
+                    unsafe { UnhookWindowsHookEx(installed) };
+                    HOOK.with(|c| c.set(0));
+                }
+                true
+            }
+        }
+    }
+
+    fn is_foreground(&self) -> bool {
+        unsafe {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(GetForegroundWindow(), &raw mut pid);
+            pid == GetCurrentProcessId()
+        }
+    }
+
+    fn show_without_activating(&self, window: isize) -> bool {
+        unsafe {
+            let ex = GetWindowLongPtrW(window, GWL_EXSTYLE);
+            SetWindowLongPtrW(window, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE);
+            ShowWindow(window, SW_SHOWNOACTIVATE);
+        }
+        true
     }
 
     fn set_rtl(&self, window: isize, rtl: bool) {

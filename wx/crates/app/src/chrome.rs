@@ -161,6 +161,16 @@ impl Chrome {
         self.menu_bar.titles()
     }
 
+    /// The pointer is at this screen position while a menu holds the mouse.
+    pub fn menu_pointer(&self, x: i32, y: i32) {
+        self.menu_bar.pointer_moved(x, y);
+    }
+
+    /// Mark the menu that is showing, so that moving over another title switches to it.
+    pub fn set_menu_open(&self, i: Option<usize>) {
+        self.menu_bar.set_open(i);
+    }
+
     /// Where menu `i`'s popup goes (screen coordinates) and how many menus there are, usable while the
     /// application is busy showing one.
     pub fn menu_locator(&self) -> (crate::widgets::menu_bar::Locator, i32) {

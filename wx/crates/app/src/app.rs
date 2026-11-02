@@ -60,6 +60,8 @@ pub struct App {
     pub(crate) distraction: bool,
     pub(crate) chrome_vis: [bool; 4],
     pub(crate) menus: Menus,
+    /// The menus of the menu bar, in order (their contents are current: the menu arena is rebuilt in place).
+    pub(crate) bar_menus: Vec<menus::M>,
     /// What the menus and toolbar were last enabled for (see [`crate::command::App::sync_command_state`]).
     pub(crate) cmd_state: Option<notepp_core::registry::CommandState>,
     /// Defaults plus the user's overrides; what menus, tool-tips and the palette show.
@@ -215,8 +217,7 @@ fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini: StyledTex
     crate::mdbar::wire(app);
     app.borrow_mut().update_startup();
     crate::widgets::theme::subscribe(move |_| {
-        // Popup menus, the title bar and native controls follow the theme.
-        crate::widgets::native::current().set_app_dark(crate::widgets::theme::is_dark());
+        // The title bar and native controls follow the theme.
         crate::widgets::theme::style_native(&frame);
     });
     attach_drop_targets(app, frame, stc);
@@ -301,6 +302,7 @@ pub fn start(files: &[PathBuf]) {
         chrome_vis: [true; 4],
         menubar,
         menus: menu_set,
+        bar_menus: bar.iter().map(|(_, m)| *m).collect(),
         cmd_state: None,
         keymap,
         session_key: (usize::MAX, 0, 0, 0),
@@ -353,13 +355,9 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
     mini.on_set_focus(move |_| stc.set_focus());
 }
 
-/// Open menu `i` of the menu bar. Modal: nothing may be borrowed while it is open (its commands re-enter the app).
+/// Open menu `i` of the menu bar.
 fn open_menu(a: &Shared, i: usize) {
-    let (bar, frame, (at, count)) = match a.try_borrow() {
-        Ok(app) => (app.menu_bar, app.frame, app.chrome.menu_locator()),
-        Err(_) => return,
-    };
-    crate::widgets::native::current().popup_menu(bar, frame.get_handle() as isize, crate::platform::wx::to_i32(i), count, &*at);
+    popups::bar_menu(a, i);
 }
 
 /// Alt+letter opens the menu whose title underlines that letter; F10 opens the first.
@@ -371,6 +369,10 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             return;
         };
         let code = k.get_key_code().unwrap_or(0);
+        // An open menu takes every key.
+        if crate::widgets::popup_menu::key(code, !k.control_down() && !k.alt_down()) {
+            return;
+        }
         let target = if k.alt_down() && !k.control_down() {
             u8::try_from(code).ok().filter(u8::is_ascii_graphic).and_then(|b| {
                 let titles = a.try_borrow().ok()?.chrome.menu_titles();
@@ -385,6 +387,15 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             Some(i) => open_menu(&a, i),
             None => e.skip(true),
         }
+    });
+    // Switching to another program closes an open menu.
+    frame.on_activate(|e| {
+        if let wxdragon::event::WindowEventData::Activate(a) = &e
+            && !a.is_active()
+        {
+            crate::widgets::popup_menu::deactivated();
+        }
+        e.skip(true);
     });
 }
 

@@ -10,20 +10,29 @@
 
 #[cfg(windows)]
 mod windows;
-#[cfg(windows)]
-mod winmenu;
 
 pub trait Native: Sync {
-    /// Make the OS-drawn parts that follow the application (popup menus) dark or light.
-    fn set_app_dark(&self, _dark: bool) {}
     /// Dark or light title bar for a top-level window, and the matching native theme for all its controls.
     fn style_window(&self, _window: isize, _dark: bool) {}
     /// Take the native menu bar off `window` so a custom bar can draw in its place; returns the menu handle.
     fn detach_menu_bar(&self, _window: isize) -> isize {
         0
     }
-    /// Pop up menu `index` of `count` from a detached bar, moving to its neighbours on Left/Right.
-    fn popup_menu(&self, _bar: isize, _window: isize, _index: i32, _count: i32, _anchor: &dyn Fn(i32) -> (i32, i32)) {}
+    /// While a key handler is installed, every key press of this thread goes to it first, whichever window has the focus:
+    /// it gets the virtual-key code and whether neither Ctrl nor Alt is held, and returns true to consume the key. None
+    /// removes it. Returns false where this is not supported (the application then routes keys itself).
+    fn grab_keys(&self, _on_key: Option<fn(u32, bool) -> bool>) -> bool {
+        false
+    }
+    /// Does this program own the foreground window?
+    fn is_foreground(&self) -> bool {
+        true
+    }
+    /// Show a popup window without taking the focus from the window that opened it. False where that is not
+    /// supported; the caller then shows the window normally.
+    fn show_without_activating(&self, _window: isize) -> bool {
+        false
+    }
     /// Right-to-left or left-to-right reading order for a native editor window.
     fn set_rtl(&self, _window: isize, _rtl: bool) {}
     fn is_topmost(&self, _window: isize) -> bool {
@@ -59,7 +68,6 @@ mod tests {
         let n = Unsupported;
         assert!(!n.is_topmost(1));
         assert_eq!(n.detach_menu_bar(1), 0);
-        n.set_app_dark(true);
         n.style_window(1, true);
     }
 }

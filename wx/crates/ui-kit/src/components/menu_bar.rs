@@ -48,6 +48,8 @@ struct State {
     titles: Vec<String>,
     rects: Vec<Rect>,
     pointer: Pointer,
+    /// The menu that is showing: moving over another title switches to it.
+    open: Option<usize>,
     handler: Option<Rc<dyn Fn(MenuEvent)>>,
 }
 
@@ -77,6 +79,7 @@ impl MenuBar {
             titles: Vec::new(),
             rects: Vec::new(),
             pointer: Pointer::default(),
+            open: None,
             handler: None,
         }));
         let bar = MenuBar { panel, st };
@@ -102,6 +105,12 @@ impl MenuBar {
         self.panel.refresh(false, None);
     }
 
+    /// Tell the bar which menu is showing (or none).
+    pub fn set_open(&self, i: Option<usize>) {
+        self.st.borrow_mut().open = i;
+        self.panel.refresh(false, None);
+    }
+
     pub fn titles(&self) -> Vec<String> {
         self.st.borrow().titles.clone()
     }
@@ -119,6 +128,13 @@ impl MenuBar {
         (Box::new(at), n)
     }
 
+    /// The pointer is at screen position (x, y) while something else holds the mouse (an open menu): with a menu
+    /// showing, being over another title switches to it.
+    pub fn pointer_moved(&self, x: i32, y: i32) {
+        let c = self.panel.screen_to_client(Point::new(x, y));
+        moved(&self.st, self.panel, c.x, c.y);
+    }
+
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_paint(move |_| paint(&st, p));
@@ -126,14 +142,7 @@ impl MenuBar {
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_motion(move |e| {
             let (x, y) = pos(&e);
-            let changed = {
-                let mut s = st.borrow_mut();
-                let hit = s.rects.iter().position(|r| r.has(x, y));
-                s.pointer.hover(hit)
-            };
-            if changed {
-                p.refresh(false, None);
-            }
+            moved(&st, p, x, y);
         });
 
         let (p, st) = (self.panel, self.st.clone());
@@ -157,6 +166,26 @@ impl MenuBar {
                 p.refresh(false, None);
             }
         });
+    }
+}
+
+/// Hover state, and the switch to another menu when one is showing.
+fn moved(st: &Rc<RefCell<State>>, p: Panel, x: i32, y: i32) {
+    let (changed, switch) = {
+        let mut s = st.borrow_mut();
+        let hit = s.rects.iter().position(|r| r.has(x, y));
+        let switch = hit.filter(|h| s.open.is_some_and(|o| o != *h)).map(|h| (h, s.rects[h]));
+        if let Some((h, _)) = switch {
+            s.open = Some(h);
+        }
+        (s.pointer.hover(hit), switch)
+    };
+    if changed {
+        p.refresh(false, None);
+    }
+    let handler = st.borrow().handler.clone();
+    if let (Some((h, r)), Some(handler)) = (switch, handler) {
+        handler(MenuEvent::Open(h, r.l, r.b));
     }
 }
 
@@ -203,7 +232,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     let widths: Vec<i32> = parts.iter().map(|(t, _)| text_w(&dc, t)).collect();
     s.rects = layout(&widths, size.height);
     for (i, ((label, key), r)) in parts.iter().zip(&s.rects).enumerate() {
-        if s.pointer.hot() == Some(i) {
+        if s.pointer.hot() == Some(i) || s.open == Some(i) {
             wash(&dc, *r, mix(lk.base(), lk.ink(), 0x1C), 0.0);
         }
         text_at(&dc, label, *r, lk.fg(), true);

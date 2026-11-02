@@ -1,17 +1,94 @@
 //! Context menus: tabs, the editor and the status bar segments. Each is a [`MenuSpec`] realized at the click.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use notepp_core::commands as c;
 use notepp_core::workspace::{TAB_COLORS, TabKind};
 use wxdragon::prelude::*;
 
 use crate::app::Shared;
 use crate::extra::{context_entries, context_menu_path};
-use crate::menu_spec::MenuSpec;
+use crate::menu_spec::{Entry as SpecEntry, MenuSpec, accelerator_text};
+use crate::widgets::popup_menu::{self as pm, Handlers};
 
-/// Show `spec` at `at` (screen coordinates); its commands arrive as ordinary menu events.
-fn show(frame: &Frame, spec: MenuSpec, at: Point) {
-    let mut menu = spec.tidy().realize();
-    frame.popup_menu(&mut menu, Some(at));
+thread_local! {
+    // (how many menus have been opened, the bar menu showing now): a stale menu closing must not clear a newer one.
+    static OPEN: Cell<(u64, Option<usize>)> = const { Cell::new((0, None)) };
+}
+
+/// The kit's entries for `spec`. `live` supplies the current enabled and ticked state (the native menu bar keeps it).
+fn entries(spec: &MenuSpec, live: Option<&MenuBar>) -> Vec<pm::Entry> {
+    spec.entries()
+        .iter()
+        .map(|e| match e {
+            SpecEntry::Sep => pm::Entry::Sep,
+            SpecEntry::Sub { label, menu } => pm::Entry::sub(&accelerator_text(label), entries(menu, live)),
+            SpecEntry::Item { id, label, enabled, check } => {
+                let item = live.filter(|_| *id != 0).and_then(|b| b.find_item(crate::platform::wx::to_i32(*id)));
+                let enabled = item.as_ref().map_or(*enabled, MenuItem::is_enabled);
+                let check = check.map(|c| item.as_ref().map_or(c, MenuItem::is_checked));
+                pm::Entry::item(*id, &accelerator_text(label), enabled, check)
+            }
+        })
+        .collect()
+}
+
+fn pick_handler(app: &Shared) -> Rc<dyn Fn(usize)> {
+    let a = app.clone();
+    Rc::new(move |id| crate::app::run_command(&a, id))
+}
+
+/// Show `spec` at `at` (screen coordinates); choosing an item runs its command.
+fn show(app: &Shared, frame: &Frame, spec: MenuSpec, at: Point) {
+    let handlers = Handlers { pick: pick_handler(app), nav: Rc::new(|_| {}), moved: Rc::new(|_| {}), closed: Rc::new(|| {}) };
+    pm::show(frame, entries(&spec.tidy(), None), (at.x, at.y), true, handlers);
+}
+
+/// Open menu `i` of the menu bar below its title. Opening the one that is already showing closes it instead (the
+/// click that got here has already taken the focus from it).
+pub fn bar_menu(app: &Shared, i: usize) {
+    if OPEN.with(Cell::get).1 == Some(i) {
+        return;
+    }
+    let (frame, list, at, count) = {
+        let Ok(a) = app.try_borrow() else { return };
+        let Some(m) = a.bar_menus.get(i) else { return };
+        let (locate, count) = a.chrome.menu_locator();
+        (a.frame, entries(&crate::menus::spec(*m), Some(&a.menubar)), locate(crate::platform::wx::to_i32(i)), count)
+    };
+    let generation = OPEN.with(|o| {
+        let g = o.get().0 + 1;
+        o.set((g, Some(i)));
+        g
+    });
+    set_bar_open(app, Some(i));
+    let (a, b, m) = (app.clone(), app.clone(), app.clone());
+    let handlers = Handlers {
+        pick: pick_handler(app),
+        nav: Rc::new(move |dir| {
+            let n = crate::platform::wx::to_i32(usize::try_from(count).unwrap_or(1).max(1));
+            bar_menu(&a, usize::try_from((crate::platform::wx::to_i32(i) + dir).rem_euclid(n)).unwrap_or(0));
+        }),
+        moved: Rc::new(move |(x, y)| {
+            if let Ok(app) = m.try_borrow() {
+                app.chrome.menu_pointer(x, y);
+            }
+        }),
+        closed: Rc::new(move || {
+            if OPEN.with(Cell::get).0 == generation {
+                OPEN.with(|o| o.set((generation, None)));
+                set_bar_open(&b, None);
+            }
+        }),
+    };
+    pm::show(&frame, list, at, false, handlers);
+}
+
+fn set_bar_open(app: &Shared, i: Option<usize>) {
+    if let Ok(a) = app.try_borrow() {
+        a.chrome.set_menu_open(i);
+    }
 }
 
 /// What the tab menu depends on.
@@ -56,7 +133,7 @@ pub fn tab_menu(app: &Shared, at: Point) {
         let t = &a.ws.tabs[a.ws.active];
         (a.frame, TabFacts { has_path: t.path.is_some(), is_text: t.kind == TabKind::Text, pinned: t.pinned, color: t.color })
     };
-    show(&frame, tab_spec(&facts), at);
+    show(app, &frame, tab_spec(&facts), at);
 }
 
 /// The editor's right-click menu from the lines of contextmenu.txt (None is a separator).
@@ -87,7 +164,7 @@ pub fn editor_menu(app: &Shared, at: Point) {
     if entries.is_empty() {
         return;
     }
-    show(&frame, editor_spec(entries, &shortcuts), at);
+    show(app, &frame, editor_spec(entries, &shortcuts), at);
 }
 
 /// Right-click on the minimap: hide it (View > Document Map brings it back).
@@ -95,7 +172,7 @@ pub fn minimap_menu(app: &Shared, at: Point) {
     let Ok(a) = app.try_borrow() else { return };
     let frame = a.frame;
     drop(a);
-    show(&frame, MenuSpec::new().item(c::ID_MINIMAP, "Hide Minimap"), at);
+    show(app, &frame, MenuSpec::new().item(c::ID_MINIMAP, "Hide Minimap"), at);
 }
 
 /// A click on the encoding / line-ending / language segment of the status bar.
@@ -110,7 +187,7 @@ pub fn status_menu(app: &Shared, seg: isize, at: Point) {
         };
         (a.frame, m)
     };
-    show(&frame, crate::menus::spec(m), at);
+    show(app, &frame, crate::menus::spec(m), at);
 }
 
 #[cfg(test)]

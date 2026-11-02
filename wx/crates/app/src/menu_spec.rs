@@ -33,7 +33,6 @@ impl MenuSpec {
         MenuSpec::default()
     }
 
-    #[cfg(test)]
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }

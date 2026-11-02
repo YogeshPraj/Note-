@@ -337,6 +337,7 @@ impl App {
         for (i, (title, m)) in bar.iter().enumerate() {
             self.menubar.replace(i, crate::menus::realize(*m), title);
         }
+        self.bar_menus = bar.iter().map(|(_, m)| *m).collect();
         self.menus = set;
         self.reset_recent_key();
     }

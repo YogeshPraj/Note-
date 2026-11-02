@@ -209,6 +209,13 @@ pub fn set_status(s: &str) {
     }
 }
 
+/// While a Find in Files runs, its button stops it.
+pub fn set_searching(on: bool) {
+    if let Some(p) = p() {
+        p.fif.set_label(if on { "Stop" } else { "Find All" });
+    }
+}
+
 pub fn set_results(lines: &[String]) {
     let Some(p) = p() else { return };
     p.list.clear();

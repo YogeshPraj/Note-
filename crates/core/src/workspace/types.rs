@@ -286,7 +286,7 @@ pub(super) fn file_title(path: &Path) -> String {
 }
 
 /// 1234567 -> "1,234,567" (as the status bar shows numbers).
-pub(super) fn commafy(n: usize) -> String {
+pub fn commafy(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {

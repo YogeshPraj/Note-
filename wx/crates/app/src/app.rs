@@ -709,6 +709,7 @@ fn wire_timers(app: &Shared, frame: Frame) {
                     app.check_inbox();
                     app.monitor_tick();
                     app.stream_tick();
+                    app.in_files_poll();
                 }
                 Job::Clipboard => {
                     app.clip_tick();
@@ -751,7 +752,7 @@ fn found_note(f: notepp_core::search::Found) -> String {
 }
 
 /// Why a search could not run, as the Find panel says it: only a bad pattern is a regular-expression problem.
-fn error_note(e: &notepp_core::error::Error) -> String {
+pub(crate) fn error_note(e: &notepp_core::error::Error) -> String {
     use notepp_core::error::Error;
     match e {
         Error::EmptyPattern => "Type something to search for".into(),
@@ -850,7 +851,7 @@ impl App {
                 note = Some("Marks cleared".into());
             }
             Cmd::FindAll => note = Some(self.find_all_note(&opts)),
-            Cmd::InFiles => note = Some(self.in_files_note(&opts)),
+            Cmd::InFiles => note = Some(self.in_files_toggle(&opts)),
             Cmd::Browse => {
                 let d = DirDialog::builder(&self.frame, "Select a folder to search", "").build();
                 if d.show_modal() == ID_OK
@@ -864,6 +865,7 @@ impl App {
                 self.open_hit(i);
             }
             Cmd::Close => {
+                self.in_files_cancel();
                 findpanel::close();
                 self.stc.set_focus();
             }
@@ -888,34 +890,6 @@ impl App {
                     format!("{total} hits in the current document")
                 };
                 self.results.hits = hits;
-                findpanel::set_results(&lines);
-                note
-            }
-            Err(e) => error_note(&e),
-        }
-    }
-
-    /// "Find in Files": search the folder in the panel, list the hits and say how many.
-    fn in_files_note(&mut self, opts: &notepp_core::search::Opts) -> String {
-        use notepp_core::search;
-        let (dir, filters) = findpanel::read_dir_filter();
-        if dir.as_os_str().is_empty() || !dir.is_dir() {
-            return "Choose an existing directory first".into();
-        }
-        match search::find_in_files(&dir, &filters, opts) {
-            Ok(hits) => {
-                let files: std::collections::HashSet<_> = hits.iter().filter_map(|h| h.path.as_ref()).collect();
-                let note = format!("{} hits in {} files{}", hits.len(), files.len(), if hits.len() >= search::MAX_HITS { " (limit reached)" } else { "" });
-                let lines: Vec<String> = hits
-                    .iter()
-                    .map(|h| {
-                        let p = h.path.as_deref().unwrap_or(std::path::Path::new(""));
-                        let rel = p.strip_prefix(&dir).unwrap_or(p);
-                        format!("{} ({}):  {}", rel.display(), h.line, h.text)
-                    })
-                    .collect();
-                self.results.hits = hits;
-                self.results.root = dir;
                 findpanel::set_results(&lines);
                 note
             }

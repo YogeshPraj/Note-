@@ -48,4 +48,16 @@ pub struct SearchResults {
     pub cursor: usize,
     /// Folder of the last Find in Files; empty after a current-document search.
     pub root: std::path::PathBuf,
+    /// A Find in Files running on a worker thread.
+    pub job: Option<FindInFilesJob>,
+}
+
+/// What a Find in Files worker returns: the hits, and whether the whole folder was searched.
+pub type FindInFilesOutcome = Result<(Vec<notepp_core::search::Hit>, bool), notepp_core::error::Error>;
+
+/// A Find in Files on a worker thread: its progress (and stop request), and where it leaves its outcome.
+pub struct FindInFilesJob {
+    pub dir: std::path::PathBuf,
+    pub progress: std::sync::Arc<notepp_core::search::SearchProgress>,
+    pub outcome: std::sync::Arc<std::sync::Mutex<Option<FindInFilesOutcome>>>,
 }

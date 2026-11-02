@@ -9,11 +9,13 @@
 //! The pure functions at the top are unit-tested; the Scintilla-facing ones
 //! below only fetch the text and apply the result.
 
-use super::doc;
 use super::sci::{self, Send};
 use crate::error::Error;
 use fancy_regex::{Captures, Regex, RegexBuilder};
 use std::path::{Path, PathBuf};
+
+mod in_files;
+pub use in_files::*;
 
 pub const INDIC_FIND: usize = 8;
 pub const INDIC_SMART: usize = 9;
@@ -162,78 +164,6 @@ pub fn hits_in_text(text: &str, re: &Regex, path: Option<&Path>) -> Vec<Hit> {
         out.push(Hit { path: path.map(Path::to_path_buf), line, start: a, end: b, text: text[line_start..line_end].trim().chars().take(240).collect() });
     }
     out
-}
-
-/// `*` and `?` wildcard match, case-insensitive.
-pub fn glob_match(pattern: &str, name: &str) -> bool {
-    fn go(p: &[char], n: &[char]) -> bool {
-        match (p.first(), n.first()) {
-            (None, None) => true,
-            (Some('*'), _) => go(&p[1..], n) || (!n.is_empty() && go(p, &n[1..])),
-            (Some('?'), Some(_)) => go(&p[1..], &n[1..]),
-            (Some(a), Some(b)) if a == b => go(&p[1..], &n[1..]),
-            _ => false,
-        }
-    }
-    let p: Vec<char> = pattern.to_lowercase().chars().collect();
-    let n: Vec<char> = name.to_lowercase().chars().collect();
-    go(&p, &n)
-}
-
-/// Does `name` pass a filter list like `*.rs;*.toml;!*.min.js`?
-pub fn passes_filter(filters: &str, name: &str) -> bool {
-    let parts: Vec<&str> = filters.split([';', ',', ' ']).map(str::trim).filter(|s| !s.is_empty()).collect();
-    let includes: Vec<&&str> = parts.iter().filter(|p| !p.starts_with('!')).collect();
-    let excluded = parts.iter().filter_map(|p| p.strip_prefix('!')).any(|p| glob_match(p, name));
-    !excluded && (includes.is_empty() || includes.iter().any(|p| glob_match(p, name)))
-}
-
-const SKIP_DIRS: [&str; 5] = ["node_modules", "target", ".git", ".svn", ".hg"];
-pub const MAX_HITS: usize = 5000;
-/// Most Find All results listed in the panel.
-pub const MAX_LIST: usize = 20_000;
-
-/// Search every file under `dir` whose name passes `filters`.
-pub fn find_in_files(dir: &Path, filters: &str, o: &Opts) -> Result<Vec<Hit>, Error> {
-    // An empty pattern matches between every two characters of every file.
-    if o.find.is_empty() {
-        return Err(Error::EmptyPattern);
-    }
-    let re = compile(o)?;
-    let mut hits = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
-        let mut entries: Vec<_> = rd.flatten().collect();
-        entries.sort_by_key(std::fs::DirEntry::file_name);
-        for e in entries {
-            let p = e.path();
-            let name = e.file_name().to_string_lossy().into_owned();
-            let Ok(ft) = e.file_type() else { continue };
-            if ft.is_dir() {
-                if !SKIP_DIRS.contains(&name.as_str()) {
-                    stack.push(p);
-                }
-            } else if passes_filter(filters, &name) {
-                if e.metadata().map_or(true, |m| m.len() > 8_000_000) {
-                    continue;
-                }
-                let Ok(bytes) = std::fs::read(&p) else { continue };
-                let head = &bytes[..bytes.len().min(8000)];
-                let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
-                if !utf16 && head.contains(&0) {
-                    continue;
-                }
-                let (text, _, _) = doc::decode(&bytes);
-                hits.extend(hits_in_text(&text, &re, Some(&p)));
-                if hits.len() >= MAX_HITS {
-                    hits.truncate(MAX_HITS);
-                    return Ok(hits);
-                }
-            }
-        }
-    }
-    Ok(hits)
 }
 
 /// Every match in the current document, for the "Find All" results list.
@@ -854,42 +784,10 @@ mod tests {
     }
 
     #[test]
-    fn glob_and_filters() {
-        assert!(glob_match("*.rs", "Main.RS"));
-        assert!(!glob_match("*.rs", "main.rss"));
-        assert!(glob_match("a?c.*", "abc.txt"));
-        assert!(passes_filter("*.*", "x.txt"));
-        assert!(passes_filter("*.rs;*.toml", "Cargo.toml"));
-        assert!(!passes_filter("*.rs;*.toml", "a.js"));
-        assert!(!passes_filter("*.js;!*.min.js", "a.min.js"));
-        assert!(passes_filter("", "anything"));
-    }
-
-    #[test]
     fn hits_in_a_classic_mac_document_have_their_line_numbers() {
         let re = compile(&opts("x")).unwrap();
         let hits = hits_in_text("a\rx one\rb\rx two", &re, None);
         assert_eq!(hits.iter().map(|h| (h.line, h.text.as_str())).collect::<Vec<_>>(), [(2, "x one"), (4, "x two")]);
-    }
-
-    #[test]
-    fn find_in_files_walks_and_filters() {
-        let d = std::env::temp_dir().join("notepp_fif_native");
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(d.join("sub")).unwrap();
-        std::fs::create_dir_all(d.join("node_modules")).unwrap();
-        std::fs::write(d.join("a.txt"), "hello\nWorld here\n").unwrap();
-        std::fs::write(d.join("sub").join("b.rs"), "nothing\nworld again").unwrap();
-        std::fs::write(d.join("node_modules").join("c.txt"), "world").unwrap();
-        std::fs::write(d.join("bin.dat"), b"world\0\0\0").unwrap();
-        let hits = find_in_files(&d, "*.*", &opts("world")).unwrap();
-        assert_eq!(hits.len(), 2);
-        assert!(hits.iter().any(|h| h.line == 2 && h.path.as_ref().unwrap().ends_with("a.txt")));
-        let only_rs = find_in_files(&d, "*.rs", &opts("world")).unwrap();
-        assert_eq!(only_rs.len(), 1);
-        // An empty search box lists nothing (it used to match at every character of every file).
-        assert!(matches!(find_in_files(&d, "*.*", &opts("")), Err(Error::EmptyPattern)));
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

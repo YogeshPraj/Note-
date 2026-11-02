@@ -55,6 +55,8 @@ pub struct Workspace<S: Send> {
     pub sci: S,
     /// Optional second view onto the same document, drawn tiny as a minimap.
     pub mini: Option<S>,
+    /// A hidden view for reading other tabs' documents, and the empty document it rests on (see `with_doc`).
+    probe: Option<(S, isize)>,
     pub tabs: Vec<Tab>,
     pub active: usize,
     pub theme: Theme,
@@ -96,6 +98,7 @@ impl<S: Send> Workspace<S> {
         let ws = Self {
             sci,
             mini: None,
+            probe: None,
             tabs: Vec::new(),
             active: 0,
             theme,
@@ -206,10 +209,12 @@ mod tests {
     use std::cell::Cell;
 
     /// A stand-in for Scintilla that tracks which document the view shows.
+    #[derive(Default)]
     struct FakeSci {
         shown: Cell<isize>,
         next: Cell<isize>,
         selected_zero: Cell<bool>,
+        swaps: Cell<usize>,
     }
 
     impl sci::Send for FakeSci {
@@ -224,6 +229,7 @@ mod tests {
                     if l == 0 {
                         self.selected_zero.set(true);
                     }
+                    self.swaps.set(self.swaps.get() + 1);
                     self.shown.set(l);
                     0
                 }
@@ -237,7 +243,7 @@ mod tests {
     fn measuring_a_text_tab_while_a_whiteboard_is_active_leaves_the_view_alone() {
         // The session autosave measures every tab; with a whiteboard in front it used to put the
         // view back on the whiteboard's "document" (0), which crashed Scintilla when the tab closed.
-        let mut ws = Workspace::new(FakeSci { shown: Cell::new(0), next: Cell::new(100), selected_zero: Cell::new(false) });
+        let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
         ws.new_tab();
         ws.new_whiteboard();
         let before = ws.sci.shown.get();
@@ -245,6 +251,24 @@ mod tests {
         ws.session_fingerprint();
         assert!(!ws.sci.selected_zero.get(), "the view was pointed at document 0");
         assert_eq!(ws.sci.shown.get(), before, "the view must keep showing the same document");
+    }
+
+    #[test]
+    fn with_a_probe_the_editor_never_swaps_documents() {
+        // Swapping a document into the editor costs it its multiple selections and horizontal scroll, so the session
+        // autosave and the tab tool tips read hidden tabs through the probe view instead.
+        let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+        ws.new_tab();
+        ws.new_tab();
+        ws.attach_probe(FakeSci { shown: Cell::new(7), ..FakeSci::default() });
+        let (shown, swaps) = (ws.sci.shown.get(), ws.sci.swaps.get());
+        ws.session_fingerprint();
+        ws.snapshot();
+        ws.tab_preview(0, 3, 10);
+        assert_eq!(ws.sci.swaps.get(), swaps, "the editor's document was swapped");
+        assert_eq!(ws.sci.shown.get(), shown);
+        let probe = ws.probe.as_ref().map(|(p, idle)| (p.shown.get(), *idle));
+        assert_eq!(probe, Some((7, 7)), "the probe must rest on its own document again");
     }
 
     #[test]

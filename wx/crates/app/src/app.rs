@@ -66,7 +66,7 @@ pub struct App {
     pub(crate) cmd_state: Option<notepp_core::registry::CommandState>,
     /// Defaults plus the user's overrides; what menus, tool-tips and the palette show.
     pub keymap: notepp_core::keymap::KeyMap,
-    session_key: (usize, usize, usize, u64),
+    session_key: ((usize, usize, usize, u64), u64),
     recent_key: (Vec<PathBuf>, bool),
     window_key: (Vec<String>, usize),
 }
@@ -114,6 +114,7 @@ struct Widgets {
     editor_pane: Panel,
     stc: StyledTextCtrl,
     mini: StyledTextCtrl,
+    probe: StyledTextCtrl,
     panels: Panels,
     wbv: WebPane,
     view: WebPane,
@@ -136,6 +137,9 @@ fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     let stc = StyledTextCtrl::builder(&editor_pane).build();
     let mini = StyledTextCtrl::builder(&editor_pane).build();
     mini.set_min_size(Size::new(110, -1));
+    // Never shown: reads other tabs' documents for the session and tab tool tips, so `stc` never swaps documents.
+    let probe = StyledTextCtrl::builder(&editor_pane).build();
+    probe.show(false);
     for editor in [&stc, &mini] {
         no_border(editor);
     }
@@ -165,15 +169,17 @@ fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     sizer.add(&findpanel::container(frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
-    Widgets { splitter, editor_pane, stc, mini, panels, wbv, view, mdbar }
+    Widgets { splitter, editor_pane, stc, mini, probe, panels, wbv, view, mdbar }
 }
 
 /// The workspace: settings, the last session, then the files named on the command line.
-fn load_workspace(ui: &WxUi, stc: &StyledTextCtrl, mini: &StyledTextCtrl, settings: Settings, files: &[PathBuf]) -> Workspace<WxSci> {
+fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 3], settings: Settings, files: &[PathBuf]) -> Workspace<WxSci> {
+    let [stc, mini, probe] = views;
     let sci = WxSci::of(stc);
     let mut ws = Workspace::new(sci);
     ws.set_settings(settings);
     ws.attach_minimap(WxSci::of(mini));
+    ws.attach_probe(WxSci::of(probe));
     if !session::standalone()
         && let Some(s) = Session::load(&session::session_path())
     {
@@ -289,10 +295,10 @@ pub fn start(files: &[PathBuf]) {
     // Toolbar and tab strip above the editor, status bar below it.
     let chrome = Chrome::new(&frame);
     let w = build_widgets(&frame, &chrome);
-    let Widgets { splitter, editor_pane, stc, mini, panels, wbv, view, mdbar } = w;
+    let Widgets { splitter, editor_pane, stc, mini, probe, panels, wbv, view, mdbar } = w;
 
     let ui = WxUi { frame };
-    let ws = load_workspace(&ui, &stc, &mini, settings, files);
+    let ws = load_workspace(&ui, [&stc, &mini, &probe], settings, files);
 
     let Some(menubar) = frame.get_menu_bar() else { return };
     let app: Shared = Rc::new(RefCell::new(App {
@@ -327,7 +333,7 @@ pub fn start(files: &[PathBuf]) {
         bar_menus: bar.iter().map(|(_, m)| *m).collect(),
         cmd_state: None,
         keymap,
-        session_key: (usize::MAX, 0, 0, 0),
+        session_key: ((usize::MAX, 0, 0, 0), 0),
         recent_key: (vec![PathBuf::from("\u{0}")], false),
         window_key: (vec!["\u{0}".into()], 0),
     }));
@@ -607,6 +613,10 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
     let a = app.clone();
     frame.on_menu(move |e| run_command(&a, crate::platform::wx::to_usize(e.get_id())));
 
+    // Every change to the text counts, for the session autosave (an edit can keep the length the same).
+    stc.on_stc_change(|_| {
+        EDITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
     // Caret moves, edits and selection changes update the status bar.
     let a = app.clone();
     stc.on_stc_update_ui(move |_| {
@@ -715,6 +725,10 @@ fn wire_timers(app: &Shared, frame: Frame) {
         e.skip(true);
     });
 }
+
+/// How many times the editor's text has changed. Bumped from the change notification, which also fires for edits made
+/// by commands while the app is borrowed, so it lives outside `App`.
+static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Does this Find panel action search the current document (rather than files)?
 fn searches_document(cmd: &Cmd, mode: Mode) -> bool {
@@ -1284,7 +1298,9 @@ impl App {
     }
 
     fn autosave_session(&mut self) {
-        let key = self.ws.session_fingerprint();
+        // The tabs and their unsaved text, plus the edit count: an edit that keeps the length (a case change, overtyping,
+        // a same-length replacement) must still reach the session file.
+        let key = (self.ws.session_fingerprint(), EDITS.load(std::sync::atomic::Ordering::Relaxed));
         if key != self.session_key {
             self.session_key = key;
             self.save_session();

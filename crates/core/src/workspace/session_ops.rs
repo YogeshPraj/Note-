@@ -6,28 +6,14 @@ impl<S: Send> Workspace<S> {
     pub fn snapshot(&mut self) -> Session {
         self.remember_view();
         let cur = self.active;
-        // Reading hidden tabs means swapping documents in; put back whatever was showing.
-        let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
-        // Swapping documents in resets the selection and scroll of the view; they are put back at the end.
-        // The scroll position is a document line: a display line means something else once word wrap is laid out again.
-        let (anchor, pos, first) =
-            (crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0)), self.send(sci::SCI_GETCURRENTPOS, 0, 0), self.top_doc_line());
-        let mut pointer = shown;
         let mut tabs = Vec::new();
         let mut active = 0;
         for i in 0..self.tabs.len() {
-            let Some(tab) = self.snapshot_tab(i, shown, &mut pointer) else { continue };
+            let Some(tab) = self.snapshot_tab(i) else { continue };
             if i == cur {
                 active = tabs.len();
             }
             tabs.push(tab);
-        }
-        if pointer != shown {
-            self.send(sci::SCI_SETDOCPOINTER, 0, shown);
-        }
-        if self.tabs.get(cur).is_some_and(|t| t.kind == TabKind::Text) {
-            self.send(sci::SCI_SETSEL, anchor, pos);
-            self.set_top_doc_line(first);
         }
         Session {
             tabs,
@@ -44,8 +30,7 @@ impl<S: Send> Workspace<S> {
     }
 
     /// One tab as saved in the session; `None` for an untitled tab with nothing in it (unless it is the only one).
-    /// Reading a hidden tab's text swaps its document into the view; `pointer` tracks which one is in.
-    fn snapshot_tab(&mut self, i: usize, shown: isize, pointer: &mut isize) -> Option<SessionTab> {
+    fn snapshot_tab(&self, i: usize) -> Option<SessionTab> {
         let t = &self.tabs[i];
         let untitled = t.path.is_none();
         let mut text = None;
@@ -58,12 +43,7 @@ impl<S: Send> Workspace<S> {
             }
         } else {
             if t.dirty || t.forced_dirty || untitled {
-                let want = if i == self.active { shown } else { t.doc };
-                if want != *pointer {
-                    self.send(sci::SCI_SETDOCPOINTER, 0, want);
-                    *pointer = want;
-                }
-                let plain = sci::get_text(&self.sci);
+                let plain = if i == self.active { sci::get_text(&self.sci) } else { self.with_doc(t.doc, |s| sci::get_text(s)) };
                 // Unsaved text of a protected file never reaches the session file as plain text.
                 text = if t.encrypted { self.vault.dek.as_ref().and_then(|d| crypto::encrypt_text(&plain, d, "").ok()) } else { Some(plain) };
             }

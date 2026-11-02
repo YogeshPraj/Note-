@@ -250,6 +250,15 @@ pub(super) fn lang_for(path: &Path) -> &'static str {
     path.extension().and_then(|e| e.to_str()).map_or("null", lexer::lexer_for_extension)
 }
 
+/// The first `bytes` bytes of the document shown in `s` (a character cut in two is repaired).
+pub(super) fn peek_text<S: Send>(s: &S, bytes: usize) -> String {
+    let len = crate::num::to_usize(sci::length(s).max(0)).min(bytes);
+    let mut buf = vec![0u8; len + 1];
+    s.send(sci::SCI_GETTEXT, len + 1, buf.as_mut_ptr() as isize);
+    buf.truncate(len);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
 /// The first `lines` non-trailing lines of `text`, each cut to `width` characters (tabs become four spaces),
 /// with "..." when there is more.
 pub(super) fn preview_lines(text: &str, lines: usize, width: usize) -> String {

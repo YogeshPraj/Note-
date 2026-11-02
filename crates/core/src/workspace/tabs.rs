@@ -167,20 +167,39 @@ impl<S: Send> Workspace<S> {
         if i == self.active {
             return crate::num::to_usize(sci::length(&self.sci).max(0));
         }
-        // Put back whatever document the view was showing. The active tab's own pointer is no
-        // use here: a whiteboard has none (0), and selecting 0 makes Scintilla create a stray
-        // document that corrupts the view later.
+        self.with_doc(t.doc, |s| crate::num::to_usize(sci::length(s).max(0)))
+    }
+
+    /// Give the shell a hidden view for reading other tabs' documents (session saves, tool tips): then the window's own
+    /// editor never has to swap documents, which would cost it its multiple selections and horizontal scroll.
+    pub fn attach_probe(&mut self, probe: S) {
+        // The probe's own empty document must survive having others swapped in (a view frees the one it lets go of).
+        let idle = probe.send(sci::SCI_GETDOCPOINTER, 0, 0);
+        probe.send(sci::SCI_ADDREFDOCUMENT, 0, idle);
+        self.probe = Some((probe, idle));
+    }
+
+    /// Run `f` on document `doc` without disturbing what the editor shows: through the probe view when there is one,
+    /// else by swapping it into the editor and putting the main selection and the scroll back.
+    pub(super) fn with_doc<R>(&self, doc: isize, f: impl FnOnce(&S) -> R) -> R {
+        if let Some((probe, idle)) = &self.probe {
+            probe.send(sci::SCI_SETDOCPOINTER, 0, doc);
+            let r = f(probe);
+            probe.send(sci::SCI_SETDOCPOINTER, 0, *idle);
+            return r;
+        }
+        // Put back whatever document the view was showing. The active tab's own pointer is no use here: a whiteboard has
+        // none (0), and selecting 0 makes Scintilla create a stray document that corrupts the view later.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
-        // Swapping documents resets the view's selection and scroll position; put them back too.
         let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
         let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
         let first = self.top_doc_line(); // a document line: display lines change meaning when word wrap is laid out again
-        self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
-        let n = crate::num::to_usize(sci::length(&self.sci).max(0));
+        self.send(sci::SCI_SETDOCPOINTER, 0, doc);
+        let r = f(&self.sci);
         self.send(sci::SCI_SETDOCPOINTER, 0, shown);
         self.send(sci::SCI_SETSEL, anchor, caret);
         self.set_top_doc_line(first);
-        n
+        r
     }
 
     /// The start of tab `i`'s text, for a tool tip: the name (and folder), then up to `lines` lines of at most `width`
@@ -196,30 +215,9 @@ impl<S: Send> Workspace<S> {
         }
         // Enough bytes for the lines wanted, even when every character takes up to four.
         let want = lines * width * 4;
-        let text = if i == self.active { self.peek_text(want) } else { self.peek_hidden(i, want) };
+        let text = if i == self.active { peek_text(&self.sci, want) } else { self.with_doc(t.doc, |s| peek_text(s, want)) };
         let body = preview_lines(&text, lines, width);
         if body.is_empty() { head } else { format!("{head}\n\n{body}") }
-    }
-
-    fn peek_text(&self, bytes: usize) -> String {
-        let len = crate::num::to_usize(sci::length(&self.sci).max(0)).min(bytes);
-        let mut buf = vec![0u8; len + 1];
-        self.send(sci::SCI_GETTEXT, len + 1, buf.as_mut_ptr() as isize);
-        buf.truncate(len);
-        String::from_utf8_lossy(&buf).into_owned()
-    }
-
-    fn peek_hidden(&self, i: usize, bytes: usize) -> String {
-        let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
-        let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
-        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
-        let first = self.top_doc_line();
-        self.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[i].doc);
-        let text = self.peek_text(bytes);
-        self.send(sci::SCI_SETDOCPOINTER, 0, shown);
-        self.send(sci::SCI_SETSEL, anchor, caret);
-        self.set_top_doc_line(first);
-        text
     }
 
     /// Rows for Window > Windows...: name, folder, type, size.

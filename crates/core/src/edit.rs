@@ -125,7 +125,7 @@ fn compare_text_chunk(a: &[char], b: &[char], mut ai: usize, mut bi: usize) -> (
     (c, a_end, b_end)
 }
 
-/// Notepad++'s "Sort Lines As Integers": a natural sort. Lines are compared chunk by chunk;
+/// "Sort Lines As Integers": a natural sort. Lines are compared chunk by chunk;
 /// runs of digits (with an optional leading minus) compare by value however long they are, and
 /// the rest compares as text, so "item2" sorts before "item10".
 pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
@@ -279,7 +279,7 @@ pub fn join_lines(text: &str) -> String {
     out
 }
 
-/// Scintilla's "Lines Join" over a whole block, as Notepad++'s "EOL to Space" uses it: every line
+/// Scintilla's "Lines Join" over a whole block, as the "EOL to Space" command uses it: every line
 /// break becomes one blank, unless the text before it already ends in one.
 pub fn join_all(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -325,7 +325,7 @@ pub fn split_lines(text: &str, eol: &str, width: usize) -> String {
 
 // ── blanks ───────────────────────────────────────────────────────────────────
 
-/// Only spaces and tabs count as blanks, as in Notepad++ (not no-break or ideographic spaces).
+/// Only spaces and tabs count as blanks (not no-break or ideographic spaces).
 const BLANKS: [char; 2] = [' ', '\t'];
 
 pub fn trim_trailing(text: &str, eol: &str) -> String {
@@ -340,7 +340,7 @@ pub fn trim_both(text: &str, eol: &str) -> String {
     map_lines(text, eol, |l| l.into_iter().map(|x| x.trim_matches(BLANKS).to_string()).collect())
 }
 
-/// Notepad++'s "Remove Unnecessary Blank and EOL": trim every line, then join them all into one.
+/// "Remove Unnecessary Blank and EOL": trim every line, then join them all into one.
 pub fn remove_unnecessary_blanks(text: &str, eol: &str) -> String {
     join_all(&trim_both(text, eol))
 }
@@ -449,7 +449,7 @@ pub fn proper_case(s: &str, blend: bool) -> String {
     out
 }
 
-/// Capitalise the first letter of each sentence, as Notepad++ does: a sentence ends at ``.`` ``!``
+/// Capitalise the first letter of each sentence: a sentence ends at ``.`` ``!``
 /// ``?`` followed by a non-letter, and at a blank line; a lone "i" becomes "I". With ``blend`` the
 /// other letters keep their case.
 pub fn sentence_case(s: &str, blend: bool) -> String {
@@ -525,7 +525,7 @@ pub fn random_case(s: &str, seed: u64) -> String {
 
 // ── comments ─────────────────────────────────────────────────────────────────
 
-/// The comment syntax of a language, from Notepad++'s `langs.model.xml`.
+/// The comment syntax of a language, from the usual language tables.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Comments {
     pub line: &'static str,
@@ -615,7 +615,7 @@ const COMMENTS_BY_LABEL: &[(&str, Comments)] = &[
     ("YAML", cm("#", "", "")),
 ];
 
-/// Languages Notepad++ has no entry for (or ours differ): fall back on the Lexilla lexer.
+/// Languages with no entry here (or ours differ): fall back on the Lexilla lexer.
 fn comments_by_lexer(lexer: &str) -> Comments {
     match lexer {
         "julia" | "nix" | "raku" => cm("#", "", ""),
@@ -646,7 +646,7 @@ fn ends_with_ci(s: &str, suffix: &str) -> bool {
     s.len() >= suffix.len() && s.is_char_boundary(s.len() - suffix.len()) && s[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
 }
 
-/// Single-line comment / uncomment / toggle over whole lines, the way Notepad++ does it: every
+/// Single-line comment / uncomment / toggle over whole lines, the usual way: every
 /// line is handled on its own, at its own indentation, and blank lines are left alone. Languages
 /// without a line-comment symbol wrap each line in the start and end symbols instead.
 /// `column_zero` is for languages whose comments must start in the first column (Fortran 77).
@@ -1014,7 +1014,7 @@ mod tests {
         assert_eq!(trim_trailing("a  \nb\t\nc", "\n"), "a\nb\nc");
         assert_eq!(trim_leading("  a\n\tb", "\n"), "a\nb");
         assert_eq!(trim_both(" a \n b ", "\n"), "a\nb");
-        // Trimmed, then everything on one line (Notepad++'s Remove Unnecessary Blank and EOL).
+        // Trimmed, then everything on one line (the Remove Unnecessary Blank and EOL).
         assert_eq!(remove_unnecessary_blanks(" a \n\n  \n b", "\n"), "a b");
         assert_eq!(tabs_to_spaces("a\tb\n\tc", "\n", 4), "a   b\n    c");
         assert_eq!(spaces_to_tabs("    a    b", "\n", 4, false), "\ta\t b");

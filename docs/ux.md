@@ -1,10 +1,10 @@
 # UX Guidelines
 
 ## Reference
-Behavior follows Notepad++ conventions; visuals follow Windows Fluent guidelines (clean, flat, generous spacing).
+Behavior follows long-established editor conventions; visuals follow Windows Fluent guidelines (clean, flat, generous spacing).
 
 ## Principles
-1. Keyboard first: every action has a command, every command can be bound to a key. Notepad++ default shortcuts.
+1. Keyboard first: every action has a command, every command can be bound to a key. Familiar default shortcuts.
 2. Never block the UI: anything that can take >100 ms runs in the background with a progress indicator and is cancelable.
 3. No data loss: unsaved changes are always confirmed; crash recovery / session restore for open tabs.
 4. Predictable: same action looks and behaves the same everywhere (one component per pattern).

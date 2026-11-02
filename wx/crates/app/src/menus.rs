@@ -218,7 +218,7 @@ pub fn eol_menu() -> M {
     m
 }
 
-/// Fill the File menu in Notepad++'s order. Run again whenever the recent list
+/// Fill the File menu in the customary order. Run again whenever the recent list
 /// changes; `RemoveMenu` (not `DeleteMenu`) keeps the submenus alive for reuse.
 pub fn fill_file_menu(m: &Menus, recent: &[PathBuf], can_restore: bool) {
     B::clear(m.file);

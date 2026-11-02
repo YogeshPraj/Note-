@@ -4,7 +4,7 @@
 
 ### A developer-focused desktop text editor
 
-*Notepad++ reimagined for the modern web stack — powered by Monaco, Electron, an integrated terminal, local AI, a real source-control panel, language-server IntelliSense, draw.io structured diagrams, and a hand-drawn whiteboard.*
+*Reimagined for the modern web stack — powered by Monaco, Electron, an integrated terminal, local AI, a real source-control panel, language-server IntelliSense, draw.io structured diagrams, and a hand-drawn whiteboard.*
 
 [![Latest release](https://img.shields.io/github/v/release/YogeshPraj/Note-?label=latest&color=2563eb)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Total downloads](https://img.shields.io/github/downloads/YogeshPraj/Note-/total?label=downloads&color=16a34a)](https://github.com/YogeshPraj/Note-/releases)
@@ -31,7 +31,7 @@
 
 ## 📖 About
 
-**Note++** is what happens when you take the spirit of Notepad++ and rebuild it on a modern foundation. It's not trying to be another VS Code, and it's not trying to be a generic notepad — it sits comfortably in between: fast to launch, low-friction to use, with the editing power developers actually need day to day, plus a handful of opinionated extras you won't find anywhere else.
+**Note++** is what happens when you rebuild the classic fast tabbed editor on a modern foundation. It's not trying to be another VS Code, and it's not trying to be a generic notepad — it sits comfortably in between: fast to launch, low-friction to use, with the editing power developers actually need day to day, plus a handful of opinionated extras you won't find anywhere else.
 
 Under the hood it runs the same **Monaco** engine that powers VS Code, in a lightweight **Electron** shell, with an integrated **xterm** terminal (true PTY via `node-pty`), live preview for HTML and Markdown, **Mermaid** diagrams, an **Excalidraw**-powered hand-drawn whiteboard, **draw.io** structured diagrams (downloaded on demand, persists across upgrades), **Language Server Protocol** integration (Pyright for Python, click-to-install), a full **Git source-control panel** with inline diff gutter, a **local AI assistant** (Ollama with Agent mode + multi-turn chat + quick-action chips), per-file **AES-256-GCM encryption**, **Compare** (file & folder diff like Diff.Net / WinMerge), **Recent Files**, an **external-change file watcher**, **silent auto-update** with a polished progress window, and cloud session sync. Ships for **Windows, macOS, and Linux**.
 
@@ -76,7 +76,7 @@ Under the hood it runs the same **Monaco** engine that powers VS Code, in a ligh
 - **50+ language** syntax highlighters out of the box
 - **IntelliSense** auto-complete for JavaScript, TypeScript, and friends
 - **Language Server Protocol** — real diagnostics + hover + completion + go-to-definition for **Python (Pyright)**; click-to-install pill in the status bar when the server isn't present
-- **Find / Replace / Mark / Find in Files** — Notepad++-style search results panel, multi-colour persistent highlights, gutter+minimap markers update live as you type
+- **Find / Replace / Mark / Find in Files** — search results panel, multi-colour persistent highlights, gutter+minimap markers update live as you type
 - **Inline git diff gutter** — green/blue/red bars on every changed line vs `HEAD`, updates as you edit
 - **Persistent UI toggles** — Word Wrap, Dark Mode, Zoom, Minimap, etc. survive a restart (saved to `settings.json`)
 - **Command Palette** (`Ctrl+Shift+P`) and **Quick Open** (`Ctrl+P`)
@@ -735,7 +735,7 @@ Inside the folder-diff tab:
 
 ## 🔎 Find / Replace / Mark / Find in Files
 
-Four-tab search panel with a Notepad++-style results panel:
+Four-tab search panel with a results panel:
 
 ### Live decorations (Find)
 - Yellow bar + ● dot in the gutter on every match line

@@ -320,7 +320,7 @@ pub fn visible_selection(bg: Rgb, fg: Rgb, sel: Rgb) -> Rgb {
     (mix(bg.0, fg.0), mix(bg.1, fg.1), mix(bg.2, fg.2))
 }
 
-/// Everything Notepad++ shows by default, applied through the portable API.
+/// The usual defaults, applied through the portable API.
 pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
     // A NUL in a hand-edited settings file must not take the whole app down.
     let f = CString::new(font.replace('\0', "")).unwrap_or_default();
@@ -334,7 +334,7 @@ pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
     // any per-style colours or they get wiped.
     sci.send(SCI_STYLECLEARALL, 0, 0);
 
-    // Matching braces are bold red, an unmatched one white on red (Notepad++'s defaults).
+    // Matching braces are bold red, an unmatched one white on red (the classic defaults).
     let red = if theme.dark { rgb(0xFF, 0x6B, 0x6B) } else { rgb(0xFF, 0x00, 0x00) };
     sci.send(SCI_STYLESETFORE, STYLE_BRACELIGHT, red);
     sci.send(SCI_STYLESETBOLD, STYLE_BRACELIGHT, 1);
@@ -363,7 +363,7 @@ pub fn setup_line_numbers<S: Send>(sci: &S, theme: &Theme, width: isize) {
     sci.send(SCI_SETMARGINWIDTHN, 1, width);
 }
 
-/// Folding margin with the full connected-line marker set Notepad++ uses.
+/// Folding margin with the full connected-line marker set.
 /// Call after the lexer is attached: properties are forwarded to the lexer and
 /// are silently dropped if none is set yet.
 pub fn setup_folding<S: Send>(sci: &S, theme: &Theme) {

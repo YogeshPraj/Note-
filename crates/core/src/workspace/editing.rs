@@ -110,7 +110,7 @@ impl<S: Send> Workspace<S> {
                 Ok(lines(&|x| edit::comment_single(x, eol, syn, mode, column_zero).unwrap_or_else(|| x.to_string())))
             }
             _ if syn.start.is_empty() || syn.end.is_empty() => {
-                // Without stream-comment symbols Notepad++ falls back on single-line comments.
+                // Without stream-comment symbols the editor falls back on single-line comments.
                 if syn.line.is_empty() {
                     return Err(none());
                 }
@@ -313,7 +313,7 @@ impl<S: Send> Workspace<S> {
         let at = crate::num::to_usize(if above { self.send(sci::SCI_POSITIONFROMLINE, line, 0) } else { self.send(sci::SCI_GETLINEENDPOSITION, line, 0) });
         let text = std::ffi::CString::new(eol).unwrap_or_default();
         self.send(sci::SCI_INSERTTEXT, at, text.as_ptr() as isize);
-        // The caret lands on the new blank line either way (as in Notepad++).
+        // The caret lands on the new blank line either way.
         let target = if above { crate::num::to_isize(at) } else { self.send(sci::SCI_POSITIONFROMLINE, line + 1, 0) };
         self.send(sci::SCI_GOTOPOS, crate::num::to_usize(target.max(0)), 0);
     }

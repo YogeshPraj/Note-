@@ -5056,7 +5056,7 @@ function findAll() {
   showSearchResults(opts.searchString, matches, opts);
 }
 
-// ── Notepad++-style "Search results" panel ───────────────────────────────
+// ── "Search results" panel ───────────────────────────────
 // Header banner shows total hits; under it a per-file group lists every
 // match with its line number and full line content (search term highlighted).
 // Clicking a row jumps the editor to that line + reveals it.
@@ -5072,7 +5072,7 @@ function showSearchResults(searchString, matches, opts) {
   summary.textContent =
     `Search "${truncate(searchString, 40)}"  (${matches.length} hit${matches.length !== 1 ? 's' : ''} in 1 file of 1 searched)`;
 
-  // Group rows by line — Notepad++ shows one row per match, with line content
+  // Group rows by line — one row per match, with line content
   const escapeHtml = (s) => s.replace(/[&<>"']/g, c =>
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 
@@ -5227,7 +5227,7 @@ function updateColSelectStatus() {
   if (statusCol) statusCol.classList.toggle('active', isColumnSelectMode);
 }
 
-// Alt+drag → column/box selection (Notepad++ style).
+// Alt+drag → column/box selection.
 // Registered on document in capture phase so it fires before Monaco's own
 // mousedown handlers — Monaco then reads columnSelection:true when it sets
 // up the drag, producing a box selection instead of a normal selection.
@@ -6470,7 +6470,7 @@ async function doFindInFiles() {
   showFifResults(opts.searchString, r, opts);
 }
 
-// Render results from Find-in-Files into the Notepad++-style results panel.
+// Render results from Find-in-Files into the results panel.
 function showFifResults(searchString, fifResult, opts) {
   const panel   = document.getElementById('search-results-panel');
   const body    = document.getElementById('search-results-body');

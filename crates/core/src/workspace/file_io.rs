@@ -203,7 +203,7 @@ impl<S: Send> Workspace<S> {
         self.tabs.get(self.active).is_some_and(|t| t.encrypted)
     }
 
-    /// Notice files changed or deleted by other programs and ask what to do, as Notepad++ does.
+    /// Notice files changed or deleted by other programs and ask what to do.
     /// Returns true if any tab was reloaded, kept or closed.
     pub fn check_external(&mut self, ui: &dyn Ui) -> bool {
         let ids: Vec<u64> = self.tabs.iter().filter(|t| t.path.is_some()).map(|t| t.id).collect();

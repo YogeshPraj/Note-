@@ -591,7 +591,7 @@ body.native-titlebar #title-bar { display: none !important; }
   border-bottom-color: var(--tab-active-bg);
   z-index: 1;
   font-weight: 600;
-  /* Notepad++-style top accent — uses each theme's status-bar accent
+  /* Top accent — uses each theme's status-bar accent
      colour so it pops in dark themes (where active bg matches editor bg)
      without changing tab geometry. `inset` keeps it inside the tab so
      padding/height don't shift on activation. */
@@ -1467,7 +1467,7 @@ body.theme-dark .ai-quick-btn:hover { background: #3a3a3a; border-color: #58a6ff
 #preview-header-btns { display: flex; align-items: center; gap: 2px; }
 /* Enforce uniform sizing for every preview header button so
    maximise / restore / refresh / close / export all read as a
-   consistent row of chips — matches Notepad++-style toolbar chunks. */
+   consistent row of chips — matches toolbar chunks. */
 #preview-header-btns .tb-btn {
   width: 24px;
   height: 22px;
@@ -2143,7 +2143,7 @@ body.theme-dark .md-preview .mermaid svg { filter: invert(0.85) hue-rotate(180de
 
 .fr-label { width: 90px; font-size: 12px; flex-shrink: 0; text-align: right; }
 
-/* Find / Replace input — same look in BOTH themes (Notepad++ style):
+/* Find / Replace input — same look in BOTH themes:
    pure white background + solid black text. Stays unambiguously readable
    regardless of whether the app chrome is light or dark. */
 .fr-input,
@@ -2236,7 +2236,7 @@ body.theme-dark .find-highlight-current {
 }
 body.theme-dark .find-highlight-inline-current { color: #fff !important; }
 
-/* ── Search results panel (Notepad++ "Find All in Current Document") ──── */
+/* ── Search results panel ("Find All in Current Document") ──── */
 #search-results-panel {
   background: var(--find-bg);
   border-top: 1px solid var(--find-border);

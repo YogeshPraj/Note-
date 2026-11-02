@@ -19,7 +19,7 @@ pub enum WinAction {
     Sort(SortField, bool),
 }
 
-/// Window > Sort By, in Notepad++'s order (also the dialog's "Sort tabs" choice).
+/// Window > Sort By, in the customary order (also the dialog's "Sort tabs" choice).
 pub const SORTS: [(&str, SortField, bool); 10] = [
     ("Name A to Z", SortField::Name, false),
     ("Name Z to A", SortField::Name, true),

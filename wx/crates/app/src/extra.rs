@@ -644,7 +644,7 @@ fn handle_4(app: &mut App, id: usize) -> bool {
                 app.postit = false;
             }
             app.ws.set_margins_visible(!app.distraction);
-            // Distraction free mode also goes full screen, as in Notepad++.
+            // Distraction free mode also goes full screen.
             app.frame.show_full_screen(app.distraction);
         }
         c::ID_COLUMN_MODE => {

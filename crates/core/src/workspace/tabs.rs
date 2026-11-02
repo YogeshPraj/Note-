@@ -225,7 +225,7 @@ impl<S: Send> Workspace<S> {
         let pos = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
         let line = self.send(sci::SCI_LINEFROMPOSITION, crate::num::to_usize(pos), 0) + 1;
         let col = self.send(sci::SCI_GETCOLUMN, crate::num::to_usize(pos), 0) + 1;
-        // Same wording as Notepad++: the caret's position, or what is selected.
+        // Conventional wording: the caret's position, or what is selected.
         let tail = match crate::num::to_usize(self.send(sci::SCI_GETSELECTIONS, 0, 0).max(1)) {
             1 if self.send(sci::SCI_GETSELECTIONEMPTY, 0, 0) != 0 => format!("Pos: {}", commafy(crate::num::to_usize(pos.max(0)) + 1)),
             n => {

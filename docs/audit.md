@@ -148,7 +148,7 @@ Cast, `Debug` and `unwrap` lints are at zero.
 
 ## Behaviour differences introduced
 
-- Undo, Redo, Cut, Copy, Delete and Reload are greyed (menu and toolbar) when they cannot run, as in Notepad++.
+- Undo, Redo, Cut, Copy, Delete and Reload are greyed (menu and toolbar) when they cannot run.
 - Toolbar tool-tips for Undo, Redo, Zoom In/Out, Word Wrap and Dark Mode read slightly differently (derived from the registry).
 - A shortcut override that clashes with another command is now refused at start-up (the command keeps its default) and
   reported on the status line; before, both bound the same chord.

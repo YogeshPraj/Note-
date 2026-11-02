@@ -153,7 +153,7 @@ pub struct Preset {
     pub colors: [&'static str; 14],
 }
 
-/// Popular Notepad++ style themes, approximated from their published palettes.
+/// Popular style themes, approximated from their published palettes.
 pub const PRESETS: &[Preset] = &[
     Preset {
         name: "Monokai",

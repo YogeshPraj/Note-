@@ -52,7 +52,7 @@ pub fn close_targets(op: CloseOp, active: usize, dirty: &[bool]) -> Vec<usize> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SortKeys {
     pub name: String,
-    /// Full path ("" for unsaved tabs); also the tie-breaker, like Notepad++.
+    /// Full path ("" for unsaved tabs); also the tie-breaker.
     pub path: String,
     pub kind: String,
     pub len: usize,
@@ -254,7 +254,7 @@ pub(super) fn file_title(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// 1234567 -> "1,234,567" (as the Notepad++ status bar shows numbers).
+/// 1234567 -> "1,234,567" (as the status bar shows numbers).
 pub(super) fn commafy(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();

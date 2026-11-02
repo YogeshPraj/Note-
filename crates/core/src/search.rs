@@ -1,7 +1,7 @@
 //! Search: find / replace / count / mark.
 //!
 //! Matching is done in Rust (fancy-regex: PCRE-like, with backreferences and
-//! lookaround, much closer to Notepad++'s Boost.Regex than Scintilla's built-in
+//! lookaround, much closer to Boost.Regex than Scintilla's built-in
 //! engine, whose `\w`/`\s`/`\b` proved unreliable). Scintilla positions are
 //! UTF-8 byte offsets, which is exactly what `&str` matching yields, so match
 //! ranges map straight onto document positions.
@@ -74,7 +74,7 @@ fn number(it: &mut std::iter::Peekable<std::str::Chars<'_>>, radix: u32, max: us
     if got == 0 { None } else { char::from_u32(n) }
 }
 
-/// Expand the escapes of Notepad++'s Extended search mode.
+/// Expand the escapes of the Extended search mode.
 pub fn unescape_ext(s: &str) -> String {
     let mut out = String::new();
     let mut it = s.chars().peekable();
@@ -138,7 +138,7 @@ pub fn compile(o: &Opts) -> Result<Regex, Error> {
     } else {
         body
     };
-    // (?m): ^ and $ match at every line, as in Notepad++. (?R): a CR LF pair counts as one line break.
+    // (?m): ^ and $ match at every line. (?R): a CR LF pair counts as one line break.
     RegexBuilder::new(&format!("(?mR){body}"))
         .case_insensitive(!o.match_case)
         .dot_matches_new_line(o.regex && o.dot_all)
@@ -285,7 +285,7 @@ pub fn prev_match(text: &str, re: &Regex, limit: usize) -> Option<Span> {
 }
 
 /// Expand `\1`, `$1`, `\n`, `\r`, `\t`, `\\` and the case switches `\U \L \E \u \l` in a regex
-/// replacement (the Boost.Regex format Notepad++ uses).
+/// replacement (the Boost.Regex format).
 pub fn expand(rep: &str, caps: &Captures<'_, str>) -> String {
     #[derive(Clone, Copy, PartialEq)]
     enum Case {
@@ -483,7 +483,7 @@ fn fill_marks<S: Send>(s: &S, o: &Opts, indicator: usize) -> Result<usize, Error
 
 // ---- token styles (Search > Style ... Token) -------------------------------
 
-/// Five user colours, like Notepad++'s "1st" to "5th" styles.
+/// Five user colours, named "1st" to "5th".
 pub const STYLE_SLOTS: usize = 5;
 const INDIC_STYLE_BASE: usize = 10;
 pub const STYLE_COLOURS: [(u8, u8, u8); STYLE_SLOTS] = [(0xFF, 0x80, 0x00), (0xFF, 0xFF, 0x00), (0x00, 0xE0, 0x40), (0x80, 0x40, 0xFF), (0xFF, 0x40, 0x40)];
@@ -601,7 +601,7 @@ pub fn styled_text<S: Send>(s: &S, slots: &[usize]) -> String {
 
 // ---- braces ------------------------------------------------------------------
 
-/// The bracket next to the caret: the one before it, else the one after, like Notepad++.
+/// The bracket next to the caret: the one before it, else the one after.
 /// Only `()[]{}` count (Scintilla would also pair `<` and `>`).
 fn brace_at_caret<S: Send>(s: &S) -> Option<usize> {
     let pos = crate::num::to_usize(s.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
@@ -711,8 +711,8 @@ pub fn selected_text<S: Send>(s: &S) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-/// Highlight every occurrence of the single word currently selected, like
-/// Notepad++'s "smart highlighting". Large documents are skipped.
+/// Highlight every occurrence of the single word currently selected, for
+/// "smart highlighting". Large documents are skipped.
 pub fn smart_highlight<S: Send>(s: &S) {
     clear_marks(s, INDIC_SMART);
     if sci::length(s) > 2_000_000 {
@@ -721,7 +721,7 @@ pub fn smart_highlight<S: Send>(s: &S) {
     let word = selected_text(s);
     let is_word = !word.is_empty() && word.len() <= 100 && word.chars().all(|c| c.is_alphanumeric() || c == '_');
     if is_word {
-        // Like Notepad++'s default: whole words, any case.
+        // Default: whole words, any case.
         let o = Opts { find: word, match_case: false, whole_word: true, ..Default::default() };
         let _ = mark_all(s, &o, INDIC_SMART);
     }

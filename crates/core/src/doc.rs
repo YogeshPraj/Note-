@@ -1,6 +1,6 @@
 //! File encoding and line-ending detection. Portable, no Scintilla involved.
 
-/// A legacy single- or double-byte character set, from Notepad++'s "Character sets" menu.
+/// A legacy single- or double-byte character set, from the "Character sets" menu.
 #[derive(Debug)]
 pub struct Charset {
     pub group: &'static str,
@@ -231,8 +231,8 @@ pub fn encode(text: &str, enc: Enc) -> Vec<u8> {
     }
 }
 
-/// Encode for a legacy character set. A character the set cannot hold becomes ? (what
-/// Notepad++ writes), never an HTML numeric reference, which would corrupt the file.
+/// Encode for a legacy character set. A character the set cannot hold becomes ? (the usual
+/// substitute), never an HTML numeric reference, which would corrupt the file.
 fn encode_legacy(e: &'static encoding_rs::Encoding, text: &str) -> Vec<u8> {
     let (out, _, unmappable) = e.encode(text);
     if !unmappable {

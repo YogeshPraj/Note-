@@ -64,7 +64,7 @@ impl<S: Send> Workspace<S> {
             v.send(sci::SCI_SETEDGECOLUMN, crate::num::to_usize(self.settings.edge_column.max(0)), 0);
             v.send(sci::SCI_SETEDGECOLOUR, crate::num::to_usize(sci::rgb(theme.line_no_fg.0, theme.line_no_fg.1, theme.line_no_fg.2)), 0);
         }
-        // Find marks: amber box. Smart highlight: green box (Notepad++ style).
+        // Find marks: amber box. Smart highlight: green box.
         for (ind, rgb, alpha) in [(search::INDIC_FIND, (0xFF, 0xB0, 0x00), 110), (search::INDIC_SMART, (0x4C, 0xC9, 0x5A), 90)]
             .into_iter()
             .chain((0..search::STYLE_SLOTS).map(|i| (search::style_indicator(i), search::STYLE_COLOURS[i], 100)))

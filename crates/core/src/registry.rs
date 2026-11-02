@@ -2,7 +2,7 @@
 //! [`CommandSpec`] here. Menus, the toolbar, the palette and the keybindings are generated from this table, so
 //! a label, a default shortcut or an enabled rule is written once.
 //!
-//! Commands keep the numeric ids of the Notepad++-compatible command set (`commands::ID_*`); [`Command`] gives the
+//! Commands keep the numeric ids of the established command set (`commands::ID_*`); [`Command`] gives the
 //! frequent ones a typed name. Families of commands (recent files, encodings, languages, ...) are generated from
 //! their data and carry an id range instead of a row here.
 

@@ -50,7 +50,7 @@ imports (`form::PROBLEM_SINK`).
 Every user action is a command: a menu item, a toolbar button, a shortcut, a palette entry.
 
 - **Registry** (`core::registry`): `CommandSpec { id, menu, palette, shortcut, menu_key, enabled }`, one row per fixed
-  command. Ids are the numeric Notepad++-compatible ids in `commands.rs`; `Command` gives the frequent ones a typed name.
+  command. Ids are the numeric ids in `commands.rs`; `Command` gives the frequent ones a typed name.
 - **Families** (`Command::OpenRecent(i)`, `EncodeIn`, `ConvertTo`, `SetCharset`, `SetLanguage`): one command per item of a
   list built from state. A `MenuProvider` (or `GroupedMenuProvider`) turns the state into `MenuItemSpec`s; the menu code
   only lays them out.

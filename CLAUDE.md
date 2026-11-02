@@ -1,6 +1,6 @@
 # Project: Note++ (Rust, wxWidgets)
 
-A native Notepad++-style editor: Scintilla and Lexilla for editing, a portable Rust core, a wxWidgets shell.
+A native editor: Scintilla and Lexilla for editing, a portable Rust core, a wxWidgets shell.
 Branch `wx-port` is the cross-platform shell; `main` shipped the earlier Win32 build.
 
 Read `docs/architecture.md` and `docs/ux.md` before any non-trivial change. Design decisions made without asking are in

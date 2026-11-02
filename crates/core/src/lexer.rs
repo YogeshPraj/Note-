@@ -1,4 +1,4 @@
-//! Lexilla — the same 125 language lexers Notepad++ ships (it bundles 128).
+//! Lexilla — 125 language lexers.
 //!
 //! Statically linked, so there is no second DLL to ship. Portable: the lexer
 //! is handed to Scintilla through `SCI_SETILEXER`, which is platform-neutral.

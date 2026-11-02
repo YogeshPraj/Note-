@@ -21,7 +21,7 @@ pub const SLOT_NAMES: [&str; 5] = ["1st", "2nd", "3rd", "4th", "5th"];
 /// (name, executable) for View > View Current File in.
 pub const BROWSERS: [(&str, &str); 3] = [("Firefox", "firefox.exe"), ("Chrome", "chrome.exe"), ("Edge", "msedge.exe")];
 
-/// The encodings offered by "Encode in" and "Convert to", in Notepad++'s order.
+/// The encodings offered by "Encode in" and "Convert to", in the customary order.
 pub const ENCODE_IN: [Enc; 5] = [Enc::Ansi, Enc::Utf8, Enc::Utf8Bom, Enc::Utf16Be, Enc::Utf16Le];
 
 pub const WINDOW_DOCS_SHOWN: usize = 9;

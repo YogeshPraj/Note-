@@ -408,7 +408,7 @@
       "category": "Development",
       "artifactName": "notepp-linux-${arch}.${ext}",
       "synopsis": "Developer-focused text editor with IntelliSense, integrated terminal, and live preview",
-      "description": "Note++ is an Electron + Monaco editor aimed at developers — a modern alternative to Notepad++ with IntelliSense, integrated PowerShell/bash terminal, live HTML/Markdown/Mermaid preview, multi-tab editing, cloud session sync, encryption, integrated git, and a built-in whiteboard powered by Excalidraw.",
+      "description": "Note++ is an Electron + Monaco editor aimed at developers — a modern editor with IntelliSense, integrated PowerShell/bash terminal, live HTML/Markdown/Mermaid preview, multi-tab editing, cloud session sync, encryption, integrated git, and a built-in whiteboard powered by Excalidraw.",
       "maintainer": "Yogesh Prajapati"
     },
     "nsis": {

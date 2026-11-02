@@ -306,7 +306,7 @@ pub fn apply_palette<S: Send>(sci: &S, name: &str, theme: &Theme) {
 }
 
 /// Languages offered in the Language menu: (menu label, Lexilla name), the way
-/// Notepad++ names them. Several labels share one lexer (C, C++, Java, ...).
+/// they are conventionally named. Several labels share one lexer (C, C++, Java, ...).
 pub const LANGUAGES: &[(&str, &str)] = &[
     ("Normal text", "null"),
     ("ActionScript", "cpp"),

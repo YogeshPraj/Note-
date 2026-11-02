@@ -3,8 +3,7 @@
 //! Portable: it only talks to Scintilla through `sci::Send` and to the user
 //! through the `Ui` trait, so the same logic drives the Win32, GTK and Cocoa
 //! shells. One Scintilla view is shared by all tabs; each tab owns a Scintilla
-//! *document* that is swapped in with `SCI_SETDOCPOINTER` (this is how
-//! Notepad++ does it too), which keeps undo history and lexer state per tab.
+//! *document* that is swapped in with `SCI_SETDOCPOINTER` (the usual approach), which keeps undo history and lexer state per tab.
 
 use super::bookmarks;
 use super::complete;

@@ -4,7 +4,7 @@
 
 ### A fast, developer-focused text editor
 
-*Written in Rust on the Scintilla editing engine. Familiar Notepad++ editing, with live previews, a whiteboard, encrypted files, an HTTP scratchpad and a Bitwarden-backed password inserter built in. Now for Windows, macOS and Linux.*
+*Written in Rust on the Scintilla editing engine. Familiar, quick editing, with live previews, a whiteboard, encrypted files, an HTTP scratchpad and a Bitwarden-backed password inserter built in. Now for Windows, macOS and Linux.*
 
 [![Latest release](https://img.shields.io/github/v/release/YogeshPraj/Note-?label=latest&color=2563eb)](https://github.com/YogeshPraj/Note-/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/YogeshPraj/Note-/total?label=downloads&color=16a34a)](https://github.com/YogeshPraj/Note-/releases)
@@ -20,7 +20,7 @@
 
 ## About
 
-**Note++ 2.0** is a native desktop editor: quick to start, light on memory, and comfortable for anyone who knows Notepad++. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`crates/core` is portable; one wxWidgets shell in `wx/` targets Windows, macOS and Linux behind a `Platform` trait). Menus, tabs and dialogs are native, with previews, the whiteboard and the compare view in the system WebView.
+**Note++ 2.0** is a native desktop editor: quick to start, light on memory, and familiar from the first minute. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`crates/core` is portable; one wxWidgets shell in `wx/` targets Windows, macOS and Linux behind a `Platform` trait). Menus, tabs and dialogs are native, with previews, the whiteboard and the compare view in the system WebView.
 
 **Platforms:** Windows 10/11 (64-bit), macOS (Apple Silicon) and Linux (64-bit). Windows is the tested, supported build. The macOS and Linux builds are new in 2.0.2 and **experimental**: they are built from the same code but have had far less testing, so expect rough edges and please [report them](https://github.com/YogeshPraj/Note-/issues/new).
 
@@ -41,9 +41,9 @@ All files are on the [latest release page](https://github.com/YogeshPraj/Note-/r
 ### Editing
 - Multi-tab editing with syntax highlighting for dozens of languages (Language menu), code folding, bookmarks, word wrap, minimap, indent guides and whitespace/EOL symbols.
 - Find, Replace, Mark and Find in Files with a results panel; incremental search; regular expressions.
-- Encodings the Notepad++ way: *Encode in* / *Convert to*, ANSI code pages, UTF-8 (with or without BOM), UTF-16; line endings (CRLF / LF / CR).
+- Encodings the traditional way: *Encode in* / *Convert to*, ANSI code pages, UTF-8 (with or without BOM), UTF-16; line endings (CRLF / LF / CR).
 - Sessions: tabs and unsaved text survive restarts and crashes; Load / Save Session; Recent Files.
-- Notepad++ default shortcuts, a **Shortcut Mapper**, a **Style Configurator** with built-in themes (Monokai, Dracula, Solarized and more), light and dark mode, and an editor for the right-click menu.
+- Familiar default shortcuts, a **Shortcut Mapper**, a **Style Configurator** with built-in themes (Monokai, Dracula, Solarized and more), light and dark mode, and an editor for the right-click menu.
 - Command Palette (`Ctrl+Shift+P`), Quick Open (`Ctrl+P`), Print Preview, Page Setup, distraction-free mode.
 - Tabs you can pin and colour, with Close All / Close Others / Reveal in File Tree / Copy Full Path from the right-click menu.
 - Folder as Workspace tree with a one-click close button.

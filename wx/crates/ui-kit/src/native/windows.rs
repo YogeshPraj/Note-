@@ -74,7 +74,8 @@ const WH_KEYBOARD: i32 = 2;
 const WH_MOUSE: i32 = 7;
 const VK_CONTROL: i32 = 0x11;
 
-type KeyFn = fn(u32, bool) -> bool;
+/// (virtual-key code, neither Ctrl nor Alt held, Alt held) -> consumed?
+type KeyFn = fn(u32, bool, bool) -> bool;
 type ClickFn = fn(i32, i32) -> bool;
 
 #[repr(C)]
@@ -107,7 +108,7 @@ unsafe extern "system" fn key_hook(code: i32, wparam: usize, lparam: isize) -> i
         } else {
             let alt = lparam & (1 << 29) != 0;
             let ctrl = unsafe { GetKeyState(VK_CONTROL) } < 0;
-            if f(wparam as u32, !alt && !ctrl) {
+            if f(wparam as u32, !alt && !ctrl, alt && !ctrl) {
                 EATEN.with(|e| e.set(wparam));
                 return 1;
             }
@@ -154,7 +155,7 @@ impl Native for Windows {
         }
     }
 
-    fn grab_keys(&self, on_key: Option<fn(u32, bool) -> bool>) -> bool {
+    fn grab_keys(&self, on_key: Option<fn(u32, bool, bool) -> bool>) -> bool {
         KEYS.with(|k| k.set(on_key));
         let installed = HOOK.with(std::cell::Cell::get);
         match on_key {

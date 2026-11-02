@@ -403,7 +403,16 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             return;
         };
         let code = k.get_key_code().unwrap_or(0);
-        // An open menu takes every key.
+        // Alt+letter opens the menu with that letter, also while another menu is open (the open one is replaced).
+        let alt_menu = (k.alt_down() && !k.control_down()).then(|| u8::try_from(code).ok().filter(u8::is_ascii_graphic)).flatten().and_then(|b| {
+            let titles = a.try_borrow().ok()?.chrome.menu_titles();
+            crate::widgets::menu_bar::menu_for_key(&titles, char::from(b))
+        });
+        if let Some(i) = alt_menu {
+            open_menu(&a, i);
+            return;
+        }
+        // An open menu takes every other key.
         if crate::widgets::popup_menu::key(code, !k.control_down() && !k.alt_down()) {
             return;
         }
@@ -413,19 +422,10 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             switch_tab(&a, if k.shift_down() { -1 } else { 1 });
             return;
         }
-        let target = if k.alt_down() && !k.control_down() {
-            u8::try_from(code).ok().filter(u8::is_ascii_graphic).and_then(|b| {
-                let titles = a.try_borrow().ok()?.chrome.menu_titles();
-                crate::widgets::menu_bar::menu_for_key(&titles, char::from(b))
-            })
-        } else if code == 344 && !k.alt_down() && !k.control_down() {
-            Some(0) // WXK_F10
+        if code == 344 && !k.alt_down() && !k.control_down() {
+            open_menu(&a, 0); // WXK_F10
         } else {
-            None
-        };
-        match target {
-            Some(i) => open_menu(&a, i),
-            None => e.skip(true),
+            e.skip(true);
         }
     });
     // Switching to another program closes an open menu.

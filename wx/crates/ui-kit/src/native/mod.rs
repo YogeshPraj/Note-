@@ -19,9 +19,9 @@ pub trait Native: Sync {
         0
     }
     /// While a key handler is installed, every key press of this thread goes to it first, whichever window has the focus:
-    /// it gets the virtual-key code and whether neither Ctrl nor Alt is held, and returns true to consume the key. None
+    /// it gets the virtual-key code, whether neither Ctrl nor Alt is held, and whether Alt alone is held, and returns true to consume the key. None
     /// removes it. Returns false where this is not supported (the application then routes keys itself).
-    fn grab_keys(&self, _on_key: Option<fn(u32, bool) -> bool>) -> bool {
+    fn grab_keys(&self, _on_key: Option<fn(u32, bool, bool) -> bool>) -> bool {
         false
     }
     /// Give a top-level window the application icon (the first icon embedded in the executable): title bar, taskbar, Alt+Tab.

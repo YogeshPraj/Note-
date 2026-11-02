@@ -130,9 +130,11 @@ fn on_press(x: i32, y: i32) -> bool {
 }
 
 /// A key press as the operating system reports it (Windows virtual-key codes), for platforms that can grab keys.
-fn on_virtual_key(vk: u32, plain: bool) -> bool {
+fn on_virtual_key(vk: u32, plain: bool, alt: bool) -> bool {
     let code = match vk {
         0x10..=0x12 | 0x5B | 0x5C => return false, // modifiers and the Windows keys are left alone
+        // Alt+letter belongs to the menu bar (it switches to the menu with that letter), not to the open menu.
+        0x30..=0x39 | 0x41..=0x5A if alt => return false,
         0x23 => KEY_END,
         0x24 => KEY_HOME,
         0x25 => KEY_LEFT,

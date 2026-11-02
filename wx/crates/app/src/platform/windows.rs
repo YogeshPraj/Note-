@@ -54,6 +54,7 @@ const GMEM_MOVEABLE: u32 = 2;
 /// The clipboard, held open; closed when dropped.
 struct Clipboard;
 
+#[allow(clippy::unused_self, reason = "`read` and `put` take the guard to prove the clipboard is open")]
 impl Clipboard {
     fn open(owner: isize) -> Option<Clipboard> {
         // Another program may have it open for a moment.

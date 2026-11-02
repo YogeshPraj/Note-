@@ -231,11 +231,46 @@
 3103	Post-It	F12	true	Some(false)
 3104	Distraction Free Mode	true	Some(false)
 -
-> View Current File in
-  3110	Firefox	true	None
-  3111	Chrome	true	None
-  3112	Edge	true	None
+3001	Word wrap	true	Some(false)
+3005	Dark mode	true	Some(false)
+5301	Live Preview	Ctrl+Shift+V	true	Some(false)
+5417	Markdown Toolbar	true	Some(false)
 -
+> Panels
+  3007	Folder as Workspace	true	Some(false)
+  3006	Document Map	true	Some(false)
+  3206	Document List	true	Some(false)
+  3207	Function List	true	Some(false)
+  -
+  > Project Panels
+    3201	Project Panel 1	false	None
+    3202	Project Panel 2	false	None
+    3203	Project Panel 3	false	None
+> Folding
+  3170	Fold All	Alt+0	true	None
+  3171	Unfold All	Alt+Shift+0	true	None
+  3172	Fold Current Level	Ctrl+Alt+F	true	None
+  3173	Unfold Current Level	Ctrl+Alt+Shift+F	true	None
+  > Fold Level
+    3180	Level 1	Alt+1	true	None
+    3181	Level 2	Alt+2	true	None
+    3182	Level 3	Alt+3	true	None
+    3183	Level 4	Alt+4	true	None
+    3184	Level 5	Alt+5	true	None
+    3185	Level 6	Alt+6	true	None
+    3186	Level 7	Alt+7	true	None
+    3187	Level 8	Alt+8	true	None
+  > Unfold Level
+    3190	Level 1	Alt+Shift+1	true	None
+    3191	Level 2	Alt+Shift+2	true	None
+    3192	Level 3	Alt+Shift+3	true	None
+    3193	Level 4	Alt+Shift+4	true	None
+    3194	Level 5	Alt+Shift+5	true	None
+    3195	Level 6	Alt+Shift+6	true	None
+    3196	Level 7	Alt+Shift+7	true	None
+    3197	Level 8	Alt+Shift+8	true	None
+  -
+  3161	Hide Lines	Alt+H	true	None
 > Show Symbol
   3120	Show Space and Tab	true	Some(false)
   3121	Show End of Line	true	Some(false)
@@ -249,11 +284,6 @@
   3002	Zoom In	Ctrl+Num +	true	None
   3003	Zoom Out	Ctrl+Num -	true	None
   3004	Restore Default Zoom	Ctrl+Num /	true	None
-> Move/Clone Current Document
-  3132	Move to Other View	false	None
-  3133	Clone to Other View	false	None
-  3130	Move to New Instance	true	None
-  3131	Open in New Instance	true	None
 > Tab
   3140	Tab 1	true	None
   3141	Tab 2	true	None
@@ -269,56 +299,27 @@
   4002	Previous Tab	Ctrl+PgUp	true	None
   3150	Move Tab Forward	Ctrl+Shift+PgDn	true	None
   3151	Move Tab Backward	Ctrl+Shift+PgUp	true	None
-3001	Word wrap	true	Some(false)
-3160	Focus on Another View	F8	false	None
-3161	Hide Lines	Alt+H	true	None
--
-3170	Fold All	Alt+0	true	None
-3171	Unfold All	Alt+Shift+0	true	None
-3172	Fold Current Level	Ctrl+Alt+F	true	None
-3173	Unfold Current Level	Ctrl+Alt+Shift+F	true	None
-> Fold Level
-  3180	Level 1	Alt+1	true	None
-  3181	Level 2	Alt+2	true	None
-  3182	Level 3	Alt+3	true	None
-  3183	Level 4	Alt+4	true	None
-  3184	Level 5	Alt+5	true	None
-  3185	Level 6	Alt+6	true	None
-  3186	Level 7	Alt+7	true	None
-  3187	Level 8	Alt+8	true	None
-> Unfold Level
-  3190	Level 1	Alt+Shift+1	true	None
-  3191	Level 2	Alt+Shift+2	true	None
-  3192	Level 3	Alt+Shift+3	true	None
-  3193	Level 4	Alt+Shift+4	true	None
-  3194	Level 5	Alt+Shift+5	true	None
-  3195	Level 6	Alt+Shift+6	true	None
-  3196	Level 7	Alt+Shift+7	true	None
-  3197	Level 8	Alt+Shift+8	true	None
+> Text Direction
+  3210	Text Direction RTL	Ctrl+Alt+R	true	None
+  3211	Text Direction LTR	Ctrl+Alt+L	true	None
+> Other View
+  3132	Move to Other View	false	None
+  3133	Clone to Other View	false	None
+  3130	Move to New Instance	true	None
+  3131	Open in New Instance	true	None
+  -
+  3160	Focus on Another View	F8	false	None
+  3208	Synchronize Vertical Scrolling	false	None
+  3209	Synchronize Horizontal Scrolling	false	None
+> Monitoring
+  3212	Monitoring (tail -f)	true	Some(false)
+  3213	Log Follow (.log / .out / .err)	true	Some(false)
+> View Current File in
+  3110	Firefox	true	None
+  3111	Chrome	true	None
+  3112	Edge	true	None
 -
 3200	Summary...	true	None
--
-> Project Panels
-  3201	Project Panel 1	false	None
-  3202	Project Panel 2	false	None
-  3203	Project Panel 3	false	None
-3007	Folder as Workspace	true	Some(false)
-3006	Document Map	true	Some(false)
-3206	Document List	true	Some(false)
-3207	Function List	true	Some(false)
--
-3208	Synchronize Vertical Scrolling	false	None
-3209	Synchronize Horizontal Scrolling	false	None
--
-3210	Text Direction RTL	Ctrl+Alt+R	true	None
-3211	Text Direction LTR	Ctrl+Alt+L	true	None
--
-3212	Monitoring (tail -f)	true	Some(false)
-3213	Log Follow (.log / .out / .err)	true	Some(false)
--
-5301	Live Preview	Ctrl+Shift+V	true	Some(false)
-5417	Markdown Toolbar	true	Some(false)
-3005	Dark mode	true	Some(false)
 5201	Command Palette...	Ctrl+Shift+P	true	None
 5202	Quick Open...	Ctrl+P	true	None
 # E&ncoding

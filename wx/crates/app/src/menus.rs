@@ -480,7 +480,7 @@ fn menu_search() -> M {
     search
 }
 
-/// The View menu: modes, symbols, zoom and the other-view commands.
+/// The View menu: modes and switches on top, everything else grouped into sub-menus so the menu stays short.
 fn menu_view_basic() -> M {
     let view = B::popup();
     B::cmd(view, ID_ON_TOP);
@@ -488,12 +488,49 @@ fn menu_view_basic() -> M {
     B::cmd(view, ID_POSTIT);
     B::cmd(view, ID_DISTRACTION);
     B::sep(view);
-    let browsers = B::popup();
-    for (i, (name, _)) in BROWSERS.iter().enumerate() {
-        B::add(browsers, ID_BROWSER_BASE + i, name);
-    }
-    B::submenu(view, "View Current File in", browsers);
+    B::cmd(view, ID_WRAP);
+    B::cmd(view, ID_THEME);
+    B::cmd(view, ID_PREVIEW);
+    B::cmd(view, ID_MD_TOOLBAR);
     B::sep(view);
+    view
+}
+
+fn view_panels() -> M {
+    let panels = B::popup();
+    B::cmd(panels, ID_WORKSPACE_TOGGLE);
+    B::cmd(panels, ID_MINIMAP);
+    B::cmd(panels, ID_DOC_LIST);
+    B::cmd(panels, ID_FUNC_LIST);
+    B::sep(panels);
+    let projects = B::popup();
+    for i in 0..3 {
+        B::add_state(projects, ID_PROJECT_BASE + i, &format!("Project Panel {}", i + 1), false);
+    }
+    B::submenu(panels, "Project Panels", projects);
+    panels
+}
+
+fn view_folding() -> M {
+    let folding = B::popup();
+    B::cmd(folding, ID_FOLD_ALL);
+    B::cmd(folding, ID_UNFOLD_ALL);
+    B::cmd(folding, ID_FOLD_CUR);
+    B::cmd(folding, ID_UNFOLD_CUR);
+    let fold_level = B::popup();
+    let unfold_level = B::popup();
+    for i in 0..8 {
+        B::add(fold_level, ID_FOLD_LEVEL_BASE + i, &format!("Level {}\tAlt+{}", i + 1, i + 1));
+        B::add(unfold_level, ID_UNFOLD_LEVEL_BASE + i, &format!("Level {}\tAlt+Shift+{}", i + 1, i + 1));
+    }
+    B::submenu(folding, "Fold Level", fold_level);
+    B::submenu(folding, "Unfold Level", unfold_level);
+    B::sep(folding);
+    B::cmd(folding, ID_HIDE_LINES);
+    folding
+}
+
+fn view_symbols() -> M {
     let sym = B::popup();
     B::cmd(sym, ID_SYM_WS);
     B::cmd(sym, ID_SYM_EOL);
@@ -503,23 +540,10 @@ fn menu_view_basic() -> M {
     B::sep(sym);
     B::cmd(sym, ID_SYM_INDENT);
     B::cmd(sym, ID_SYM_WRAP);
-    B::submenu(view, "Show Symbol", sym);
-    let zoom = B::popup();
-    B::cmd(zoom, ID_ZOOMIN);
-    B::cmd(zoom, ID_ZOOMOUT);
-    B::cmd(zoom, ID_ZOOMRESET);
-    B::submenu(view, "Zoom", zoom);
-    let moveclone = B::popup();
-    B::cmd_state(moveclone, ID_MOVE_OTHER_VIEW, false);
-    B::cmd_state(moveclone, ID_CLONE_OTHER_VIEW, false);
-    B::cmd(moveclone, ID_MOVE_NEW_INSTANCE);
-    B::cmd(moveclone, ID_OPEN_NEW_INSTANCE);
-    B::submenu(view, "Move/Clone Current Document", moveclone);
-    view
+    sym
 }
 
-/// View menu: tabs, folding, projects, panels and the Note++ extras.
-fn menu_view_rest(view: M) {
+fn view_tabs() -> M {
     let tab = B::popup();
     for i in 0..9 {
         B::add(tab, ID_TAB_BASE + i, &format!("Tab {}", i + 1));
@@ -529,53 +553,53 @@ fn menu_view_rest(view: M) {
     B::cmd(tab, ID_PREV_TAB);
     B::cmd(tab, ID_MOVE_TAB_FWD);
     B::cmd(tab, ID_MOVE_TAB_BACK);
-    B::submenu(view, "Tab", tab);
-    B::cmd(view, ID_WRAP);
-    B::cmd_state(view, ID_FOCUS_OTHER, false);
-    B::cmd(view, ID_HIDE_LINES);
-    B::sep(view);
-    B::cmd(view, ID_FOLD_ALL);
-    B::cmd(view, ID_UNFOLD_ALL);
-    B::cmd(view, ID_FOLD_CUR);
-    B::cmd(view, ID_UNFOLD_CUR);
-    let fold_level = B::popup();
-    let unfold_level = B::popup();
-    for i in 0..8 {
-        B::add(fold_level, ID_FOLD_LEVEL_BASE + i, &format!("Level {}\tAlt+{}", i + 1, i + 1));
-        B::add(unfold_level, ID_UNFOLD_LEVEL_BASE + i, &format!("Level {}\tAlt+Shift+{}", i + 1, i + 1));
+    tab
+}
+
+/// Moving and cloning documents, the second view and synchronised scrolling.
+fn view_other_view() -> M {
+    let other = B::popup();
+    B::cmd_state(other, ID_MOVE_OTHER_VIEW, false);
+    B::cmd_state(other, ID_CLONE_OTHER_VIEW, false);
+    B::cmd(other, ID_MOVE_NEW_INSTANCE);
+    B::cmd(other, ID_OPEN_NEW_INSTANCE);
+    B::sep(other);
+    B::cmd_state(other, ID_FOCUS_OTHER, false);
+    B::cmd_state(other, ID_SYNC_V, false);
+    B::cmd_state(other, ID_SYNC_H, false);
+    other
+}
+
+/// The sub-menus and the closing commands of the View menu.
+fn menu_view_rest(view: M) {
+    B::submenu(view, "Panels", view_panels());
+    B::submenu(view, "Folding", view_folding());
+    B::submenu(view, "Show Symbol", view_symbols());
+    let zoom = B::popup();
+    B::cmd(zoom, ID_ZOOMIN);
+    B::cmd(zoom, ID_ZOOMOUT);
+    B::cmd(zoom, ID_ZOOMRESET);
+    B::submenu(view, "Zoom", zoom);
+    B::submenu(view, "Tab", view_tabs());
+    let direction = B::popup();
+    B::cmd(direction, ID_RTL);
+    B::cmd(direction, ID_LTR);
+    B::submenu(view, "Text Direction", direction);
+    B::submenu(view, "Other View", view_other_view());
+    let follow = B::popup();
+    B::cmd(follow, ID_MONITOR);
+    B::cmd(follow, ID_LOG_FOLLOW);
+    B::submenu(view, "Monitoring", follow);
+    let browsers = B::popup();
+    for (i, (name, _)) in BROWSERS.iter().enumerate() {
+        B::add(browsers, ID_BROWSER_BASE + i, name);
     }
-    B::submenu(view, "Fold Level", fold_level);
-    B::submenu(view, "Unfold Level", unfold_level);
+    B::submenu(view, "View Current File in", browsers);
     B::sep(view);
     B::cmd(view, ID_SUMMARY);
-    B::sep(view);
-    let projects = B::popup();
-    for i in 0..3 {
-        B::add_state(projects, ID_PROJECT_BASE + i, &format!("Project Panel {}", i + 1), false);
-    }
-    B::submenu(view, "Project Panels", projects);
-    B::cmd(view, ID_WORKSPACE_TOGGLE);
-    B::cmd(view, ID_MINIMAP);
-    B::cmd(view, ID_DOC_LIST);
-    B::cmd(view, ID_FUNC_LIST);
-    B::sep(view);
-    B::cmd_state(view, ID_SYNC_V, false);
-    B::cmd_state(view, ID_SYNC_H, false);
-    B::sep(view);
-    B::cmd(view, ID_RTL);
-    B::cmd(view, ID_LTR);
-    B::sep(view);
-    B::cmd(view, ID_MONITOR);
-    B::cmd(view, ID_LOG_FOLLOW);
-    B::sep(view);
-    // Note++ extras that Notepad++ keeps elsewhere.
-    B::cmd(view, ID_PREVIEW);
-    B::cmd(view, ID_MD_TOOLBAR);
-    B::cmd(view, ID_THEME);
     B::cmd(view, ID_PALETTE);
     B::cmd(view, ID_QUICKOPEN);
 }
-
 /// The Encoding and Language menus.
 fn menu_encoding_language() -> (M, M) {
     let enc = B::popup();

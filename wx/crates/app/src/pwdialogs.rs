@@ -46,22 +46,28 @@ thread_local! {
 type Progress = Arc<Mutex<(u32, String)>>;
 
 /// Run `job` on a thread, keeping the form alive (repainting, showing progress in `status`) until
-/// it finishes. The form's buttons are off meanwhile.
+/// it finishes. OK is off meanwhile; Cancel stays on and closes the dialog, which stops the job.
 fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnce(&Progress) -> T + Send + 'static) -> T {
     BUSY.with(|b| b.set(true));
     f.enable(1, false);
-    f.enable(2, false);
     f.set_text(status, first);
+    bw::begin_job();
     let prog: Progress = Arc::new(Mutex::new((0, first.to_string())));
     let p2 = prog.clone();
     let handle = std::thread::spawn(move || job(&p2));
     let mut shown = (u32::MAX, String::new());
+    let mut stopping = false;
     loop {
         // Let the dialog repaint and answer the mouse while the worker runs.
         #[allow(unsafe_code)]
         unsafe {
             wxdragon_sys::wxd_Note_SafeYield();
         };
+        // Cancel (or Esc) closed the dialog: stop the job; the loop ends as soon as the worker gives up.
+        if !stopping && !f.is_shown() {
+            stopping = true;
+            bw::cancel();
+        }
         let now = prog.lock().map(|p| p.clone()).unwrap_or_default();
         if now != shown {
             f.set_text(status, &if now.0 > 0 && now.0 < 100 { format!("{} - {}%", now.1, now.0) } else { now.1.clone() });
@@ -73,7 +79,6 @@ fn work<T: Send + 'static>(f: &Form, status: usize, first: &str, job: impl FnOnc
         std::thread::sleep(Duration::from_millis(15));
     }
     f.enable(1, true);
-    f.enable(2, true);
     BUSY.with(|b| b.set(false));
     handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }

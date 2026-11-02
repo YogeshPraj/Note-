@@ -14,6 +14,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 pub const BW_VERSION: &str = "2026.7.0";
@@ -170,7 +171,7 @@ fn run(args: &[&str], env: &[(&str, &str)], stdin: Option<&str>, timeout: Durati
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(15)),
+            Ok(None) if Instant::now() < deadline && !cancelled() => std::thread::sleep(Duration::from_millis(15)),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -183,12 +184,30 @@ fn run(args: &[&str], env: &[(&str, &str)], stdin: Option<&str>, timeout: Durati
     if let Some(s) = status {
         Out { ok: s.success(), stdout, stderr }
     } else {
-        stderr = format!("bw did not answer in {} seconds", timeout.as_secs());
+        stderr = if cancelled() { "Cancelled".into() } else { format!("bw did not answer in {} seconds", timeout.as_secs()) };
         Out { ok: false, stdout, stderr }
     }
 }
 
 const QUICK: Duration = Duration::from_secs(30);
+
+/// Set by [`cancel`]: the running `bw` call or download stops as soon as it can.
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// Stop the Bitwarden job that is running (its dialog is being closed): a `bw` call is ended, a download stops.
+pub fn cancel() {
+    CANCELLED.store(true, Ordering::Relaxed);
+}
+
+/// A new job begins: a cancel meant for an earlier one no longer applies. (Not reset per call, so a job of several
+/// calls stops at the first call after a cancel.)
+pub fn begin_job() {
+    CANCELLED.store(false, Ordering::Relaxed);
+}
+
+fn cancelled() -> bool {
+    CANCELLED.load(Ordering::Relaxed)
+}
 
 // ---- installing -----------------------------------------------------------------------------
 
@@ -224,6 +243,9 @@ fn download_to(url: &str, tmp: &std::path::Path, a: &Asset, progress: &mut dyn F
     let mut hash = Sha256::new();
     let (mut buf, mut done, mut last) = (vec![0u8; 64 * 1024], 0u64, 0u32);
     loop {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let n = reader.read(&mut buf).map_err(|e| Error::Download(e.to_string()))?;
         if n == 0 {
             break;

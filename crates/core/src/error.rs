@@ -87,6 +87,8 @@ pub enum Error {
     FirstLineHidden,
     #[error("Save {0} first: unsaved changes to a protected file can only be kept while encryption is unlocked")]
     UnsavedProtected(String),
+    #[error("Cancelled")]
+    Cancelled,
     #[error("The file has no \"light\" or \"dark\" colours")]
     ThemeNoColours,
     #[error("Invalid request: {0}")]

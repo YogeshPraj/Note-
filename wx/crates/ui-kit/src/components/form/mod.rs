@@ -229,6 +229,11 @@ impl Form {
         }
     }
 
+    /// Is the form's dialog still up (false once it is closing)? An embedded form always is.
+    pub fn is_shown(&self) -> bool {
+        self.dialog.is_none_or(|d| d.is_shown())
+    }
+
     pub fn close(&self, ok: bool) {
         if let Some(d) = self.dialog {
             d.end_modal(if ok { ID_OK } else { ID_CANCEL });

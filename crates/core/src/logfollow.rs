@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 
 /// How much of the end of a big file is shown when following starts.
 pub const TAIL_BYTES: u64 = 1024 * 1024;
-/// The most bytes read in one poll (a burst bigger than this is caught up over several polls).
-const MAX_CHUNK: u64 = 8 * 1024 * 1024;
+/// The most bytes read in one poll; a burst bigger than this is caught up over several polls. Polls run on the UI
+/// thread and their lines go to the page as one message, so each must stay small (8 MB at once stalled the window).
+const MAX_CHUNK: u64 = 512 * 1024;
 
 /// Is this the kind of file Log Follow is for?
 pub fn is_log_file(path: &Path) -> bool {
@@ -167,5 +168,26 @@ mod tests {
         assert!(u.lines[0].starts_with("ok "));
         let _ = std::fs::remove_file(&p);
         assert!(Follower::open(&p, TAIL_BYTES).is_err());
+    }
+
+    #[test]
+    fn a_burst_is_read_in_bounded_steps_and_nothing_is_lost() {
+        let p = temp("burst");
+        std::fs::write(&p, "").unwrap();
+        let (mut f, _) = Follower::open(&p, TAIL_BYTES).unwrap();
+        let line = "x".repeat(99) + "\n";
+        let n = usize::try_from(3 * MAX_CHUNK).unwrap() / line.len();
+        std::fs::write(&p, line.repeat(n)).unwrap();
+        let (mut seen, mut polls) = (0, 0);
+        while seen < n && polls < 100 {
+            let u = f.poll().unwrap();
+            // A poll may also finish the partial line left over from the one before.
+            assert!(u.lines.len() * line.len() <= usize::try_from(MAX_CHUNK).unwrap() + line.len(), "one poll read more than a chunk");
+            seen += u.lines.len();
+            polls += 1;
+        }
+        assert_eq!(seen, n);
+        assert!(polls >= 3, "a burst three chunks long takes several polls");
+        let _ = std::fs::remove_file(&p);
     }
 }

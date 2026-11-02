@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use wxdragon::prelude::*;
 
-use super::model::{Control, Page, Row, Value, parse_number};
+use super::model::{Control, Page, Row, Value};
 use crate::controls::{Button, CheckBox, Label, Panel as ThemedPanel, RadioButton, TextBox};
 use crate::paint::colour;
 use crate::theme::{self, Role};
@@ -159,14 +159,10 @@ fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: 
     let t = theme::current();
     match control {
         Control::Number { value, min, max } => {
-            let (min, max) = (*min, *max);
-            let b = TextBox::new(sw, &value.to_string(), false);
-            b.set_min_size(Size::new(t.px(90), -1));
-            b.on_text_updated(move |_| {
-                if let Some(n) = parse_number(&b.get_value(), min, max) {
-                    report(Value::Int(n));
-                }
-            });
+            let b = SpinCtrl::builder(sw).with_range(crate::num::to_i32(*min), crate::num::to_i32(*max)).with_initial_value(crate::num::to_i32(*value)).build();
+            b.set_min_size(Size::new(t.px(110), -1));
+            theme::adopt(b, Role::Input);
+            b.on_value_changed(move |e| report(Value::Int(i64::from(e.get_value()))));
             body.add(&b, 0, SizerFlag::Bottom, t.px(4));
         }
         Control::Text(text) => {

@@ -196,8 +196,18 @@ body.dark .jsoneditor-poweredBy { display:none; }
   });
 
   /* ---- JSON editor: josdejong/jsoneditor, the same library as the Electron app ---- */
-  var je = null, jeText = null, jeBusy = false, pendingJson = null;
-  function norm(s) { return s.replace(/\r\n?/g, '\n'); }
+  var je = null, jeText = null, jeBusy = false, pendingJson = null, jeSyncUntil = 0, jeFrame = 0;
+  // The tree scrolls inside .jsoneditor-tree. Scroll position travels as thousandths (0 = top, 1000 = bottom).
+  function jeScroller() { return $('je').querySelector('.jsoneditor-tree'); }
+  $('je').addEventListener('scroll', function (e) {
+    var s = e.target;
+    if (!s.classList || !s.classList.contains('jsoneditor-tree') || Date.now() < jeSyncUntil || jeFrame) return;   // not the tree, or the editor moved it
+    jeFrame = requestAnimationFrame(function () {
+      jeFrame = 0;
+      var room = s.scrollHeight - s.clientHeight;
+      post('ratio:' + (room > 0 ? Math.round(s.scrollTop / room * 1000) : 0));
+    });
+  }, true);  function norm(s) { return s.replace(/\r\n?/g, '\n'); }
   // Close any braces/brackets a truncated file left open (null when nothing is missing).
   function balanceBraces(c) {
     var stack = [], q = false, esc1 = false, lc = false, bc = false;
@@ -423,8 +433,15 @@ body.dark .jsoneditor-poweredBy { display:none; }
   }
 
   window.np = {
+    scrollToRatio: function (permille) {
+      var s = jeScroller();
+      if (!s || $('je').classList.contains('hidden')) return;
+      jeSyncUntil = Date.now() + 150;                     // ignore the scroll event this causes
+      s.scrollTop = (+permille / 1000) * (s.scrollHeight - s.clientHeight);
+    },
     scrollToLine: function (line, total) {
-      totalLines = total || totalLines;
+      line = +line;
+      totalLines = +total || totalLines;
       var root = $('md');
       if (root.classList.contains('hidden')) return;
       syncUntil = Date.now() + 150;                       // ignore the scroll event this causes

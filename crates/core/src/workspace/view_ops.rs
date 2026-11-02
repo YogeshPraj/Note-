@@ -122,6 +122,27 @@ impl<S: Send> Workspace<S> {
         self.sync_minimap();
     }
 
+    /// The first visible display line and how far the view can scroll (wrapped lines count).
+    fn scroll_range(&self) -> (usize, usize) {
+        let first = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
+        let total = crate::num::to_usize(self.send(sci::SCI_VISIBLEFROMDOCLINE, self.line_total(), 0).max(0));
+        let on_screen = crate::num::to_usize(self.send(sci::SCI_LINESONSCREEN, 0, 0).max(1));
+        (first, total.saturating_sub(on_screen))
+    }
+
+    /// How far the editor is scrolled, in thousandths (0 = top, 1000 = bottom).
+    pub fn scroll_permille(&self) -> usize {
+        let (first, room) = self.scroll_range();
+        (first * 1000).checked_div(room).map_or(0, |p| p.min(1000))
+    }
+
+    /// Scroll the editor to `permille` thousandths of the way down.
+    pub fn set_scroll_permille(&self, permille: usize) {
+        let (_, room) = self.scroll_range();
+        self.send(sci::SCI_SETFIRSTVISIBLELINE, room * permille.min(1000) / 1000, 0);
+        self.sync_minimap();
+    }
+
     pub fn line_total(&self) -> usize {
         crate::num::to_usize(sci::line_count(&self.sci).max(1))
     }

@@ -502,7 +502,11 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
                     app.preview_update(true);
                 }
             }
-            _ => {}
+            other => {
+                if let Ok(mut app) = a.try_borrow_mut() {
+                    app.page_scrolled(other);
+                }
+            }
         }
     });
     // Menu commands.
@@ -977,6 +981,7 @@ impl App {
         self.extra_ticks();
         self.menubar.check_item(crate::platform::wx::to_i32(ID_PREVIEW), self.preview.on);
         self.preview_update(false);
+        self.sync_preview_scroll();
         {
             use notepp_core::doc::Eol;
             let eol = self.ws.tabs[self.ws.active].eol;
@@ -1010,6 +1015,7 @@ impl App {
             return;
         }
         self.preview.split = want;
+        self.preview.sent = None;
         if want {
             if !self.view.is_loaded() {
                 self.view.load_html(&preview::page_html(self.ws.settings.preview_remote_images));
@@ -1021,6 +1027,36 @@ impl App {
         } else {
             self.splitter.unsplit(Some(&self.view));
             self.view.show(false);
+        }
+    }
+
+    /// Keep the page scrolled to where the editor is: by source line for Markdown, by proportion for the JSON tree.
+    fn sync_preview_scroll(&mut self) {
+        if !self.preview.split || !self.view.is_ready() {
+            return;
+        }
+        let top = self.ws.top_doc_line();
+        let echo = self.preview.applied.take() == Some(top);
+        if echo || self.preview.sent == Some(top) {
+            self.preview.sent = Some(top);
+            return;
+        }
+        self.preview.sent = Some(top);
+        match self.ws.preview_kind() {
+            Some(pcore::Kind::Markdown) => self.view.call("window.np.scrollToLine", &[&top.to_string(), &self.ws.line_total().to_string()]),
+            Some(pcore::Kind::Json) => self.view.call("window.np.scrollToRatio", &[&self.ws.scroll_permille().to_string()]),
+            _ => {}
+        }
+    }
+
+    /// The page scrolled by itself: bring the editor along.
+    fn page_scrolled(&mut self, msg: &str) {
+        if let Some(line) = msg.strip_prefix("line:").and_then(|v| v.split('.').next()).and_then(|v| v.parse::<usize>().ok()) {
+            self.preview.applied = Some(line);
+            self.ws.set_top_doc_line(line);
+        } else if let Some(permille) = msg.strip_prefix("ratio:").and_then(|v| v.parse::<usize>().ok()) {
+            self.ws.set_scroll_permille(permille);
+            self.preview.applied = Some(self.ws.top_doc_line());
         }
     }
 
@@ -1040,6 +1076,7 @@ impl App {
             return;
         }
         self.preview.key = Some(key);
+        self.preview.sent = None;
         let view = self.view.clone();
         let Some(kind) = self.ws.preview_kind() else {
             return preview::render(&view, "message", "Preview is available for Markdown, HTML, Mermaid and JSON files.");

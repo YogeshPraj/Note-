@@ -19,6 +19,10 @@ pub struct PreviewState {
     pub on: bool,
     /// Whether the pane is actually beside the editor (it is not while a whiteboard is shown).
     pub split: bool,
+    /// The editor's top line when the page was last told where to scroll (None: tell it again).
+    pub sent: Option<usize>,
+    /// The top line the page itself asked for: the editor scrolling there is not told back to the page.
+    pub applied: Option<usize>,
     /// (document, revision, size) last rendered, to skip identical refreshes.
     pub key: Option<(isize, usize, u64)>,
 }

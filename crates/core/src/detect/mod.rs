@@ -60,8 +60,19 @@ fn shebang(body: &str) -> Option<&'static str> {
 }
 
 fn json(body: &str, whole: &str) -> Option<&'static str> {
-    let opens = body.starts_with('{') || body.starts_with('[');
-    (opens && serde_json::from_str::<serde_json::Value>(whole.trim()).is_ok()).then_some("JSON")
+    if !(body.starts_with('{') || body.starts_with('[')) {
+        return None;
+    }
+    if serde_json::from_str::<serde_json::Value>(whole.trim()).is_ok() {
+        return Some("JSON");
+    }
+    // Not valid (a typo, a trailing comma, a comment), but a pasted document of `"key": value` lines is still JSON.
+    let pairs = body
+        .lines()
+        .map(|l| l.trim_start_matches(|c: char| c.is_whitespace() || c == '{' || c == '['))
+        .filter(|l| l.starts_with('"') && l.contains("\":"))
+        .count();
+    (pairs >= 3).then_some("JSON")
 }
 
 fn markup(body: &str) -> Option<&'static str> {
@@ -169,6 +180,7 @@ mod tests {
     fn structured_formats_are_recognised() {
         is("{\"name\": \"x\", \"items\": [1, 2, 3]}", "JSON");
         is("[1, 2, 3, 4]", "JSON");
+        is("{\n  \"a\": 1,\n  \"rules\": [oops\n    { \"b\": 2 },\n    { \"c\": 3 }\n  ]\n}", "JSON");
         is("<?xml version=\"1.0\"?>\n<root><a>1</a></root>", "XML");
         is("<!DOCTYPE html>\n<html><body><div>hi</div></body></html>", "HTML");
         is("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b", "Diff");

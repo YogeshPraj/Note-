@@ -4,6 +4,7 @@ pub mod commands;
 pub mod compare;
 pub mod complete;
 pub mod crypto;
+pub mod detect;
 pub mod dispatch;
 pub mod doc;
 pub mod edit;

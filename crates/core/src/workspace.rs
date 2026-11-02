@@ -82,6 +82,10 @@ pub struct Workspace<S: Send> {
     /// Where "Begin/End Select" was started: (document, caret position).
     select_anchor: Option<(isize, usize)>,
     smart_key: (usize, usize, usize),
+    /// The active tab and its text length at the last look, to notice pasted text.
+    detect_seen: (u64, usize),
+    /// Tabs whose language the user chose by hand: never guessed again.
+    lang_locked: Vec<u64>,
     next_id: u64,
 }
 
@@ -109,6 +113,8 @@ impl<S: Send> Workspace<S> {
             vault: crypto::Vault::load(),
             select_anchor: None,
             smart_key: (0, 0, 0),
+            detect_seen: (0, 0),
+            lang_locked: Vec::new(),
             next_id: 1,
         };
         ws.style_view(&ws.sci, false);

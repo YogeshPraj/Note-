@@ -939,6 +939,7 @@ impl App {
     pub fn refresh(&mut self) {
         if !self.ws.is_whiteboard() {
             self.ws.update_smart();
+            self.ws.auto_detect_language();
             self.ws.sync_current_line();
             self.ws.sync_minimap();
         }

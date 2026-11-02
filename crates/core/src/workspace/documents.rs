@@ -77,6 +77,33 @@ impl<S: Send> Workspace<S> {
 
     /// Choose a Language-menu entry for the active tab.
     pub fn set_language(&mut self, label: &'static str) {
+        let id = self.tabs[self.active].id;
+        if !self.lang_locked.contains(&id) {
+            self.lang_locked.push(id);
+        }
+        self.apply_language(label);
+    }
+
+    /// Text pasted into an untitled "Normal text" tab names its own language. Returns true when the language changed.
+    pub fn auto_detect_language(&mut self) -> bool {
+        /// A jump in length at least this big counts as a paste (typing adds a character at a time).
+        const MIN_PASTE: usize = 12;
+        if self.is_whiteboard() {
+            return false;
+        }
+        let t = &self.tabs[self.active];
+        let (id, eligible) = (t.id, t.path.is_none() && t.lang == "null" && !self.lang_locked.contains(&t.id));
+        let len = crate::num::to_usize(sci::length(&self.sci).max(0));
+        let (seen_id, seen_len) = std::mem::replace(&mut self.detect_seen, (id, len));
+        if !eligible || seen_id != id || len < seen_len + MIN_PASTE {
+            return false;
+        }
+        let Some(label) = crate::detect::detect_language(&sci::get_text(&self.sci)) else { return false };
+        self.apply_language(label);
+        true
+    }
+
+    fn apply_language(&mut self, label: &'static str) {
         let lexer = lang::lexer_of_label(label);
         let t = &mut self.tabs[self.active];
         t.lang = lexer;

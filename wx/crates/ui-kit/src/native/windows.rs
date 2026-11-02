@@ -52,6 +52,9 @@ unsafe extern "system" fn theme_child(hwnd: isize, dark: isize) -> i32 {
 const GWL_EXSTYLE: i32 = -20;
 const WS_EX_TOPMOST: isize = 0x8;
 const WS_EX_NOACTIVATE: isize = 0x0800_0000;
+const GWL_STYLE: i32 = -16;
+const WS_BORDER: isize = 0x0080_0000;
+const WS_EX_EDGES: isize = 0x0000_0200 | 0x0002_0000; // WS_EX_CLIENTEDGE | WS_EX_STATICEDGE
 const SW_SHOWNOACTIVATE: i32 = 4;
 const WH_KEYBOARD: i32 = 2;
 const VK_CONTROL: i32 = 0x11;
@@ -126,6 +129,16 @@ impl Native for Windows {
                 }
                 true
             }
+        }
+    }
+
+    fn remove_edge(&self, window: isize) {
+        unsafe {
+            let style = GetWindowLongPtrW(window, GWL_STYLE);
+            SetWindowLongPtrW(window, GWL_STYLE, style & !WS_BORDER);
+            let ex = GetWindowLongPtrW(window, GWL_EXSTYLE);
+            SetWindowLongPtrW(window, GWL_EXSTYLE, ex & !WS_EX_EDGES);
+            SetWindowPos(window, 0, 0, 0, 0, 0, 0x37); // NOMOVE | NOSIZE | NOZORDER | FRAMECHANGED | NOACTIVATE
         }
     }
 

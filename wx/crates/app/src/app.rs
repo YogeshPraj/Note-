@@ -113,13 +113,25 @@ struct Widgets {
     mdbar: crate::widgets::dock::Dock,
 }
 
+/// Drop the toolkit's themed border: it is drawn in the system colours, which show as a white frame in the dark theme.
+fn no_border(w: &impl WxWidget) {
+    const BORDERS: i64 = 0x1F00_0000; // wxBORDER_SIMPLE | SUNKEN | RAISED | STATIC | THEME
+    const BORDER_NONE: i64 = 0x0020_0000;
+    w.set_style_raw((w.get_style_raw() & !BORDERS) | BORDER_NONE);
+    crate::widgets::native::current().remove_edge(w.get_handle() as isize);
+}
+
 fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     // The editor, with the preview pane beside it when that is switched on.
-    let splitter = SplitterWindow::builder(frame).build();
+    // No 3-D border: it is drawn in the system colours, which show as a white frame around the editor in the dark theme.
+    let splitter = SplitterWindow::builder(frame).with_style(wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash).build();
     let editor_pane = Panel::builder(&splitter).build();
     let stc = StyledTextCtrl::builder(&editor_pane).build();
     let mini = StyledTextCtrl::builder(&editor_pane).build();
     mini.set_min_size(Size::new(110, -1));
+    for editor in [&stc, &mini] {
+        no_border(editor);
+    }
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     let panels = panels::create(&editor_pane);
     row.add(&panels.tree_box, 0, SizerFlag::Expand, 0);

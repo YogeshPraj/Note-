@@ -24,6 +24,8 @@ pub trait Native: Sync {
     fn grab_keys(&self, _on_key: Option<fn(u32, bool) -> bool>) -> bool {
         false
     }
+    /// Remove the 3-D edge the system draws around a control (in the system colours, so it is white in a dark theme).
+    fn remove_edge(&self, _window: isize) {}
     /// Does this program own the foreground window?
     fn is_foreground(&self) -> bool {
         true

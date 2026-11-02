@@ -262,6 +262,8 @@ fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini: StyledTex
 
 pub fn start(files: &[PathBuf]) {
     hand_off_to_running_instance(files);
+    // The only copy running: a downloaded update goes in now, before there is a window to flicker.
+    crate::updates::apply_staged_at_start(files);
     let settings = Settings::load();
     let keymap = notepp_core::keymap::KeyMap::build(&settings.shortcuts);
     menus::set_keymap(&keymap);

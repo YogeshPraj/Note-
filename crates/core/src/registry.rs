@@ -369,7 +369,7 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_ABOUT, "&About Note++", "Help: About Note++", "", ""),
     row(ID_REPORT_ISSUE, "&Report an Issue...", "Help: Report an Issue", "", ""),
     row(ID_UPDATE_CHECK, "Check for Updates &Now", "Help: Check for Updates Now", "", ""),
-    row(ID_UPDATE_AUTO, "Check for Updates &Automatically", "Help: Check for Updates Automatically", "", ""),
+    row(ID_UPDATE_AUTO, "Update &Automatically", "Help: Update Automatically", "", ""),
     row(ID_EXIT, "E&xit", "", "Alt+F4", ""),
     row(ID_OPEN_FOLDER_WS, "Folder as &Workspace", "", "", ""),
     row(ID_COLUMN_MODE, "Column Mode...", "", "", ""),

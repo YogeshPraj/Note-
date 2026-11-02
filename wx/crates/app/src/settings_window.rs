@@ -97,7 +97,12 @@ fn general(s: &Settings) -> Page {
                 s.preview_remote_images,
             ),
             Row::heading("Updates"),
-            toggle("auto_update", "Check for updates automatically", "Look for a new version when the program starts.", s.auto_update),
+            toggle(
+                "auto_update",
+                "Update automatically",
+                "Look for a new version in the background, download it, and install it the next time you start Note++.",
+                s.auto_update,
+            ),
         ],
     )
 }

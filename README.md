@@ -62,7 +62,7 @@ All files are on the [latest release page](https://github.com/YogeshPraj/Note-/r
 - Text tools: hashes (MD5, SHA-1, SHA-256, ...), Base64, case conversion, sort, line operations.
 
 ### Updates
-- Checks GitHub for a newer release and downloads it in the background. A toolbar notice turns green when it is ready; one click installs it and restarts. Downloads are verified against a published SHA-256 before they are used.
+- **Windows updates itself.** A few seconds after start (and every few hours) Note++ checks GitHub for a newer release, downloads it in the background and says so in the status bar: it is installed the next time you start Note++, with your tabs and any files you opened still there. A green toolbar notice lets you install it right away instead. Downloads are verified against a published SHA-256 before they are used. Turn it off under *Settings > General* or *? > Update Automatically*. macOS and Linux builds do not update themselves; *Check for Updates* opens the releases page.
 
 ## Install
 
@@ -87,7 +87,7 @@ tar xzf NotePP-linux-x64.tar.gz
 
 Needs GTK 3 and WebKitGTK 4.1 (Ubuntu/Debian: `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0`). Previews and the whiteboard need WebKitGTK. Data is kept in `~/.config/notepp`.
 
-Updates: Windows installs update in place. On macOS and Linux, *Check for Updates* opens the releases page.
+Updates: Windows installs update themselves (see Updates above). On macOS and Linux, *Check for Updates* opens the releases page.
 
 ## Build from source
 

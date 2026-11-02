@@ -21,6 +21,39 @@ struct Shared {
 
 static UPD: Mutex<Shared> = Mutex::new(Shared { check: None, pct: None, done: None });
 
+/// Half-second timer ticks until the first background check after start-up (10 s: the window is up and the editor quiet),
+/// and between the checks after it (6 hours).
+const FIRST_CHECK_TICKS: u32 = 20;
+const RECHECK_TICKS: u32 = 6 * 60 * 60 * 2;
+
+thread_local! {
+    /// Ticks left until the next background check; 0 = none is planned.
+    static CHECK_IN: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// The user asked for this check or download, so a failure is worth a dialog; a background one fails quietly.
+    static USER_ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Only an installed release updates itself in place: it replaces the folder its `notepp.exe` runs from. A development
+/// build, a test instance (own profile) and the other systems never do.
+fn self_updating() -> bool {
+    cfg!(windows)
+        && !cfg!(debug_assertions)
+        && !notepp_core::session::standalone()
+        && std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.eq_ignore_ascii_case("notepp.exe"))).unwrap_or(false)
+}
+
+/// Called while starting, before any window exists: an update downloaded earlier is installed now. The new version
+/// replaces this one's files and starts with the same files to open; this process ends at once.
+pub(crate) fn apply_staged_at_start(files: &[PathBuf]) {
+    if !self_updating() || !notepp_core::settings::Settings::load().auto_update {
+        return;
+    }
+    let Some((_, dir)) = update::claim_for_start(update::VERSION) else { return };
+    if update::launch_apply(&dir, files).is_ok() {
+        std::process::exit(0);
+    }
+}
+
 #[derive(Clone, Default)]
 pub enum State {
     #[default]
@@ -34,9 +67,32 @@ pub enum State {
 impl App {
     /// An update downloaded by an earlier run is offered again straight away.
     pub fn update_startup(&mut self) {
+        if let Some(v) = update::take_applied(update::VERSION) {
+            self.flash = Some(format!("Note++ was updated to v{v}"));
+        }
         if let Some((v, d)) = update::staged(update::VERSION) {
             self.upd = State::Ready(v, d);
             self.update_pill();
+        }
+        if self_updating() {
+            CHECK_IN.with(|c| c.set(FIRST_CHECK_TICKS));
+        }
+    }
+
+    /// Timer: look for an update in the background now and then (after start-up and every few hours) when automatic
+    /// updates are on. A found update downloads at once (see `update_poll`) and installs the next time the program starts.
+    fn update_auto_check(&mut self) {
+        let left = CHECK_IN.with(std::cell::Cell::get);
+        if left == 0 {
+            return;
+        }
+        CHECK_IN.with(|c| c.set(left - 1));
+        if left > 1 {
+            return;
+        }
+        CHECK_IN.with(|c| c.set(RECHECK_TICKS));
+        if self.ws.settings.auto_update && matches!(self.upd, State::Idle | State::Available(_)) {
+            self.update_check(false);
         }
     }
 
@@ -45,7 +101,14 @@ impl App {
         let pill = match &self.upd {
             State::Available(r) => Some((format!("New update available (v{})", r.version), crate::widgets::theme::current().colors.info, c::ID_UPDATE_PILL)),
             State::Downloading(_, p) => Some((format!("Downloading {p}%"), crate::widgets::theme::current().colors.warning, c::ID_UPDATE_PILL)),
-            State::Ready(v, _) => Some((format!("Click to update to v{v}"), crate::widgets::theme::current().colors.success, c::ID_UPDATE_PILL)),
+            State::Ready(v, _) => {
+                let text = if self.ws.settings.auto_update {
+                    format!("v{v} installs on next start (click to install now)")
+                } else {
+                    format!("Click to update to v{v}")
+                };
+                Some((text, crate::widgets::theme::current().colors.success, c::ID_UPDATE_PILL))
+            }
             State::Idle | State::Checking => None,
         };
         self.chrome.set_pill(pill);
@@ -72,6 +135,7 @@ impl App {
             }
             return;
         }
+        USER_ASKED.with(|u| u.set(manual));
         if manual {
             self.flash = Some("Checking for updates...".into());
         }
@@ -95,6 +159,7 @@ impl App {
 
     /// Timer: take what the background steps have finished.
     pub fn update_poll(&mut self) {
+        self.update_auto_check();
         let (check, pct, done) = {
             let mut u = UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             (u.check.take(), u.pct.take(), u.done.take())
@@ -131,12 +196,20 @@ impl App {
         if let Some(result) = done {
             match result {
                 Ok((ver, dir)) => {
+                    self.flash = Some(if self.ws.settings.auto_update {
+                        format!("Update v{ver} downloaded: it will be installed the next time you start Note++")
+                    } else {
+                        "Update downloaded - click the green notice to install".into()
+                    });
                     self.upd = State::Ready(ver, dir);
-                    self.flash = Some("Update downloaded - click the green notice to install".into());
                 }
                 Err(e) => {
                     self.upd = State::Idle;
-                    self.ui.error(&format!("The update could not be downloaded\n\n{e}"));
+                    if USER_ASKED.with(std::cell::Cell::get) {
+                        self.ui.error(&format!("The update could not be downloaded\n\n{e}"));
+                    } else {
+                        self.flash = Some("An update could not be downloaded; Note++ will try again later".into());
+                    }
                 }
             }
         }
@@ -150,7 +223,7 @@ impl App {
         if !self.ui.ask_yes_no(&msg) {
             return;
         }
-        match update::launch_apply(dir) {
+        match update::launch_apply(dir, &[]) {
             Ok(()) => {
                 self.frame.close(false);
             }
@@ -175,10 +248,14 @@ impl CommandHandler<App> for UpdateCommands {
                 s.auto_update = !s.auto_update;
                 let on = s.auto_update;
                 crate::settings_ui::apply_settings(&mut app.ws, s);
-                app.flash = Some(if on { "Updates are checked for automatically" } else { "Automatic update checks are off" }.into());
+                app.flash =
+                    Some(if on { "Updates download in the background and install the next time you start Note++" } else { "Automatic updates are off" }.into());
             }
             c::ID_UPDATE_PILL => match app.upd.clone() {
-                State::Available(rel) => app.update_download(rel),
+                State::Available(rel) => {
+                    USER_ASKED.with(|u| u.set(true));
+                    app.update_download(rel);
+                }
                 State::Ready(ver, dir) => app.update_install(&ver, &dir),
                 State::Downloading(..) | State::Checking => app.flash = Some("The update is still downloading".into()),
                 State::Idle => app.update_check(true),

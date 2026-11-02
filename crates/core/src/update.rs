@@ -180,15 +180,54 @@ pub fn download(rel: &Release, progress: &mut dyn FnMut(u32)) -> Result<PathBuf,
 
 /// An update downloaded earlier (maybe by a previous run) that is newer than `current`.
 pub fn staged(current: &str) -> Option<(String, PathBuf)> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(updates_dir().join("ready.json")).ok()?).ok()?;
-    let (ver, dir) = (v["version"].as_str()?.to_string(), PathBuf::from(v["dir"].as_str()?));
-    (is_newer(&ver, current) && dir.join(EXE).is_file()).then_some((ver, dir))
+    staged_in(&updates_dir(), current)
+}
+
+fn staged_in(dir: &Path, current: &str) -> Option<(String, PathBuf)> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("ready.json")).ok()?).ok()?;
+    let (ver, root) = (v["version"].as_str()?.to_string(), PathBuf::from(v["dir"].as_str()?));
+    (is_newer(&ver, current) && root.join(EXE).is_file()).then_some((ver, root))
+}
+
+/// Remembers which version the start-up update was tried for, so a failed one is never tried again on every start.
+const ATTEMPT: &str = "apply-attempt.txt";
+
+/// The staged update to install while starting up, once. Returns it only if it has not been tried yet, and records
+/// the try first: when installing fails the next start goes on as usual instead of restarting in a loop.
+pub fn claim_for_start(current: &str) -> Option<(String, PathBuf)> {
+    claim_in(&updates_dir(), current)
+}
+
+fn claim_in(dir: &Path, current: &str) -> Option<(String, PathBuf)> {
+    let (ver, root) = staged_in(dir, current)?;
+    if std::fs::read_to_string(dir.join(ATTEMPT)).is_ok_and(|t| t.trim() == ver) {
+        return None;
+    }
+    std::fs::write(dir.join(ATTEMPT), &ver).ok()?;
+    Some((ver, root))
+}
+
+/// The version a start-up update has just installed (this run is that version), once.
+pub fn take_applied(current: &str) -> Option<String> {
+    applied_in(&updates_dir(), current)
+}
+
+fn applied_in(dir: &Path, current: &str) -> Option<String> {
+    let path = dir.join(ATTEMPT);
+    let ver = std::fs::read_to_string(&path).ok()?.trim().to_string();
+    if parse_version(&ver)? > parse_version(current)? {
+        return None; // tried, but this is still the old version: keep the record so it is not tried again
+    }
+    let _ = std::fs::remove_file(&path);
+    Some(ver)
 }
 
 /// The commands that wait for this program to exit, copy the new files over it and start it again.
-pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path) -> String {
+pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path, files: &[PathBuf]) -> String {
     // `%` is special even inside quotes in a batch file.
     let q = |p: &Path| p.display().to_string().replace('%', "%%");
+    // The files the program was asked to open come back with it.
+    let files = files.iter().fold(String::new(), |all, f| all + " \"" + &q(f) + "\"");
     format!(
         "@echo off\r\n\
          setlocal\r\n\
@@ -203,7 +242,7 @@ pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path) -> String {
          :copy\r\n\
          xcopy \"{src}\\*\" \"{dst}\\\" /E /Y /Q /I /R >nul 2>\"{log}\"\r\n\
          if errorlevel 1 (echo update copy failed >> \"{log}\") else (rmdir /S /Q \"{src}\" & del \"{ready}\")\r\n\
-         start \"\" \"{dst}\\{EXE}\"\r\n\
+         start \"\" \"{dst}\\{EXE}\"{files}\r\n\
          (goto) 2>nul & del \"%~f0\"\r\n",
         src = q(staged),
         dst = q(app_dir),
@@ -212,14 +251,14 @@ pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path) -> String {
     )
 }
 
-/// Write the script and start it detached. The caller then closes the app.
-pub fn launch_apply(staged: &Path) -> Result<(), Error> {
+/// Write the script and start it detached. The caller then closes the app. `files` are opened by the new version.
+pub fn launch_apply(staged: &Path, files: &[PathBuf]) -> Result<(), Error> {
     let exe = std::env::current_exe().map_err(|e| Error::Io(e.to_string()))?;
     let app_dir = exe.parent().ok_or(Error::NoAppFolder)?.to_path_buf();
     let dir = updates_dir();
     std::fs::create_dir_all(&dir).map_err(|e| Error::Io(e.to_string()))?;
     let script = dir.join("apply-update.cmd");
-    std::fs::write(&script, apply_script(staged, &app_dir, &dir.join("update.log"))).map_err(|e| Error::Io(e.to_string()))?;
+    std::fs::write(&script, apply_script(staged, &app_dir, &dir.join("update.log"), files)).map_err(|e| Error::Io(e.to_string()))?;
     let mut cmd = std::process::Command::new("cmd");
     cmd.arg("/c").arg(&script).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     #[cfg(windows)]
@@ -330,11 +369,52 @@ mod tests {
 
     #[test]
     fn the_apply_script_waits_copies_restarts_and_cleans_up() {
-        let s = apply_script(Path::new("C:\\u\\0.2.0"), Path::new("C:\\Apps\\Note PP"), Path::new("C:\\u\\update.log"));
+        let s = apply_script(Path::new("C:\\u\\0.2.0"), Path::new("C:\\Apps\\Note PP"), Path::new("C:\\u\\update.log"), &[]);
         assert!(s.contains("notepp.exe") && s.contains("GEQ 120"), "gives up after two minutes");
         assert!(s.contains("xcopy \"C:\\u\\0.2.0\\*\" \"C:\\Apps\\Note PP\\\" /E /Y"));
         assert!(s.contains("start \"\" \"C:\\Apps\\Note PP\\notepp.exe\""));
         assert!(s.contains("del \"%~f0\""));
-        assert!(apply_script(Path::new("C:\\100%"), Path::new("D:\\a"), Path::new("l")).contains("100%%"));
+        assert!(apply_script(Path::new("C:\\100%"), Path::new("D:\\a"), Path::new("l"), &[]).contains("100%%"));
+    }
+
+    #[test]
+    fn the_files_the_program_was_started_with_come_back_with_the_new_version() {
+        let files = [PathBuf::from("C:\\docs\\a b.txt"), PathBuf::from("D:\\100%.md")];
+        let s = apply_script(Path::new("C:\\u\\1"), Path::new("C:\\Apps\\N"), Path::new("l"), &files);
+        assert!(s.contains("start \"\" \"C:\\Apps\\N\\notepp.exe\" \"C:\\docs\\a b.txt\" \"D:\\100%%.md\"\r\n"));
+    }
+
+    fn staged_dir(name: &str, version: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("npp_upd_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join(version);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("notepp.exe"), b"MZ").unwrap();
+        std::fs::write(dir.join("ready.json"), serde_json::json!({ "version": version, "dir": root }).to_string()).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_downloaded_update_is_installed_at_the_next_start_once() {
+        let dir = staged_dir("claim", "2.0.4");
+        assert_eq!(claim_in(&dir, "2.0.3").map(|c| c.0), Some("2.0.4".to_string()));
+        // It was tried and the program is still the old version (the install failed): no second try, no restart loop.
+        assert_eq!(claim_in(&dir, "2.0.3"), None);
+        assert_eq!(applied_in(&dir, "2.0.3"), None);
+        assert!(dir.join(ATTEMPT).is_file(), "the record stays so that it is not tried again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_newer_version_is_installed_and_success_is_reported_once() {
+        let dir = staged_dir("newer", "2.0.4");
+        assert_eq!(claim_in(&dir, "2.0.4"), None, "the same version is not an update");
+        assert_eq!(claim_in(&dir, "3.0.0"), None, "nor is an older one");
+        let _ = std::fs::remove_file(dir.join(ATTEMPT));
+        assert!(claim_in(&dir, "2.0.3").is_some());
+        // The new version started: it is told once that it was updated.
+        assert_eq!(applied_in(&dir, "2.0.4"), Some("2.0.4".to_string()));
+        assert_eq!(applied_in(&dir, "2.0.4"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

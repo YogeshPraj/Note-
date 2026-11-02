@@ -576,4 +576,4 @@
 9001	&About Note++	true	None
 -
 3351	Check for Updates &Now	true	None
-3352	Check for Updates &Automatically	true	Some(false)
+3352	Update &Automatically	true	Some(false)

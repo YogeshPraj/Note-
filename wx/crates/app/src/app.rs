@@ -1285,9 +1285,11 @@ impl App {
         self.window_key = key;
     }
 
+    /// Write the session now (the window is closing): this one waits for the write.
     pub fn save_session(&mut self) {
         if !session::standalone() {
-            let _ = self.ws.snapshot().save(&session::session_path());
+            let ticket = session::ticket();
+            let _ = self.ws.snapshot().save_in_order(&session::session_path(), ticket);
         }
     }
 
@@ -1295,10 +1297,16 @@ impl App {
         // The tabs and their unsaved text, plus the edit count: an edit that keeps the length (a case change, overtyping,
         // a same-length replacement) must still reach the session file.
         let key = (self.ws.session_fingerprint(), EDITS.load(std::sync::atomic::Ordering::Relaxed));
-        if key != self.session_key {
-            self.session_key = key;
-            self.save_session();
+        if key == self.session_key || session::standalone() {
+            return;
         }
+        self.session_key = key;
+        // The snapshot is taken here; turning it into JSON and writing it (slow with large unsaved documents) happens
+        // on a worker thread. The tickets keep a late write from replacing a newer one.
+        let (snapshot, ticket) = (self.ws.snapshot(), session::ticket());
+        std::thread::spawn(move || {
+            let _ = snapshot.save_in_order(&session::session_path(), ticket);
+        });
     }
 }
 

@@ -70,6 +70,16 @@ fn yes() -> bool {
 
 static STANDALONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// The ticket of the last snapshot written, held while writing: session writes come from the autosave's worker thread
+/// and from closing the window, and must go one at a time, never an older snapshot over a newer one.
+static WRITTEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
+static NEXT_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// A number for a snapshot about to be taken; later snapshots get larger ones.
+pub fn ticket() -> u64 {
+    NEXT_TICKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A "new instance" (View > Move/Open in New Instance) neither restores nor
 /// overwrites the saved session, so it cannot clobber the main window's.
 pub fn set_standalone() {
@@ -380,6 +390,21 @@ impl Session {
         })
     }
 
+    /// Write the snapshot that got `ticket` ([`ticket`]), unless a newer one has been written already. Safe to call from
+    /// several threads: writes go one at a time.
+    ///
+    /// # Errors
+    /// The I/O error of the write.
+    pub fn save_in_order(&self, path: &std::path::Path, ticket: u64) -> std::io::Result<()> {
+        let mut written = WRITTEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if ticket <= *written {
+            return Ok(());
+        }
+        self.save(path)?;
+        *written = ticket;
+        Ok(())
+    }
+
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -444,6 +469,19 @@ mod tests {
         let p = std::env::temp_dir().join("notepp_session_test.json");
         s.save(&p).unwrap();
         assert_eq!(Session::load(&p), Some(s));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn an_older_snapshot_never_overwrites_a_newer_one() {
+        // The autosave writes on a worker thread; closing the window writes at once. Whichever comes last, the newest
+        // snapshot is what stays on disk.
+        let p = std::env::temp_dir().join(format!("notepp_session_order_{}.json", std::process::id()));
+        let with = |marker: &str| Session { date_format: marker.into(), ..Session::default() };
+        let (older, newer) = (ticket(), ticket());
+        with("newer").save_in_order(&p, newer).unwrap();
+        with("older").save_in_order(&p, older).unwrap();
+        assert_eq!(Session::load(&p).map(|s| s.date_format), Some("newer".into()));
         let _ = std::fs::remove_file(&p);
     }
 

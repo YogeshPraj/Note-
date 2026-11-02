@@ -15,6 +15,9 @@ impl<S: Send> Workspace<S> {
             }
             tabs.push(tab);
         }
+        // Tabs left closed this time go back as they were, unless their file has been opened since.
+        let open = |p: &str| self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, Path::new(p))));
+        tabs.extend(self.parked.iter().filter(|st| !st.path.as_deref().is_some_and(open)).cloned());
         Session {
             tabs,
             active,
@@ -26,6 +29,7 @@ impl<S: Send> Workspace<S> {
             search_engine: self.search_engine,
             symbols: self.symbols,
             date_format: self.date_format.clone(),
+            kept: self.kept.clone(),
         }
     }
 
@@ -75,6 +79,7 @@ impl<S: Send> Workspace<S> {
         if !s.date_format.is_empty() {
             self.date_format.clone_from(&s.date_format);
         }
+        self.kept.clone_from(&s.kept);
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         if s.dark {
@@ -182,18 +187,20 @@ impl<S: Send> Workspace<S> {
             if st.encrypted {
                 saved_text = None;
                 if let Some(env) = st.text.as_deref().and_then(|t| crypto::parse_envelope(t.as_bytes())) {
-                    if declined {
-                        continue;
-                    }
-                    if let Some(t) = self.decrypt_for(ui, &env, &st.title) {
-                        saved_text = Some(t);
-                    } else {
+                    // Not unlocked: the tab stays closed, and its saved entry (unsaved text and all) is kept.
+                    saved_text = (!declined).then(|| self.decrypt_for(ui, &env, &st.title)).flatten();
+                    if saved_text.is_none() {
                         declined = true;
+                        self.parked.push(st.clone());
                         continue;
                     }
                 }
             }
             let Some(idx) = self.restore_doc(ui, st, path.as_deref(), saved_text.is_some(), enc, eol, &mut declined, &mut encrypted) else {
+                // An encrypted file that was not unlocked is kept for next time; a file that is gone is dropped.
+                if declined && path.as_deref().is_some_and(Path::exists) {
+                    self.parked.push(st.clone());
+                }
                 continue;
             };
             if let Some(text) = &saved_text {

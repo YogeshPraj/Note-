@@ -199,6 +199,21 @@ impl<S: Send> Workspace<S> {
         Some(format!("\"{name}\" will be saved as plain text"))
     }
 
+    /// Lock encryption. Refused while a protected tab has unsaved changes: the session only ever holds those encrypted,
+    /// so with the key gone they could not be kept and would be lost at exit.
+    ///
+    /// # Errors
+    /// [`crate::error::Error::UnsavedProtected`] naming those tabs.
+    pub fn lock_encryption(&mut self) -> Result<(), crate::error::Error> {
+        let names: Vec<String> =
+            (0..self.tabs.len()).filter(|&i| self.tabs[i].encrypted && self.is_dirty(i)).map(|i| format!("\"{}\"", self.tabs[i].title)).collect();
+        if !names.is_empty() {
+            return Err(crate::error::Error::UnsavedProtected(names.join(", ")));
+        }
+        self.vault.lock();
+        Ok(())
+    }
+
     pub fn is_encrypted(&self) -> bool {
         self.tabs.get(self.active).is_some_and(|t| t.encrypted)
     }

@@ -85,6 +85,8 @@ pub enum Error {
     BadBase64Char(char),
     #[error("The first line cannot be hidden")]
     FirstLineHidden,
+    #[error("Save {0} first: unsaved changes to a protected file can only be kept while encryption is unlocked")]
+    UnsavedProtected(String),
     #[error("The file has no \"light\" or \"dark\" colours")]
     ThemeNoColours,
     #[error("Invalid request: {0}")]

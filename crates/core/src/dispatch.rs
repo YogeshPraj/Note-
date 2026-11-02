@@ -107,10 +107,7 @@ fn command_core_2<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
             crate::bitwarden::lock();
             *flash = Some("Passwords locked".into());
         }
-        ID_ENC_LOCK => {
-            ws.vault.lock();
-            *flash = Some("Encryption locked".into());
-        }
+        ID_ENC_LOCK => *flash = Some(ws.lock_encryption().map_or_else(|e| e.to_string(), |()| "Encryption locked".into())),
         ID_ENCRYPT => *flash = ws.encrypt_active(ui),
         ID_DECRYPT => *flash = ws.decrypt_active(ui),
         ID_ENC_TOGGLE => *flash = if ws.is_encrypted() { ws.decrypt_active(ui) } else { ws.encrypt_active(ui) },

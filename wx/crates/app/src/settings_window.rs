@@ -256,6 +256,12 @@ fn encryption_action(key: &str) -> Option<crate::encdialogs::Action> {
 fn changed(app: &Shared, key: &str, v: &Value) -> bool {
     let Ok(mut a) = app.try_borrow_mut() else { return false };
     if let (Some(action), Value::Pressed) = (encryption_action(key), v) {
+        if matches!(action, crate::encdialogs::Action::Lock) && a.ws.vault.unlocked() {
+            if let Err(e) = a.ws.lock_encryption() {
+                notepp_core::workspace::Ui::error(&a.ui, &e.to_string());
+            }
+            return true;
+        }
         let (frame, mut vault) = (a.frame, a.ws.vault.clone());
         crate::encdialogs::act(&frame, &mut vault, action);
         a.ws.vault = vault;

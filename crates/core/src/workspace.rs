@@ -87,6 +87,11 @@ pub struct Workspace<S: Send> {
     detect_seen: (u64, usize),
     /// Tabs whose language the user chose by hand: never guessed again.
     lang_locked: Vec<u64>,
+    /// Saved tabs that were not opened this time (an encrypted file whose password prompt was declined): written back
+    /// into the session as they were, so their unsaved text comes back once the user unlocks.
+    parked: Vec<SessionTab>,
+    /// Saved tabs of kinds this app cannot show, passed through the session untouched (see `Session::kept`).
+    kept: Vec<serde_json::Value>,
     next_id: u64,
 }
 
@@ -117,6 +122,8 @@ impl<S: Send> Workspace<S> {
             smart_key: (0, 0, 0),
             detect_seen: (0, 0),
             lang_locked: Vec::new(),
+            parked: Vec::new(),
+            kept: Vec::new(),
             next_id: 1,
         };
         ws.style_view(&ws.sci, false);
@@ -251,6 +258,64 @@ mod tests {
         ws.session_fingerprint();
         assert!(!ws.sci.selected_zero.get(), "the view was pointed at document 0");
         assert_eq!(ws.sci.shown.get(), before, "the view must keep showing the same document");
+    }
+
+    /// A user who declines every question and every password prompt.
+    struct NoUi;
+
+    impl Ui for NoUi {
+        fn pick_open(&self) -> Vec<PathBuf> {
+            Vec::new()
+        }
+        fn pick_save(&self, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn confirm_save(&self, _: &str) -> Confirm {
+            Confirm::Cancel
+        }
+        fn ask_yes_no(&self, _: &str) -> bool {
+            false
+        }
+        fn recycle(&self, _: &Path) -> Result<(), crate::error::Error> {
+            Ok(())
+        }
+        fn error(&self, _: &str) {}
+        fn unlock(&self, _: &mut crypto::Vault, _: &str) -> bool {
+            false
+        }
+        fn setup_encryption(&self, _: &mut crypto::Vault) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn tabs_not_opened_this_time_stay_in_the_session() {
+        // An encrypted tab whose password prompt is declined, and a tab of a kind this app cannot show, must be written
+        // back by the next autosave: dropping them destroyed their unsaved text.
+        let env = r#"{"_notepp_encrypted":true,"version":1,"alg":"AES-256-GCM","compression":"gzip","profile":"zz-test-profile","iv":"AAAA","ct":"AAAA"}"#;
+        let tab = |title: &str, text: &str, encrypted: bool| SessionTab {
+            title: title.into(),
+            path: None,
+            text: Some(text.into()),
+            caret: 0,
+            top: 0,
+            enc: "utf8".into(),
+            eol: "lf".into(),
+            pinned: false,
+            color: None,
+            encrypted,
+            kind: "text".into(),
+            lang: None,
+        };
+        let locked = tab("secret.txt", env, true);
+        let kept = vec![serde_json::json!({ "type": "drawio", "name": "flow.drawio", "content": "<mxfile>unsaved</mxfile>" })];
+        let s = Session { tabs: vec![tab("new 1", "hello", false), locked.clone()], kept: kept.clone(), ..Session::default() };
+        let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+        ws.restore(&NoUi, &s);
+        assert_eq!(ws.tabs.len(), 1, "the locked tab is not opened");
+        let snap = ws.snapshot();
+        assert!(snap.tabs.contains(&locked), "the locked tab's entry, encrypted text and all, is written back");
+        assert_eq!(snap.kept, kept);
     }
 
     #[test]

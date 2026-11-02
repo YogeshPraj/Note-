@@ -58,6 +58,10 @@ pub struct Session {
     /// Picture for Insert > Date Time (customized); empty means the default.
     #[serde(default)]
     pub date_format: String,
+    /// Saved tabs this app cannot show (the older app's diagrams, games, ...), exactly as read: they are written back
+    /// unchanged, so whatever unsaved content they hold is never destroyed.
+    #[serde(default)]
+    pub kept: Vec<serde_json::Value>,
 }
 
 fn yes() -> bool {
@@ -348,6 +352,7 @@ impl Session {
     pub fn load(path: &std::path::Path) -> Option<Session> {
         let root: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
         let mut tabs = Vec::new();
+        let mut kept = Vec::new();
         let mut active = 0;
         for v in root.get("tabs")?.as_array()? {
             if let Some(t) = tab_from_json(v) {
@@ -355,6 +360,8 @@ impl Session {
                     active = tabs.len();
                 }
                 tabs.push(t);
+            } else {
+                kept.push(v.clone());
             }
         }
         let ex = root.get("native").and_then(|n| serde_json::from_value::<Extras>(n.clone()).ok()).unwrap_or_else(extras_from_settings);
@@ -369,6 +376,7 @@ impl Session {
             search_engine: ex.search_engine,
             symbols: ex.symbols,
             date_format: ex.date_format,
+            kept,
         })
     }
 
@@ -376,7 +384,13 @@ impl Session {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let tabs: Vec<_> = self.tabs.iter().enumerate().map(|(i, t)| tab_to_json(i, t, i == self.active)).collect();
+        let mut tabs: Vec<_> = self.tabs.iter().enumerate().map(|(i, t)| tab_to_json(i, t, i == self.active)).collect();
+        for v in &self.kept {
+            let mut v = v.clone();
+            v["id"] = (tabs.len() + 1).into();
+            v["active"] = false.into();
+            tabs.push(v);
+        }
         let extras = Extras {
             wrap: self.wrap,
             dark: self.dark,
@@ -425,10 +439,30 @@ mod tests {
             search_engine: 2,
             symbols: crate::view::Symbols::default(),
             date_format: "yyyy".into(),
+            kept: Vec::new(),
         };
         let p = std::env::temp_dir().join("notepp_session_test.json");
         s.save(&p).unwrap();
         assert_eq!(Session::load(&p), Some(s));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn tabs_this_app_cannot_show_are_written_back_unchanged() {
+        // An unsaved diagram of the older app must survive a load and a save here, content and all.
+        let json = r#"{"tabs":[
+            {"id":1,"name":"a.txt","filePath":null,"content":"hi","language":"plaintext","active":true,"dirty":true},
+            {"id":2,"name":"flow.drawio","filePath":null,"content":"<mxfile>unsaved</mxfile>","language":"drawio","type":"drawio","active":false,"dirty":true}
+        ]}"#;
+        let p = std::env::temp_dir().join(format!("notepp_session_kept_{}.json", std::process::id()));
+        std::fs::write(&p, json).unwrap();
+        let s = Session::load(&p).unwrap();
+        assert_eq!((s.tabs.len(), s.kept.len()), (1, 1));
+        s.save(&p).unwrap();
+        let back: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        let drawio = &back["tabs"][1];
+        assert_eq!((drawio["type"].as_str(), drawio["content"].as_str()), (Some("drawio"), Some("<mxfile>unsaved</mxfile>")));
+        assert_eq!(Session::load(&p).unwrap().kept.len(), 1, "it is kept again on the next load");
         let _ = std::fs::remove_file(&p);
     }
 

@@ -33,6 +33,8 @@ impl<S: Send> Workspace<S> {
             pinned: false,
             color: None,
             caret: 0,
+            anchor: None,
+            x_offset: 0,
             top: 0,
             disk,
         });
@@ -63,6 +65,8 @@ impl<S: Send> Workspace<S> {
             pinned: false,
             color: None,
             caret: 0,
+            anchor: None,
+            x_offset: 0,
             top: 0,
             disk,
         });

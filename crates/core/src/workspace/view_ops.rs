@@ -181,11 +181,14 @@ impl<S: Send> Workspace<S> {
         }
         let dirty = self.send(sci::SCI_GETMODIFY, 0, 0) != 0;
         let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
-        let top = self.top_doc_line();
+        let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
+        let (top, x_offset) = (self.top_doc_line(), self.send(sci::SCI_GETXOFFSET, 0, 0));
         let t = &mut self.tabs[self.active];
         t.dirty = dirty;
         t.caret = caret;
+        t.anchor = Some(anchor);
         t.top = top;
+        t.x_offset = x_offset;
     }
 
     /// Re-apply language colours to every view (does not touch caret or scroll).
@@ -197,12 +200,16 @@ impl<S: Send> Workspace<S> {
         }
     }
 
-    /// Show the active tab: colours, then its remembered caret and scroll position.
+    /// Show the active tab: colours, then its remembered selection and scroll position.
     pub(super) fn apply_view(&self) {
         let t = &self.tabs[self.active];
         self.apply_palettes();
-        self.send(sci::SCI_GOTOPOS, t.caret, 0);
+        match t.anchor {
+            Some(anchor) => drop(self.send(sci::SCI_SETSEL, anchor, crate::num::to_isize(t.caret))),
+            None => drop(self.send(sci::SCI_GOTOPOS, t.caret, 0)),
+        }
         self.set_top_doc_line(t.top);
+        self.send(sci::SCI_SETXOFFSET, crate::num::to_usize(t.x_offset.max(0)), 0);
     }
 
     pub fn is_read_only(&self) -> bool {

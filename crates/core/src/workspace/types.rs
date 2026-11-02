@@ -128,8 +128,12 @@ pub struct Tab {
     /// The colour mark: one of `TAB_COLORS` or a custom colour.
     pub color: Option<(u8, u8, u8)>,
     pub caret: usize,
+    /// The other end of the selection when the tab was left (None: just the caret).
+    pub anchor: Option<usize>,
     /// The document line at the top of the view (not a display line: wrapped lines count once).
     pub top: usize,
+    /// How far the view was scrolled to the right, in pixels.
+    pub x_offset: isize,
     /// The file's modification time and size when it was last read or written, to notice
     /// changes made by other programs.
     pub disk: Option<Stamp>,

@@ -305,6 +305,21 @@ impl Default for Theme {
     }
 }
 
+fn luminance(c: Rgb) -> f64 {
+    (0.299 * f64::from(c.0) + 0.587 * f64::from(c.1) + 0.114 * f64::from(c.2)) / 255.0
+}
+
+/// The selection colour, moved towards the text colour when the theme's own is too close to the background to see.
+pub fn visible_selection(bg: Rgb, fg: Rgb, sel: Rgb) -> Rgb {
+    const MIN_DIFFERENCE: f64 = 0.14;
+    if (luminance(sel) - luminance(bg)).abs() >= MIN_DIFFERENCE {
+        return sel;
+    }
+    // 30% of the way from the background to the text colour.
+    let mix = |b: u8, f: u8| crate::num::to_u8(i32::from(b) + (i32::from(f) - i32::from(b)) * 3 / 10);
+    (mix(bg.0, fg.0), mix(bg.1, fg.1), mix(bg.2, fg.2))
+}
+
 /// Everything Notepad++ shows by default, applied through the portable API.
 pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
     // A NUL in a hand-edited settings file must not take the whole app down.
@@ -327,9 +342,10 @@ pub fn configure<S: Send>(sci: &S, font: &str, size: isize, theme: &Theme) {
     sci.send(SCI_STYLESETBACK, STYLE_BRACEBAD, rgb(0xE0, 0x30, 0x30));
 
     sci.send(SCI_SETCARETFORE, crate::num::to_usize(rgb(theme.fg.0, theme.fg.1, theme.fg.2)), 0);
-    sci.send(SCI_SETSELBACK, 1, rgb(theme.sel_bg.0, theme.sel_bg.1, theme.sel_bg.2));
+    let sel = visible_selection(theme.bg, theme.fg, theme.sel_bg);
+    sci.send(SCI_SETSELBACK, 1, rgb(sel.0, sel.1, sel.2));
     // Scintilla's default for an unfocused selection is a light grey, which all but vanishes on a dark theme.
-    sci.send(SCI_SETELEMENTCOLOUR, SC_ELEMENT_SELECTION_INACTIVE_BACK, rgb(theme.sel_bg.0, theme.sel_bg.1, theme.sel_bg.2) | 0xFF00_0000);
+    sci.send(SCI_SETELEMENTCOLOUR, SC_ELEMENT_SELECTION_INACTIVE_BACK, rgb(sel.0, sel.1, sel.2) | 0xFF00_0000);
     sci.send(SCI_SETCARETLINEVISIBLE, 1, 0);
     sci.send(SCI_SETCARETLINEBACK, crate::num::to_usize(rgb(theme.caret_line.0, theme.caret_line.1, theme.caret_line.2)), 0);
 
@@ -407,4 +423,22 @@ pub fn line_count<S: Send>(sci: &S) -> isize {
 
 pub fn length<S: Send>(sci: &S) -> isize {
     sci.send(SCI_GETLENGTH, 0, 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_selection_too_close_to_the_background_is_pulled_towards_the_text() {
+        let (bg, fg) = ((0x14, 0x14, 0x14), (0xF8, 0xF8, 0xF8));
+        let shown = visible_selection(bg, fg, (0x2D, 0x30, 0x33));
+        assert!(luminance(shown) - luminance(bg) >= 0.14);
+    }
+
+    #[test]
+    fn a_clear_selection_is_left_alone() {
+        let clear = (0x26, 0x4F, 0x78);
+        assert_eq!(visible_selection((0x1E, 0x1E, 0x1E), (0xF8, 0xF8, 0xF8), clear), clear);
+    }
 }

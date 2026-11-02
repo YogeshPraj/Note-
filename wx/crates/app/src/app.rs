@@ -73,6 +73,9 @@ pub struct App {
 
 pub type Shared = Rc<RefCell<App>>;
 
+/// The Tab key's code (`WXK_TAB`).
+const KEY_TAB: i32 = 9;
+
 /// How much of another tab's text its tool tip shows: lines, and characters per line.
 const TIP_LINES: usize = 12;
 const TIP_WIDTH: usize = 90;
@@ -402,6 +405,12 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
         let code = k.get_key_code().unwrap_or(0);
         // An open menu takes every key.
         if crate::widgets::popup_menu::key(code, !k.control_down() && !k.alt_down()) {
+            return;
+        }
+        // Ctrl+Tab and Ctrl+Shift+Tab switch tabs. Tab is a navigation key, which the toolkit and the editor take
+        // before any menu shortcut sees it, so it is handled here.
+        if code == KEY_TAB && k.control_down() && !k.alt_down() {
+            run_command(&a, if k.shift_down() { notepp_core::commands::ID_PREV_TAB } else { notepp_core::commands::ID_NEXT_TAB });
             return;
         }
         let target = if k.alt_down() && !k.control_down() {

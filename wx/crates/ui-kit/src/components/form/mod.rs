@@ -522,6 +522,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let built = build_controls(&d, &ctls);
     let (ok_btn, cancel_btn) = add_buttons(&d, ok, ok_at, cancel_at);
     d.set_escape_id(ID_CANCEL);
+    d.close_on_escape();
     let form =
         Form { dialog: Some(d), map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(ok_btn)), cancel: Rc::new(std::cell::Cell::new(cancel_btn)) };
     wire_events(&form, on_change, &built);

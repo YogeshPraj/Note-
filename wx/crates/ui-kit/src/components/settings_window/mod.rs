@@ -92,6 +92,7 @@ pub fn show(owner: &Frame, title: &str, make: &MakePages, start: &str, on_change
     let dialog = Dialog::adopt(
         WxDialog::builder(owner, title).with_size(t.px(1000), t.px(700)).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).build(),
     );
+    dialog.close_on_escape();
     let nav = TabStrip::vertical(&dialog, t.px(230));
     nav.set_font(t.ui_font());
     let host = ThemedPanel::new(&dialog);

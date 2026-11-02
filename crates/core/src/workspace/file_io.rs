@@ -123,7 +123,7 @@ impl<S: Send> Workspace<S> {
             t.dirty = false;
             return true;
         }
-        let (caret, top) = (self.tabs[self.active].caret, crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0)));
+        let (caret, top) = (self.tabs[self.active].caret, self.top_doc_line());
         self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
         let was_read_only = self.is_read_only();
         self.set_read_only(false);
@@ -139,7 +139,7 @@ impl<S: Send> Workspace<S> {
         t.dirty = false;
         let len = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
-        self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
+        self.set_top_doc_line(top);
         true
     }
 

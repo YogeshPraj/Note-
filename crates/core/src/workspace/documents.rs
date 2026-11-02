@@ -150,7 +150,7 @@ impl<S: Send> Workspace<S> {
         };
         let (text, eol) = doc::decode_with(&bytes, enc);
         let had_path = t.path.is_some();
-        let (caret, top) = (t.caret, crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0)));
+        let (caret, top) = (t.caret, self.top_doc_line());
         let was_read_only = self.is_read_only();
         self.set_read_only(false);
         self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
@@ -169,7 +169,7 @@ impl<S: Send> Workspace<S> {
         }
         let len = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_GOTOPOS, caret.min(len), 0);
-        self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
+        self.set_top_doc_line(top);
         true
     }
 

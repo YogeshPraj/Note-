@@ -174,12 +174,12 @@ impl<S: Send> Workspace<S> {
         // Swapping documents resets the view's selection and scroll position; put them back too.
         let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
         let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
-        let first = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
+        let first = self.top_doc_line(); // a document line: display lines change meaning when word wrap is laid out again
         self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
         let n = crate::num::to_usize(sci::length(&self.sci).max(0));
         self.send(sci::SCI_SETDOCPOINTER, 0, shown);
         self.send(sci::SCI_SETSEL, anchor, caret);
-        self.send(sci::SCI_SETFIRSTVISIBLELINE, first, 0);
+        self.set_top_doc_line(first);
         n
     }
 

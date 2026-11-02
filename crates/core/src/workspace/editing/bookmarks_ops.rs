@@ -74,9 +74,9 @@ impl<S: Send> Workspace<S> {
 
     /// The JSON preview edited the document: take its text, as one undo step.
     pub fn replace_text(&self, text: &str) {
-        let top = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
+        let top = self.top_doc_line();
         edit::replace_whole(&self.sci, text);
-        self.send(sci::SCI_SETFIRSTVISIBLELINE, top, 0);
+        self.set_top_doc_line(top);
     }
 
     pub fn toggle_bookmark(&self) {

@@ -9,11 +9,9 @@ impl<S: Send> Workspace<S> {
         // Reading hidden tabs means swapping documents in; put back whatever was showing.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
         // Swapping documents in resets the selection and scroll of the view; they are put back at the end.
-        let (anchor, pos, first) = (
-            crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0)),
-            self.send(sci::SCI_GETCURRENTPOS, 0, 0),
-            crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0)),
-        );
+        // The scroll position is a document line: a display line means something else once word wrap is laid out again.
+        let (anchor, pos, first) =
+            (crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0)), self.send(sci::SCI_GETCURRENTPOS, 0, 0), self.top_doc_line());
         let mut pointer = shown;
         let mut tabs = Vec::new();
         let mut active = 0;
@@ -29,7 +27,7 @@ impl<S: Send> Workspace<S> {
         }
         if self.tabs.get(cur).is_some_and(|t| t.kind == TabKind::Text) {
             self.send(sci::SCI_SETSEL, anchor, pos);
-            self.send(sci::SCI_SETFIRSTVISIBLELINE, first, 0);
+            self.set_top_doc_line(first);
         }
         Session {
             tabs,

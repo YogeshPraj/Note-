@@ -181,7 +181,7 @@ impl<S: Send> Workspace<S> {
         }
         let dirty = self.send(sci::SCI_GETMODIFY, 0, 0) != 0;
         let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
-        let top = crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0));
+        let top = self.top_doc_line();
         let t = &mut self.tabs[self.active];
         t.dirty = dirty;
         t.caret = caret;
@@ -202,8 +202,7 @@ impl<S: Send> Workspace<S> {
         let t = &self.tabs[self.active];
         self.apply_palettes();
         self.send(sci::SCI_GOTOPOS, t.caret, 0);
-        self.send(sci::SCI_SETFIRSTVISIBLELINE, t.top, 0);
-        self.sync_minimap();
+        self.set_top_doc_line(t.top);
     }
 
     pub fn is_read_only(&self) -> bool {

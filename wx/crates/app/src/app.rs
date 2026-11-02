@@ -850,6 +850,7 @@ impl App {
     /// tab's scene (and the theme) into the page when needed.
     fn wb_sync(&mut self) {
         let wb = self.ws.is_whiteboard();
+        self.sync_preview_pane();
         let mut relayout = false;
         if self.stc.is_shown() == wb {
             self.stc.show(!wb);
@@ -984,7 +985,22 @@ impl App {
             return;
         }
         self.preview.on = on;
-        if on {
+        self.sync_preview_pane();
+    }
+
+    /// The pane is only beside the editor while preview is on and the active tab has something to preview.
+    fn sync_preview_pane(&mut self) {
+        let previewable = !self.ws.is_whiteboard() && self.ws.preview_kind().is_some();
+        self.show_preview_pane(self.preview.on && previewable);
+    }
+
+    /// Put the pane beside the editor or take it away (a whiteboard has nothing to preview).
+    fn show_preview_pane(&mut self, want: bool) {
+        if want == self.preview.split {
+            return;
+        }
+        self.preview.split = want;
+        if want {
             if !self.view.is_loaded() {
                 self.view.load_html(&preview::page_html(self.ws.settings.preview_remote_images));
             }
@@ -1000,7 +1016,8 @@ impl App {
 
     /// Re-render the preview when the document, its text or the theme changed.
     pub fn preview_update(&mut self, force: bool) {
-        if !self.preview.on || !self.view.is_ready() {
+        self.sync_preview_pane();
+        if !self.preview.split || !self.view.is_ready() {
             return;
         }
         let dark = self.ws.theme.dark;

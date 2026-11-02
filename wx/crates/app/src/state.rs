@@ -17,6 +17,8 @@ pub struct WhiteboardState {
 #[derive(Default)]
 pub struct PreviewState {
     pub on: bool,
+    /// Whether the pane is actually beside the editor (it is not while a whiteboard is shown).
+    pub split: bool,
     /// (document, revision, size) last rendered, to skip identical refreshes.
     pub key: Option<(isize, usize, u64)>,
 }

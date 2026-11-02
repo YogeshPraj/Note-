@@ -31,7 +31,7 @@ These are the target. Known gaps (see `docs/audit.md` for the full list):
 
 | Rule | State |
 |---|---|
-| Keyboard first | Commands are in one registry with default shortcuts; the shortcut mapper edits them. Alt+letter menu mnemonics are not ported yet. |
+| Keyboard first | Commands are in one registry with default shortcuts; the shortcut mapper edits them. Alt+letter and F10 open the menus, also while a web page has the keyboard. |
 | Never block the UI | Find in Files, the file-tree scan and Bitwarden calls still run on the UI thread. |
 | Accessible | Contrast of text on every theme background is tested; focus rings and screen-reader names of the custom-painted bars are not done. |
 | Scales | `Theme::px` exists, but components still use their own pixel constants; the Win32-parity dialogs are pixel-positioned on purpose. |

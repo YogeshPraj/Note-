@@ -1,6 +1,7 @@
 # Decisions
 
-One line per decision made without asking, following the "Standing decisions" in `ARCHITECTURE_SETUP.md`.
+One line per decision made without asking. ("Standing decisions" below refers to the restructuring brief of 2026-11-01,
+which was not kept in the repository; its outcome is `docs/architecture.md`.)
 
 | Date | Decision | Reason |
 |---|---|---|

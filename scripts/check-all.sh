@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Everything a change must pass, in both workspaces. STRICT=1 also denies warnings (not passing yet: see docs/audit.md).
+# Everything a change must pass, in both workspaces. STRICT=1 also denies warnings (both workspaces are at zero).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 

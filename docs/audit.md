@@ -1,5 +1,23 @@
 # Architecture audit (Phase 0)
 
+## Current status (2026-11-02, `main` at v2.0.5) — read this first
+
+The sections below are the historical audit. Measured today:
+
+| Gate | State |
+|---|---|
+| `bash scripts/check-all.sh` | Passes, including with `STRICT=1` (`-D warnings`). |
+| Clippy warnings | **0** in both workspaces. The "Lint debt" tables further down are history. |
+| Functions over 60 lines (`too_many_lines`) | **0**, none suppressed. |
+| `unwrap` / `expect` / `panic!` in production code | **0** (the five `expect`s left are in test modules). |
+| Tests | core 214, ui-kit 62 + 1 token test, app 93. |
+| Files over 400 lines | **21** (finding 5): `app.rs` 1248, `edit.rs` 1139, `search.rs` 951, `extra.rs` 797, `menus.rs` 784, `bitwarden.rs` 664, `registry.rs` 609, `form/mod.rs` 574, `http.rs` 550, `crypto.rs` 549, `theme.rs` 548, `mdformat.rs` 530, `dialogs.rs` 517, `session.rs` 495, `tab_strip/mod.rs` 494, `lang.rs` 494, `pwdialogs.rs` 491, `sci.rs` 444, `dispatch.rs` 442, `popup_menu/mod.rs` 421, `update.rs` 420. |
+| `thread_local!` state | 17 files (finding 16). |
+| Raw native dialogs | Findings 15 and 17 still open. |
+| Long work on the UI thread | Finding 18 still open. |
+
+"`ARCHITECTURE_SETUP.md`" below is the restructuring brief of 2026-11-01; it was not kept in the repository.
+
 Read-only audit of `crates/core` (the portable core) and `wx/` (the wxWidgets shell). Measured on branch `wx-port`
 at `b9634dc`. Test code is excluded from the counts. No code was changed.
 

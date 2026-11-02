@@ -1,7 +1,7 @@
 # Project: Note++ (Rust, wxWidgets)
 
 A native editor: Scintilla and Lexilla for editing, a portable Rust core, a wxWidgets shell.
-Branch `wx-port` is the cross-platform shell; `main` shipped the earlier Win32 build.
+`main` is the active branch and ships the wx shell (2.0.2 onwards); `wx-port` is the older branch it grew from.
 
 Read `docs/architecture.md` and `docs/ux.md` before any non-trivial change. Design decisions made without asking are in
 `docs/decisions.md`; known lint debt and the audit status are in `docs/audit.md`.
@@ -46,8 +46,8 @@ Read `docs/architecture.md` and `docs/ux.md` before any non-trivial change. Desi
 - Testing the UI: use a separate virtual desktop, never steal focus or mouse, never touch the real `%APPDATA%\notepp`
   profile (use a copy via `APPDATA=...`), and close what you open.
 - Before declaring done, run `bash scripts/check-all.sh`. It runs, in both workspaces: `cargo fmt --all -- --check`,
-  `cargo clippy --all-targets` (errors fail; `STRICT=1` adds `-D warnings`, which does not pass yet because of the lint
-  debt), `cargo test`, and `scripts/check-architecture.sh`. New code must not add warnings.
+  `cargo clippy --all-targets` (errors fail; `STRICT=1` adds `-D warnings`), `cargo test`, and
+  `scripts/check-architecture.sh`. Both workspaces are at zero warnings: run with `STRICT=1` so it stays that way.
 
 ## Pitfalls
 - Kill `notepp-wx.exe` before rebuilding (the exe is locked); a running instance blocks test launches (use `--new-instance`).

@@ -1,7 +1,7 @@
 //! The pure model of a popup menu: its entries, where each row goes, and how the keyboard moves through it.
 
 use crate::components::menu_bar::split_mnemonic;
-use crate::geom::Rect;
+use crate::geom::{Rect, Rgb};
 
 /// A command row.
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +14,8 @@ pub struct Item {
     pub enabled: bool,
     /// `Some` for switches: whether it is on.
     pub check: Option<bool>,
+    /// A colour shown as a filled square in the left margin (a ring marks it when `check` is on).
+    pub swatch: Option<Rgb>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,7 +29,16 @@ impl Entry {
     /// A command row from "Label\tShortcut" text.
     pub fn item(id: usize, text: &str, enabled: bool, check: Option<bool>) -> Entry {
         let (label, accel) = text.split_once('\t').unwrap_or((text, ""));
-        Entry::Item(Item { id, label: label.to_string(), accel: accel.to_string(), enabled, check })
+        Entry::Item(Item { id, label: label.to_string(), accel: accel.to_string(), enabled, check, swatch: None })
+    }
+
+    /// This row with a colour swatch in the left margin.
+    #[must_use]
+    pub fn with_swatch(mut self, colour: Option<Rgb>) -> Entry {
+        if let Entry::Item(i) = &mut self {
+            i.swatch = colour;
+        }
+        self
     }
 
     pub fn sub(label: &str, items: Vec<Entry>) -> Entry {

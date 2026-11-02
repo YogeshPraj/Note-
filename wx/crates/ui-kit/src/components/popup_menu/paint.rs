@@ -37,6 +37,18 @@ pub fn paint(panel: Panel, entries: &[Entry], lay: &Layout, hot: Option<usize>) 
     }
 }
 
+/// A filled square in the left margin, with a ring around it when its row is on.
+fn swatch(dc: &impl DeviceContext, r: Rect, m: &Metrics, colour: Rgb, on: bool, ink: Rgb) {
+    let size = theme::current().px(14);
+    let ring = theme::current().px(3);
+    let (cx, cy) = (r.l + m.gutter / 2, i32::midpoint(r.t, r.b));
+    let (x, y) = (cx - size / 2, cy - size / 2);
+    if on {
+        fill(dc, Rect::new(x - ring, y - ring, x + size + ring, y + size + ring), ink);
+    }
+    fill(dc, Rect::new(x, y, x + size, y + size), colour);
+}
+
 fn paint_row(dc: &impl DeviceContext, entry: &Entry, r: Rect, lay: &Layout, m: &Metrics, ink: Rgb) {
     let (label, key) = entry.display();
     text_at(dc, &label, Rect::new(r.l + m.gutter, r.t, r.r, r.b), ink, false);
@@ -47,8 +59,10 @@ fn paint_row(dc: &impl DeviceContext, entry: &Entry, r: Rect, lay: &Layout, m: &
         let y = r.b - r.h() / 4 - 1;
         fill(dc, Rect::new(x, y, x + text_w(dc, &letter), y + 1), ink);
     }
-    if matches!(entry, Entry::Item(Item { check: Some(true), .. })) {
-        text_at(dc, "\u{2713}", Rect::new(r.l, r.t, r.l + m.gutter, r.b), ink, true);
+    match entry {
+        Entry::Item(Item { swatch: Some(colour), check, .. }) => swatch(dc, r, m, *colour, *check == Some(true), ink),
+        Entry::Item(Item { check: Some(true), .. }) => text_at(dc, "\u{2713}", Rect::new(r.l, r.t, r.l + m.gutter, r.b), ink, true),
+        _ => {}
     }
     if !entry.accel().is_empty() {
         text_at(dc, entry.accel(), Rect::new(lay.accel_x, r.t, r.r, r.b), ink, false);

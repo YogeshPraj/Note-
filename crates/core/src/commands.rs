@@ -253,6 +253,7 @@ pub const ID_TAB_COLOR_NONE: usize = 5609;
 pub const ID_TAB_CMP_FILE: usize = 5610;
 pub const ID_TAB_CMP_CLIP: usize = 5611;
 pub const ID_TAB_REVEAL: usize = 5612;
+pub const ID_TAB_COLOR_CUSTOM: usize = 5613;
 pub const ID_LOG_FOLLOW: usize = 3213;
 pub const ID_UPDATE_PILL: usize = 3350;
 pub const ID_UPDATE_CHECK: usize = 3351;

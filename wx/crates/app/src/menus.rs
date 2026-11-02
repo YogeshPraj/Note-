@@ -162,7 +162,9 @@ fn spec_inner(a: &[Vec<Entry>], m: M) -> MenuSpec {
     let mut s = MenuSpec::new();
     for e in &a[m.0] {
         s.push(match e {
-            Entry::Item { id, label, enabled } => MenuEntry::Item { id: *id, label: label.clone(), enabled: *enabled, check: checkable(*id).then_some(false) },
+            Entry::Item { id, label, enabled } => {
+                MenuEntry::Item { id: *id, label: label.clone(), enabled: *enabled, check: checkable(*id).then_some(false), swatch: None }
+            }
             Entry::Sep => MenuEntry::Sep,
             Entry::Sub { label, menu } => MenuEntry::Sub { label: label.clone(), menu: spec_inner(a, *menu) },
         });
@@ -721,7 +723,7 @@ mod golden {
         for e in spec.entries() {
             let pad = "  ".repeat(depth);
             match e {
-                MenuEntry::Item { id, label, enabled, check } => out.push_str(&format!("{pad}{id}\t{label}\t{enabled}\t{check:?}\n")),
+                MenuEntry::Item { id, label, enabled, check, .. } => out.push_str(&format!("{pad}{id}\t{label}\t{enabled}\t{check:?}\n")),
                 MenuEntry::Sep => out.push_str(&format!("{pad}-\n")),
                 MenuEntry::Sub { label, menu } => {
                     out.push_str(&format!("{pad}> {label}\n"));

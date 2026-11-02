@@ -125,8 +125,8 @@ pub struct Tab {
     pub encrypted: bool,
     /// Pinned tabs sit at the left, show no close button and survive the Close All commands.
     pub pinned: bool,
-    /// Index into `TAB_COLORS`.
-    pub color: Option<u8>,
+    /// The colour mark: one of `TAB_COLORS` or a custom colour.
+    pub color: Option<(u8, u8, u8)>,
     pub caret: usize,
     pub top: usize,
     /// The file's modification time and size when it was last read or written, to notice

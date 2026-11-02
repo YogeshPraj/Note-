@@ -17,9 +17,9 @@ pub struct SessionTab {
     /// Pinned tabs stay at the left and are skipped by the Close All commands.
     #[serde(default)]
     pub pinned: bool,
-    /// Index into `workspace::TAB_COLORS`.
+    /// The colour mark of the tab.
     #[serde(default)]
-    pub color: Option<u8>,
+    pub color: Option<(u8, u8, u8)>,
     /// The tab is an encrypted file; `text` (if any) then holds the encrypted envelope, never plain text.
     #[serde(default)]
     pub encrypted: bool,
@@ -91,8 +91,15 @@ pub fn session_path() -> PathBuf {
     config_dir().join("autosave").join("session.json")
 }
 
-/// Tab colours as the app has always stored them (hex strings), by `workspace::TAB_COLORS` index.
+/// Tab colours as earlier builds stored them (hex strings), by `workspace::TAB_COLORS` index: read back as those colours.
 const TAB_HEX: [&str; 8] = ["#e05555", "#e08030", "#c0a020", "#3dab60", "#2090a0", "#4488dd", "#8060c0", "#c060a0"];
+
+fn tab_colour_from_hex(hex: &str) -> Option<(u8, u8, u8)> {
+    match TAB_HEX.iter().position(|h| h.eq_ignore_ascii_case(hex)) {
+        Some(i) => Some(crate::workspace::TAB_COLORS[i].1),
+        None => crate::settings::parse_hex(hex),
+    }
+}
 
 fn enc_label(key: &str) -> String {
     match key {
@@ -254,7 +261,7 @@ fn tab_to_json(i: usize, t: &SessionTab, active: bool) -> serde_json::Value {
         "active": active,
         "dirty": t.text.is_some(),
         "pinned": t.pinned,
-        "color": t.color.and_then(|c| TAB_HEX.get(c as usize)),
+        "color": t.color.map(crate::settings::to_hex),
         "caret": t.caret,
         "top": t.top,
     });
@@ -304,7 +311,7 @@ fn tab_from_json(v: &serde_json::Value) -> Option<SessionTab> {
         enc: enc_key(v["encoding"].as_str().unwrap_or("UTF-8")),
         eol: eol_key(v["eol"].as_str().unwrap_or("")).into(),
         pinned: v["pinned"].as_bool().unwrap_or(false),
-        color: v["color"].as_str().and_then(|c| TAB_HEX.iter().position(|h| h.eq_ignore_ascii_case(c))).map(crate::num::to_u8),
+        color: v["color"].as_str().and_then(tab_colour_from_hex),
         encrypted,
         kind: if whiteboard { "whiteboard".into() } else { "text".into() },
         lang,
@@ -443,7 +450,7 @@ mod tests {
         let here =
             serde_json::json!({"tabs":[{"name":"Cargo.toml","filePath":concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"),"content":"stale","dirty":false}]});
         assert_eq!(tab_from_json(&here["tabs"][0]).unwrap().text, None, "a clean file is read from disk");
-        assert!(s.tabs[0].pinned && s.tabs[0].color == Some(5));
+        assert!(s.tabs[0].pinned && s.tabs[0].color == Some(crate::workspace::TAB_COLORS[5].1));
         assert_eq!((s.tabs[1].text.as_deref(), s.tabs[1].enc.as_str(), s.tabs[1].eol.as_str()), (Some("hello"), "utf16le", "lf"));
         assert_eq!(s.tabs[2].kind, "whiteboard");
     }
@@ -459,7 +466,7 @@ mod tests {
             enc: "utf8bom".into(),
             eol: "cr".into(),
             pinned: false,
-            color: Some(0),
+            color: Some(crate::workspace::TAB_COLORS[0].1),
             encrypted: false,
             kind: "text".into(),
             lang: None,
@@ -468,7 +475,7 @@ mod tests {
         assert_eq!((v["id"].as_u64(), v["name"].as_str(), v["filePath"].as_str(), v["content"].as_str()), (Some(1), Some("n.py"), Some("C:\\n.py"), Some("x")));
         assert_eq!(
             (v["language"].as_str(), v["encoding"].as_str(), v["eol"].as_str(), v["color"].as_str(), v["active"].as_bool(), v["dirty"].as_bool()),
-            (Some("python"), Some("UTF-8 BOM"), Some("Macintosh (CR)"), Some("#e05555"), Some(true), Some(true))
+            (Some("python"), Some("UTF-8 BOM"), Some("Macintosh (CR)"), Some("#E05A5A"), Some(true), Some(true))
         );
         let back = tab_from_json(&v).unwrap();
         assert_eq!(back, t);

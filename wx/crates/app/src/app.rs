@@ -433,6 +433,7 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
         notepp_core::commands::ID_SHORTCUTS => return crate::settings_window::open(a, "shortcuts"),
         notepp_core::commands::ID_EDIT_CONTEXT => return crate::settings_window::open(a, "context"),
         notepp_core::commands::ID_ENC_SETTINGS => return crate::settings_window::open(a, "security"),
+        notepp_core::commands::ID_TAB_COLOR_CUSTOM => return crate::popups::custom_tab_colour(a),
         ID_FIND => return crate::find::open_panel(a, Mode::Find),
         ID_REPLACE => return crate::find::open_panel(a, Mode::Replace),
         ID_PALETTE => return crate::palette::open_commands(a),

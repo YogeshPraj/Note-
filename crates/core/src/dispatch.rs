@@ -101,7 +101,7 @@ fn command_core_2<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
         }
         _ if (ID_TAB_COLOR_BASE..ID_TAB_COLOR_BASE + crate::workspace::TAB_COLORS.len()).contains(&id) => {
             let i = ws.active;
-            ws.set_tab_color(i, Some(crate::num::to_u8(id - ID_TAB_COLOR_BASE)));
+            ws.set_tab_color(i, Some(crate::workspace::TAB_COLORS[id - ID_TAB_COLOR_BASE].1));
         }
         ID_PW_LOCK => {
             crate::bitwarden::lock();

@@ -15,6 +15,8 @@ pub enum Entry {
         enabled: bool,
         /// None: a plain item; Some(state): a tick box that starts ticked or not.
         check: Option<bool>,
+        /// A colour square shown beside the label in popup menus.
+        swatch: Option<(u8, u8, u8)>,
     },
     Sep,
     Sub {
@@ -42,20 +44,29 @@ impl MenuSpec {
     }
 
     pub fn item(mut self, id: usize, label: &str) -> Self {
-        self.entries.push(Entry::Item { id, label: label.to_string(), enabled: true, check: None });
+        self.entries.push(Entry::Item { id, label: label.to_string(), enabled: true, check: None, swatch: None });
         self
     }
 
     /// An item that can be greyed out.
     pub fn item_if(mut self, id: usize, label: &str, enabled: bool) -> Self {
-        self.entries.push(Entry::Item { id, label: label.to_string(), enabled, check: None });
+        self.entries.push(Entry::Item { id, label: label.to_string(), enabled, check: None, swatch: None });
         self
     }
 
     /// An item with a tick box.
     pub fn check(mut self, id: usize, label: &str, checked: bool) -> Self {
-        self.entries.push(Entry::Item { id, label: label.to_string(), enabled: true, check: Some(checked) });
+        self.entries.push(Entry::Item { id, label: label.to_string(), enabled: true, check: Some(checked), swatch: None });
         self
+    }
+
+    /// A tick item that shows a colour square in popup menus.
+    pub fn swatch(self, id: usize, label: &str, colour: (u8, u8, u8), checked: bool) -> Self {
+        let mut spec = self.check(id, label, checked);
+        if let Some(Entry::Item { swatch, .. }) = spec.entries.last_mut() {
+            *swatch = Some(colour);
+        }
+        spec
     }
 
     pub fn sep(mut self) -> Self {
@@ -117,7 +128,7 @@ impl MenuSpec {
         let menu = Menu::builder().build();
         for e in &self.entries {
             match e {
-                Entry::Item { id, label, enabled, check } => {
+                Entry::Item { id, label, enabled, check, .. } => {
                     let kind = if check.is_some() { ItemKind::Check } else { ItemKind::Normal };
                     menu.append(crate::platform::wx::to_i32(*id), &accelerator_text(label), "", kind);
                     if let Some(on) = check {

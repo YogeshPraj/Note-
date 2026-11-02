@@ -24,11 +24,11 @@ fn entries(spec: &MenuSpec, live: Option<&MenuBar>) -> Vec<pm::Entry> {
         .map(|e| match e {
             SpecEntry::Sep => pm::Entry::Sep,
             SpecEntry::Sub { label, menu } => pm::Entry::sub(&accelerator_text(label), entries(menu, live)),
-            SpecEntry::Item { id, label, enabled, check } => {
+            SpecEntry::Item { id, label, enabled, check, swatch } => {
                 let item = live.filter(|_| *id != 0).and_then(|b| b.find_item(crate::platform::wx::to_i32(*id)));
                 let enabled = item.as_ref().map_or(*enabled, MenuItem::is_enabled);
                 let check = check.map(|c| item.as_ref().map_or(c, MenuItem::is_checked));
-                pm::Entry::item(*id, &accelerator_text(label), enabled, check)
+                pm::Entry::item(*id, &accelerator_text(label), enabled, check).with_swatch(*swatch)
             }
         })
         .collect()
@@ -100,17 +100,20 @@ struct TabFacts {
     has_path: bool,
     is_text: bool,
     pinned: bool,
-    color: Option<u8>,
+    color: Option<(u8, u8, u8)>,
 }
 
 /// The right-click menu of a tab.
 fn tab_spec(f: &TabFacts) -> MenuSpec {
-    let colours = TAB_COLORS
-        .iter()
-        .enumerate()
-        .fold(MenuSpec::new(), |m, (i, (name, _))| m.check(c::ID_TAB_COLOR_BASE + i, name, f.color == Some(crate::platform::wx::to_u8(i))))
-        .sep()
-        .item_if(c::ID_TAB_COLOR_NONE, "No colour", f.color.is_some());
+    let preset = TAB_COLORS.iter().any(|(_, rgb)| Some(*rgb) == f.color);
+    let mut colours =
+        TAB_COLORS.iter().enumerate().fold(MenuSpec::new(), |m, (i, (name, rgb))| m.swatch(c::ID_TAB_COLOR_BASE + i, name, *rgb, f.color == Some(*rgb)));
+    colours = match f.color {
+        Some(rgb) if !preset => colours.sep().swatch(c::ID_TAB_COLOR_CUSTOM, "Custom colour...", rgb, true),
+        _ => colours.sep().item(c::ID_TAB_COLOR_CUSTOM, "Custom colour..."),
+    }
+    .sep()
+    .item_if(c::ID_TAB_COLOR_NONE, "No colour", f.color.is_some());
     MenuSpec::new()
         .item(c::ID_TAB_PIN, if f.pinned { "Unpin Tab" } else { "Pin Tab" })
         .sep()
@@ -138,6 +141,22 @@ pub fn tab_menu(app: &Shared, at: Point) {
         (a.frame, TabFacts { has_path: t.path.is_some(), is_text: t.kind == TabKind::Text, pinned: t.pinned, color: t.color })
     };
     show(app, &frame, tab_spec(&facts), at);
+}
+
+/// Mark the active tab with a colour chosen in the colour dialog.
+pub fn custom_tab_colour(app: &Shared) {
+    let (frame, tab, start) = {
+        let Ok(a) = app.try_borrow() else { return };
+        (a.frame, a.ws.active, a.ws.tabs[a.ws.active].color.unwrap_or(TAB_COLORS[5].1))
+    };
+    let dialog = ColourDialog::builder(&frame).with_initial_colour(crate::widgets::paint::colour(start)).build();
+    if dialog.show_modal() == ID_OK
+        && let Some(c) = dialog.get_colour()
+        && let Ok(mut a) = app.try_borrow_mut()
+    {
+        a.ws.set_tab_color(tab, Some((c.r, c.g, c.b)));
+        a.refresh();
+    }
 }
 
 /// The editor's right-click menu from the lines of contextmenu.txt (None is a separator).
@@ -235,7 +254,7 @@ mod tests {
 
     #[test]
     fn only_the_tabs_colour_is_ticked_and_none_is_offered_when_one_is_set() {
-        let m = tab_spec(&TabFacts { color: Some(2), ..facts() });
+        let m = tab_spec(&TabFacts { color: Some(TAB_COLORS[2].1), ..facts() });
         let ticked: Vec<usize> = m
             .entries()
             .iter()

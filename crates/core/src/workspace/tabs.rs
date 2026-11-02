@@ -41,9 +41,9 @@ impl<S: Send> Workspace<S> {
         self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
     }
 
-    pub fn set_tab_color(&mut self, i: usize, color: Option<u8>) {
+    pub fn set_tab_color(&mut self, i: usize, color: Option<(u8, u8, u8)>) {
         if let Some(t) = self.tabs.get_mut(i) {
-            t.color = color.filter(|c| (*c as usize) < TAB_COLORS.len());
+            t.color = color;
         }
     }
 
@@ -123,7 +123,7 @@ impl<S: Send> Workspace<S> {
                 title: self.tabs[i].title.clone(),
                 dirty: self.is_dirty(i),
                 pinned: self.tabs[i].pinned,
-                color: self.tabs[i].color.and_then(|c| TAB_COLORS.get(c as usize)).map(|c| c.1),
+                color: self.tabs[i].color,
                 badge: if self.tabs[i].kind == TabKind::Whiteboard {
                     Some("wb")
                 } else if self.tabs[i].encrypted {

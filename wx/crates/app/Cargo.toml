@@ -14,7 +14,8 @@ workspace = true
 [dependencies]
 notepp-core = { path = "../../../crates/core" }
 ui-kit = { path = "../ui-kit" }
-wxdragon = { version = "0.9", features = ["stc", "webview", "aui"] }
+# Default features also build TIFF/JPEG/XPM and Tango icon support, wx printing (printing goes through the web view) and appindicator.
+wxdragon = { version = "0.9", default-features = false, features = ["stc", "webview", "aui", "wx-regex", "wx-asserts"] }
 wxdragon-sys = "0.9"
 zeroize = "1"
 sha2 = "0.10"

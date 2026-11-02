@@ -8,6 +8,6 @@ description = "Note++ UI kit: themed controls, custom-painted bars, tab strip an
 workspace = true
 
 [dependencies]
-wxdragon = { version = "0.9", features = ["webview"] }
+wxdragon = { version = "0.9", default-features = false, features = ["webview", "wx-regex", "wx-asserts"] }
 wxdragon-sys = "0.9"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }

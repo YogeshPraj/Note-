@@ -38,6 +38,13 @@ must_use_candidate = "allow"
 [patch.crates-io]
 wxdragon-sys = { path = "../vendor/wxdragon-sys" }
 
+# Release: one optimised, stripped binary (about a third of the unstripped size). Panics stay unwinding: wxdragon catches them in UI callbacks.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true
+
 # Key derivation is slow unoptimised; keep the tests quick.
 [profile.dev.package.sha2]
 opt-level = 3

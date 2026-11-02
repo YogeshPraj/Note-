@@ -482,8 +482,15 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
     view.on_script_message_received(move |e| {
         let msg = e.get_string().unwrap_or_default();
         match msg.trim_matches('"') {
-            "need-mermaid" => preview::load_mermaid(&pv),
-            "need-jsoneditor" => preview::load_json_editor(&pv),
+            // The libraries go in from the main loop: scripts run from inside the page's own message callback get dropped.
+            "need-mermaid" => {
+                let pv = pv.clone();
+                crate::widgets::defer::later(&frame, move || preview::load_mermaid(&pv));
+            }
+            "need-jsoneditor" => {
+                let pv = pv.clone();
+                crate::widgets::defer::later(&frame, move || preview::load_json_editor(&pv));
+            }
             "close" => {
                 if let Ok(mut app) = a.try_borrow_mut() {
                     app.set_preview(false);

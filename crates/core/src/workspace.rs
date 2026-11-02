@@ -337,6 +337,21 @@ mod tests {
     }
 
     #[test]
+    fn moving_a_tab_keeps_it_in_its_group() {
+        let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+        for _ in 0..3 {
+            ws.new_tab();
+        }
+        ws.toggle_pin(0);
+        ws.activate(1);
+        assert!(!ws.move_tab(-1), "an unpinned tab moved into the pinned group");
+        assert!(ws.move_tab(1));
+        ws.activate(0);
+        assert!(!ws.move_tab(1), "a pinned tab moved among the unpinned ones");
+        assert!(ws.tabs[0].pinned && !ws.tabs[1].pinned && !ws.tabs[2].pinned);
+    }
+
+    #[test]
     fn thousands_separators() {
         assert_eq!((commafy(0), commafy(999), commafy(1000), commafy(22_187_160)), ("0".into(), "999".into(), "1,000".into(), "22,187,160".into()));
     }

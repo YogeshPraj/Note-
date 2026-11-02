@@ -53,6 +53,10 @@ impl<S: Send> Workspace<S> {
         if to < 0 || crate::num::to_usize(to) >= self.tabs.len() {
             return false;
         }
+        // A tab stays inside its own group (pinned tabs left, the others right), as with drag and drop.
+        if self.tabs[crate::num::to_usize(to)].pinned != self.tabs[self.active].pinned {
+            return false;
+        }
         let tab = self.tabs.remove(self.active);
         self.tabs.insert(crate::num::to_usize(to), tab);
         self.active = crate::num::to_usize(to);

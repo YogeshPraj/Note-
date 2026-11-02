@@ -84,10 +84,10 @@ fn editor(s: &Settings) -> Page {
             number("font_size", "Font size", "The size of the editor text, in points.", i64::from(s.font_size), 6, 72),
             Row::heading("Indentation"),
             number("tab", "Tab size", "How many columns a tab stop is wide.", i64::from(s.tab_width), 1, 16),
-            toggle("spaces", "Insert spaces instead of tabs", "Pressing Tab inserts spaces.", s.use_spaces),
+            toggle("spaces", "Insert spaces instead of tabs", "", s.use_spaces),
             Row::heading("Guides and highlights"),
             number("edge", "Vertical guide column", "Draw a line at this column. 0 turns it off.", i64::from(s.edge_column), 0, 500),
-            toggle("caret_line", "Highlight the current line", "Tint the line the cursor is on.", s.caret_line),
+            toggle("caret_line", "Highlight the current line", "", s.caret_line),
             toggle("smart", "Highlight matching words", "Mark every other occurrence of the selected word.", s.smart_highlight),
         ],
     )
@@ -101,15 +101,15 @@ fn appearance(env: &Env) -> Page {
         0,
         vec![
             Row::heading("Theme"),
-            choice("theme", "Colour theme", "Light or dark.", &[("light", "Light"), ("dark", "Dark")], if dark { "dark" } else { "light" }),
+            choice("theme", "Colour theme", "", &[("light", "Light"), ("dark", "Dark")], if dark { "dark" } else { "light" }),
             Row::heading("Window"),
-            toggle("toolbar", "Toolbar", "Show the toolbar.", s.show_toolbar),
-            toggle("tabbar", "Tab bar", "Show the tab bar.", s.show_tabbar),
-            toggle("statusbar", "Status bar", "Show the status bar.", s.show_statusbar),
+            toggle("toolbar", "Toolbar", "", s.show_toolbar),
+            toggle("tabbar", "Tab bar", "", s.show_tabbar),
+            toggle("statusbar", "Status bar", "", s.show_statusbar),
             Row::heading("Margins"),
-            toggle("line_numbers", "Line numbers", "Show line numbers in the margin.", s.line_numbers),
-            toggle("fold", "Fold margin", "Show the code folding margin.", s.fold_margin),
-            toggle("bookmark", "Bookmark margin", "Show the bookmark margin.", s.bookmark_margin),
+            toggle("line_numbers", "Line numbers", "", s.line_numbers),
+            toggle("fold", "Fold margin", "", s.fold_margin),
+            toggle("bookmark", "Bookmark margin", "", s.bookmark_margin),
         ],
     )
 }
@@ -133,9 +133,8 @@ fn security(env: &Env) -> Page {
         "Security",
         0,
         vec![
-            Row::heading("Encryption"),
-            Row::new("", "Status", &env.encryption, Control::Heading),
-            button("enc_setup", "Profile", "Set up the password that protects encrypted files, or replace the profile.", "Set up / replace profile..."),
+            Row::new("", "Encryption", &env.encryption, Control::Heading),
+            button("enc_setup", "Profile", "Set up the password that protects encrypted files, or replace the profile.", "Set up profile..."),
             button(
                 "enc_lock",
                 "Lock",

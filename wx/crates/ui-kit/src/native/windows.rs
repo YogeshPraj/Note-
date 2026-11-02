@@ -19,6 +19,7 @@ unsafe extern "system" {
     fn CallNextHookEx(hook: isize, code: i32, wparam: usize, lparam: isize) -> isize;
     fn GetKeyState(vk: i32) -> i16;
     fn GetForegroundWindow() -> isize;
+    fn GetClassNameW(hwnd: isize, name: *mut u16, max: i32) -> i32;
     fn GetWindowThreadProcessId(hwnd: isize, process: *mut u32) -> u32;
     fn EnumChildWindows(parent: isize, proc: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
 }
@@ -44,7 +45,14 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 unsafe extern "system" fn theme_child(hwnd: isize, dark: isize) -> i32 {
-    let name = wide(if dark != 0 { "DarkMode_Explorer" } else { "Explorer" });
+    let mut class = [0u16; 32];
+    let n = unsafe { GetClassNameW(hwnd, class.as_mut_ptr(), 32) };
+    let header = usize::try_from(n).is_ok_and(|n| String::from_utf16_lossy(&class[..n]) == "SysHeader32");
+    let name = wide(match (dark != 0, header) {
+        (true, true) => "DarkMode_ItemsView",
+        (true, false) => "DarkMode_Explorer",
+        (false, _) => "Explorer",
+    });
     unsafe { SetWindowTheme(hwnd, name.as_ptr(), std::ptr::null()) };
     1
 }

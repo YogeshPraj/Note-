@@ -367,7 +367,11 @@ impl Built {
                     Kind::MultiEdit(false) => b.with_style(TextCtrlStyle::MultiLine),
                     _ => b,
                 };
-                let t = TextBox::adopt(b.build());
+                let raw = b.build();
+                if c.kind == Kind::Edit {
+                    crate::theme::drop_border(&raw);
+                }
+                let t = TextBox::adopt(raw);
                 self.first_edit.get_or_insert(c.id);
                 self.map.insert(c.id, W::Edit(t));
                 self.kinds.push((c.id, c.kind));
@@ -395,7 +399,9 @@ impl Built {
             }
             Kind::List | Kind::MultiList => {
                 let style = if c.kind == Kind::List { ListCtrlStyle::Report | ListCtrlStyle::SingleSel } else { ListCtrlStyle::Report };
-                let l = ListView::adopt(ListCtrl::builder(d).with_pos(p).with_size(s).with_style(style).build());
+                let raw = ListCtrl::builder(d).with_pos(p).with_size(s).with_style(style).build();
+                crate::theme::drop_border(&raw);
+                let l = ListView::adopt(raw);
                 self.lists.push((c.id, l));
                 self.map.insert(c.id, W::List(l));
             }

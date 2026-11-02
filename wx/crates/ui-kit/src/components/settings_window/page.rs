@@ -26,7 +26,7 @@ impl View {
 const WRAP_CELL: i32 = 300;
 const WRAP_FULL: i32 = 560;
 /// Space around the page's content and between its groups, before scaling.
-const MARGIN: i32 = 20;
+const MARGIN: i32 = 16;
 
 pub fn build(parent: &impl WxWidget, page: &Page, on_change: &Report) -> View {
     let t = theme::current();
@@ -74,7 +74,7 @@ fn flush(_sw: &ScrolledWindow, col: &BoxSizer, cells: &mut Vec<BoxSizer>) {
         return;
     }
     let t = theme::current();
-    let grid = GridSizer::builder(0, 2).with_vgap(t.px(14)).with_hgap(t.px(MARGIN)).build();
+    let grid = GridSizer::builder(0, 2).with_vgap(t.px(12)).with_hgap(t.px(MARGIN)).build();
     for c in cells.drain(..) {
         grid.add_sizer(&c, 1, SizerFlag::Expand, 0);
     }
@@ -87,22 +87,14 @@ fn desc(sw: &ScrolledWindow, text: &str, wrap: i32) -> Option<Label> {
     }
     let l = Label::new(sw, text);
     l.wrap(theme::current().px(wrap));
-    Some(l)
-}
-
-/// The accent-coloured bar at the left of a row.
-fn accent_bar(sw: &ScrolledWindow) -> Panel {
-    let bar = Panel::builder(sw).build();
-    bar.set_min_size(Size::new(3, -1));
     theme::subscribe_while(move |t| {
-        if !bar.is_valid() {
+        if !l.is_valid() {
             return false;
         }
-        bar.set_background_color(colour(t.colors.accent));
-        bar.refresh(true, None);
+        l.set_foreground_color(colour(t.colors.text_muted));
         true
     });
-    bar
+    Some(l)
 }
 
 fn add_heading(sw: &ScrolledWindow, col: &BoxSizer, row: &Row) {
@@ -115,12 +107,10 @@ fn add_heading(sw: &ScrolledWindow, col: &BoxSizer, row: &Row) {
     }
 }
 
-/// One setting: an accent bar, its title and description, and its control.
+/// One setting: its title, description and control.
 fn cell(sw: &ScrolledWindow, row: &Row, on_change: &Report, wrap: i32) -> BoxSizer {
     let t = theme::current();
     let line = BoxSizer::builder(Orientation::Horizontal).build();
-    line.add(&accent_bar(sw), 0, SizerFlag::Expand, 0);
-    line.add_spacer(t.px(12));
     let body = BoxSizer::builder(Orientation::Vertical).build();
     let key = row.key;
     let report = {
@@ -131,12 +121,11 @@ fn cell(sw: &ScrolledWindow, row: &Row, on_change: &Report, wrap: i32) -> BoxSiz
         let c = CheckBox::new(sw, &row.title);
         c.set_value(*on);
         c.on_toggled(move |_| report(Value::Bool(c.is_checked())));
-        body.add(&c, 0, SizerFlag::Bottom, t.px(2));
+        body.add(&c, 0, SizerFlag::Bottom, t.px(4));
         add_desc(sw, &body, &row.desc, wrap);
     } else {
         let title = Label::new(sw, &row.title);
-        strong(&title);
-        body.add(&title, 0, SizerFlag::Bottom, t.px(2));
+        body.add(&title, 0, SizerFlag::Bottom, t.px(4));
         add_desc(sw, &body, &row.desc, wrap);
         add_control(sw, &body, &row.control, report, on_change);
     }
@@ -146,7 +135,7 @@ fn cell(sw: &ScrolledWindow, row: &Row, on_change: &Report, wrap: i32) -> BoxSiz
 
 fn add_desc(sw: &ScrolledWindow, body: &BoxSizer, text: &str, wrap: i32) {
     if let Some(d) = desc(sw, text, wrap) {
-        body.add(&d, 0, SizerFlag::Bottom, theme::current().px(6));
+        body.add(&d, 0, SizerFlag::Bottom, theme::current().px(8));
     }
 }
 fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: impl Fn(Value) + Clone + 'static, on_change: &Report) {

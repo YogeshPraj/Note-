@@ -20,6 +20,8 @@ impl TextBox {
     /// A single-line box holding `value`; `enter` makes Enter raise an event instead of being swallowed.
     pub fn new(parent: &impl WxWidget, value: &str, enter: bool) -> TextBox {
         let b = WxTextCtrl::builder(parent).with_value(value);
-        TextBox::adopt(if enter { b.with_style(TextCtrlStyle::ProcessEnter).build() } else { b.build() })
+        let t = if enter { b.with_style(TextCtrlStyle::ProcessEnter).build() } else { b.build() };
+        crate::theme::drop_border(&t);
+        TextBox::adopt(t)
     }
 }

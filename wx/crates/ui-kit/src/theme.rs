@@ -402,6 +402,14 @@ pub fn own_background(panel: Panel) {
     subscribe(move |_| panel.refresh(true, None));
 }
 
+/// Drop the toolkit's themed border: it is drawn in the system colours, which show as a white frame in the dark theme.
+pub fn drop_border(w: &impl WxWidget) {
+    const BORDERS: i64 = 0x1F00_0000; // wxBORDER_SIMPLE | SUNKEN | RAISED | STATIC | THEME
+    const BORDER_NONE: i64 = 0x0020_0000;
+    w.set_style_raw((w.get_style_raw() & !BORDERS) | BORDER_NONE);
+    crate::native::current().remove_edge(w.get_handle() as isize);
+}
+
 /// Dark title bar and native control theme for a window and everything inside it.
 pub fn style_native(w: &dyn WxWidget) {
     crate::native::current().style_window(w.get_handle() as isize, is_dark());

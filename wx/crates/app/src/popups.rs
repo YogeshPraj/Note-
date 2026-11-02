@@ -18,15 +18,18 @@ thread_local! {
 }
 
 /// The kit's entries for `spec`. `live` supplies the current enabled and ticked state (the native menu bar keeps it).
-fn entries(spec: &MenuSpec, live: Option<&MenuBar>) -> Vec<pm::Entry> {
+/// With `own_rules`, an item must also pass the spec's own enabled flag (a context menu's conditions, such as "Copy
+/// Full Path" needing a file); the menu bar's own menus take the live state alone.
+fn entries(spec: &MenuSpec, live: Option<&MenuBar>, own_rules: bool) -> Vec<pm::Entry> {
     spec.entries()
         .iter()
         .map(|e| match e {
             SpecEntry::Sep => pm::Entry::Sep,
-            SpecEntry::Sub { label, menu } => pm::Entry::sub(&accelerator_text(label), entries(menu, live)),
+            SpecEntry::Sub { label, menu } => pm::Entry::sub(&accelerator_text(label), entries(menu, live, own_rules)),
             SpecEntry::Item { id, label, enabled, check, swatch } => {
                 let item = live.filter(|_| *id != 0).and_then(|b| b.find_item(crate::platform::wx::to_i32(*id)));
-                let enabled = item.as_ref().map_or(*enabled, MenuItem::is_enabled);
+                let live_on = item.as_ref().map(MenuItem::is_enabled);
+                let enabled = if own_rules { *enabled && live_on.unwrap_or(true) } else { live_on.unwrap_or(*enabled) };
                 let check = check.map(|c| item.as_ref().map_or(c, MenuItem::is_checked));
                 pm::Entry::item(*id, &accelerator_text(label), enabled, check).with_swatch(*swatch)
             }
@@ -42,11 +45,13 @@ fn pick_handler(app: &Shared) -> Rc<dyn Fn(usize)> {
     })
 }
 
-/// Show `spec` at `at` (screen coordinates); choosing an item runs its command.
+/// Show `spec` at `at` (screen coordinates); choosing an item runs its command. Items that are also in the menu bar
+/// show its current state: Cut and Copy greyed without a selection, the current encoding or line ending ticked.
 fn show(app: &Shared, frame: &Frame, spec: MenuSpec, at: Point) {
+    let Some(list) = app.try_borrow().ok().map(|a| entries(&spec.tidy(), Some(&a.menubar), true)) else { return };
     let handlers = Handlers { pick: pick_handler(app), nav: Rc::new(|_| {}), moved: Rc::new(|_| {}), closed: Rc::new(|| {}) };
     crate::app::take_focus_for_menu(app);
-    pm::show(frame, entries(&spec.tidy(), None), (at.x, at.y), true, handlers);
+    pm::show(frame, list, (at.x, at.y), true, handlers);
 }
 
 /// Open menu `i` of the menu bar below its title. Opening the one that is already showing closes it instead (the
@@ -59,7 +64,7 @@ pub fn bar_menu(app: &Shared, i: usize, keyboard: bool) {
         let Ok(a) = app.try_borrow() else { return };
         let Some(m) = a.bar_menus.get(i) else { return };
         let (locate, count) = a.chrome.menu_locator();
-        (a.frame, entries(&crate::menus::spec(*m), Some(&a.menubar)), locate(crate::platform::wx::to_i32(i)), count)
+        (a.frame, entries(&crate::menus::spec(*m), Some(&a.menubar), false), locate(crate::platform::wx::to_i32(i)), count)
     };
     let generation = OPEN.with(|o| {
         let g = o.get().0 + 1;

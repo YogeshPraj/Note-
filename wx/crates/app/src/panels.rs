@@ -34,7 +34,7 @@ thread_local! {
 }
 
 /// Directories first, then files, each alphabetical (case-insensitive).
-fn list_dir(dir: &Path) -> Vec<(PathBuf, bool)> {
+pub(crate) fn list_dir(dir: &Path) -> Vec<(PathBuf, bool)> {
     let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut v: Vec<(PathBuf, bool, String)> = rd
         .flatten()
@@ -78,7 +78,7 @@ pub fn wire(app: &Shared) {
     let tree = p.tree;
     p.tree.on_item_expanding(move |e| {
         if let Some(item) = e.get_item() {
-            load_children(&tree, &item);
+            crate::tree_reader::expand(&tree, &item);
         }
     });
     let a = app.clone();
@@ -121,7 +121,7 @@ pub fn wire(app: &Shared) {
 }
 
 /// The path an item stands for: the root's path plus the item names above it.
-fn path_of(tree: &TreeCtrl, item: &TreeItemId) -> Option<PathBuf> {
+pub(crate) fn path_of(tree: &TreeCtrl, item: &TreeItemId) -> Option<PathBuf> {
     let root = ROOT.with(|r| r.borrow().clone())?;
     let mut names = Vec::new();
     let mut cur = item.clone();
@@ -137,15 +137,25 @@ fn path_of(tree: &TreeCtrl, item: &TreeItemId) -> Option<PathBuf> {
     Some(p)
 }
 
+/// Read a folder's items now (Reveal in File Tree needs them at once; expanding goes through `tree_reader`).
 fn load_children(tree: &TreeCtrl, item: &TreeItemId) {
-    let Some(path) = path_of(tree, item) else { return };
-    // Only a folder whose single child is the placeholder still needs reading.
-    let Some((first, _)) = tree.get_first_child(item) else { return };
-    if tree.get_item_text(&first).as_deref() != Some(DUMMY) {
+    if let Some(path) = path_of(tree, item).filter(|_| needs_reading(tree, item)) {
+        fill(tree, item, list_dir(&path));
+    }
+}
+
+/// Only a folder whose single child is the placeholder still needs reading.
+pub(crate) fn needs_reading(tree: &TreeCtrl, item: &TreeItemId) -> bool {
+    tree.get_first_child(item).is_some_and(|(first, _)| tree.get_item_text(&first).as_deref() == Some(DUMMY))
+}
+
+/// Replace a folder's placeholder with what it holds (`entries` from [`list_dir`]).
+pub(crate) fn fill(tree: &TreeCtrl, item: &TreeItemId, entries: Vec<(PathBuf, bool)>) {
+    if !needs_reading(tree, item) {
         return;
     }
     tree.delete_children(item);
-    for (p, is_dir) in list_dir(&path) {
+    for (p, is_dir) in entries {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if let Some(child) = tree.append_item(item, &name, None, None)
             && is_dir
@@ -191,6 +201,7 @@ impl App {
         ROOT.with(|r| *r.borrow_mut() = Some(dir.clone()));
         let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into_owned());
         self.panels.title.set_label(&name);
+        crate::tree_reader::forget();
         t.delete_all_items();
         if let Some(root) = t.add_root(&name, None, None) {
             t.append_item(&root, DUMMY, None, None);

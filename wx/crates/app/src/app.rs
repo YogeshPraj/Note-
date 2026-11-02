@@ -714,6 +714,7 @@ fn wire_timers(app: &Shared, frame: Frame) {
                     app.stream_tick();
                     app.in_files_poll();
                     app.file_index.poll();
+                    crate::tree_reader::poll(&app.panels.tree);
                 }
                 Job::Clipboard => {
                     app.clip_tick();

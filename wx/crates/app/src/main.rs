@@ -32,6 +32,7 @@ mod settings_window;
 mod side;
 mod state;
 mod streams;
+mod tree_reader;
 mod ui;
 mod updates;
 mod whiteboard;

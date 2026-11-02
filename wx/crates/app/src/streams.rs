@@ -165,7 +165,9 @@ impl App {
         }
     }
 
-    /// Print the active document: its text as a page in a hidden web view, through the system's print dialog.
+    /// Print the active document: its text as a page in a web view that opens the print panel itself. The window is the
+    /// print preview and the user closes it. (A loaded-event handler on this short-lived web view crashed the app when
+    /// the window closed, so the page calls `window.print()` on its own, which is all the toolkit's print does.)
     fn print_document(&mut self) {
         if self.ws.is_whiteboard() {
             self.flash = Some("Not available on a whiteboard".into());
@@ -176,7 +178,7 @@ impl App {
         let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
         let font = self.ws.settings.font.clone();
         let html = format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>@page{{margin:15mm}}body{{margin:0}}pre{{font-family:'{}',Consolas,monospace;font-size:10pt;white-space:pre-wrap;word-break:break-all;tab-size:4}}</style></head><body><pre>{}</pre></body></html>",
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>@page{{margin:15mm}}body{{margin:0}}pre{{font-family:'{}',Consolas,monospace;font-size:10pt;white-space:pre-wrap;word-break:break-all;tab-size:4}}</style></head><body onload=\"window.print()\"><pre>{}</pre></body></html>",
             esc(&title),
             esc(&font),
             esc(&text)
@@ -186,17 +188,25 @@ impl App {
         let sizer = BoxSizer::builder(Orientation::Vertical).build();
         sizer.add(&view, 1, SizerFlag::Expand, 0);
         f.set_sizer(sizer, true);
-        {
-            use wxdragon::event::WebViewEvents;
-            let (v, fr) = (view, f);
-            view.on_loaded(move |_| {
-                v.print();
-                fr.destroy();
-            });
+        // Printed pages carry the page's address in their footer: a file's name reads better than a data URL. A protected
+        // document's text never goes to disk, so it keeps the in-memory page.
+        match print_page_file(&title, &html).filter(|_| !self.ws.is_encrypted()) {
+            Some(url) => view.load_url(&url),
+            None => view.set_page(&html, "about:blank"),
         }
-        view.set_page(&html, "about:blank");
         f.show(true);
     }
+}
+
+/// Write the page to be printed to a file in the temp folder named after the document; its `file:` URL.
+fn print_page_file(title: &str, html: &str) -> Option<String> {
+    let dir = std::env::temp_dir().join("notepp-print");
+    std::fs::create_dir_all(&dir).ok()?;
+    let name: String = title.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') { c } else { '_' }).collect();
+    let path = dir.join(format!("{name}.html"));
+    std::fs::write(&path, html).ok()?;
+    let p = path.to_string_lossy().replace('\\', "/");
+    Some(format!("file:///{}", p.trim_start_matches('/')))
 }
 
 /// Log Follow, the HTTP scratchpad, compare and print.

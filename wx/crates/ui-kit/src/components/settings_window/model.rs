@@ -19,6 +19,11 @@ pub enum Control {
         options: Vec<String>,
         selected: usize,
     },
+    /// One of many options, shown as a drop-down list.
+    Dropdown {
+        options: Vec<String>,
+        selected: usize,
+    },
     /// A push button with this label; pressing it reports the row's key.
     Button(String),
     /// An area the application fills with an editor of its own.
@@ -28,7 +33,8 @@ pub enum Control {
 /// Fills a custom area: gets the panel to build in and the window's report channel.
 pub type Builder = Rc<dyn Fn(&wxdragon::prelude::Panel, &super::page::Report)>;
 
-/// A page area filled by the application: it gets the panel to build its controls in, which is size pixels big, and the\n/// window's report channel (reporting a key whose handler asks for it rebuilds the pages).
+/// A page area filled by the application: it gets the panel to build its controls in, which is size pixels big, and the
+/// window's report channel (reporting a key whose handler asks for it rebuilds the pages).
 #[derive(Clone)]
 pub struct Custom {
     pub size: (i32, i32),

@@ -47,13 +47,15 @@ fn wide(s: &str) -> Vec<u16> {
 unsafe extern "system" fn theme_child(hwnd: isize, dark: isize) -> i32 {
     let mut class = [0u16; 32];
     let n = unsafe { GetClassNameW(hwnd, class.as_mut_ptr(), 32) };
-    let header = usize::try_from(n).is_ok_and(|n| String::from_utf16_lossy(&class[..n]) == "SysHeader32");
-    let name = wide(match (dark != 0, header) {
-        (true, true) => "DarkMode_ItemsView",
-        (true, false) => "DarkMode_Explorer",
-        (false, _) => "Explorer",
-    });
-    unsafe { SetWindowTheme(hwnd, name.as_ptr(), std::ptr::null()) };
+    let class = usize::try_from(n).map(|n| String::from_utf16_lossy(&class[..n])).unwrap_or_default();
+    let (name, ids) = match (dark != 0, class.as_str()) {
+        (true, "SysHeader32") => ("DarkMode_ItemsView", None),
+        (true, "ComboBox") => ("DarkMode_CFD", Some("Combobox")),
+        (true, _) => ("DarkMode_Explorer", None),
+        (false, _) => ("Explorer", None),
+    };
+    let (name, ids) = (wide(name), ids.map(wide));
+    unsafe { SetWindowTheme(hwnd, name.as_ptr(), ids.as_ref().map_or(std::ptr::null(), Vec::as_ptr)) };
     1
 }
 

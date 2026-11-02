@@ -7,8 +7,9 @@ mod custom;
 
 use std::rc::Rc;
 
+use notepp_core::commands::ID_PRESET_BASE;
 use notepp_core::sci::Theme;
-use notepp_core::settings::Settings;
+use notepp_core::settings::{self, Settings};
 
 use crate::app::{App, Shared};
 use crate::widgets::settings_window::{Control, MakePages, OnChange, Page, Row, Value};
@@ -39,6 +40,34 @@ fn number(key: &'static str, title: &str, desc: &str, value: i64, min: i64, max:
 fn choice(key: &'static str, title: &str, desc: &str, options: &[(&str, &str)], current: &str) -> Row {
     let selected = options.iter().position(|o| o.0 == current).unwrap_or(0);
     Row::new(key, title, desc, Control::Choice { options: options.iter().map(|o| o.1.to_string()).collect(), selected })
+}
+
+/// The ready-made themes in menu order: the two defaults, then the presets.
+fn theme_names() -> Vec<String> {
+    ["Default (light)", "Default (dark)"].into_iter().map(String::from).chain(settings::PRESETS.iter().map(|p| p.name.to_string())).collect()
+}
+
+/// The index in `theme_names` of the theme the settings hold, or the extra "Custom" entry when the colours were edited.
+fn active_theme(s: &Settings, dark: bool) -> usize {
+    let held = if dark { &s.dark_colors } else { &s.light_colors };
+    let candidates = [(false, None), (true, None)].into_iter().chain(settings::PRESETS.iter().map(|p| (p.dark, Some(p))));
+    for (i, (d, p)) in candidates.enumerate() {
+        let mut probe = s.clone();
+        probe.apply_preset(d, p);
+        if d == dark && (if d { &probe.dark_colors } else { &probe.light_colors }) == held {
+            return i;
+        }
+    }
+    theme_names().len()
+}
+
+fn themes(s: &Settings, dark: bool) -> Row {
+    let mut options = theme_names();
+    let selected = active_theme(s, dark);
+    if selected == options.len() {
+        options.push("Custom".into());
+    }
+    Row::new("theme", "Colour theme", "Colours of the editor text, margins and syntax.", Control::Dropdown { options, selected })
 }
 
 fn button(key: &'static str, title: &str, desc: &str, label: &str) -> Row {
@@ -101,7 +130,7 @@ fn appearance(env: &Env) -> Page {
         0,
         vec![
             Row::heading("Theme"),
-            choice("theme", "Colour theme", "", &[("light", "Light"), ("dark", "Dark")], if dark { "dark" } else { "light" }),
+            themes(s, dark),
             Row::heading("Window"),
             toggle("toolbar", "Toolbar", "", s.show_toolbar),
             toggle("tabbar", "Tab bar", "", s.show_tabbar),
@@ -234,7 +263,11 @@ fn changed(app: &Shared, key: &str, v: &Value) -> bool {
             return true;
         }
         ("theme", Value::Choice(i)) => {
-            a.ws.set_theme(if *i == 1 { Theme::dark() } else { Theme::light() });
+            if *i >= theme_names().len() {
+                return false;
+            }
+            crate::handlers::AppearanceCommands::preset(&mut a, ID_PRESET_BASE + *i);
+            a.sync_chrome();
             a.refresh();
             return true;
         }
@@ -316,11 +349,20 @@ mod tests {
     fn the_theme_row_follows_the_current_theme() {
         let selected = |dark| {
             pages(&env(dark)).iter().flat_map(|p| p.rows.iter()).find_map(|r| match &r.control {
-                Control::Choice { selected, .. } if r.key == "theme" => Some(*selected),
+                Control::Dropdown { selected, .. } if r.key == "theme" => Some(*selected),
                 _ => None,
             })
         };
         assert_eq!(selected(false), Some(0));
         assert_eq!(selected(true), Some(1));
+    }
+
+    #[test]
+    fn a_preset_is_found_again_and_edited_colours_are_custom() {
+        let mut s = Settings::default();
+        s.apply_preset(true, Some(&settings::PRESETS[0]));
+        assert_eq!(active_theme(&s, true), 2);
+        s.dark_colors.insert("fg".into(), "123456".into());
+        assert_eq!(active_theme(&s, true), theme_names().len());
     }
 }

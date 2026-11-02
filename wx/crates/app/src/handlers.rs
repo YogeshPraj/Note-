@@ -77,7 +77,7 @@ impl AppearanceCommands {
         }
     }
 
-    fn preset(app: &mut App, id: usize) {
+    pub(crate) fn preset(app: &mut App, id: usize) {
         let i = id - ID_PRESET_BASE;
         let (dark, preset) = match i {
             0 => (false, None),

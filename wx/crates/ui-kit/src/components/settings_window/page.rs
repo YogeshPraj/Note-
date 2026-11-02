@@ -138,6 +138,23 @@ fn add_desc(sw: &ScrolledWindow, body: &BoxSizer, text: &str, wrap: i32) {
         body.add(&d, 0, SizerFlag::Bottom, theme::current().px(8));
     }
 }
+fn dropdown(sw: &ScrolledWindow, body: &BoxSizer, options: &[String], selected: usize, report: impl Fn(Value) + 'static) {
+    let t = theme::current();
+    let c = Choice::builder(sw).build();
+    for name in options {
+        c.append(name);
+    }
+    c.set_selection(crate::num::to_u32(selected));
+    c.set_min_size(Size::new(t.px(260), -1));
+    theme::adopt(c, Role::Input);
+    c.on_selection_changed(move |e| {
+        if let Some(i) = e.get_selection() {
+            report(Value::Choice(crate::num::to_usize(i)));
+        }
+    });
+    body.add(&c, 0, SizerFlag::Bottom, t.px(4));
+}
+
 fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: impl Fn(Value) + Clone + 'static, on_change: &Report) {
     let t = theme::current();
     match control {
@@ -174,6 +191,7 @@ fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: 
             }
             body.add_sizer(&radios, 0, SizerFlag::Bottom, t.px(4));
         }
+        Control::Dropdown { options, selected } => dropdown(sw, body, options, *selected, report),
         Control::Button(label) => {
             let b = Button::new(sw, label);
             b.on_click(move |_| report(Value::Pressed));

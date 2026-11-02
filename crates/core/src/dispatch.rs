@@ -123,8 +123,8 @@ fn command_core_2<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
         ID_COPY => drop(sci.send(sci::SCI_COPY, 0, 0)),
         ID_PASTE => drop(sci.send(sci::SCI_PASTE, 0, 0)),
         ID_SELALL => drop(sci.send(sci::SCI_SELECTALL, 0, 0)),
-        ID_EOL_CRLF => ws.set_eol(Eol::Crlf),
-        ID_EOL_LF => ws.set_eol(Eol::Lf),
+        ID_EOL_CRLF => *flash = ws.set_eol(Eol::Crlf),
+        ID_EOL_LF => *flash = ws.set_eol(Eol::Lf),
         _ => return false,
     }
     true
@@ -133,7 +133,7 @@ fn command_core_2<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
 fn command_core_3<S: sci::Send + Copy>(ws: &mut Workspace<S>, flash: &mut Option<String>, id: usize) -> bool {
     let sci = ws.sci;
     match id {
-        ID_EOL_CR => ws.set_eol(Eol::Cr),
+        ID_EOL_CR => *flash = ws.set_eol(Eol::Cr),
         ID_WRAP => {
             let on = !ws.wrap;
             ws.set_wrap(on);

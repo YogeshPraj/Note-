@@ -305,9 +305,15 @@ impl<S: Send> Workspace<S> {
         }
     }
 
-    pub fn set_eol(&mut self, eol: Eol) {
+    /// Convert the line endings. Returns a message when the tab is read-only: the text cannot change, so neither may the
+    /// line ending it will be saved with.
+    pub fn set_eol(&mut self, eol: Eol) -> Option<String> {
+        if self.is_read_only() {
+            return Some("The document is read-only".into());
+        }
         self.send(sci::SCI_CONVERTEOLS, eol.sci_mode(), 0);
         self.send(sci::SCI_SETEOLMODE, eol.sci_mode(), 0);
         self.tabs[self.active].eol = eol;
+        None
     }
 }

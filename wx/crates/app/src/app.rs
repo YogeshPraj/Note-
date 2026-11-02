@@ -465,6 +465,15 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
         }
         e.skip(true);
     });
+    // Moving, resizing or minimising the window would leave the menu hanging where it was.
+    frame.on_size(|e| {
+        crate::widgets::popup_menu::close_all();
+        e.skip(true);
+    });
+    frame.on_move_event(|e| {
+        crate::widgets::popup_menu::close_all();
+        e.skip(true);
+    });
 }
 
 /// One entry for menu items and toolbar buttons. Modeless windows need the shared handle, so they

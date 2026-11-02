@@ -135,8 +135,8 @@ fn on_virtual_key(vk: u32, plain: bool, alt: bool) -> bool {
         0x10..=0x12 | 0x5B | 0x5C => return false, // modifiers and the Windows keys are left alone
         // Alt+letter belongs to the menu bar (it switches to the menu with that letter), not to the open menu.
         0x30..=0x39 | 0x41..=0x5A if alt => return false,
-        0x23 => KEY_END,
-        0x24 => KEY_HOME,
+        0x21 | 0x24 => KEY_HOME,
+        0x22 | 0x23 => KEY_END,
         0x25 => KEY_LEFT,
         0x26 => KEY_UP,
         0x27 => KEY_RIGHT,

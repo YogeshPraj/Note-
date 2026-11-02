@@ -101,7 +101,11 @@ fn hand_off_to_running_instance(files: &[PathBuf]) {
             .map(|f| std::fs::canonicalize(f).unwrap_or_else(|_| f.clone()).display().to_string().trim_start_matches("\\\\?\\").to_string())
             .collect();
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let _ = std::fs::write(dir.join(format!("{stamp}.txt")), list.join("\n"));
+        // Written under another name and renamed: the running window polls the folder and must never read it half-written.
+        let part = dir.join(format!("{stamp}.part"));
+        if std::fs::write(&part, list.join("\n")).is_ok() {
+            let _ = std::fs::rename(&part, dir.join(format!("{stamp}.txt")));
+        }
         // No window is created here, so the toolkit would wait forever.
         std::process::exit(0);
     }
@@ -1089,7 +1093,8 @@ impl App {
         let Ok(rd) = std::fs::read_dir(inbox()) else { return };
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut any = false;
-        for e in rd.flatten() {
+        // Only finished hand-offs (a second launch writes `.part` and renames it to `.txt`).
+        for e in rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "txt")) {
             if let Ok(text) = std::fs::read_to_string(e.path()) {
                 any = true;
                 paths.extend(text.lines().filter(|l| !l.is_empty()).map(PathBuf::from));

@@ -45,6 +45,7 @@ fn pick_handler(app: &Shared) -> Rc<dyn Fn(usize)> {
 /// Show `spec` at `at` (screen coordinates); choosing an item runs its command.
 fn show(app: &Shared, frame: &Frame, spec: MenuSpec, at: Point) {
     let handlers = Handlers { pick: pick_handler(app), nav: Rc::new(|_| {}), moved: Rc::new(|_| {}), closed: Rc::new(|| {}) };
+    crate::app::take_focus_for_menu(app);
     pm::show(frame, entries(&spec.tidy(), None), (at.x, at.y), true, handlers);
 }
 
@@ -86,6 +87,7 @@ pub fn bar_menu(app: &Shared, i: usize) {
             }
         }),
     };
+    crate::app::take_focus_for_menu(app);
     pm::show(&frame, list, at, false, handlers);
 }
 

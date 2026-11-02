@@ -381,12 +381,31 @@ fn wire_mini(app: &Shared, mini: StyledTextCtrl, stc: StyledTextCtrl) {
 /// it somewhere deliberate, such as the find box).
 pub(crate) fn refocus_editor(app: &Shared) {
     let Ok(a) = app.try_borrow() else { return };
-    let (frame, stc, bars) = (a.frame, a.stc, [a.chrome.menu, a.chrome.tools, a.chrome.tabs, a.chrome.status]);
+    let (frame, stc, wbv, bars) = (a.frame, a.stc, a.wbv.clone(), [a.chrome.menu, a.chrome.tools, a.chrome.tabs, a.chrome.status]);
+    let whiteboard = a.ws.is_whiteboard();
+    let took = MENU_TOOK_FOCUS.with(|t| t.replace(false));
     crate::widgets::defer::later(&frame, move || {
-        if bars.iter().any(WxWidget::has_focus) {
+        if took && whiteboard {
+            wbv.set_focus();
+        } else if took || bars.iter().any(WxWidget::has_focus) {
             stc.set_focus();
         }
     });
+}
+
+thread_local! {
+    /// A menu took the keyboard from the page (see `take_focus_for_menu`): give it back when the menu is done.
+    static MENU_TOOK_FOCUS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A page in a web view (the whiteboard, the preview) keeps the keyboard while a menu is open, and its keys never reach
+/// the menu (Esc, arrows). So the window takes the focus for as long as the menu shows; `refocus_editor` gives it back.
+pub(crate) fn take_focus_for_menu(app: &Shared) {
+    let Ok(a) = app.try_borrow() else { return };
+    if a.ws.is_whiteboard() || a.preview.split {
+        MENU_TOOK_FOCUS.with(|t| t.set(true));
+        crate::widgets::native::current().focus_window(a.frame.get_handle() as isize);
+    }
 }
 
 /// Open menu `i` of the menu bar.

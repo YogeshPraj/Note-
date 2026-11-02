@@ -26,6 +26,8 @@ pub trait Native: Sync {
     }
     /// Give a top-level window the application icon (the first icon embedded in the executable): title bar, taskbar, Alt+Tab.
     fn set_app_icon(&self, _window: isize) {}
+    /// Give the keyboard focus to the window itself (a page in a web view otherwise keeps it, and keys typed for a menu never get here).
+    fn focus_window(&self, _window: isize) {}
     /// Remove the 3-D edge the system draws around a control (in the system colours, so it is white in a dark theme).
     fn remove_edge(&self, _window: isize) {}
     /// Does this program own the foreground window?

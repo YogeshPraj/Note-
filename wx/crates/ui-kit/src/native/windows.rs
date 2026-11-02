@@ -19,6 +19,7 @@ unsafe extern "system" {
     fn CallNextHookEx(hook: isize, code: i32, wparam: usize, lparam: isize) -> isize;
     fn GetKeyState(vk: i32) -> i16;
     fn GetForegroundWindow() -> isize;
+    fn SetFocus(hwnd: isize) -> isize;
     fn LoadImageW(instance: isize, name: usize, kind: u32, cx: i32, cy: i32, flags: u32) -> isize;
     fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
     fn GetSystemMetrics(index: i32) -> i32;
@@ -173,6 +174,10 @@ impl Native for Windows {
                 true
             }
         }
+    }
+
+    fn focus_window(&self, window: isize) {
+        unsafe { SetFocus(window) };
     }
 
     fn set_app_icon(&self, window: isize) {

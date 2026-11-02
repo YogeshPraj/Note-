@@ -271,7 +271,7 @@ impl<S: Send> Workspace<S> {
             Eol::Lf => "\n",
             Eol::Cr => "\r",
         };
-        let src: Vec<&str> = old.split(['\n']).map(|l| l.trim_end_matches('\r')).collect();
+        let src = edit::lines_of(old);
         let new = edit::insert_at_column(&src, col, &insert).join(eol);
         if new == old {
             return Some("Nothing to change".into());

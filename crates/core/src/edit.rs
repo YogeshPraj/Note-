@@ -20,7 +20,16 @@ fn split(text: &str) -> (Vec<&str>, bool) {
     if body.is_empty() && !trailing {
         return (Vec::new(), false);
     }
-    (body.split('\n').map(|l| l.trim_end_matches('\r')).collect(), trailing)
+    (lines_of(body), trailing)
+}
+
+/// The lines of `text` (no trailing-break handling). A block with a CR but no LF at all comes from a classic Mac
+/// document, whose lines end in a lone CR; anything else breaks at LF (dropping the CR of a CR LF).
+pub(crate) fn lines_of(text: &str) -> Vec<&str> {
+    if !text.contains('\n') && text.contains('\r') {
+        return text.split('\r').collect();
+    }
+    text.split('\n').map(|l| l.trim_end_matches('\r')).collect()
 }
 
 fn join(lines: &[String], eol: &str, trailing: bool) -> String {
@@ -989,6 +998,18 @@ mod tests {
     fn empty_versus_blank_lines() {
         assert_eq!(remove_empty_lines("a\n\n  \nb\n", "\n"), "a\n  \nb\n");
         assert_eq!(remove_blank_lines("a\n\n  \nb\n", "\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn line_operations_work_on_classic_mac_documents() {
+        // Lines that end in a lone CR used to be seen as one line, so nothing was sorted, reversed or deduplicated.
+        assert_eq!(sort_lines_by("b\rc\ra\r", "\r", SortKind::Lexicographic, false), "a\rb\rc\r");
+        assert_eq!(reverse_lines("1\r2\r3", "\r"), "3\r2\r1");
+        assert_eq!(remove_duplicate_lines("x\ry\rx", "\r"), "x\ry");
+        assert_eq!(join_lines("a\rb"), "a b");
+        assert_eq!(lines_of("a\rb\rc"), ["a", "b", "c"]);
+        // A stray CR inside a line of an LF or CR LF document is left alone.
+        assert_eq!(lines_of("a\rb\nc\r\n"), ["a\rb", "c", ""]);
     }
 
     #[test]

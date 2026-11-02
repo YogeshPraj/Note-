@@ -13,8 +13,6 @@ pub enum Confirm {
 pub trait Ui {
     fn pick_open(&self) -> Vec<PathBuf>;
     fn pick_save(&self, suggested: &str) -> Option<PathBuf>;
-    /// Open (`save == false`) or save a session file.
-    fn pick_session(&self, save: bool) -> Option<PathBuf>;
     fn confirm_save(&self, name: &str) -> Confirm;
     fn ask_yes_no(&self, msg: &str) -> bool;
     /// Move a file to the Recycle Bin.

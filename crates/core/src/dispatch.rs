@@ -12,12 +12,11 @@ use crate::commands::{
     ID_JSON_PRETTY, ID_JUMP_DOWN_BASE, ID_JUMP_UP_BASE, ID_L_COPY, ID_L_CUT, ID_L_DEDUP, ID_L_DEL, ID_L_DOWN, ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW,
     ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC, ID_L_SORT_ASC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC,
     ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC, ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SPLIT,
-    ID_L_TRANSPOSE, ID_L_TRIM, ID_L_UP, ID_LOAD_SESSION, ID_MOVE_NEW_INSTANCE, ID_MOVE_TAB_BACK, ID_MOVE_TAB_FWD, ID_NEW, ID_NEW_WB, ID_NEXT_TAB, ID_OPEN,
-    ID_OPEN_ALL_RECENT, ID_OPEN_NEW_INSTANCE, ID_PASTE, ID_PREV_TAB, ID_PW_LOCK, ID_READONLY, ID_RECENT_CLEAR, ID_RECYCLE, ID_REDO, ID_RENAME,
-    ID_RESTORE_CLOSED, ID_SAVE, ID_SAVE_COPY, ID_SAVE_SESSION, ID_SAVEALL, ID_SAVEAS, ID_SELALL, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_SYM_ALL, ID_SYM_CTRL,
-    ID_SYM_EOL, ID_SYM_INDENT, ID_SYM_NONPRINT, ID_SYM_WRAP, ID_SYM_WS, ID_TAB_BASE, ID_TAB_COLOR_BASE, ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_THEME,
-    ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL, ID_UNFOLD_CUR, ID_UNFOLD_LEVEL_BASE, ID_URL_DEC, ID_URL_ENC, ID_WINDOW_DOC_BASE, ID_WRAP,
-    ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
+    ID_L_TRANSPOSE, ID_L_TRIM, ID_L_UP, ID_MOVE_NEW_INSTANCE, ID_MOVE_TAB_BACK, ID_MOVE_TAB_FWD, ID_NEW, ID_NEW_WB, ID_NEXT_TAB, ID_OPEN, ID_OPEN_ALL_RECENT,
+    ID_OPEN_NEW_INSTANCE, ID_PASTE, ID_PREV_TAB, ID_PW_LOCK, ID_READONLY, ID_RECENT_CLEAR, ID_RECYCLE, ID_REDO, ID_RENAME, ID_RESTORE_CLOSED, ID_SAVE,
+    ID_SAVE_COPY, ID_SAVEALL, ID_SAVEAS, ID_SELALL, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_SYM_ALL, ID_SYM_CTRL, ID_SYM_EOL, ID_SYM_INDENT, ID_SYM_NONPRINT,
+    ID_SYM_WRAP, ID_SYM_WS, ID_TAB_BASE, ID_TAB_COLOR_BASE, ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_THEME, ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL,
+    ID_UNFOLD_CUR, ID_UNFOLD_LEVEL_BASE, ID_URL_DEC, ID_URL_ENC, ID_WINDOW_DOC_BASE, ID_WRAP, ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
 };
 use crate::doc::{CHARSETS, Enc, Eol};
 use crate::edit::{self, SortKind};
@@ -25,7 +24,7 @@ use crate::lang::LANGUAGES;
 use crate::registry::Command;
 use crate::sci::{self, Theme};
 use crate::search::{self};
-use crate::session::Session;
+
 use crate::view;
 use crate::workspace::{CaseOp, CloseOp, Completion, LineOp, TextTool, Ui, Workspace};
 
@@ -84,17 +83,6 @@ fn command_core_1<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
             }
         }
         ID_RECYCLE => drop(ws.move_to_recycle_bin(ui)),
-        ID_LOAD_SESSION => {
-            if let Some(p) = ui.pick_session(false) {
-                match Session::load(&p) {
-                    Some(s) => {
-                        let n = ws.open_session(ui, &s);
-                        *flash = Some(format!("Opened {n} tab(s) from the session"));
-                    }
-                    None => ui.error("That file is not a valid Note++ session."),
-                }
-            }
-        }
         _ => return false,
     }
     true
@@ -103,14 +91,6 @@ fn command_core_1<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
 fn command_core_2<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash: &mut Option<String>, id: usize) -> bool {
     let sci = ws.sci;
     match id {
-        ID_SAVE_SESSION => {
-            if let Some(p) = ui.pick_session(true) {
-                match ws.snapshot().save(&p) {
-                    Ok(()) => *flash = Some(format!("Session saved to {}", p.display())),
-                    Err(e) => ui.error(&format!("Cannot save the session\n\n{e}")),
-                }
-            }
-        }
         ID_TAB_PIN => {
             let i = ws.active;
             ws.toggle_pin(i);

@@ -22,9 +22,6 @@
   1113	Close All Unchanged	true	None
 1114	Move to Recycle &Bin	true	None
 -
-1115	Load Session...	true	None
-1116	Save Session...	true	None
--
 > &Print
   1117	Print &Preview / Print...	true	None
   1118	Print No&w	true	None

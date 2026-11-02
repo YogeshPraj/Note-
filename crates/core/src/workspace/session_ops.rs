@@ -116,27 +116,6 @@ impl<S: Send> Workspace<S> {
         }
     }
 
-    /// "Load Session": add the session's tabs to the ones already open.
-    /// Returns how many tabs were opened.
-    pub fn open_session(&mut self, ui: &dyn Ui, s: &Session) -> usize {
-        let start = self.tabs.len();
-        let had_pristine_tab =
-            self.tabs.len() == 1 && self.tabs[0].kind == TabKind::Text && self.tabs[0].path.is_none() && !self.is_dirty(0) && sci::length(&self.sci) == 0;
-        self.restore_tabs(ui, s);
-        let opened = self.tabs.len() - start;
-        if opened > 0 {
-            if had_pristine_tab {
-                // The empty starter tab is just in the way now.
-                self.remove_tab(0, false);
-                let want = s.active.min(opened - 1);
-                self.activate(want);
-            } else {
-                self.activate(start + s.active.min(opened - 1));
-            }
-        }
-        opened
-    }
-
     /// Open the document of one saved tab (from its file, or empty when it was never saved); `None` skips the tab.
     #[allow(clippy::too_many_arguments, reason = "the pieces of one saved tab; a struct would only rename them")]
     pub(super) fn restore_doc(

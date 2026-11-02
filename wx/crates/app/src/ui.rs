@@ -39,17 +39,6 @@ impl Ui for WxUi {
         (d.show_modal() == ID_OK).then(|| d.get_path()).flatten().map(PathBuf::from)
     }
 
-    fn pick_session(&self, save: bool) -> Option<PathBuf> {
-        let style = if save { FileDialogStyle::Save | FileDialogStyle::OverwritePrompt } else { FileDialogStyle::Open | FileDialogStyle::FileMustExist };
-        let mut b =
-            FileDialog::builder(&self.frame).with_message("Session").with_wildcard("Note++ session (*.json)|*.json|All files (*.*)|*.*").with_style(style);
-        if save {
-            b = b.with_default_file("session.json");
-        }
-        let d = b.build();
-        (d.show_modal() == ID_OK).then(|| d.get_path()).flatten().map(PathBuf::from)
-    }
-
     fn confirm_save(&self, name: &str) -> Confirm {
         let r = self.message(
             &format!("Save changes to \"{name}\"?"),

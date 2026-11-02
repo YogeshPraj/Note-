@@ -8,50 +8,29 @@ impl<S: Send> Workspace<S> {
         let cur = self.active;
         // Reading hidden tabs means swapping documents in; put back whatever was showing.
         let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
+        // Swapping documents in resets the selection and scroll of the view; they are put back at the end.
+        let (anchor, pos, first) = (
+            crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0)),
+            self.send(sci::SCI_GETCURRENTPOS, 0, 0),
+            crate::num::to_usize(self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0)),
+        );
+        let mut pointer = shown;
         let mut tabs = Vec::new();
         let mut active = 0;
         for i in 0..self.tabs.len() {
-            let t = &self.tabs[i];
-            let untitled = t.path.is_none();
-            let mut text = None;
-            if t.kind == TabKind::Whiteboard {
-                if t.dirty || untitled {
-                    text = Some(t.content.clone());
-                }
-                if untitled && crate::whiteboard::is_empty_scene(&t.content) && self.tabs.len() > 1 {
-                    continue;
-                }
-            } else {
-                if t.dirty || t.forced_dirty || untitled {
-                    self.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
-                    let plain = sci::get_text(&self.sci);
-                    // Unsaved text of a protected file never reaches the session file as plain text.
-                    text = if t.encrypted { self.vault.dek.as_ref().and_then(|d| crypto::encrypt_text(&plain, d, "").ok()) } else { Some(plain) };
-                }
-                if untitled && text.as_deref() == Some("") && self.tabs.len() > 1 {
-                    continue;
-                }
-            }
+            let Some(tab) = self.snapshot_tab(i, shown, &mut pointer) else { continue };
             if i == cur {
                 active = tabs.len();
             }
-            let has_text = text.is_some();
-            tabs.push(SessionTab {
-                title: t.title.clone(),
-                path: t.path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-                text,
-                caret: t.caret,
-                top: t.top,
-                enc: t.enc.key().into(),
-                eol: t.eol.key().into(),
-                encrypted: t.encrypted && has_text,
-                pinned: t.pinned,
-                color: t.color,
-                kind: if t.kind == TabKind::Whiteboard { "whiteboard".into() } else { "text".into() },
-                lang: (t.path.is_none() && t.kind == TabKind::Text && t.lang != "null").then(|| t.lang_label.to_string()),
-            });
+            tabs.push(tab);
         }
-        self.send(sci::SCI_SETDOCPOINTER, 0, shown);
+        if pointer != shown {
+            self.send(sci::SCI_SETDOCPOINTER, 0, shown);
+        }
+        if self.tabs.get(cur).is_some_and(|t| t.kind == TabKind::Text) {
+            self.send(sci::SCI_SETSEL, anchor, pos);
+            self.send(sci::SCI_SETFIRSTVISIBLELINE, first, 0);
+        }
         Session {
             tabs,
             active,
@@ -66,6 +45,50 @@ impl<S: Send> Workspace<S> {
         }
     }
 
+    /// One tab as saved in the session; `None` for an untitled tab with nothing in it (unless it is the only one).
+    /// Reading a hidden tab's text swaps its document into the view; `pointer` tracks which one is in.
+    fn snapshot_tab(&mut self, i: usize, shown: isize, pointer: &mut isize) -> Option<SessionTab> {
+        let t = &self.tabs[i];
+        let untitled = t.path.is_none();
+        let mut text = None;
+        if t.kind == TabKind::Whiteboard {
+            if t.dirty || untitled {
+                text = Some(t.content.clone());
+            }
+            if untitled && crate::whiteboard::is_empty_scene(&t.content) && self.tabs.len() > 1 {
+                return None;
+            }
+        } else {
+            if t.dirty || t.forced_dirty || untitled {
+                let want = if i == self.active { shown } else { t.doc };
+                if want != *pointer {
+                    self.send(sci::SCI_SETDOCPOINTER, 0, want);
+                    *pointer = want;
+                }
+                let plain = sci::get_text(&self.sci);
+                // Unsaved text of a protected file never reaches the session file as plain text.
+                text = if t.encrypted { self.vault.dek.as_ref().and_then(|d| crypto::encrypt_text(&plain, d, "").ok()) } else { Some(plain) };
+            }
+            if untitled && text.as_deref() == Some("") && self.tabs.len() > 1 {
+                return None;
+            }
+        }
+        let has_text = text.is_some();
+        Some(SessionTab {
+            title: t.title.clone(),
+            path: t.path.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            text,
+            caret: t.caret,
+            top: t.top,
+            enc: t.enc.key().into(),
+            eol: t.eol.key().into(),
+            encrypted: t.encrypted && has_text,
+            pinned: t.pinned,
+            color: t.color,
+            kind: if t.kind == TabKind::Whiteboard { "whiteboard".into() } else { "text".into() },
+            lang: (t.path.is_none() && t.kind == TabKind::Text && t.lang != "null").then(|| t.lang_label.to_string()),
+        })
+    }
     /// Restore the whole saved state (startup): settings, workspace and tabs.
     pub fn restore(&mut self, ui: &dyn Ui, s: &Session) {
         self.minimap = s.minimap;

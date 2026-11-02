@@ -30,6 +30,11 @@ pub trait Native: Sync {
     fn is_foreground(&self) -> bool {
         true
     }
+    /// While a handler is installed, every mouse-button press of this thread goes to it first with its screen position;
+    /// returning true consumes the press. None removes it. False where this is not supported.
+    fn grab_clicks(&self, _on_press: Option<fn(i32, i32) -> bool>) -> bool {
+        false
+    }
     /// Show a popup window without taking the focus from the window that opened it. False where that is not
     /// supported; the caller then shows the window normally.
     fn show_without_activating(&self, _window: isize) -> bool {

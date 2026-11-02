@@ -57,13 +57,26 @@ const WS_BORDER: isize = 0x0080_0000;
 const WS_EX_EDGES: isize = 0x0000_0200 | 0x0002_0000; // WS_EX_CLIENTEDGE | WS_EX_STATICEDGE
 const SW_SHOWNOACTIVATE: i32 = 4;
 const WH_KEYBOARD: i32 = 2;
+const WH_MOUSE: i32 = 7;
 const VK_CONTROL: i32 = 0x11;
 
 type KeyFn = fn(u32, bool) -> bool;
+type ClickFn = fn(i32, i32) -> bool;
+
+#[repr(C)]
+struct MouseHook {
+    x: i32,
+    y: i32,
+    window: isize,
+    hit: u32,
+    extra: usize,
+}
 
 thread_local! {
     static KEYS: std::cell::Cell<Option<KeyFn>> = const { std::cell::Cell::new(None) };
     static HOOK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+    static CLICKS: std::cell::Cell<Option<ClickFn>> = const { std::cell::Cell::new(None) };
+    static MOUSE_HOOK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
     // The key whose press was consumed: its release is consumed too.
     static EATEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -87,6 +100,21 @@ unsafe extern "system" fn key_hook(code: i32, wparam: usize, lparam: isize) -> i
         }
     }
     unsafe { CallNextHookEx(HOOK.with(std::cell::Cell::get), code, wparam, lparam) }
+}
+
+unsafe extern "system" fn mouse_hook(code: i32, wparam: usize, lparam: isize) -> isize {
+    // WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN and their non-client forms.
+    let press = matches!(wparam, 0x201 | 0x204 | 0x207 | 0xA1 | 0xA4 | 0xA7);
+    if code == 0
+        && press
+        && let Some(f) = CLICKS.with(std::cell::Cell::get)
+    {
+        let info = unsafe { &*(lparam as *const MouseHook) };
+        if f(info.x, info.y) {
+            return 1;
+        }
+    }
+    unsafe { CallNextHookEx(MOUSE_HOOK.with(std::cell::Cell::get), code, wparam, lparam) }
 }
 
 impl Native for Windows {
@@ -147,6 +175,26 @@ impl Native for Windows {
             let mut pid = 0u32;
             GetWindowThreadProcessId(GetForegroundWindow(), &raw mut pid);
             pid == GetCurrentProcessId()
+        }
+    }
+
+    fn grab_clicks(&self, on_press: Option<fn(i32, i32) -> bool>) -> bool {
+        CLICKS.with(|c| c.set(on_press));
+        let installed = MOUSE_HOOK.with(std::cell::Cell::get);
+        match on_press {
+            Some(_) if installed == 0 => {
+                let h = unsafe { SetWindowsHookExW(WH_MOUSE, mouse_hook, 0, GetCurrentThreadId()) };
+                MOUSE_HOOK.with(|c| c.set(h));
+                h != 0
+            }
+            Some(_) => true,
+            None => {
+                if installed != 0 {
+                    unsafe { UnhookWindowsHookEx(installed) };
+                    MOUSE_HOOK.with(|c| c.set(0));
+                }
+                true
+            }
         }
     }
 

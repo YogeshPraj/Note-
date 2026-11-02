@@ -119,6 +119,16 @@ pub fn key(code: i32, plain: bool) -> bool {
     }
 }
 
+/// A mouse press anywhere in the application: one outside the menu dismisses it (and is spent, as with native menus).
+fn on_press(x: i32, y: i32) -> bool {
+    let Some(s) = current() else { return false };
+    if s.levels.borrow().iter().any(|l| l.contains((x, y))) {
+        return false;
+    }
+    defer_close(&s);
+    true
+}
+
 /// A key press as the operating system reports it (Windows virtual-key codes), for platforms that can grab keys.
 fn on_virtual_key(vk: u32, plain: bool) -> bool {
     let code = match vk {
@@ -142,9 +152,7 @@ pub fn show(owner: &Frame, entries: Vec<Entry>, at: (i32, i32), flip_up: bool, h
     CURRENT.with(|c| *c.borrow_mut() = Some(s.clone()));
     open_level(&s, entries, Anchor::Top(at, flip_up), false);
     crate::native::current().grab_keys(Some(on_virtual_key));
-    if let Some(l) = s.levels.borrow().first() {
-        l.panel.capture_mouse();
-    }
+    crate::native::current().grab_clicks(Some(on_press));
 }
 
 #[derive(Clone, Copy)]
@@ -242,10 +250,7 @@ fn close_from(s: &Shared, depth: usize) {
         let at = depth.min(lv.len());
         lv.drain(at..).collect()
     };
-    for (n, l) in gone.into_iter().enumerate() {
-        if depth + n == 0 && l.panel.has_capture() {
-            l.panel.release_mouse();
-        }
+    for l in gone {
         l.frame.close(true);
     }
     if depth == 0 {
@@ -259,6 +264,7 @@ fn close_from(s: &Shared, depth: usize) {
         });
         if mine {
             crate::native::current().grab_keys(None);
+            crate::native::current().grab_clicks(None);
             (s.handlers.closed)();
         }
     }

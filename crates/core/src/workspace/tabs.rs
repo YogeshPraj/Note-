@@ -183,6 +183,45 @@ impl<S: Send> Workspace<S> {
         n
     }
 
+    /// The start of tab `i`'s text, for a tool tip: the name (and folder), then up to `lines` lines of at most `width`
+    /// characters. Reading a hidden tab swaps its document into the view, so the selection and scroll are put back.
+    pub fn tab_preview(&self, i: usize, lines: usize, width: usize) -> String {
+        let Some(t) = self.tabs.get(i) else { return String::new() };
+        let mut head = t.title.clone();
+        if let Some(dir) = t.path.as_ref().and_then(|p| p.parent()) {
+            head.push_str(&format!("\n{}", dir.display()));
+        }
+        if t.kind == TabKind::Whiteboard {
+            return format!("{head}\n\nWhiteboard, {} elements", scene_element_count(&t.content));
+        }
+        // Enough bytes for the lines wanted, even when every character takes up to four.
+        let want = lines * width * 4;
+        let text = if i == self.active { self.peek_text(want) } else { self.peek_hidden(i, want) };
+        let body = preview_lines(&text, lines, width);
+        if body.is_empty() { head } else { format!("{head}\n\n{body}") }
+    }
+
+    fn peek_text(&self, bytes: usize) -> String {
+        let len = crate::num::to_usize(sci::length(&self.sci).max(0)).min(bytes);
+        let mut buf = vec![0u8; len + 1];
+        self.send(sci::SCI_GETTEXT, len + 1, buf.as_mut_ptr() as isize);
+        buf.truncate(len);
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    fn peek_hidden(&self, i: usize, bytes: usize) -> String {
+        let shown = self.send(sci::SCI_GETDOCPOINTER, 0, 0);
+        let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
+        let caret = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
+        let first = self.top_doc_line();
+        self.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[i].doc);
+        let text = self.peek_text(bytes);
+        self.send(sci::SCI_SETDOCPOINTER, 0, shown);
+        self.send(sci::SCI_SETSEL, anchor, caret);
+        self.set_top_doc_line(first);
+        text
+    }
+
     /// Rows for Window > Windows...: name, folder, type, size.
     pub fn window_rows(&self) -> Vec<Vec<String>> {
         self.tab_keys()

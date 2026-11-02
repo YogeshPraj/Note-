@@ -79,6 +79,10 @@ struct State {
     drag: Option<Drag>,
     last_auto: Instant,
     handler: Option<Rc<dyn Fn(TabEvent)>>,
+    /// Text for the tool tip of a tab that is not the active one, asked for when the pointer comes to rest on it.
+    preview: Option<Rc<dyn Fn(usize) -> String>>,
+    /// The tab the tool tip was last made for (None: ask again).
+    tip_for: Option<usize>,
 }
 
 impl std::fmt::Debug for TabStrip {
@@ -123,6 +127,8 @@ impl TabStrip {
             drag: None,
             last_auto: Instant::now(),
             handler: None,
+            preview: None,
+            tip_for: None,
         }));
         let strip = TabStrip { panel, st };
         strip.wire();
@@ -143,6 +149,11 @@ impl TabStrip {
         self.st.borrow_mut().handler = Some(Rc::new(f));
     }
 
+    /// Show `f(i)` as the tool tip of tab `i` while the pointer is over it, except on the active tab.
+    pub fn set_preview(&self, f: impl Fn(usize) -> String + 'static) {
+        self.st.borrow_mut().preview = Some(Rc::new(f));
+    }
+
     pub fn set_font(&self, font: Option<Font>) {
         self.st.borrow_mut().font = font;
     }
@@ -152,6 +163,10 @@ impl TabStrip {
             let mut s = self.st.borrow_mut();
             if s.active != active {
                 s.scroll.reveal_active();
+            }
+            // A different set or order of tabs (or another active one) makes the tool tip stale; a redraw does not.
+            if s.active != active || s.tabs.len() != tabs.len() || s.tabs.iter().zip(&tabs).any(|(a, b)| a.title != b.title) {
+                s.tip_for = None;
             }
             s.tabs = tabs;
             s.active = active;
@@ -199,12 +214,17 @@ impl TabStrip {
             if let Some((a, b)) = moved {
                 Self::emit(&st, TabEvent::Move(a, b));
             }
-            p.set_tooltip(match st.borrow().btn_hot {
-                Some(Btn::Left) => "Scroll tabs left",
-                Some(Btn::Right) => "Scroll tabs right",
-                Some(Btn::Plus) => "New (Ctrl+N)",
-                None => "",
-            });
+            // Copied out first: the borrow must not be held while the tab's tool tip is made (that borrows again).
+            let btn = st.borrow().btn_hot;
+            let tip = match btn {
+                Some(Btn::Left) => Some("Scroll tabs left".to_string()),
+                Some(Btn::Right) => Some("Scroll tabs right".to_string()),
+                Some(Btn::Plus) => Some("New (Ctrl+N)".to_string()),
+                None => tab_tip(&st),
+            };
+            if let Some(tip) = tip {
+                p.set_tooltip(&tip);
+            }
             p.refresh(false, None);
         });
 
@@ -335,6 +355,24 @@ fn drag_to(s: &mut State, x: i32) -> Option<(usize, usize)> {
     }
     s.drag = Some(Drag { from: to.min(last), x0, moving: true });
     moved
+}
+
+/// The tool tip for the tab under the pointer: a preview of its text, but not for the active tab (its text is on
+/// screen), nor over a close button. `None` leaves the tool tip as it is (already made for this tab).
+fn tab_tip(st: &Rc<RefCell<State>>) -> Option<String> {
+    let (hot, active, vertical, preview, done) = {
+        let s = st.borrow();
+        (s.hot, s.active, s.vertical, s.preview.clone(), s.tip_for)
+    };
+    let wanted = hot.filter(|(i, on_close)| !vertical && !on_close && *i != active).map(|(i, _)| i);
+    if wanted == done {
+        return None;
+    }
+    st.borrow_mut().tip_for = wanted;
+    Some(match (wanted, preview) {
+        (Some(i), Some(f)) => f(i),
+        _ => String::new(),
+    })
 }
 
 fn close_rect(r: &Rect) -> Rect {

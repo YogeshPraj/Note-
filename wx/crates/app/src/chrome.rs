@@ -202,6 +202,11 @@ impl Chrome {
         self.status_bar.on_event(move |StatusEvent::Clicked(id, x, y)| h(Act::Status(id, x, y)));
     }
 
+    /// Tool tip text for a tab that is not the active one.
+    pub fn set_tab_preview(&self, f: impl Fn(usize) -> String + 'static) {
+        self.strip.set_preview(f);
+    }
+
     pub fn set_tabs(&self, tabs: Vec<TabInfo>, active: usize) {
         self.strip.set_tabs(
             tabs.into_iter()

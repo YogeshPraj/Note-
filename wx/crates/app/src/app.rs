@@ -73,6 +73,10 @@ pub struct App {
 
 pub type Shared = Rc<RefCell<App>>;
 
+/// How much of another tab's text its tool tip shows: lines, and characters per line.
+const TIP_LINES: usize = 12;
+const TIP_WIDTH: usize = 90;
+
 /// Build the window and run. Files named on the command line open as tabs.
 /// Where a second launch leaves the files it was asked to open for the running one.
 fn inbox() -> PathBuf {
@@ -572,6 +576,9 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
         app.refresh();
     });
     app.borrow().chrome.set_handler(handler);
+    // Resting on another tab shows the start of its text. Nothing is read while the app is busy (a dialog, a menu).
+    let a = app.clone();
+    app.borrow().chrome.set_tab_preview(move |i| a.try_borrow().map(|app| app.ws.tab_preview(i, TIP_LINES, TIP_WIDTH)).unwrap_or_default());
 }
 
 /// One timer for every periodic job, and saving the session when the window closes.

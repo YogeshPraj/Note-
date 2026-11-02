@@ -250,6 +250,24 @@ pub(super) fn lang_for(path: &Path) -> &'static str {
     path.extension().and_then(|e| e.to_str()).map_or("null", lexer::lexer_for_extension)
 }
 
+/// The first `lines` non-trailing lines of `text`, each cut to `width` characters (tabs become four spaces),
+/// with "..." when there is more.
+pub(super) fn preview_lines(text: &str, lines: usize, width: usize) -> String {
+    let all: Vec<&str> = text.trim_end().lines().collect();
+    let mut out: Vec<String> = all
+        .iter()
+        .take(lines)
+        .map(|l| {
+            let l = l.replace('\t', "    ");
+            if l.chars().count() > width { format!("{}...", l.chars().take(width).collect::<String>()) } else { l }
+        })
+        .collect();
+    if all.len() > lines {
+        out.push("...".into());
+    }
+    out.join("\n")
+}
+
 pub(super) fn file_title(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -280,4 +298,17 @@ pub(super) fn scene_element_count(content: &str) -> usize {
                 .map(|e| e.iter().filter(|x| x.get("isDeleted").and_then(serde_json::Value::as_bool) != Some(true)).count())
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_preview_keeps_the_first_lines_cuts_long_ones_and_says_when_there_is_more() {
+        assert_eq!(preview_lines("a\n\tb\n\n", 5, 10), "a\n    b");
+        assert_eq!(preview_lines("abcdefghij", 5, 4), "abcd...");
+        assert_eq!(preview_lines("1\n2\n3\n4", 2, 9), "1\n2\n...");
+        assert_eq!(preview_lines("", 3, 9), "");
+    }
 }

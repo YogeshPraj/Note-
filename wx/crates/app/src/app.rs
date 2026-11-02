@@ -456,12 +456,21 @@ fn wire_menu_keys(app: &Shared, frame: Frame) {
             e.skip(true);
         }
     });
-    // Switching to another program closes an open menu.
-    frame.on_activate(|e| {
-        if let wxdragon::event::WindowEventData::Activate(a) = &e
-            && !a.is_active()
-        {
-            crate::widgets::popup_menu::deactivated();
+    // Switching to another program closes an open menu; coming back looks for files other programs changed or deleted.
+    let a = app.clone();
+    frame.on_activate(move |e| {
+        if let wxdragon::event::WindowEventData::Activate(act) = &e {
+            if act.is_active() {
+                // After the activation: the check may ask questions, which must not open inside this event.
+                let a = a.clone();
+                crate::widgets::defer::later(&frame, move || {
+                    if let Ok(mut app) = a.try_borrow_mut() {
+                        app.check_files_on_disk();
+                    }
+                });
+            } else {
+                crate::widgets::popup_menu::deactivated();
+            }
         }
         e.skip(true);
     });
@@ -1034,6 +1043,21 @@ impl App {
             self.frame.iconize(false);
         }
         self.frame.raise();
+    }
+
+    /// Ask about open files that another program changed or deleted since they were read or saved.
+    pub fn check_files_on_disk(&mut self) {
+        let App { ws, ui, .. } = self;
+        if ws.check_external(ui) {
+            self.whiteboard_reloaded();
+            self.refresh();
+        }
+    }
+
+    /// A whiteboard's scene may have been read from disk again: the page must show it (it only loads a tab's scene when
+    /// a different tab comes to the front).
+    pub fn whiteboard_reloaded(&mut self) {
+        self.wb.shown = None;
     }
 
     /// Files a second launch left behind.

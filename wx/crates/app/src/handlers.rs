@@ -22,6 +22,7 @@ impl CommandHandler<App> for ViewCommands {
             ID_EXIT => app.frame.close(false),
             ID_RELOAD => {
                 if app.ws.reload_from_disk(&app.ui) {
+                    app.whiteboard_reloaded();
                     app.flash = Some("Reloaded from disk".into());
                 }
             }

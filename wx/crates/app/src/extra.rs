@@ -768,15 +768,18 @@ fn handle_7(app: &mut App, id: usize) -> bool {
                 0 => dialogs::hash_text(&app.frame, algo),
                 1 => {
                     let files = app.ui.pick_open();
-                    if !files.is_empty() {
-                        let lines: Vec<String> = files
-                            .iter()
-                            .map(|p| match std::fs::File::open(p).and_then(|f| algo.hash_reader(f)) {
-                                Ok(h) => format!("{h}  {}", p.display()),
-                                Err(e) => format!("(error)  {}: {e}", p.display()),
-                            })
-                            .collect();
-                        dialogs::text_result(&app.frame, &format!("{} of {} file(s)", algo.name(), files.len()), &lines.join("\r\n"));
+                    let count = files.len();
+                    // Big files take a while: hashed on a worker thread, with a progress window and Cancel.
+                    let job = move |p: &crate::widgets::progress::Progress| {
+                        notepp_core::hash::hash_files(algo, &files, &mut |done, total| {
+                            p.set(crate::platform::wx::to_u32(done.saturating_mul(100).checked_div(total).unwrap_or(100)), "Reading the files...");
+                            !p.cancelled()
+                        })
+                    };
+                    if count > 0
+                        && let Some(Some(lines)) = crate::widgets::progress::run(&app.frame, algo.name(), "Reading the files...", job)
+                    {
+                        dialogs::text_result(&app.frame, &format!("{} of {count} file(s)", algo.name()), &lines.join("\r\n"));
                     }
                 }
                 _ => {

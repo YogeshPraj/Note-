@@ -18,6 +18,19 @@
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/markdown-mermaid.png"><img src="docs/screenshots/markdown-mermaid.png" alt="Markdown with a Mermaid diagram, previewed live beside the editor"></a><br><sub><b>Markdown + Mermaid</b>: live preview that scrolls with the editor.</sub></td>
+    <td width="50%"><a href="docs/screenshots/json-preview.png"><img src="docs/screenshots/json-preview.png" alt="JSON text beside its editable tree view"></a><br><sub><b>JSON</b>: an editable tree view next to the text.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/editing.png"><img src="docs/screenshots/editing.png" alt="Rust source with syntax highlighting, code folding and the minimap"></a><br><sub><b>Editing</b>: syntax highlighting, folding, line numbers and a minimap.</sub></td>
+    <td width="50%"><a href="docs/screenshots/whiteboard.png"><img src="docs/screenshots/whiteboard.png" alt="A whiteboard tab with a hand-drawn flow chart"></a><br><sub><b>Whiteboard</b>: sketch in a tab; it is saved with your session.</sub></td>
+  </tr>
+</table>
+
 ## About
 
 **Note++ 2.0** is a native desktop editor: quick to start, light on memory, and familiar from the first minute. The editing core is [Scintilla](https://www.scintilla.org/) with [Lexilla](https://www.scintilla.org/Lexilla.html) lexers, kept separate from the platform layer (`crates/core` is portable; one wxWidgets shell in `wx/` targets Windows, macOS and Linux behind a `Platform` trait). Menus, tabs and dialogs are native, with previews, the whiteboard and the compare view in the system WebView.

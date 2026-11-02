@@ -308,6 +308,8 @@ fn command_core_6<S: sci::Send + Copy>(ws: &mut Workspace<S>, flash: &mut Option
                     Ok(Ok(())) => "Read-only flag cleared".into(),
                     _ => "Could not clear the read-only flag".into(),
                 });
+            } else {
+                *flash = Some("Save the file first".into());
             }
         }
         ID_BM_TOGGLE => ws.toggle_bookmark(),

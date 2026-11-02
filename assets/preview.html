@@ -233,7 +233,10 @@ body.dark .jsoneditor-poweredBy { display:none; }
     if (rec !== null) $('jfix').onclick = function () { post('jsonfix:' + JSON.stringify(rec, null, 2)); };
   }
   function renderJson(text) {
-    if (!window.JSONEditor) { pendingJson = text; post('need-jsoneditor'); return; }
+    if (!window.JSONEditor) {
+      // The editor library is handed over by the app and takes a moment: say so instead of showing the idle message.
+      pendingJson = text; $('msg').textContent = 'Loading the JSON viewer...'; show('msg'); post('need-jsoneditor'); return;
+    }
     text = norm(text);
     if (je && text === jeText) { show('je'); return; }
     var v;
@@ -392,6 +395,33 @@ body.dark .jsoneditor-poweredBy { display:none; }
     logPush(d.lines); logRender();
   }
 
+  function drawKind(kind, payload) {
+    if (kind === 'markdown') {
+      var y = $('md').scrollTop;
+      $('md').innerHTML = payload; show('md'); $('md').scrollTop = y;
+      runMermaid($('md'));
+    } else if (kind === 'mermaid') {
+      var y2 = $('mm').scrollTop;
+      $('mm').innerHTML = '<pre class="mermaid">' + esc(payload) + '</pre>'; show('mm'); $('mm').scrollTop = y2;
+      runMermaid($('mm'));
+    } else if (kind === 'log') {
+      logSet(payload);
+    } else if (kind === 'http') {
+      renderHttp(payload);
+    } else if (kind === 'json') {
+      renderJson(payload);
+    } else if (kind === 'html') {
+      $('frame').srcdoc = payload; show('frame');
+    } else {
+      $('msg').textContent = payload; show('msg');
+    }
+  }
+
+  // A failure while drawing must show in the pane, not leave whatever was there before.
+  function guarded(draw) {
+    try { draw(); } catch (e) { $('msg').textContent = 'Preview error: ' + ((e && e.message) || e); show('msg'); }
+  }
+
   window.np = {
     scrollToLine: function (line, total) {
       totalLines = total || totalLines;
@@ -400,32 +430,12 @@ body.dark .jsoneditor-poweredBy { display:none; }
       syncUntil = Date.now() + 150;                       // ignore the scroll event this causes
       root.scrollTop = lineToTop(line);
     },
-    render: function (kind, payload) {
-      if (kind === 'markdown') {
-        var y = $('md').scrollTop;
-        $('md').innerHTML = payload; show('md'); $('md').scrollTop = y;
-        runMermaid($('md'));
-      } else if (kind === 'mermaid') {
-        var y2 = $('mm').scrollTop;
-        $('mm').innerHTML = '<pre class="mermaid">' + esc(payload) + '</pre>'; show('mm'); $('mm').scrollTop = y2;
-        runMermaid($('mm'));
-      } else if (kind === 'log') {
-        logSet(payload);
-      } else if (kind === 'http') {
-        renderHttp(payload);
-      } else if (kind === 'json') {
-        renderJson(payload);
-      } else if (kind === 'html') {
-        $('frame').srcdoc = payload; show('frame');
-      } else {
-        $('msg').textContent = payload; show('msg');
-      }
-    },
+    render: function (kind, payload) { guarded(function () { drawKind(kind, payload); }); },
     setTheme: function (d) { dark = d; document.body.classList.toggle('dark', d); },
     setMax: function (m) { $('max').classList.toggle('on', m); },
     mermaidLoaded: function () { if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); } },
     logAppend: logAppend,
-    jsonLoaded: function () { if (pendingJson !== null) { var t = pendingJson; pendingJson = null; renderJson(t); } }
+    jsonLoaded: function () { if (pendingJson !== null) { var t = pendingJson; pendingJson = null; guarded(function () { renderJson(t); }); } }
   };
   applyZoom();
 })();

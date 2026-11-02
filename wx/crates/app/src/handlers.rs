@@ -127,7 +127,7 @@ impl CommandHandler<App> for HelpCommands {
         }
         let build = if cfg!(debug_assertions) { "debug" } else { "release" };
         let text = format!(
-            "Note++\nVersion {} ({build} build)\n\nA developer-focused text editor in Rust, built on the Scintilla editing component and Lexilla lexers.\n\nAuthor: Yogesh Prajapati\nhttps://github.com/YogeshPraj/Note-\n\nComponents:\n\u{2022} Scintilla 5.5.2 and Lexilla 5.5.4 \u{2014} Neil Hodgson (HPND license)\n\u{2022} fancy-regex \u{2014} regular-expression search\n\u{2022} resvg \u{2014} toolbar icon rendering\n\u{2022} wxWidgets \u{2014} the cross-platform windowing toolkit",
+            "Note++\nVersion {} ({build} build)\n\nA developer-focused text editor in Rust.\n\nAuthor: Yogesh Prajapati\nhttps://github.com/YogeshPraj/Note-",
             notepp_core::update::VERSION
         );
         MessageDialog::builder(&app.frame, &text, "About Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();

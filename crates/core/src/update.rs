@@ -17,6 +17,14 @@ use std::time::Duration;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const RELEASES_API: &str = "https://api.github.com/repos/YogeshPraj/Note-/releases?per_page=30";
 const TAG_PREFIX: &str = "v";
+const NEW_ISSUE: &str = "https://github.com/YogeshPraj/Note-/issues/new";
+
+/// The page for a new issue, with the version and system already in the description.
+pub fn issue_url(os: &str, build: &str) -> String {
+    let body =
+        format!("**Version:** {VERSION} ({build} build)\n**System:** {os}\n\n**What happened**\n\n\n**What I expected**\n\n\n**Steps to reproduce**\n1. \n");
+    format!("{NEW_ISSUE}?body={}", crate::edit::url_encode(&body).replace('+', "%20"))
+}
 pub const ASSET: &str = "NotePP-windows-x64.zip";
 /// The program inside the archive; an archive without it is refused.
 const EXE: &str = "notepp.exe";
@@ -225,6 +233,15 @@ pub fn launch_apply(staged: &Path) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_issue_page_opens_the_repository_with_version_and_system_filled_in() {
+        let url = issue_url("Windows 11", "release");
+        assert!(url.starts_with("https://github.com/YogeshPraj/Note-/issues/new?body="));
+        assert!(url.contains(&format!("Version%3A%2A%2A%20{VERSION}")));
+        assert!(url.contains("Windows%2011"));
+        assert!(!url.contains(' ') && !url.contains('\n'));
+    }
 
     #[test]
     fn versions_compare_numerically() {

@@ -1,6 +1,6 @@
 //! Command handlers for window-level actions, one type per concern.
 
-use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PRESET_BASE, ID_PREVIEW, ID_RELOAD};
+use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PRESET_BASE, ID_PREVIEW, ID_RELOAD, ID_REPORT_ISSUE};
 use notepp_core::sci::Theme;
 use notepp_core::settings;
 use wxdragon::prelude::*;
@@ -116,6 +116,11 @@ impl CommandHandler<App> for HelpCommands {
     }
 
     fn handle(&self, app: &mut App, id: usize) -> bool {
+        if id == ID_REPORT_ISSUE {
+            let build = if cfg!(debug_assertions) { "debug" } else { "release" };
+            crate::platform::current().open_default(&notepp_core::update::issue_url(&format!("{} {}", std::env::consts::OS, std::env::consts::ARCH), build));
+            return true;
+        }
         if id != ID_ABOUT {
             return false;
         }

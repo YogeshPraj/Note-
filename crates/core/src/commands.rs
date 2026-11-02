@@ -263,6 +263,7 @@ pub const ID_OPEN_ALL_RECENT: usize = 1120;
 pub const ID_WORKSPACE_TOGGLE: usize = 3007;
 pub const FILE_OPEN_FOLDER_POS: u32 = 3;
 pub const ID_ABOUT: usize = 9001;
+pub const ID_REPORT_ISSUE: usize = 9002;
 pub const ID_ENCODE_BASE: usize = 7000; // + index into ENCODE_IN: "Encode in ..."
 pub const ID_CHARSET_BASE: usize = 7100; // + index into CHARSETS (CHARSETS.len() = Windows-1252)
 pub const ID_CONVERT_BASE: usize = 7200; // + index into ENCODE_IN: "Convert to ..."

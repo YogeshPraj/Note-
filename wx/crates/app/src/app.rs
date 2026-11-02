@@ -394,6 +394,15 @@ fn open_menu(a: &Shared, i: usize) {
     popups::bar_menu(a, i);
 }
 
+/// Open the menu whose title underlines key (Alt+letter); an empty key is F10 and opens the first.
+pub(crate) fn open_menu_for_key(a: &Shared, key: &str) {
+    let Some(ch) = key.chars().next() else { return open_menu(a, 0) };
+    let Some(titles) = a.try_borrow().ok().map(|app| app.chrome.menu_titles()) else { return };
+    if let Some(i) = crate::widgets::menu_bar::menu_for_key(&titles, ch) {
+        open_menu(a, i);
+    }
+}
+
 /// Alt+letter opens the menu whose title underlines that letter; F10 opens the first.
 fn wire_menu_keys(app: &Shared, frame: Frame) {
     let a = app.clone();
@@ -471,8 +480,10 @@ fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
     wbv.on_script_message_received(move |e| {
         let msg = e.get_string().unwrap_or_default();
         let Some(ev) = wbm::parse(&msg) else { return };
-        if let wbm::Event::Tab(delta) = ev {
-            return switch_tab(&a, delta);
+        match ev {
+            wbm::Event::Tab(delta) => return switch_tab(&a, delta),
+            wbm::Event::Menu(key) => return open_menu_for_key(&a, &key),
+            _ => {}
         }
         if let Ok(mut app) = a.try_borrow_mut() {
             app.wb_event(ev);
@@ -522,6 +533,7 @@ fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane)
                 crate::widgets::defer::later(&frame, move || preview::load_mermaid(&pv));
             }
             "tab:next" | "tab:prev" => switch_tab(&a, if msg.trim_matches('"') == "tab:prev" { -1 } else { 1 }),
+            m if m.starts_with("menu:") => open_menu_for_key(&a, &m[5..]),
             "need-jsoneditor" => {
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_json_editor(&pv));
@@ -863,7 +875,7 @@ impl App {
                 self.wb.pending = Some(Pending::Save);
                 wbm::request_data(&self.wbv);
             }
-            wbm::Event::Tab(_) => {} // handled before this, with nothing borrowed
+            wbm::Event::Tab(_) | wbm::Event::Menu(_) => {} // handled before this, with nothing borrowed
         }
         self.refresh();
     }

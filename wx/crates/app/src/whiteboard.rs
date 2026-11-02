@@ -16,12 +16,17 @@ window.addEventListener('message', function (e) {
     window.ipc.postMessage(JSON.stringify(d));
   }
 });
-// While the page has the keyboard the window never sees keys, so Ctrl+Tab and Ctrl+Shift+Tab are passed on.
+// While the page has the keyboard the window never sees keys, so the window's own shortcuts are passed on:
+// Ctrl+Tab and Ctrl+Shift+Tab (next and previous tab), Alt+letter (a menu) and F10 (the first menu).
 window.addEventListener('keydown', function (e) {
   if (e.key === 'Tab' && e.ctrlKey && !e.altKey) {
     e.preventDefault();
     e.stopPropagation();
     window.ipc.postMessage(JSON.stringify({ type: 'wb-tab', delta: e.shiftKey ? -1 : 1 }));
+  } else if ((e.altKey && !e.ctrlKey && /^[a-z0-9]$/i.test(e.key)) || (e.key === 'F10' && !e.altKey && !e.ctrlKey && !e.shiftKey)) {
+    e.preventDefault();
+    e.stopPropagation();
+    window.ipc.postMessage(JSON.stringify({ type: 'wb-menu', key: e.key === 'F10' ? '' : e.key }));
   }
 }, true);
 ";
@@ -34,6 +39,8 @@ pub enum Event {
     SaveRequest,
     /// Ctrl+Tab (1) or Ctrl+Shift+Tab (-1) pressed inside the page.
     Tab(i32),
+    /// Alt+letter pressed inside the page: the letter, or empty for F10.
+    Menu(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -67,6 +74,7 @@ pub fn parse(msg: &str) -> Option<Event> {
         "wb-state" => Event::State(content()),
         "wb-data" => Event::Data(content()),
         "wb-save-request" => Event::SaveRequest,
+        "wb-menu" => Event::Menu(v.get("key").and_then(|k| k.as_str()).unwrap_or("").to_string()),
         "wb-tab" => Event::Tab(if v.get("delta").and_then(serde_json::Value::as_i64) == Some(-1) { -1 } else { 1 }),
         _ => return None,
     })

@@ -1,7 +1,9 @@
 //! The Settings window: the pages (built from the current settings) and what each change does.
 //!
 //! Every change applies at once and is saved. Editors that are too big for a row (colours, shortcuts, the
-//! right-click menu, encryption) open from a button on their page.
+//! right-click menu) sit inside their page ([custom]); the encryption actions are buttons that rebuild the page.
+
+mod custom;
 
 use std::rc::Rc;
 
@@ -9,7 +11,19 @@ use notepp_core::sci::Theme;
 use notepp_core::settings::Settings;
 
 use crate::app::{App, Shared};
-use crate::widgets::settings_window::{Control, Page, Row, Value};
+use crate::widgets::settings_window::{Control, MakePages, OnChange, Page, Row, Value};
+
+/// What the pages are built from.
+pub struct Env {
+    pub settings: Settings,
+    pub theme: Theme,
+    pub dark: bool,
+    /// What the Security page says about encryption, and whether the vault is unlocked.
+    pub encryption: String,
+    pub unlocked: bool,
+    /// The application the embedded editors act on (none in tests).
+    pub app: Option<Shared>,
+}
 
 const ENCODINGS: [(&str, &str); 3] = [("utf8", "UTF-8"), ("utf8bom", "UTF-8 with BOM"), ("ansi", "ANSI")];
 const LINE_ENDINGS: [(&str, &str); 3] = [("crlf", "Windows (CR LF)"), ("lf", "Unix (LF)"), ("cr", "Mac (CR)")];
@@ -32,8 +46,9 @@ fn button(key: &'static str, title: &str, desc: &str, label: &str) -> Row {
 }
 
 /// The pages, filled from the current settings.
-pub fn pages(s: &Settings, dark: bool) -> Vec<Page> {
-    vec![general(s), editor(s), appearance(s, dark), shortcuts(), context_menu(), security(s)]
+pub fn pages(env: &Env) -> Vec<Page> {
+    let s = &env.settings;
+    vec![general(s), editor(s), appearance(env), shortcuts(env), context_menu(env), security(env)]
 }
 
 fn general(s: &Settings) -> Page {
@@ -78,7 +93,8 @@ fn editor(s: &Settings) -> Page {
     )
 }
 
-fn appearance(s: &Settings, dark: bool) -> Page {
+fn appearance(env: &Env) -> Page {
+    let (s, dark) = (&env.settings, env.dark);
     Page::new(
         "appearance",
         "Appearance",
@@ -86,7 +102,7 @@ fn appearance(s: &Settings, dark: bool) -> Page {
         vec![
             Row::heading("Theme"),
             choice("theme", "Colour theme", "Light or dark.", &[("light", "Light"), ("dark", "Dark")], if dark { "dark" } else { "light" }),
-            button("colours", "Colours", "Change individual colours of the theme in use.", "Edit colours..."),
+            custom::colours(env.app.as_ref(), &env.theme),
             Row::heading("Window"),
             toggle("toolbar", "Toolbar", "Show the toolbar.", s.show_toolbar),
             toggle("tabbar", "Tab bar", "Show the tab bar.", s.show_tabbar),
@@ -99,28 +115,33 @@ fn appearance(s: &Settings, dark: bool) -> Page {
     )
 }
 
-fn shortcuts() -> Page {
-    Page::new(
-        "shortcuts",
-        "Shortcuts",
-        0,
-        vec![button("shortcuts", "Keyboard shortcuts", "See and change the keys of every command.", "Open the shortcut mapper...")],
-    )
+fn shortcuts(env: &Env) -> Page {
+    Page::new("shortcuts", "Shortcuts", 0, vec![custom::shortcuts(env.app.as_ref())])
 }
 
-fn context_menu() -> Page {
-    let desc = "Choose which commands the editor's right-click menu shows, and in what order.";
-    Page::new("context", "Context menu", 0, vec![button("context", "Right-click menu", desc, "Edit the right-click menu...")])
+fn context_menu(env: &Env) -> Page {
+    Page::new("context", "Context menu", 0, vec![custom::context_menu(env.app.as_ref())])
 }
 
-fn security(s: &Settings) -> Page {
+fn security(env: &Env) -> Page {
+    let s = &env.settings;
     Page::new(
         "security",
         "Security",
         0,
         vec![
             Row::heading("Encryption"),
-            button("encryption", "File encryption", "Set up, change or remove the password that protects encrypted files.", "Encryption settings..."),
+            Row::new("", "Status", &env.encryption, Control::Heading),
+            button("enc_setup", "Profile", "Set up the password that protects encrypted files, or replace the profile.", "Set up / replace profile..."),
+            button(
+                "enc_lock",
+                "Lock",
+                "Forget the key until the password is entered again, or enter it now.",
+                if env.unlocked { "Lock now" } else { "Unlock..." },
+            ),
+            button("enc_password", "Password", "Choose a new password. Encrypted files do not need to be touched.", "Change password..."),
+            button("enc_recovery", "Recovery key", "Create a new recovery key. The old one stops working.", "New recovery key..."),
+            button("enc_import", "Import", "Use an encryption profile saved elsewhere.", "Import profile..."),
             Row::heading("Passwords"),
             number(
                 "lock",
@@ -165,26 +186,55 @@ pub fn apply_value(s: &mut Settings, key: &str, v: &Value) -> bool {
 
 /// Open the window on `page`.
 pub fn open(app: &Shared, page: &str) {
-    let (frame, pages) = {
-        let Ok(a) = app.try_borrow() else { return };
-        (a.frame, pages(&a.ws.settings, a.ws.theme.dark))
-    };
+    let Ok(frame) = app.try_borrow().map(|a| a.frame) else { return };
+    let for_pages = app.clone();
+    let make: MakePages = Rc::new(move || {
+        let Ok(a) = for_pages.try_borrow() else { return Vec::new() };
+        pages(&Env {
+            settings: a.ws.settings.clone(),
+            theme: a.ws.theme.clone(),
+            dark: a.ws.theme.dark,
+            encryption: crate::encdialogs::status_text(&a.ws.vault),
+            unlocked: a.ws.vault.unlocked(),
+            app: Some(for_pages.clone()),
+        })
+    });
     let a = app.clone();
-    let on_change: crate::widgets::settings_window::OnChange = Rc::new(move |key, v| changed(&a, key, &v));
-    crate::widgets::settings_window::show(&frame, "Settings", &pages, page, &on_change);
+    let on_change: OnChange = Rc::new(move |key, v| changed(&a, key, &v));
+    crate::widgets::settings_window::show(&frame, "Settings", &make, page, &on_change);
 }
 
-fn changed(app: &Shared, key: &str, v: &Value) {
-    let Ok(mut a) = app.try_borrow_mut() else { return };
+fn encryption_action(key: &str) -> Option<crate::encdialogs::Action> {
+    use crate::encdialogs::Action;
+    Some(match key {
+        "enc_setup" => Action::Setup,
+        "enc_lock" => Action::Lock,
+        "enc_password" => Action::Password,
+        "enc_recovery" => Action::Recovery,
+        "enc_import" => Action::Import,
+        _ => return None,
+    })
+}
+
+/// Apply one change. Returns true when the pages must be built again.
+fn changed(app: &Shared, key: &str, v: &Value) -> bool {
+    let Ok(mut a) = app.try_borrow_mut() else { return false };
+    if let (Some(action), Value::Pressed) = (encryption_action(key), v) {
+        let (frame, mut vault) = (a.frame, a.ws.vault.clone());
+        crate::encdialogs::act(&frame, &mut vault, action);
+        a.ws.vault = vault;
+        return true;
+    }
     match (key, v) {
         ("font", Value::Pressed) => a.choose_font(),
-        ("colours", Value::Pressed) => crate::handlers::AppearanceCommands::style_configurator(&mut a),
-        ("shortcuts", Value::Pressed) => a.edit_shortcuts(),
-        ("context", Value::Pressed) => a.edit_context_menu(),
-        ("encryption", Value::Pressed) => a.edit_encryption(),
+        ("colours_reset", Value::Pressed) => {
+            crate::handlers::AppearanceCommands::apply_style(&mut a, &crate::settings_ui::StyleEdit { reset: true, entered: Vec::new() });
+            return true;
+        }
         ("theme", Value::Choice(i)) => {
             a.ws.set_theme(if *i == 1 { Theme::dark() } else { Theme::light() });
             a.refresh();
+            return true;
         }
         _ => {
             let mut s = a.ws.settings.clone();
@@ -196,8 +246,8 @@ fn changed(app: &Shared, key: &str, v: &Value) {
             }
         }
     }
+    false
 }
-
 impl App {
     fn choose_font(&mut self) {
         let cur = &self.ws.settings;
@@ -215,6 +265,10 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn env(dark: bool) -> Env {
+        Env { settings: Settings::default(), theme: Theme::light(), dark, encryption: String::new(), unlocked: false, app: None }
+    }
 
     #[test]
     fn choices_toggles_and_numbers_land_in_the_settings() {
@@ -241,9 +295,9 @@ mod tests {
 
     #[test]
     fn every_row_key_is_handled_or_a_known_action() {
-        let actions = ["font", "colours", "shortcuts", "context", "encryption", "theme"];
-        for page in pages(&Settings::default(), false) {
-            for row in page.rows.iter().filter(|r| !matches!(r.control, Control::Heading)) {
+        let actions = ["font", "theme", "enc_setup", "enc_lock", "enc_password", "enc_recovery", "enc_import"];
+        for page in pages(&env(false)) {
+            for row in page.rows.iter().filter(|r| !matches!(r.control, Control::Heading | Control::Custom(_))) {
                 let mut s = Settings::default();
                 let probe = match &row.control {
                     Control::Toggle(_) => Value::Bool(true),
@@ -259,7 +313,7 @@ mod tests {
     #[test]
     fn the_theme_row_follows_the_current_theme() {
         let selected = |dark| {
-            pages(&Settings::default(), dark).iter().flat_map(|p| p.rows.iter()).find_map(|r| match &r.control {
+            pages(&env(dark)).iter().flat_map(|p| p.rows.iter()).find_map(|r| match &r.control {
                 Control::Choice { selected, .. } if r.key == "theme" => Some(*selected),
                 _ => None,
             })

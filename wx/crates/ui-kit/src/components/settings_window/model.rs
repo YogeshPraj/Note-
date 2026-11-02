@@ -1,4 +1,6 @@
-//! The settings window's pages, rows and values: plain data, with no toolkit in it.
+//! The settings window's pages, rows and values: plain data (a custom area holds a callback that builds an editor).
+
+use std::rc::Rc;
 
 /// What a row lets the user set.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +21,30 @@ pub enum Control {
     },
     /// A push button with this label; pressing it reports the row's key.
     Button(String),
+    /// An area the application fills with an editor of its own.
+    Custom(Custom),
+}
+
+/// Fills a custom area: gets the panel to build in and the window's report channel.
+pub type Builder = Rc<dyn Fn(&wxdragon::prelude::Panel, &super::page::Report)>;
+
+/// A page area filled by the application: it gets the panel to build its controls in, which is size pixels big, and the\n/// window's report channel (reporting a key whose handler asks for it rebuilds the pages).
+#[derive(Clone)]
+pub struct Custom {
+    pub size: (i32, i32),
+    pub build: Builder,
+}
+
+impl std::fmt::Debug for Custom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Custom").field("size", &self.size).finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for Custom {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size && Rc::ptr_eq(&self.build, &other.build)
+    }
 }
 
 /// A value the user entered, as reported to the application.

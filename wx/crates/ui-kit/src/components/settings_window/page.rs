@@ -1,12 +1,16 @@
 //! One page of the settings window: its title and rows, laid out from the theme tokens.
 
+use std::rc::Rc;
+
 use wxdragon::prelude::*;
 
-use super::OnChange;
 use super::model::{Control, Page, Row, Value, parse_number};
-use crate::controls::{Button, CheckBox, Label, RadioButton, TextBox};
+use crate::controls::{Button, CheckBox, Label, Panel as ThemedPanel, RadioButton, TextBox};
 use crate::paint::colour;
 use crate::theme::{self, Role};
+
+/// What a page tells the window when a value changes.
+pub type Report = Rc<dyn Fn(&str, Value)>;
 
 /// A page's scrolling window.
 #[derive(Clone, Copy)]
@@ -21,7 +25,7 @@ impl View {
 /// How wide a description wraps, before scaling.
 const WRAP: i32 = 560;
 
-pub fn build(parent: &impl WxWidget, page: &Page, on_change: &OnChange) -> View {
+pub fn build(parent: &impl WxWidget, page: &Page, on_change: &Report) -> View {
     let t = theme::current();
     let sw = ScrolledWindow::builder(parent).build();
     theme::adopt(sw, Role::Surface);
@@ -72,12 +76,15 @@ fn accent_bar(sw: &ScrolledWindow) -> Panel {
     bar
 }
 
-fn add_row(sw: &ScrolledWindow, col: &BoxSizer, row: &Row, on_change: &OnChange) {
+fn add_row(sw: &ScrolledWindow, col: &BoxSizer, row: &Row, on_change: &Report) {
     let t = theme::current();
     if matches!(row.control, Control::Heading) {
         let h = Label::new(sw, &row.title);
         strong(&h);
         col.add(&h, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, t.px(24));
+        if let Some(d) = desc(sw, &row.desc) {
+            col.add(&d, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, t.px(24));
+        }
         col.add_spacer(t.px(4));
         return;
     }
@@ -101,7 +108,7 @@ fn add_row(sw: &ScrolledWindow, col: &BoxSizer, row: &Row, on_change: &OnChange)
         strong(&title);
         body.add(&title, 0, SizerFlag::Bottom, t.px(2));
         add_desc(sw, &body, &row.desc);
-        add_control(sw, &body, &row.control, report);
+        add_control(sw, &body, &row.control, report, on_change);
     }
     line.add_sizer(&body, 1, SizerFlag::Expand, 0);
     col.add_sizer(&line, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, t.px(24));
@@ -113,7 +120,7 @@ fn add_desc(sw: &ScrolledWindow, body: &BoxSizer, text: &str) {
     }
 }
 
-fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: impl Fn(Value) + Clone + 'static) {
+fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: impl Fn(Value) + Clone + 'static, on_change: &Report) {
     let t = theme::current();
     match control {
         Control::Number { value, min, max } => {
@@ -153,6 +160,12 @@ fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: 
             let b = Button::new(sw, label);
             b.on_click(move |_| report(Value::Pressed));
             body.add(&b, 0, SizerFlag::Bottom, t.px(4));
+        }
+        Control::Custom(c) => {
+            let host = ThemedPanel::new(sw);
+            host.set_min_size(Size::new(c.size.0, c.size.1));
+            (c.build)(&host, on_change);
+            body.add(&host, 0, SizerFlag::Bottom, t.px(4));
         }
         Control::Heading | Control::Toggle(_) => {}
     }

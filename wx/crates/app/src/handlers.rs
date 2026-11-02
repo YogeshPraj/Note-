@@ -44,8 +44,8 @@ impl CommandHandler<App> for ViewCommands {
 pub struct AppearanceCommands;
 
 impl AppearanceCommands {
-    pub(crate) fn style_configurator(app: &mut App) {
-        let Some(e) = settings_ui::style_configurator(&app.frame, &app.ws.theme) else { return };
+    /// Apply the colours edited in the settings window.
+    pub(crate) fn apply_style(app: &mut App, e: &settings_ui::StyleEdit) {
         let dark = app.ws.theme.dark;
         let base = if dark { Theme::dark() } else { Theme::light() };
         let diff = if e.reset { std::collections::BTreeMap::default() } else { settings::diff_from(&base, &e.entered) };

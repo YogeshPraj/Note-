@@ -1,6 +1,7 @@
 //! Dialogs built on the form helper, defined like the Win32 shell's.
 
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use notepp_core::hash::Algo;
 use notepp_core::shortcuts;
@@ -105,6 +106,11 @@ pub fn windows_dialog(frame: &Frame, rows: &[Vec<String>], selected: usize) -> O
 
 // ── Shortcut Mapper ──────────────────────────────────────────────────────────
 
+/// Told the shortcuts as they are now.
+type MapApply = Rc<dyn Fn(Vec<MapRow>)>;
+/// Told the right-click menu as it is now.
+type MenuApply = Rc<dyn Fn(Vec<String>)>;
+
 #[derive(Clone)]
 pub struct MapRow {
     pub id: usize,
@@ -115,6 +121,15 @@ pub struct MapRow {
 
 thread_local! {
     static ROWS: RefCell<Vec<MapRow>> = const { RefCell::new(Vec::new()) };
+    static MAP_APPLY: RefCell<Option<MapApply>> = const { RefCell::new(None) };
+}
+
+/// Tell the owner the shortcuts as they are now.
+fn commit_shortcuts() {
+    let rows = ROWS.with(|r| r.borrow().clone());
+    if let Some(apply) = MAP_APPLY.with(|a| a.borrow().clone()) {
+        apply(rows);
+    }
 }
 
 fn refresh_row(f: &Form, i: usize) {
@@ -166,6 +181,7 @@ fn mapper_click(f: &Form, id: usize) {
                     f.set_text(EDIT, &canon);
                     refresh_row(f, i);
                     f.set_text(STATUS, if canon.is_empty() { "Shortcut removed" } else { "Shortcut set" });
+                    commit_shortcuts();
                 }
                 Err(e) => f.set_text(STATUS, &e.to_string()),
             }
@@ -181,6 +197,7 @@ fn mapper_click(f: &Form, id: usize) {
                 ROWS.with(|r| f.set_text(EDIT, &r.borrow()[i].current));
             }
             f.set_text(STATUS, "Every shortcut is back to its default");
+            commit_shortcuts();
         }
         _ => {}
     }
@@ -205,27 +222,31 @@ fn vk_of(code: i32) -> Option<u16> {
     })
 }
 
-/// Settings > Shortcut Mapper. Returns the edited rows on OK.
-pub fn shortcut_mapper(frame: &Frame, rows: Vec<MapRow>) -> Option<Vec<MapRow>> {
+/// The size of the shortcut mapper's area in the settings window.
+pub const MAPPER_SIZE: (i32, i32) = (600, 430);
+
+/// The shortcut mapper, built into a settings page. `apply` gets every row whenever a shortcut changes.
+pub fn embed_shortcut_mapper(parent: &impl WxWidget, rows: Vec<MapRow>, apply: MapApply) {
     ROWS.with(|r| *r.borrow_mut() = rows);
+    MAP_APPLY.with(|a| *a.borrow_mut() = Some(apply));
     let spec = Spec {
         title: "Shortcut Mapper",
-        size: (600, 470),
+        size: MAPPER_SIZE,
         ctls: vec![
-            ctl(100, Kind::List, "", 12, 12, 576, 340),
-            ctl(106, Kind::Label, "Shortcut:", 12, 368, 64, 18),
-            ctl(101, Kind::Edit, "", 80, 364, 190, 22),
-            ctl(102, Kind::Button, "Set", 280, 362, 64, 26),
-            ctl(103, Kind::Button, "Clear", 350, 362, 64, 26),
-            ctl(104, Kind::Button, "Reset all", 420, 362, 80, 26),
-            ctl(105, Kind::Label, "Select a command, click the Shortcut box, press the keys you want, then press Set.", 12, 396, 576, 18),
+            ctl(100, Kind::List, "", 0, 0, 580, 340),
+            ctl(106, Kind::Label, "Shortcut:", 0, 356, 64, 18),
+            ctl(101, Kind::Edit, "", 68, 352, 190, 22),
+            ctl(102, Kind::Button, "Set", 268, 350, 64, 26),
+            ctl(103, Kind::Button, "Clear", 338, 350, 64, 26),
+            ctl(104, Kind::Button, "Reset all", 408, 350, 80, 26),
+            ctl(105, Kind::Label, "Select a command, click the Shortcut box, press the keys you want, then press Set.", 0, 384, 580, 18),
         ],
-        ok: "OK",
+        ok: "",
         buttons: None,
         on_change: Some(mapper_click),
         on_apply: None,
     };
-    let accepted = form::run(frame, spec, |f| {
+    form::embed(parent, spec, |f| {
         let rows: Vec<Vec<String>> = ROWS.with(|r| r.borrow().iter().map(|row| vec![row.name.clone(), row.current.clone()]).collect());
         f.list_fill(100, &[("Command", 380), ("Shortcut", 170)], &rows);
         // The shortcut box records the key combination pressed in it instead of taking typed text.
@@ -249,9 +270,7 @@ pub fn shortcut_mapper(frame: &Frame, rows: Vec<MapRow>) -> Option<Vec<MapRow>> 
             true
         });
     });
-    accepted.map(|_| ROWS.with(|r| r.borrow().clone()))
 }
-
 // ── Edit Popup ContextMenu ───────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -261,11 +280,20 @@ struct CtxState {
     default: Vec<String>,
     /// Indices into `all` of the rows the left list shows.
     shown: Vec<usize>,
-    as_text: bool,
 }
 
 thread_local! {
     static CTX: RefCell<CtxState> = RefCell::new(CtxState::default());
+    static CTX_APPLY: RefCell<Option<MenuApply>> = const { RefCell::new(None) };
+    static CTX_TEXT: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Tell the owner the menu as it is now.
+fn commit_menu() {
+    let menu = CTX.with(|c| c.borrow().menu.clone());
+    if let Some(apply) = CTX_APPLY.with(|a| a.borrow().clone()) {
+        apply(menu);
+    }
 }
 
 const CTX_SEP: &str = "-";
@@ -385,18 +413,26 @@ fn ctx_click(f: &Form, id: usize) {
         UP | DOWN => ctx_move(f, sel, id == UP),
         RESET => ctx_reset(f),
         TEXT => {
-            CTX.with(|c| c.borrow_mut().as_text = true);
-            f.close(true);
+            if let Some(open) = CTX_TEXT.with(|t| t.borrow().clone()) {
+                open();
+            }
+            return;
         }
-        _ => {}
+        _ => return,
     }
+    commit_menu();
 }
 
-/// Settings > Edit Popup `ContextMenu`. `all`: every command that can be offered; `current` / `default`: the menu
-/// as a list of command names with "-" for a separator. Returns the new menu and whether the user asked to edit
-/// the file as text instead.
-pub fn context_menu_editor(frame: &Frame, all: Vec<String>, current: Vec<String>, default: Vec<String>) -> Option<(Vec<String>, bool)> {
+/// The size of the right-click menu editor's area in the settings window.
+pub const CONTEXT_SIZE: (i32, i32) = (700, 480);
+
+/// The right-click menu editor, built into a settings page. `all`: every command that can be offered; `current` /
+/// `default`: the menu as a list of command names with "-" for a separator. `apply` gets the menu after each change;
+/// `open_text` opens the file as text.
+pub fn embed_context_menu(parent: &impl WxWidget, all: Vec<String>, current: Vec<String>, default: Vec<String>, apply: MenuApply, open_text: Rc<dyn Fn()>) {
     CTX.with(|c| *c.borrow_mut() = CtxState { all, menu: current, default, ..Default::default() });
+    CTX_APPLY.with(|a| *a.borrow_mut() = Some(apply));
+    CTX_TEXT.with(|t| *t.borrow_mut() = Some(open_text));
     form::on_edit(|f, id| {
         if id == CTX_FILTER {
             ctx_fill_avail(f);
@@ -404,36 +440,31 @@ pub fn context_menu_editor(frame: &Frame, all: Vec<String>, current: Vec<String>
     });
     let spec = Spec {
         title: "Edit Popup ContextMenu",
-        size: (770, 520),
+        size: CONTEXT_SIZE,
         ctls: vec![
-            ctl(110, Kind::Label, "Find command:", 12, 15, 90, 18),
-            ctl(CTX_FILTER, Kind::Edit, "", 104, 12, 238, 22),
-            ctl(CTX_AVAIL, Kind::MultiList, "", 12, 42, 330, 370),
-            ctl(103, Kind::Button, "Add  >", 350, 150, 70, 28),
-            ctl(104, Kind::Button, "<  Remove", 350, 186, 70, 28),
-            ctl(CTX_MENU, Kind::List, "", 428, 42, 330, 370),
-            ctl(105, Kind::Button, "Move Up", 428, 420, 76, 26),
-            ctl(106, Kind::Button, "Move Down", 510, 420, 84, 26),
-            ctl(107, Kind::Button, "Add Separator", 600, 420, 100, 26),
-            ctl(108, Kind::Button, "Reset to default", 12, 420, 120, 26),
-            ctl(109, Kind::Button, "Edit as text...", 138, 420, 110, 26),
-            ctl(111, Kind::Label, "Select commands on the left and press Add; they go below the selected item on the right.", 12, 452, 600, 18),
+            ctl(110, Kind::Label, "Find command:", 0, 3, 90, 18),
+            ctl(CTX_FILTER, Kind::Edit, "", 92, 0, 218, 22),
+            ctl(CTX_AVAIL, Kind::MultiList, "", 0, 30, 310, 370),
+            ctl(103, Kind::Button, "Add  >", 318, 138, 70, 28),
+            ctl(104, Kind::Button, "<  Remove", 318, 174, 70, 28),
+            ctl(CTX_MENU, Kind::List, "", 396, 30, 304, 370),
+            ctl(105, Kind::Button, "Move Up", 396, 408, 76, 26),
+            ctl(106, Kind::Button, "Move Down", 478, 408, 84, 26),
+            ctl(107, Kind::Button, "Add Separator", 568, 408, 100, 26),
+            ctl(108, Kind::Button, "Reset to default", 0, 408, 120, 26),
+            ctl(109, Kind::Button, "Edit as text...", 126, 408, 110, 26),
+            ctl(111, Kind::Label, "Select commands on the left and press Add; they go below the selected item on the right.", 0, 442, 700, 18),
         ],
-        ok: "OK",
+        ok: "",
         buttons: None,
         on_change: Some(ctx_click),
         on_apply: None,
     };
-    form::run(frame, spec, |f| {
+    form::embed(parent, spec, |f| {
         ctx_fill_avail(f);
         ctx_fill_menu(f, Some(0));
-    })?;
-    CTX.with(|c| {
-        let c = c.borrow();
-        Some((c.menu.clone(), c.as_text))
-    })
+    });
 }
-
 // ── hashes ───────────────────────────────────────────────────────────────────
 
 /// Tools > <algorithm> > Generate...: hash some typed text.

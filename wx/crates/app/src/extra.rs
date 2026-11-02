@@ -342,46 +342,46 @@ impl App {
         self.reset_recent_key();
     }
 
-    /// Encryption settings (from the Settings window's Security page).
-    pub fn edit_encryption(&mut self) {
-        let mut vault = self.ws.vault.clone();
-        crate::encdialogs::settings(&self.frame, &mut vault);
-        self.ws.vault = vault;
-    }
-
-    /// The shortcut mapper.
-    pub fn edit_shortcuts(&mut self) {
-        if let Some(done) = dialogs::shortcut_mapper(&self.frame, mapper_rows(&self.ws.settings)) {
-            let mut s = self.ws.settings.clone();
-            s.shortcuts.clear();
-            for r in done {
-                if r.current != r.default {
-                    s.shortcuts.insert(r.id.to_string(), r.current);
-                }
+    /// The shortcuts as edited in the settings window.
+    pub fn apply_shortcuts(&mut self, done: Vec<dialogs::MapRow>) {
+        let mut s = self.ws.settings.clone();
+        s.shortcuts.clear();
+        for r in done {
+            if r.current != r.default {
+                s.shortcuts.insert(r.id.to_string(), r.current);
             }
-            let _ = s.save();
-            self.ws.settings = s;
-            self.reinstall_menus();
-            self.flash = Some("Shortcuts updated".into());
         }
+        let _ = s.save();
+        self.ws.settings = s;
+        self.reinstall_menus();
+        self.flash = Some("Shortcuts updated".into());
     }
 
-    /// The editor's right-click menu.
-    pub fn edit_context_menu(&mut self) {
+    /// The rows of the shortcut mapper.
+    pub fn shortcut_rows(&self) -> Vec<dialogs::MapRow> {
+        mapper_rows(&self.ws.settings)
+    }
+
+    /// The editor's right-click menu: what can be offered, what it holds now and what it holds by default.
+    pub fn context_menu_lists() -> (Vec<String>, Vec<String>, Vec<String>) {
         let p = ensure_context_menu_file();
         let current = context_names(&std::fs::read_to_string(&p).unwrap_or_else(|_| DEFAULT_CONTEXT_MENU.into()));
         let all = notepp_core::registry::palette().map(|c| c.palette.to_string()).collect();
-        if let Some((menu, as_text)) = dialogs::context_menu_editor(&self.frame, all, current.clone(), context_names(DEFAULT_CONTEXT_MENU)) {
-            if menu != current {
-                let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");
-                let _ = std::fs::write(&p, format!("{header}\n{}\n", menu.join("\n")));
-                self.flash = Some("Right-click menu saved".into());
-            }
-            if as_text {
-                let App { ws, ui, .. } = self;
-                ws.open_path(ui, &p);
-            }
-        }
+        (all, current, context_names(DEFAULT_CONTEXT_MENU))
+    }
+
+    /// Save the right-click menu as edited in the settings window.
+    pub fn save_context_menu(&mut self, menu: &[String]) {
+        let header = DEFAULT_CONTEXT_MENU.lines().take(2).collect::<Vec<_>>().join("\n");
+        let _ = std::fs::write(ensure_context_menu_file(), format!("{header}\n{}\n", menu.join("\n")));
+        self.flash = Some("Right-click menu saved".into());
+    }
+
+    /// Open the right-click menu file as text.
+    pub fn open_context_menu_file(&mut self) {
+        let p = ensure_context_menu_file();
+        let App { ws, ui, .. } = self;
+        ws.open_path(ui, &p);
     }
     /// Passwords (Bitwarden): pick an item and insert it at the cursor or copy it for 30 seconds.
     fn passwords(&mut self) {

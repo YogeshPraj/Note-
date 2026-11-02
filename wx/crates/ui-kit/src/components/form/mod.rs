@@ -73,7 +73,8 @@ impl std::fmt::Debug for Form {
 /// Live access to the controls while the form is open.
 #[derive(Clone)]
 pub struct Form {
-    dialog: Dialog,
+    /// The dialog a form runs in; none for a form embedded in a page.
+    dialog: Option<Dialog>,
     map: Rc<HashMap<usize, W>>,
     ok: Rc<std::cell::Cell<Option<Button>>>,
     cancel: Rc<std::cell::Cell<Option<Button>>>,
@@ -229,7 +230,9 @@ impl Form {
     }
 
     pub fn close(&self, ok: bool) {
-        self.dialog.end_modal(if ok { ID_OK } else { ID_CANCEL });
+        if let Some(d) = self.dialog {
+            d.end_modal(if ok { ID_OK } else { ID_CANCEL });
+        }
     }
 }
 
@@ -335,7 +338,7 @@ struct Built {
 
 impl Built {
     #[allow(clippy::too_many_lines, reason = "one arm per kind of control")]
-    fn add(&mut self, d: &Dialog, c: &Ctl) {
+    fn add(&mut self, d: &impl WxWidget, c: &Ctl) {
         let (p, s) = (Point::new(c.rect.0, c.rect.1), Size::new(c.rect.2, c.rect.3));
         match c.kind {
             Kind::Group => {
@@ -408,7 +411,7 @@ impl Built {
     }
 }
 
-fn build_controls(d: &Dialog, ctls: &[Ctl]) -> Built {
+fn build_controls(d: &impl WxWidget, ctls: &[Ctl]) -> Built {
     let mut built = Built { map: HashMap::new(), kinds: Vec::new(), first_edit: None, click_ids: Vec::new(), swatches: Vec::new(), lists: Vec::new() };
     for c in ctls {
         built.add(d, c);
@@ -514,7 +517,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let (ok_btn, cancel_btn) = add_buttons(&d, ok, ok_at, cancel_at);
     d.set_escape_id(ID_CANCEL);
     let form =
-        Form { dialog: d, map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(ok_btn)), cancel: Rc::new(std::cell::Cell::new(cancel_btn)) };
+        Form { dialog: Some(d), map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(ok_btn)), cancel: Rc::new(std::cell::Cell::new(cancel_btn)) };
     wire_events(&form, on_change, &built);
     let result: Rc<RefCell<Option<Values>>> = Rc::new(RefCell::new(None));
     if let Some(ok) = ok_btn {
@@ -540,6 +543,17 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     result.borrow_mut().take()
 }
 
+/// Build the form's controls into `parent` (a page of the settings window) instead of a dialog of their own. There is no
+/// OK button: the hooks in `spec` act on every change, and the caller applies the result as it happens.
+pub fn embed(parent: &impl WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Form {
+    let Spec { ctls, on_change, .. } = spec;
+    let built = build_controls(parent, &ctls);
+    let form = Form { dialog: None, map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(None)), cancel: Rc::new(std::cell::Cell::new(None)) };
+    wire_events(&form, on_change, &built);
+    wire_swatches(&form, built.swatches);
+    init(&form);
+    form
+}
 /// Where layout problems found in debug builds are reported besides stderr (the application sets this once).
 pub static PROBLEM_SINK: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
 

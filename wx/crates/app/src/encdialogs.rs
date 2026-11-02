@@ -1,7 +1,7 @@
 //! Dialogs of the encrypted pad: unlock, first-time setup, recovery key, and Settings > Encryption. The
 //! cryptography itself is in `core::crypto`; this file only asks and shows. Laid out like the Win32 shell's.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -39,7 +39,6 @@ fn pick(frame: &Frame, save: bool, suggested: &str, wildcard: &str) -> Option<Pa
 thread_local! {
     static OWNER: RefCell<Option<Frame>> = const { RefCell::new(None) };
     static RECOVERY: RefCell<(String, String)> = const { RefCell::new((String::new(), String::new())) };
-    static ACTION: Cell<usize> = const { Cell::new(0) };
 }
 
 fn owner() -> Option<Frame> {
@@ -276,27 +275,10 @@ pub fn unlock_vault(frame: &Frame, vault: &mut Vault, what: &str) -> bool {
     true
 }
 
-// ---- Settings > Encryption ------------------------------------------------------------------
+// ---- Settings > Security --------------------------------------------------------------------
 
-const S_STATUS: usize = 40;
-const S_SETUP: usize = 41;
-const S_LOCK: usize = 42;
-const S_PASSWORD: usize = 43;
-const S_RECOVERY: usize = 44;
-const S_IMPORT: usize = 45;
-const S_CLOSE: usize = 47;
-
-fn settings_click(f: &Form, id: usize) {
-    if id == S_CLOSE {
-        ACTION.with(|a| a.set(0));
-        f.close(true);
-    } else if matches!(id, S_SETUP | S_LOCK | S_PASSWORD | S_RECOVERY | S_IMPORT) {
-        ACTION.with(|a| a.set(id));
-        f.close(true);
-    }
-}
-
-fn status_text(v: &Vault) -> String {
+/// What the Security page says about the encryption profile.
+pub fn status_text(v: &Vault) -> String {
     match &v.profile {
         None => "Encryption is not set up.\r\n\r\nSet it up to protect files with a password. One password protects all your encrypted files.".into(),
         Some(p) => format!(
@@ -308,116 +290,100 @@ fn status_text(v: &Vault) -> String {
     }
 }
 
-/// Settings > Encryption. Changes made here are written back to `vault`.
-#[allow(clippy::too_many_lines, reason = "a declarative dialog spec: one line per control")]
-pub fn settings(frame: &Frame, vault: &mut Vault) {
+/// What the buttons of the Security page do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Setup,
+    Lock,
+    Password,
+    Recovery,
+    Import,
+}
+
+/// Run one action of the Security page. Changes are written back to `vault`.
+pub fn act(frame: &Frame, vault: &mut Vault, action: Action) {
     OWNER.with(|o| *o.borrow_mut() = Some(*frame));
-    loop {
-        ACTION.with(|a| a.set(0));
-        let has = vault.profile.is_some();
-        let unlocked = vault.unlocked();
-        let spec = Spec {
-            title: "Encryption",
-            size: (470, 300),
-            ctls: vec![
-                ctl(S_STATUS, Kind::Label, &status_text(vault), 16, 12, 438, 104),
-                ctl(S_SETUP, Kind::Button, "Set up / replace profile...", 16, 128, 212, 30),
-                ctl(S_LOCK, Kind::Button, if unlocked { "Lock now" } else { "Unlock..." }, 242, 128, 212, 30),
-                ctl(S_PASSWORD, Kind::Button, "Change password...", 16, 166, 212, 30),
-                ctl(S_RECOVERY, Kind::Button, "New recovery key...", 242, 166, 212, 30),
-                ctl(S_IMPORT, Kind::Button, "Import profile...", 16, 204, 212, 30),
-                ctl(S_CLOSE, Kind::Button, "Close", 374, 258, 80, 28),
-            ],
-            ok: "",
-            buttons: None,
-            on_change: Some(settings_click),
-            on_apply: None,
-        };
-        let shown = form::run(frame, spec, |f| {
-            f.enable(S_LOCK, has);
-            f.enable(S_PASSWORD, has);
-            f.enable(S_RECOVERY, has);
-        });
-        if shown.is_none() && ACTION.with(std::cell::Cell::get) == 0 {
-            return;
+    let has = vault.profile.is_some();
+    let unlocked = vault.unlocked();
+    match action {
+        Action::Setup => {
+            if has
+                && !ask(
+                    frame,
+                    "Replace the encryption profile?\n\nFiles protected by the current profile can no longer be opened unless you restore it. Only do this if you have no encrypted files, or have a copy of the old profile.",
+                )
+            {
+                return;
+            }
+            setup(frame, vault);
         }
-        match ACTION.with(std::cell::Cell::get) {
-            S_SETUP => {
-                if has
-                    && !ask(
-                        frame,
-                        "Replace the encryption profile?\n\nFiles protected by the current profile can no longer be opened unless you restore it. Only do this if you have no encrypted files, or have a copy of the old profile.",
-                    )
-                {
-                    continue;
-                }
-                setup(frame, vault);
+        Action::Lock => {
+            if unlocked {
+                vault.lock();
+            } else {
+                unlock_vault(frame, vault, "your encrypted files");
             }
-            S_LOCK => {
-                if unlocked {
-                    vault.lock();
-                } else {
-                    unlock_vault(frame, vault, "your encrypted files");
-                }
-            }
-            S_PASSWORD => {
-                if !vault.unlocked() && !unlock_vault(frame, vault, "your encrypted files") {
-                    continue;
-                }
-                let intro = "Choose a new password.\r\n\r\nYour encrypted files do not need to be touched: only the key's wrapping changes.";
-                if let (Some(pw), Some(dek), Some(p)) = (new_password(frame, "Change password", intro), vault.dek.clone(), vault.profile.clone()) {
-                    let mut p = p;
-                    match crypto::set_password(&mut p, &dek, &pw).and_then(|()| crypto::save_profile(&p)) {
-                        Ok(()) => {
-                            vault.profile = Some(p);
-                            tell(frame, "Your password was changed.");
-                        }
-                        Err(e) => fail(frame, &format!("Cannot change the password\n\n{e}")),
-                    }
-                }
-            }
-            S_RECOVERY => {
-                if !vault.unlocked() && !unlock_vault(frame, vault, "your encrypted files") {
-                    continue;
-                }
-                if !ask(frame, "Create a new recovery key?\n\nThe old recovery key stops working.") {
-                    continue;
-                }
-                if let (Some(dek), Some(p)) = (vault.dek.clone(), vault.profile.clone()) {
-                    let mut p = p;
-                    match crypto::regenerate_recovery(&mut p, &dek) {
-                        Ok(key) => {
-                            // Only replace the stored key once the user has seen and saved the new one.
-                            if show_recovery(frame, &p.fingerprint, &key) {
-                                match crypto::save_profile(&p) {
-                                    Ok(()) => vault.profile = Some(p),
-                                    Err(e) => fail(frame, &format!("Cannot save the profile\n\n{e}")),
-                                }
-                            }
-                        }
-                        Err(e) => fail(frame, &format!("Cannot create a recovery key\n\n{e}")),
-                    }
-                }
-            }
-            S_IMPORT => {
-                let Some(path) = pick(frame, false, "", "Encryption profile (profile.json)|*.json|All files (*.*)|*.*") else { continue };
-                let parsed = std::fs::read_to_string(&path).ok().and_then(|t| Profile::parse(&t));
-                let Some(p) = parsed else {
-                    fail(frame, "That file is not a Note++ encryption profile.");
-                    continue;
-                };
-                if has && !ask(frame, "Replace the current encryption profile with the imported one?") {
-                    continue;
-                }
-                match crypto::save_profile(&p) {
-                    Ok(()) => {
-                        vault.profile = Some(p);
-                        vault.lock();
-                    }
-                    Err(e) => fail(frame, &format!("Cannot save the profile\n\n{e}")),
-                }
-            }
-            _ => return,
         }
+        Action::Password => change_password(frame, vault),
+        Action::Recovery => new_recovery_key(frame, vault),
+        Action::Import => import_profile(frame, vault, has),
+    }
+}
+
+fn change_password(frame: &Frame, vault: &mut Vault) {
+    if !vault.unlocked() && !unlock_vault(frame, vault, "your encrypted files") {
+        return;
+    }
+    let intro = "Choose a new password.\r\n\r\nYour encrypted files do not need to be touched: only the key's wrapping changes.";
+    if let (Some(pw), Some(dek), Some(mut p)) = (new_password(frame, "Change password", intro), vault.dek.clone(), vault.profile.clone()) {
+        match crypto::set_password(&mut p, &dek, &pw).and_then(|()| crypto::save_profile(&p)) {
+            Ok(()) => {
+                vault.profile = Some(p);
+                tell(frame, "Your password was changed.");
+            }
+            Err(e) => fail(frame, &format!("Cannot change the password\n\n{e}")),
+        }
+    }
+}
+
+fn new_recovery_key(frame: &Frame, vault: &mut Vault) {
+    if !vault.unlocked() && !unlock_vault(frame, vault, "your encrypted files") {
+        return;
+    }
+    if !ask(frame, "Create a new recovery key?\n\nThe old recovery key stops working.") {
+        return;
+    }
+    if let (Some(dek), Some(mut p)) = (vault.dek.clone(), vault.profile.clone()) {
+        match crypto::regenerate_recovery(&mut p, &dek) {
+            Ok(key) => {
+                // Only replace the stored key once the user has seen and saved the new one.
+                if show_recovery(frame, &p.fingerprint, &key) {
+                    match crypto::save_profile(&p) {
+                        Ok(()) => vault.profile = Some(p),
+                        Err(e) => fail(frame, &format!("Cannot save the profile\n\n{e}")),
+                    }
+                }
+            }
+            Err(e) => fail(frame, &format!("Cannot create a recovery key\n\n{e}")),
+        }
+    }
+}
+
+fn import_profile(frame: &Frame, vault: &mut Vault, has: bool) {
+    let Some(path) = pick(frame, false, "", "Encryption profile (profile.json)|*.json|All files (*.*)|*.*") else { return };
+    let parsed = std::fs::read_to_string(&path).ok().and_then(|t| Profile::parse(&t));
+    let Some(p) = parsed else {
+        fail(frame, "That file is not a Note++ encryption profile.");
+        return;
+    };
+    if has && !ask(frame, "Replace the current encryption profile with the imported one?") {
+        return;
+    }
+    match crypto::save_profile(&p) {
+        Ok(()) => {
+            vault.profile = Some(p);
+            vault.lock();
+        }
+        Err(e) => fail(frame, &format!("Cannot save the profile\n\n{e}")),
     }
 }

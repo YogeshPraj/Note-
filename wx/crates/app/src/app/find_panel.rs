@@ -40,11 +40,8 @@ impl App {
             Cmd::FindAll => note = Some(self.find_all_note(&opts)),
             Cmd::InFiles => note = Some(self.in_files_toggle(&opts)),
             Cmd::Browse => {
-                let d = DirDialog::builder(&self.frame, "Select a folder to search", "").build();
-                if d.show_modal() == ID_OK
-                    && let Some(p) = d.get_path()
-                {
-                    findpanel::set_dir(&p);
+                if let Some(p) = crate::widgets::ask::folder(&self.frame, "Select a folder to search") {
+                    findpanel::set_dir(&p.to_string_lossy());
                 }
             }
             Cmd::OpenHit(i) => {

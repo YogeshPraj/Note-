@@ -11,29 +11,23 @@ use wxdragon::prelude::*;
 use crate::widgets::form::{self, Form, Kind, Spec, ctl};
 
 fn ask(frame: &Frame, text: &str) -> bool {
-    MessageDialog::builder(frame, text, "Note++")
-        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion | MessageDialogStyle::NoDefault)
-        .build()
-        .show_modal()
-        == ID_YES
+    crate::widgets::ask::yes_no(frame, "Note++", text, true)
 }
 
 fn tell(frame: &Frame, text: &str) {
-    MessageDialog::builder(frame, text, "Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
+    crate::widgets::ask::tell(frame, "Note++", text, crate::widgets::ask::Icon::Info);
 }
 
 fn fail(frame: &Frame, text: &str) {
-    MessageDialog::builder(frame, text, "Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
+    crate::widgets::ask::tell(frame, "Note++", text, crate::widgets::ask::Icon::Error);
 }
 
 fn pick(frame: &Frame, save: bool, suggested: &str, wildcard: &str) -> Option<PathBuf> {
-    let style = if save { FileDialogStyle::Save | FileDialogStyle::OverwritePrompt } else { FileDialogStyle::Open | FileDialogStyle::FileMustExist };
-    let mut b = FileDialog::builder(frame).with_wildcard(wildcard).with_style(style);
     if save {
-        b = b.with_default_file(suggested);
+        crate::widgets::ask::save_file(frame, "Save As", suggested, wildcard)
+    } else {
+        crate::widgets::ask::open_files(frame, "Open", wildcard, false).pop()
     }
-    let d = b.build();
-    (d.show_modal() == ID_OK).then(|| d.get_path()).flatten().map(PathBuf::from)
 }
 
 // ---- unlock ---------------------------------------------------------------------------------

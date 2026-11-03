@@ -160,12 +160,10 @@ pub fn custom_tab_colour(app: &Shared) {
         let Ok(a) = app.try_borrow() else { return };
         (a.frame, a.ws.active, a.ws.tabs[a.ws.active].color.unwrap_or(TAB_COLORS[5].1))
     };
-    let dialog = ColourDialog::builder(&frame).with_initial_colour(crate::widgets::paint::colour(start)).build();
-    if dialog.show_modal() == ID_OK
-        && let Some(c) = dialog.get_colour()
+    if let Some(c) = crate::widgets::ask::colour_of(&frame, start)
         && let Ok(mut a) = app.try_borrow_mut()
     {
-        a.ws.set_tab_color(tab, Some((c.r, c.g, c.b)));
+        a.ws.set_tab_color(tab, Some(c));
         a.refresh();
     }
 }

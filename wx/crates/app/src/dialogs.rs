@@ -53,10 +53,7 @@ fn windows_click(f: &Form, id: usize) {
     } else if id == WIN_SORT {
         let Some(owner) = f.with_state(|s: &mut WinState| s.owner) else { return };
         let names: Vec<&str> = SORTS.iter().map(|s| s.0).collect();
-        let d = SingleChoiceDialog::builder(&owner, "Sort the tabs by:", "Sort tabs", &names).build();
-        if d.show_modal() == ID_OK
-            && let Ok(i) = usize::try_from(d.get_selection())
-        {
+        if let Some(i) = crate::widgets::ask::choice(&owner, "Sort tabs", "Sort the tabs by:", &names) {
             f.with_state(|s: &mut WinState| s.pick = Some(WIN_SORT + 1 + i));
             f.close(true);
         }

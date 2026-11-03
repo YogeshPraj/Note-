@@ -5,7 +5,7 @@ use super::*;
 // ---- dialogs ---------------------------------------------------------------------------------------------
 
 pub(super) fn info(app: &App, title: &str, text: &str) {
-    MessageDialog::builder(&app.frame, text, title).with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
+    crate::widgets::ask::tell(&app.frame, title, text, crate::widgets::ask::Icon::Info);
 }
 
 /// The Summary box: file facts and text statistics.

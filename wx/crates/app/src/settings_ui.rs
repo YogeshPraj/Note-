@@ -15,14 +15,9 @@ pub fn apply_settings(app: &mut crate::app::App, s: Settings) {
     }
 }
 
+/// Pick the editor font, starting at the one in use.
 pub(crate) fn pick_font(owner: &Frame, family: &str, size: i32) -> Option<(String, i32)> {
-    let fd = FontDialog::builder(owner).build();
-    let _ = (family, size);
-    if fd.show_modal() != ID_OK {
-        return None;
-    }
-    let f = fd.get_font()?;
-    Some((f.get_face_name(), f.get_point_size()))
+    crate::widgets::ask::font(owner, family, size)
 }
 
 /// Told the colours as they are now.
@@ -69,11 +64,8 @@ fn colour_clicked(f: &crate::widgets::form::Form, id: usize) {
         let edit = FIRST + (id - PICK);
         let start = settings::parse_hex(&f.text(edit)).unwrap_or((0, 0, 0));
         let Some(owner) = f.with_state(|s: &mut ColoursState| s.owner) else { return };
-        let cd = ColourDialog::builder(&owner).with_initial_colour(crate::widgets::paint::colour(start)).build();
-        if cd.show_modal() == ID_OK
-            && let Some(c) = cd.get_colour()
-        {
-            f.set_text(edit, &settings::to_hex((c.r, c.g, c.b)));
+        if let Some(c) = crate::widgets::ask::colour_of(&owner, start) {
+            f.set_text(edit, &settings::to_hex(c));
         }
     }
 }

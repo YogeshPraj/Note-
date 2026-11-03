@@ -99,7 +99,7 @@ fn busy() -> bool {
 }
 
 fn show_error(host: &Frame, text: &str) {
-    MessageDialog::builder(host, text, "Passwords").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
+    crate::widgets::ask::tell(host, "Passwords", text, crate::widgets::ask::Icon::Error);
 }
 
 mod install;

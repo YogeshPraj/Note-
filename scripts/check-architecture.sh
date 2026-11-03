@@ -33,5 +33,10 @@ if grep -rEn 'notepp_core|crate::(app|dispatch|handlers)' wx/crates/ui-kit/src >
   echo "ARCH VIOLATION: ui-kit source refers to notepp_core or the app" >&2; fail=1
 fi
 
+# Native message boxes and pickers are built only by ui_kit::ask, so how the program asks is decided in one place.
+if grep -rEn '(Message|File|Dir|SingleChoice|MultiChoice|Colour|Font|TextEntry)Dialog::builder' wx/crates --include='*.rs' | grep -v 'components/ask.rs' >/dev/null; then
+  echo "ARCH VIOLATION: a native dialog is built outside ui_kit::ask" >&2; fail=1
+fi
+
 [ "$fail" -eq 0 ] && echo "architecture OK"
 exit $fail

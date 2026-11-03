@@ -3,7 +3,6 @@
 use notepp_core::commands::{ID_ABOUT, ID_EXIT, ID_FULLSCREEN, ID_IMPORT_THEME, ID_MINIMAP, ID_PRESET_BASE, ID_PREVIEW, ID_RELOAD, ID_REPORT_ISSUE};
 use notepp_core::sci::Theme;
 use notepp_core::settings;
-use wxdragon::prelude::*;
 
 use crate::app::App;
 use crate::command::CommandHandler;
@@ -130,7 +129,7 @@ impl CommandHandler<App> for HelpCommands {
             "Note++\nVersion {} ({build} build)\n\nA developer-focused text editor in Rust.\n\nAuthor: Yogesh Prajapati\nhttps://github.com/YogeshPraj/Note-",
             notepp_core::update::VERSION
         );
-        MessageDialog::builder(&app.frame, &text, "About Note++").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build().show_modal();
+        crate::widgets::ask::tell(&app.frame, "About Note++", &text, crate::widgets::ask::Icon::Info);
         true
     }
 }

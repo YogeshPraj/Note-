@@ -6,7 +6,6 @@ use std::sync::Mutex;
 use notepp_core::commands as c;
 use notepp_core::update::{self, Release};
 use notepp_core::workspace::Ui as _;
-use wxdragon::prelude::*;
 
 use crate::app::App;
 use crate::command::CommandHandler;
@@ -186,10 +185,7 @@ impl App {
                 }
                 Ok(None) if manual => {
                     let msg = format!("You have the latest version of Note++ (v{}).", update::VERSION);
-                    MessageDialog::builder(&self.frame, &msg, "Note++")
-                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-                        .build()
-                        .show_modal();
+                    crate::widgets::ask::tell(&self.frame, "Note++", &msg, crate::widgets::ask::Icon::Info);
                 }
                 Err(e) if manual => self.ui.error(&format!("Cannot check for updates\n\n{e}")),
                 Ok(None) | Err(_) => {}

@@ -372,11 +372,8 @@ impl CommandHandler<App> for PanelCommands {
                 }
             }
             c::ID_OPEN_WORKSPACE => {
-                let d = DirDialog::builder(&app.frame, "Open Folder as Workspace", "").build();
-                if d.show_modal() == ID_OK
-                    && let Some(p) = d.get_path()
-                {
-                    app.open_workspace(PathBuf::from(p));
+                if let Some(p) = crate::widgets::ask::folder(&app.frame, "Open Folder as Workspace") {
+                    app.open_workspace(p);
                 }
             }
             c::ID_OPEN_FOLDER_WS => match app.ws.tabs[app.ws.active].path.clone() {

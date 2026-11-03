@@ -7,53 +7,33 @@ use notepp_core::crypto::Vault;
 use notepp_core::workspace::{Confirm, Ui};
 use wxdragon::prelude::*;
 
+use crate::widgets::ask;
+
 pub struct WxUi {
     pub frame: Frame,
 }
 
 const ALL_FILES: &str = "All files (*.*)|*.*|Text (*.txt)|*.txt";
 
-impl WxUi {
-    fn message(&self, text: &str, caption: &str, style: MessageDialogStyle) -> i32 {
-        MessageDialog::builder(&self.frame, text, caption).with_style(style).build().show_modal()
-    }
-}
-
 impl Ui for WxUi {
     fn pick_open(&self) -> Vec<PathBuf> {
-        let d = FileDialog::builder(&self.frame)
-            .with_message("Open")
-            .with_wildcard(ALL_FILES)
-            .with_style(FileDialogStyle::Open | FileDialogStyle::Multiple | FileDialogStyle::FileMustExist)
-            .build();
-        if d.show_modal() == ID_OK { d.get_paths().into_iter().map(PathBuf::from).collect() } else { Vec::new() }
+        ask::open_files(&self.frame, "Open", ALL_FILES, true)
     }
 
     fn pick_save(&self, suggested: &str) -> Option<PathBuf> {
-        let d = FileDialog::builder(&self.frame)
-            .with_message("Save As")
-            .with_default_file(suggested)
-            .with_wildcard(ALL_FILES)
-            .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
-            .build();
-        (d.show_modal() == ID_OK).then(|| d.get_path()).flatten().map(PathBuf::from)
+        ask::save_file(&self.frame, "Save As", suggested, ALL_FILES)
     }
 
     fn confirm_save(&self, name: &str) -> Confirm {
-        let r = self.message(
-            &format!("Save changes to \"{name}\"?"),
-            "Note++",
-            MessageDialogStyle::YesNo | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
-        );
-        match r {
-            ID_YES => Confirm::Save,
-            ID_NO => Confirm::Discard,
-            _ => Confirm::Cancel,
+        match ask::yes_no_cancel(&self.frame, "Note++", &format!("Save changes to \"{name}\"?")) {
+            ask::Reply::Yes => Confirm::Save,
+            ask::Reply::No => Confirm::Discard,
+            ask::Reply::Cancel => Confirm::Cancel,
         }
     }
 
     fn ask_yes_no(&self, msg: &str) -> bool {
-        self.message(msg, "Note++", MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion) == ID_YES
+        ask::yes_no(&self.frame, "Note++", msg, false)
     }
 
     fn recycle(&self, path: &Path) -> Result<(), notepp_core::error::Error> {
@@ -61,7 +41,7 @@ impl Ui for WxUi {
     }
 
     fn error(&self, msg: &str) {
-        self.message(msg, "Note++", MessageDialogStyle::OK | MessageDialogStyle::IconError);
+        ask::tell(&self.frame, "Note++", msg, ask::Icon::Error);
     }
 
     fn unlock(&self, vault: &mut Vault, what: &str) -> bool {

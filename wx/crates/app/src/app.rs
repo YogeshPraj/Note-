@@ -52,6 +52,7 @@ pub struct App {
     pub(crate) side_key: Option<(isize, isize)>,
     pub(crate) mdbar: crate::widgets::dock::Dock,
     pub(crate) upd: crate::updates::State,
+    pub(crate) upd_plan: crate::updates::Plan,
     menu_bar: isize,
     mini: StyledTextCtrl,
     pub(crate) stc: StyledTextCtrl,
@@ -59,6 +60,8 @@ pub struct App {
     pub(crate) chrome: Chrome,
     pub(crate) menubar: MenuBar,
     pub(crate) postit: bool,
+    /// A menu took the keyboard from a web page (see `take_focus_for_menu`): it goes back when the menu is done.
+    pub(crate) menu_took_focus: std::cell::Cell<bool>,
     pub(crate) distraction: bool,
     pub(crate) chrome_vis: [bool; 4],
     pub(crate) menus: Menus,

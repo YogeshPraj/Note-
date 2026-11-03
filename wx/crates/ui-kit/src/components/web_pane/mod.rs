@@ -33,6 +33,8 @@ struct State {
     loaded: bool,
     /// The theme the page was last told (None until it has been told, or after a reload).
     dark: Option<bool>,
+    /// What has been set up in the page since it loaded (libraries handed over; see [`WebPane::first_time`]).
+    given: Vec<&'static str>,
 }
 
 impl std::fmt::Debug for WebPane {
@@ -68,6 +70,18 @@ impl WebPane {
         s.queue.reset();
         s.loaded = true;
         s.dark = None;
+        s.given.clear();
+    }
+
+    /// True the first time `what` is asked for since the page was loaded: a library is handed over once per page, and
+    /// again after a reload.
+    pub fn first_time(&self, what: &'static str) -> bool {
+        let mut s = self.st.borrow_mut();
+        let first = !s.given.contains(&what);
+        if first {
+            s.given.push(what);
+        }
+        first
     }
 
     /// Show `html` as a new page.

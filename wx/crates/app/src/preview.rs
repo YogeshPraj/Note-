@@ -1,8 +1,6 @@
 //! The live preview pane: a wxWebView showing the same page as the Win32 shell
 //! (assets/preview.html), driven through `window.np.render(kind, payload)`.
 
-use std::cell::Cell;
-
 use crate::widgets::web_pane::{WebPane, script};
 
 const PAGE: &str = include_str!("../../../../assets/preview.html");
@@ -11,11 +9,6 @@ const JSONEDITOR_JS: &str = include_str!("../../../../assets/jsoneditor.min.js")
 const JSONEDITOR_CSS: &str = include_str!("../../../../assets/jsoneditor.min.css");
 const JSONEDITOR_ICONS: &str = include_str!("../../../../assets/jsoneditor-icons.svg");
 const JSON5_JS: &str = include_str!("../../../../assets/json5.min.js");
-
-thread_local! {
-    static MERMAID: Cell<bool> = const { Cell::new(false) };
-    static JSON_EDITOR: Cell<bool> = const { Cell::new(false) };
-}
 
 /// The page with remote images allowed only when the user asked for them.
 pub fn page_html(remote_images: bool) -> String {
@@ -38,7 +31,7 @@ pub fn set_theme(pane: &WebPane, dark: bool) {
 
 /// Inject Mermaid (once), then tell the page to draw the diagrams it was waiting on.
 pub fn load_mermaid(pane: &WebPane) {
-    if !MERMAID.with(|c| c.replace(true)) {
+    if pane.first_time("mermaid") {
         pane.eval_big(MERMAID_JS);
     }
     pane.eval("window.np.mermaidLoaded()");
@@ -52,7 +45,7 @@ fn jsoneditor_css() -> String {
 
 /// Inject the JSON editor (once), then tell the page to draw the document it was waiting on.
 pub fn load_json_editor(pane: &WebPane) {
-    if !JSON_EDITOR.with(|c| c.replace(true)) {
+    if pane.first_time("jsoneditor") {
         pane.eval(&format!(
             "(function(){{var s=document.createElement('style');s.textContent={};document.head.appendChild(s);}})();",
             script::js_string(&jsoneditor_css())

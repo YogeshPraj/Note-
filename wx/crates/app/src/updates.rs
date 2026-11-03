@@ -26,11 +26,13 @@ static UPD: Mutex<Shared> = Mutex::new(Shared { check: None, pct: None, done: No
 const FIRST_CHECK_TICKS: u32 = 20;
 const RECHECK_TICKS: u32 = 6 * 60 * 60 * 2;
 
-thread_local! {
+/// When the next background check is due, and whether the user asked for the running check or download.
+#[derive(Debug, Default)]
+pub struct Plan {
     /// Ticks left until the next background check; 0 = none is planned.
-    static CHECK_IN: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    pub check_in: u32,
     /// The user asked for this check or download, so a failure is worth a dialog; a background one fails quietly.
-    static USER_ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub user_asked: bool,
 }
 
 /// Only an installed release updates itself in place: it replaces the folder its `notepp.exe` runs from. A development
@@ -75,22 +77,22 @@ impl App {
             self.update_pill();
         }
         if self_updating() {
-            CHECK_IN.with(|c| c.set(FIRST_CHECK_TICKS));
+            self.upd_plan.check_in = FIRST_CHECK_TICKS;
         }
     }
 
     /// Timer: look for an update in the background now and then (after start-up and every few hours) when automatic
     /// updates are on. A found update downloads at once (see `update_poll`) and installs the next time the program starts.
     fn update_auto_check(&mut self) {
-        let left = CHECK_IN.with(std::cell::Cell::get);
+        let left = self.upd_plan.check_in;
         if left == 0 {
             return;
         }
-        CHECK_IN.with(|c| c.set(left - 1));
+        self.upd_plan.check_in = left - 1;
         if left > 1 {
             return;
         }
-        CHECK_IN.with(|c| c.set(RECHECK_TICKS));
+        self.upd_plan.check_in = RECHECK_TICKS;
         if self.ws.settings.auto_update && matches!(self.upd, State::Idle | State::Available(_)) {
             self.update_check(false);
         }
@@ -135,7 +137,7 @@ impl App {
             }
             return;
         }
-        USER_ASKED.with(|u| u.set(manual));
+        self.upd_plan.user_asked = manual;
         if manual {
             self.flash = Some("Checking for updates...".into());
         }
@@ -205,7 +207,7 @@ impl App {
                 }
                 Err(e) => {
                     self.upd = State::Idle;
-                    if USER_ASKED.with(std::cell::Cell::get) {
+                    if self.upd_plan.user_asked {
                         self.ui.error(&format!("The update could not be downloaded\n\n{e}"));
                     } else {
                         self.flash = Some("An update could not be downloaded; Note++ will try again later".into());
@@ -253,7 +255,7 @@ impl CommandHandler<App> for UpdateCommands {
             }
             c::ID_UPDATE_PILL => match app.upd.clone() {
                 State::Available(rel) => {
-                    USER_ASKED.with(|u| u.set(true));
+                    app.upd_plan.user_asked = true;
                     app.update_download(rel);
                 }
                 State::Ready(ver, dir) => app.update_install(&ver, &dir),

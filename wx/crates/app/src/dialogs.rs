@@ -121,25 +121,43 @@ pub struct MapRow {
     pub current: String,
 }
 
-thread_local! {
-    static ROWS: RefCell<Vec<MapRow>> = const { RefCell::new(Vec::new()) };
-    static MAP_APPLY: RefCell<Option<MapApply>> = const { RefCell::new(None) };
+/// What the mapper keeps while it is shown: every row, and whom to tell when one changes.
+struct MapperState {
+    rows: Vec<MapRow>,
+    apply: MapApply,
 }
 
-/// Tell the owner the shortcuts as they are now.
-fn commit_shortcuts() {
-    let rows = ROWS.with(|r| r.borrow().clone());
-    if let Some(apply) = MAP_APPLY.with(|a| a.borrow().clone()) {
+/// Tell the owner the shortcuts as they are now (outside the state's borrow: applying rebuilds the settings pages).
+fn commit_shortcuts(f: &Form) {
+    if let Some((rows, apply)) = f.with_state(|s: &mut MapperState| (s.rows.clone(), s.apply.clone())) {
         apply(rows);
     }
 }
 
+/// The shortcut of row `i` as it is now.
+fn current_of(f: &Form, i: usize) -> Option<String> {
+    f.with_state(|s: &mut MapperState| s.rows.get(i).map(|r| r.current.clone())).flatten()
+}
+
 fn refresh_row(f: &Form, i: usize) {
-    ROWS.with(|r| {
-        if let Some(row) = r.borrow().get(i) {
-            f.list_set_cell(100, i, 1, &row.current);
-        }
+    if let Some(current) = current_of(f, i) {
+        f.list_set_cell(100, i, 1, &current);
+    }
+}
+
+/// `text` as the canonical shortcut for row `i` (empty clears it), unless it is not a shortcut or another row has it.
+fn checked_shortcut(f: &Form, i: usize, text: &str) -> Result<String, notepp_core::error::Error> {
+    if text.is_empty() {
+        return Ok(String::new());
+    }
+    let chord = shortcuts::parse(text).ok_or(notepp_core::error::Error::InvalidShortcut)?;
+    let taken_by = f.with_state(|s: &mut MapperState| {
+        s.rows.iter().enumerate().find(|(j, row)| *j != i && shortcuts::parse(&row.current).is_some_and(|c| c == chord)).map(|(_, o)| o.name.clone())
     });
+    match taken_by.flatten() {
+        Some(other) => Err(notepp_core::error::Error::ShortcutInUse(other)),
+        None => Ok(shortcuts::format(&chord)),
+    }
 }
 
 fn mapper_click(f: &Form, id: usize) {
@@ -152,54 +170,38 @@ fn mapper_click(f: &Form, id: usize) {
     let sel = f.list_selected(LIST);
     match id {
         LIST => {
-            if let Some(i) = sel {
-                ROWS.with(|r| f.set_text(EDIT, &r.borrow()[i].current));
+            if let Some(current) = sel.and_then(|i| current_of(f, i)) {
+                f.set_text(EDIT, &current);
                 f.set_text(STATUS, "");
             }
         }
         SET | CLEAR => {
             let Some(i) = sel else { return f.set_text(STATUS, "Select a command first") };
             let text = if id == CLEAR { String::new() } else { f.text(EDIT).trim().to_string() };
-            let result: Result<String, notepp_core::error::Error> = if text.is_empty() {
-                Ok(String::new())
-            } else {
-                match shortcuts::parse(&text) {
-                    None => Err(notepp_core::error::Error::InvalidShortcut),
-                    Some(chord) => {
-                        let canon = shortcuts::format(&chord);
-                        ROWS.with(|r| {
-                            let rows = r.borrow();
-                            match rows.iter().enumerate().find(|(j, row)| *j != i && shortcuts::parse(&row.current).is_some_and(|c| c == chord)) {
-                                Some((_, other)) => Err(notepp_core::error::Error::ShortcutInUse(other.name.clone())),
-                                None => Ok(canon),
-                            }
-                        })
-                    }
-                }
-            };
-            match result {
+            match checked_shortcut(f, i, &text) {
                 Ok(canon) => {
-                    ROWS.with(|r| r.borrow_mut()[i].current.clone_from(&canon));
+                    f.with_state(|s: &mut MapperState| s.rows.get_mut(i).map(|r| r.current.clone_from(&canon)));
                     f.set_text(EDIT, &canon);
                     refresh_row(f, i);
                     f.set_text(STATUS, if canon.is_empty() { "Shortcut removed" } else { "Shortcut set" });
-                    commit_shortcuts();
+                    commit_shortcuts(f);
                 }
                 Err(e) => f.set_text(STATUS, &e.to_string()),
             }
         }
         RESET => {
-            let n = ROWS.with(|r| {
-                let mut rows = r.borrow_mut();
-                rows.iter_mut().for_each(|row| row.current = row.default.clone());
-                rows.len()
-            });
+            let n = f
+                .with_state(|s: &mut MapperState| {
+                    s.rows.iter_mut().for_each(|row| row.current = row.default.clone());
+                    s.rows.len()
+                })
+                .unwrap_or(0);
             (0..n).for_each(|i| refresh_row(f, i));
-            if let Some(i) = sel {
-                ROWS.with(|r| f.set_text(EDIT, &r.borrow()[i].current));
+            if let Some(current) = sel.and_then(|i| current_of(f, i)) {
+                f.set_text(EDIT, &current);
             }
             f.set_text(STATUS, "Every shortcut is back to its default");
-            commit_shortcuts();
+            commit_shortcuts(f);
         }
         _ => {}
     }
@@ -229,8 +231,7 @@ pub const MAPPER_SIZE: (i32, i32) = (600, 430);
 
 /// The shortcut mapper, built into a settings page. `apply` gets every row whenever a shortcut changes.
 pub fn embed_shortcut_mapper(parent: &impl WxWidget, rows: Vec<MapRow>, apply: MapApply) {
-    ROWS.with(|r| *r.borrow_mut() = rows);
-    MAP_APPLY.with(|a| *a.borrow_mut() = Some(apply));
+    let shown: Vec<Vec<String>> = rows.iter().map(|row| vec![row.name.clone(), row.current.clone()]).collect();
     let spec = Spec {
         title: "Shortcut Mapper",
         size: MAPPER_SIZE,
@@ -248,9 +249,9 @@ pub fn embed_shortcut_mapper(parent: &impl WxWidget, rows: Vec<MapRow>, apply: M
         on_change: Some(mapper_click),
         on_apply: None,
     };
-    form::embed(parent, spec, |f| {
-        let rows: Vec<Vec<String>> = ROWS.with(|r| r.borrow().iter().map(|row| vec![row.name.clone(), row.current.clone()]).collect());
-        f.list_fill(100, &[("Command", 380), ("Shortcut", 170)], &rows);
+    form::embed(parent, spec, move |f| {
+        f.set_state(MapperState { rows, apply });
+        f.list_fill(100, &[("Command", 380), ("Shortcut", 170)], &shown);
         // The shortcut box records the key combination pressed in it instead of taking typed text.
         f.on_key(101, |f, code, ctrl, alt, shift| {
             let bare = !ctrl && !alt && !shift;

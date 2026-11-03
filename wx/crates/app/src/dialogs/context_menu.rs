@@ -11,18 +11,21 @@ pub(super) struct CtxState {
     default: Vec<String>,
     /// Indices into `all` of the rows the left list shows.
     shown: Vec<usize>,
+    /// Told the menu after each change.
+    apply: Option<MenuApply>,
+    /// Opens the menu file as text.
+    open_text: Option<Rc<dyn Fn()>>,
 }
 
-thread_local! {
-    static CTX: RefCell<CtxState> = RefCell::new(CtxState::default());
-    static CTX_APPLY: RefCell<Option<MenuApply>> = const { RefCell::new(None) };
-    static CTX_TEXT: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+/// Run `g` on the editor's state, which its form keeps.
+fn with_ctx<R: Default>(f: &Form, g: impl FnOnce(&mut CtxState) -> R) -> R {
+    f.with_state(g).unwrap_or_default()
 }
 
 /// Tell the owner the menu as it is now.
-pub(super) fn commit_menu() {
-    let menu = CTX.with(|c| c.borrow().menu.clone());
-    if let Some(apply) = CTX_APPLY.with(|a| a.borrow().clone()) {
+pub(super) fn commit_menu(f: &Form) {
+    let (menu, apply) = with_ctx(f, |c| (c.menu.clone(), c.apply.clone()));
+    if let Some(apply) = apply {
         apply(menu);
     }
 }
@@ -34,8 +37,7 @@ pub(super) const CTX_FILTER: usize = 102;
 
 pub(super) fn ctx_fill_avail(f: &Form) {
     let q = f.text(CTX_FILTER).trim().to_lowercase();
-    let rows = CTX.with(|c| {
-        let mut c = c.borrow_mut();
+    let rows = with_ctx(f, |c| {
         let shown: Vec<usize> = (0..c.all.len()).filter(|&i| !c.menu.contains(&c.all[i]) && (q.is_empty() || c.all[i].to_lowercase().contains(&q))).collect();
         let rows = shown.iter().map(|&i| vec![c.all[i].clone()]).collect::<Vec<_>>();
         c.shown = shown;
@@ -45,9 +47,8 @@ pub(super) fn ctx_fill_avail(f: &Form) {
 }
 
 pub(super) fn ctx_fill_menu(f: &Form, select: Option<usize>) {
-    let rows = CTX.with(|c| {
-        c.borrow()
-            .menu
+    let rows = with_ctx(f, |c| {
+        c.menu
             .iter()
             .map(|n| {
                 vec![if n == CTX_SEP {
@@ -71,8 +72,7 @@ pub(super) fn ctx_add(f: &Form, sel: Option<usize>) {
         return;
     }
     let at = sel.map_or(usize::MAX, |s| s + 1);
-    let first = CTX.with(|c| {
-        let mut c = c.borrow_mut();
+    let first = with_ctx(f, |c| {
         let names: Vec<String> = picked.iter().filter_map(|&r| c.shown.get(r).map(|&i| c.all[i].clone())).collect();
         let at = at.min(c.menu.len());
         for (k, n) in names.iter().enumerate() {
@@ -85,8 +85,7 @@ pub(super) fn ctx_add(f: &Form, sel: Option<usize>) {
 }
 
 pub(super) fn ctx_separator(f: &Form, sel: Option<usize>) {
-    let at = CTX.with(|c| {
-        let mut c = c.borrow_mut();
+    let at = with_ctx(f, |c| {
         let at = sel.map_or(c.menu.len(), |s| s + 1).min(c.menu.len());
         c.menu.insert(at, CTX_SEP.into());
         at
@@ -96,17 +95,16 @@ pub(super) fn ctx_separator(f: &Form, sel: Option<usize>) {
 
 pub(super) fn ctx_remove(f: &Form, sel: Option<usize>) {
     let Some(s) = sel else { return };
-    CTX.with(|c| {
-        c.borrow_mut().menu.remove(s);
+    with_ctx(f, |c| {
+        c.menu.remove(s);
     });
     ctx_fill_avail(f);
-    ctx_fill_menu(f, Some(s.min(CTX.with(|c| c.borrow().menu.len()).saturating_sub(1))));
+    ctx_fill_menu(f, Some(s.min(with_ctx(f, |c| c.menu.len()).saturating_sub(1))));
 }
 
 pub(super) fn ctx_move(f: &Form, sel: Option<usize>, up: bool) {
     let Some(s) = sel else { return };
-    let to = CTX.with(|c| {
-        let mut c = c.borrow_mut();
+    let to = with_ctx(f, |c| {
         let to = if up { s.checked_sub(1) } else { (s + 1 < c.menu.len()).then_some(s + 1) };
         if let Some(t) = to {
             c.menu.swap(s, t);
@@ -119,9 +117,7 @@ pub(super) fn ctx_move(f: &Form, sel: Option<usize>, up: bool) {
 }
 
 pub(super) fn ctx_reset(f: &Form) {
-    CTX.with(|c| {
-        let mut c = c.borrow_mut();
-        let c = &mut *c;
+    with_ctx(f, |c| {
         c.menu.clone_from(&c.default);
     });
     ctx_fill_avail(f);
@@ -144,14 +140,14 @@ pub(super) fn ctx_click(f: &Form, id: usize) {
         UP | DOWN => ctx_move(f, sel, id == UP),
         RESET => ctx_reset(f),
         TEXT => {
-            if let Some(open) = CTX_TEXT.with(|t| t.borrow().clone()) {
+            if let Some(open) = with_ctx(f, |c| c.open_text.clone()) {
                 open();
             }
             return;
         }
         _ => return,
     }
-    commit_menu();
+    commit_menu(f);
 }
 
 /// The size of the right-click menu editor's area in the settings window.
@@ -161,9 +157,6 @@ pub const CONTEXT_SIZE: (i32, i32) = (700, 480);
 /// `default`: the menu as a list of command names with "-" for a separator. `apply` gets the menu after each change;
 /// `open_text` opens the file as text.
 pub fn embed_context_menu(parent: &impl WxWidget, all: Vec<String>, current: Vec<String>, default: Vec<String>, apply: MenuApply, open_text: Rc<dyn Fn()>) {
-    CTX.with(|c| *c.borrow_mut() = CtxState { all, menu: current, default, ..Default::default() });
-    CTX_APPLY.with(|a| *a.borrow_mut() = Some(apply));
-    CTX_TEXT.with(|t| *t.borrow_mut() = Some(open_text));
     form::on_edit(|f, id| {
         if id == CTX_FILTER {
             ctx_fill_avail(f);
@@ -191,7 +184,8 @@ pub fn embed_context_menu(parent: &impl WxWidget, all: Vec<String>, current: Vec
         on_change: Some(ctx_click),
         on_apply: None,
     };
-    form::embed(parent, spec, |f| {
+    form::embed(parent, spec, move |f| {
+        f.set_state(CtxState { all, menu: current, default, apply: Some(apply), open_text: Some(open_text), ..Default::default() });
         ctx_fill_avail(f);
         ctx_fill_menu(f, Some(0));
     });

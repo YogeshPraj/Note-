@@ -249,6 +249,7 @@ pub fn start(files: &[PathBuf]) {
         mdbar,
         upd: crate::updates::State::default(),
         upd_plan: crate::updates::Plan::default(),
+        incr: None,
         mini,
         stc,
         view: view.clone(),

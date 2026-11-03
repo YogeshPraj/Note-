@@ -53,6 +53,8 @@ pub struct App {
     pub(crate) mdbar: crate::widgets::dock::Dock,
     pub(crate) upd: crate::updates::State,
     pub(crate) upd_plan: crate::updates::Plan,
+    /// The Incremental Search window, once it has been opened.
+    pub(crate) incr: Option<crate::incr::Search>,
     menu_bar: isize,
     mini: StyledTextCtrl,
     pub(crate) stc: StyledTextCtrl,

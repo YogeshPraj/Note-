@@ -223,7 +223,7 @@ pub fn start(files: &[PathBuf]) {
     let w = build_widgets(&frame, &chrome);
     let Widgets { splitter, editor_pane, stc, mini, probe, panels, wbv, view, mdbar } = w;
 
-    let ui = WxUi { frame };
+    let ui = WxUi::new(frame);
     let ws = load_workspace(&ui, [&stc, &mini, &probe], settings, files);
 
     let Some(menubar) = frame.get_menu_bar() else { return };

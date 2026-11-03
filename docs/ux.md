@@ -35,6 +35,6 @@ These are the target. Known gaps (see `docs/audit.md` for the full list):
 | Never block the UI | Find in Files, the Quick Open listing, tree folder reads, the session write, hashing and large file reads run off the UI thread, with progress and Stop/Cancel where they can take long. Inserting text into Scintilla stays on it. |
 | Accessible | Contrast of text on every theme background is tested; focus rings and screen-reader names of the custom-painted bars are not done. |
 | Scales | `Theme::px` exists, but components still use their own pixel constants; the Win32-parity dialogs are pixel-positioned on purpose. |
-| Toasts | There is no toast component yet: recoverable errors use the status line or a message box. |
+| Toasts | `ui_kit::toast`: errors that need no answer (cannot save, open, read, check for updates) and the "latest version" notice show as toasts bottom-right, never taking the keyboard; up to three stack, each goes after 5 s (info) or 10 s (error) or on a click. Before the window is up they fall back to a message box. Errors inside a modal flow (Passwords, Encryption) stay in that flow's dialogs. Screen readers are not told when a toast appears. |
 | Dark mode | Custom components and stock controls follow the theme, and so do messages and questions (`ui_kit::message_box`). The system pickers (open/save, folder, colour, font) and the progress window stay light. |
 | Editor syntax colours | The editor's palette lives in `core` (`sci.rs`, `settings.rs`); the theme's `Syntax` tokens are for the kit's own surfaces. |

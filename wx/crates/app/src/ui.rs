@@ -11,6 +11,26 @@ use crate::widgets::ask;
 
 pub struct WxUi {
     pub frame: Frame,
+    /// Notices that need no answer (see `error`).
+    pub toasts: crate::widgets::toast::Toaster,
+}
+
+impl WxUi {
+    pub fn new(frame: Frame) -> WxUi {
+        let toasts = crate::widgets::toast::Toaster::new(&frame);
+        toasts.set_bottom_inset(crate::widgets::status_bar::HEIGHT);
+        WxUi { frame, toasts }
+    }
+
+    /// Something the user should know but need not answer: a toast once the window is up, before that a message box.
+    pub fn notice(&self, text: &str, tone: crate::widgets::toast::Tone) {
+        if self.frame.is_shown() {
+            self.toasts.show(text, tone);
+        } else {
+            let icon = if tone == crate::widgets::toast::Tone::Error { ask::Icon::Error } else { ask::Icon::Info };
+            ask::tell(&self.frame, "Note++", text, icon);
+        }
+    }
 }
 
 const ALL_FILES: &str = "All files (*.*)|*.*|Text (*.txt)|*.txt";
@@ -41,7 +61,7 @@ impl Ui for WxUi {
     }
 
     fn error(&self, msg: &str) {
-        ask::tell(&self.frame, "Note++", msg, ask::Icon::Error);
+        self.notice(msg, crate::widgets::toast::Tone::Error);
     }
 
     fn unlock(&self, vault: &mut Vault, what: &str) -> bool {

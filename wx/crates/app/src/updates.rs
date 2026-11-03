@@ -203,7 +203,7 @@ impl App {
                 }
                 Ok(None) if manual => {
                     let msg = format!("You have the latest version of Note++ (v{}).", update::VERSION);
-                    crate::widgets::ask::tell(&self.frame, "Note++", &msg, crate::widgets::ask::Icon::Info);
+                    self.ui.notice(&msg, crate::widgets::toast::Tone::Info);
                 }
                 Err(e) if manual => self.ui.error(&format!("Cannot check for updates\n\n{e}")),
                 Ok(None) | Err(_) => {}

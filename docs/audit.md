@@ -14,7 +14,7 @@ The sections below are the historical audit. Measured today:
 | Files over 400 lines | **21** (finding 5): `app.rs` 1248, `edit.rs` 1139, `search.rs` 951, `extra.rs` 797, `menus.rs` 784, `bitwarden.rs` 664, `registry.rs` 609, `form/mod.rs` 574, `http.rs` 550, `crypto.rs` 549, `theme.rs` 548, `mdformat.rs` 530, `dialogs.rs` 517, `session.rs` 495, `tab_strip/mod.rs` 494, `lang.rs` 494, `pwdialogs.rs` 491, `sci.rs` 444, `dispatch.rs` 442, `popup_menu/mod.rs` 421, `update.rs` 420. |
 | `thread_local!` state | 17 files (finding 16). |
 | Raw native dialogs | Findings 15 and 17 still open. |
-| Long work on the UI thread | Finding 18 still open. |
+| Long work on the UI thread | Finding 18 fixed (see architecture.md, Threading). |
 
 "`ARCHITECTURE_SETUP.md`" below is the restructuring brief of 2026-11-01; it was not kept in the repository.
 
@@ -151,7 +151,7 @@ test, app 82.
 | 15 | Duplicated native-dialog code | **Remaining.** 14 `MessageDialog`/`FileDialog`/`DirDialog` builders in the app; no kit dialog helpers yet. |
 | 16 | Global mutable state | **Remaining.** 12 files still hold `thread_local!` state. The theme hub, the menu arena and the key-map copy used by menus are deliberate. |
 | 17 | Raw widget use | **Remaining.** Choice, font, colour and text-entry dialogs are not wrapped yet. |
-| 18 | Long work on the UI thread | **Remaining** (UX debt; behaviour change). |
+| 18 | Long work on the UI thread | **Fixed** (2026-11-03): worker threads with progress and cancel; see architecture.md, Threading. |
 | 19 | No lint config or docs | **Fixed.** `[workspace.lints]` in both workspaces, `clippy.toml`, `rustfmt.toml`, `docs/architecture.md`, `docs/ux.md`, new `CLAUDE.md`, `scripts/check-all.sh`, the Claude hook. |
 | 20 | Platform code mixed with UI | **Fixed.** |
 

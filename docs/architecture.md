@@ -86,12 +86,20 @@ else. See `docs/ux.md` for the visual rules and `crates/ui-kit/examples/gallery.
 
 ## Threading
 
-wxWidgets is single-threaded: all UI is on the main thread. Reality today:
+wxWidgets is single-threaded: all UI is on the main thread. Work that can take long runs on a worker thread and hands
+its result back through a shared slot that the half-second timer (`wire_timers`, the Stream job) polls. Two patterns:
 
-- Update download and extract run on a worker thread and report through a shared slot polled by a timer.
-- Bitwarden commands run on the main thread inside a `SafeYield` loop so the dialog repaints.
-- Find in Files, the file-tree scan and log follow still run on the UI thread (audit finding 18). Moving them off the
-  thread with progress and cancel is the target, tracked as UX debt.
+- **Modeless, polled:** the worker reports progress through atomics and leaves its outcome in an `Arc<Mutex<Option<_>>>`.
+  Find in Files (`in_files.rs`, `search::SearchProgress`, its button becomes Stop), the Quick Open file listing
+  (`files::FileIndex`), folder reads of the workspace tree (`tree_reader.rs`), the session autosave write
+  (`Session::save_in_order`, tickets keep writes in order), the update check and download, HTTP requests.
+- **Modal with progress:** `ui_kit::progress::run` runs a job on a worker and, after 300 ms, shows a progress window
+  whose Cancel the job sees (`Progress::cancelled`). Hashing files, reading files over 16 MB (`Ui::read_file`).
+  The Passwords dialog's `work` loop is the same idea inside its own form; Cancel ends a `bw` call or download
+  (`bitwarden::cancel`).
+
+Still on the UI thread: putting text into Scintilla (it must be), Find All in the current document (its result list is
+virtual, so 20,000 hits list in milliseconds), and Log Follow polls, which read at most 512 KB each.
 
 The Settings window is data-driven: the app builds `Page`/`Row` values from `Settings` (`settings_window.rs`) and gets each change back as a key and a `Value`, which a pure `apply_value` writes into `Settings`.
 

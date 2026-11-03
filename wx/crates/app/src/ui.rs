@@ -71,4 +71,40 @@ impl Ui for WxUi {
     fn setup_encryption(&self, vault: &mut Vault) -> bool {
         crate::encdialogs::setup(&self.frame, vault)
     }
+
+    /// A large file is read on a worker thread with a progress window and Cancel; a small one at once.
+    fn read_file(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        const LARGE: u64 = 16 * 1024 * 1024;
+        let size = std::fs::metadata(path)?.len();
+        if size < LARGE {
+            return std::fs::read(path);
+        }
+        let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+        let (owned, title) = (path.to_path_buf(), format!("Opening {name}"));
+        crate::widgets::progress::run(&self.frame, &title, "Reading the file...", move |p| read_in_chunks(&owned, size, p))
+            .unwrap_or_else(|| Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "cancelled")))
+    }
+}
+
+/// Read `path` (`size` bytes) a chunk at a time, reporting progress and stopping when cancelled.
+fn read_in_chunks(path: &Path, size: u64, p: &crate::widgets::progress::Progress) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    const CHUNK: usize = 4 * 1024 * 1024;
+    let mut file = std::fs::File::open(path)?;
+    let mut bytes = Vec::with_capacity(crate::platform::wx::to_usize(size));
+    let mut chunk = vec![0u8; CHUNK];
+    loop {
+        if p.cancelled() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "cancelled"));
+        }
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            return Ok(bytes);
+        }
+        bytes.extend_from_slice(&chunk[..n]);
+        p.set(
+            crate::platform::wx::to_u32(crate::platform::wx::to_u64(bytes.len()).saturating_mul(100).checked_div(size).unwrap_or(100)),
+            "Reading the file...",
+        );
+    }
 }

@@ -113,7 +113,7 @@ impl<S: Send> Workspace<S> {
         encrypted: &mut bool,
     ) -> Option<usize> {
         let idx = if let Some(path) = path {
-            match std::fs::read(path) {
+            match ui.read_file(path) {
                 Ok(bytes) => {
                     let is_env = crypto::parse_envelope(&bytes).is_some();
                     if is_env && *declined {

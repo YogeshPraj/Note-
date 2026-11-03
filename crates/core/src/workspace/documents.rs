@@ -142,8 +142,9 @@ impl<S: Send> Workspace<S> {
                 {
                     return false;
                 }
-                match std::fs::read(p) {
+                match ui.read_file(p) {
                     Ok(b) => b,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return false, // the user cancelled the read
                     Err(e) => {
                         ui.error(&format!("Cannot read {}\n\n{e}", p.display()));
                         return false;
@@ -200,8 +201,9 @@ impl<S: Send> Workspace<S> {
             self.note_recent(path);
             return;
         }
-        let bytes = match std::fs::read(path) {
+        let bytes = match ui.read_file(path) {
             Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return, // the user cancelled the read
             Err(e) => return ui.error(&format!("Cannot open {}\n\n{e}", path.display())),
         };
         let Some((text, enc, eol, encrypted)) = self.read_text(ui, &bytes, &file_title(path)) else { return };

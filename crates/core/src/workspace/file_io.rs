@@ -107,8 +107,9 @@ impl<S: Send> Workspace<S> {
     /// Re-read the active file without asking.
     pub(super) fn reload_now(&mut self, ui: &dyn Ui) -> bool {
         let Some(path) = self.tabs[self.active].path.clone() else { return false };
-        let bytes = match std::fs::read(&path) {
+        let bytes = match ui.read_file(&path) {
             Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return false, // the user cancelled the read
             Err(e) => {
                 ui.error(&format!("Cannot read {}\n\n{e}", path.display()));
                 return false;

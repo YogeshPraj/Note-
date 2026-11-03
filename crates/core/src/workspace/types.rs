@@ -23,6 +23,13 @@ pub trait Ui {
     /// First-time encryption setup: choose a password and show the recovery key. On success the
     /// profile exists, is saved, and is unlocked.
     fn setup_encryption(&self, vault: &mut crypto::Vault) -> bool;
+    /// Read a file to open it. A shell may show progress (and offer Cancel, failing with `Interrupted`) for a large one.
+    ///
+    /// # Errors
+    /// The read's error.
+    fn read_file(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
 }
 
 /// Which tabs a "Close Multiple Documents" command targets.

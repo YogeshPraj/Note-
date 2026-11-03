@@ -1,3 +1,4 @@
+use super::send::{host_of, is_text_type};
 use super::*;
 use std::io::Write;
 use std::net::TcpListener;

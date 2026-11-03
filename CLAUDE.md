@@ -33,7 +33,7 @@ Read `docs/architecture.md` and `docs/ux.md` before any non-trivial change. Desi
   `platform/windows.rs` and `ui-kit/native/`.
 - `unsafe` only in FFI modules marked `#[allow(unsafe_code)]`; `core` forbids it.
 - No hard-coded colours, fonts or text styles: use `ui_kit::theme` tokens (`tests/design_tokens.rs` enforces it).
-- Functions at most 60 lines, files at most 400 lines (existing violations are listed in `docs/audit.md`; do not add more).
+- Functions at most 60 lines, files at most 400 lines (`check-architecture.sh` enforces the file limit; split by responsibility).
 - Derive or implement `Debug` for every public type. Public functions returning `Result` get a `# Errors` section.
 - Long-running work goes off the UI thread with progress and cancel (target; see `docs/architecture.md`, Threading).
 - New logic in `core` and pure UI models come with unit tests.

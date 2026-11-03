@@ -84,6 +84,10 @@ Text mutations are done through the workspace, which sends Scintilla messages, s
 through `Look`, native ones through `theme::adopt`), and a test fails the build if a colour or font is written anywhere
 else. See `docs/ux.md` for the visual rules and `crates/ui-kit/examples/gallery.rs` for every component on screen.
 
+Message boxes and the system pickers (files, folder, one of a list, colour, font) are built only by `ui_kit::ask`.
+A dialog that needs state between its callbacks keeps it in its form (`Form::set_state`), not in a static; the few
+deliberate globals are listed in `docs/audit.md`.
+
 ## Threading
 
 wxWidgets is single-threaded: all UI is on the main thread. Work that can take long runs on a worker thread and hands
@@ -118,6 +122,7 @@ core forbids it.
 
 ## Build and quality gates
 
-`scripts/check-all.sh` runs: `cargo fmt --check`, clippy in both workspaces, all tests and the architecture check.
+`scripts/check-all.sh` runs: `cargo fmt --check`, clippy in both workspaces, all tests and the architecture check
+(layer dependencies, native dialogs only in `ui_kit::ask`, no file over 400 lines).
 Lints are in each workspace's `[workspace.lints]`; `unwrap_used` and `dbg_macro` are denied. Known lint debt is in
 `docs/audit.md`; design decisions taken without asking are in `docs/decisions.md`.

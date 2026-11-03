@@ -1,6 +1,6 @@
 # Architecture audit (Phase 0)
 
-## Current status (2026-11-02, `main` at v2.0.5) — read this first
+## Current status (2026-11-03, `main` after v2.0.5) — read this first
 
 The sections below are the historical audit. Measured today:
 
@@ -10,10 +10,10 @@ The sections below are the historical audit. Measured today:
 | Clippy warnings | **0** in both workspaces. The "Lint debt" tables further down are history. |
 | Functions over 60 lines (`too_many_lines`) | **0**, none suppressed. |
 | `unwrap` / `expect` / `panic!` in production code | **0** (the five `expect`s left are in test modules). |
-| Tests | core 214, ui-kit 62 + 1 token test, app 93. |
-| Files over 400 lines | **21** (finding 5): `app.rs` 1248, `edit.rs` 1139, `search.rs` 951, `extra.rs` 797, `menus.rs` 784, `bitwarden.rs` 664, `registry.rs` 609, `form/mod.rs` 574, `http.rs` 550, `crypto.rs` 549, `theme.rs` 548, `mdformat.rs` 530, `dialogs.rs` 517, `session.rs` 495, `tab_strip/mod.rs` 494, `lang.rs` 494, `pwdialogs.rs` 491, `sci.rs` 444, `dispatch.rs` 442, `popup_menu/mod.rs` 421, `update.rs` 420. |
-| `thread_local!` state | 17 files (finding 16). |
-| Raw native dialogs | Findings 15 and 17 still open. |
+| Tests | core 229, ui-kit 62 + 1 token test, app 93. |
+| Files over 400 lines | **0** (finding 5). `check-architecture.sh` fails on any file over 400. |
+| Global mutable state | Only the deliberate globals listed under "Deliberate global state" below (finding 16). |
+| Raw native dialogs | **0** outside `ui_kit::ask` (findings 15, 17); enforced by `check-architecture.sh`. |
 | Long work on the UI thread | Finding 18 fixed (see architecture.md, Threading). |
 
 "`ARCHITECTURE_SETUP.md`" below is the restructuring brief of 2026-11-01; it was not kept in the repository.
@@ -138,7 +138,7 @@ test, app 82.
 | 2 | Pure logic in the shell | **Fixed.** `dispatch`, `tables`, `schedule` and the secret guard are in core; `form`, `data_list`, `quick_pick`, `web_pane` models are in the kit. |
 | 3 | Command execution split three ways | **Fixed in structure, partly in content.** One registry and `execute()`; `command_core` and the handler chain remain as the two executors behind it. `extra::handle` (301 lines) is not split yet. |
 | 4 | Imperative menus | **Fixed.** 212 items generated from the registry, 5 families from providers, snapshot-tested. `build_menus` is still a long function (it lays out the structure). |
-| 5 | Files over 400 lines | **Remaining.** 21 files (largest: `workspace.rs` 2267, `edit.rs` 1128, `search.rs` 951, `app.rs` 939). No new file was split; the restructuring concentrated on boundaries. |
+| 5 | Files over 400 lines | **Fixed** (2026-11-03). Split by responsibility into child modules, tests into `foo/tests.rs`; enforced by `check-architecture.sh`. |
 | 6 | Functions over 60 lines | **Remaining.** 8 in core and 15 in the shell (clippy `too_many_lines`). |
 | 7 | `app.rs` god object | **Remaining.** `App` has about 46 fields; command state and key map moved onto it as fields rather than out of it. |
 | 8 | Hard-coded colours | **Fixed in the kit and the shell** (token test). Remaining: the editor's own palette in `core` (`sci.rs`, `settings.rs`), which is data of the editor colour scheme, not UI chrome. |
@@ -148,12 +148,32 @@ test, app 82.
 | 12 | No typed errors | **Fixed.** `notepp_core::error::Error` (`thiserror`) replaces every `Result<_, String>`; the app has `AppError`. |
 | 13 | `println!` in the shell | **Fixed.** Routed through `PROBLEM_SINK` and the trace helper. |
 | 14 | `unsafe` | **Fixed.** `core` forbids it; the workspace denies it and only FFI modules allow it, each with a comment. `ui-kit::components` controls allow it for one trait method wxdragon makes unsafe. |
-| 15 | Duplicated native-dialog code | **Remaining.** 14 `MessageDialog`/`FileDialog`/`DirDialog` builders in the app; no kit dialog helpers yet. |
-| 16 | Global mutable state | **Remaining.** 12 files still hold `thread_local!` state. The theme hub, the menu arena and the key-map copy used by menus are deliberate. |
-| 17 | Raw widget use | **Remaining.** Choice, font, colour and text-entry dialogs are not wrapped yet. |
+| 15 | Duplicated native-dialog code | **Fixed** (2026-11-03). `ui_kit::ask` (tell, yes_no, yes_no_cancel, open_files, save_file, folder, choice, colour_of, font); no builder elsewhere. |
+| 16 | Global mutable state | **Fixed** (2026-11-03). Dialog state lives in its form (`Form::set_state`), Incremental Search and worker slots on `App`; what remains is deliberate and listed below. |
+| 17 | Raw widget use | **Fixed** (2026-11-03) with finding 15. |
 | 18 | Long work on the UI thread | **Fixed** (2026-11-03): worker threads with progress and cancel; see architecture.md, Threading. |
 | 19 | No lint config or docs | **Fixed.** `[workspace.lints]` in both workspaces, `clippy.toml`, `rustfmt.toml`, `docs/architecture.md`, `docs/ux.md`, new `CLAUDE.md`, `scripts/check-all.sh`, the Claude hook. |
 | 20 | Platform code mixed with UI | **Fixed.** |
+
+### Deliberate global state
+
+Each of these is global because its owner cannot hold it: a C callback with no user data, a callback that runs while
+`App` is borrowed, or one object per process.
+
+| State | Where | Why it is global |
+|---|---|---|
+| `KEYS`, `HOOK`, `CLICKS`, `MOUSE_HOOK`, `EATEN` | `ui-kit/native/windows.rs` | Win32 hook procedures are plain C functions with no user-data pointer. |
+| `HUB` (theme and subscribers) | `ui-kit/theme.rs` | One theme per process; every component reads it while painting. |
+| `QUEUE`, `TIMER` | `ui-kit/defer.rs` | Work run after the current event; callers have no shared owner. |
+| `CURRENT` | `ui-kit/popup_menu` | The one open popup; the keyboard and mouse hooks route to it. |
+| `EDIT_HOOK`, `PROBLEM_SINK` | `ui-kit/form` | Form callbacks are plain `fn` pointers; the hook is handed to the next form and taken when it is built. The sink is set once at start. |
+| `ARENA`, `OVERRIDES` | `app/menus.rs` | Native menu ids refer to entries for the frame's life; menus are rebuilt from many places. |
+| `OPEN` | `app/popups.rs` | Which bar menu is showing; a stale menu closing must not clear a newer one. |
+| `PANEL`, `DOCK`, `MODE`, `SHOWN`, `RESULTS` | `app/findpanel` | One docked Find panel per process, read by handlers that already hold `App` borrowed. |
+| `ROOT` | `app/panels.rs` | Tree events (expanding) fire while `open_workspace` holds `App` borrowed. |
+| `PENDING` | `app/tree_reader.rs` | Folders being read in the background: added by the tree's expand event (which can fire while `App` is borrowed), filled in by the timer. |
+| `BUSY` | `app/pwdialogs.rs` | A Bitwarden job is running; one flag across the flow's four screens (install, unlock, vault, add), each its own form. |
+| `EDITS` | `app/app.rs` | Bumped by Scintilla's change notification, which fires during commands that hold `App` borrowed. |
 
 ### Lint debt after Phase 7
 

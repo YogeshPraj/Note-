@@ -36,7 +36,7 @@ enum Act {
 }
 
 thread_local! {
-    /// A Bitwarden job is running: the three screens' buttons ignore clicks meanwhile. One flag for the whole modal flow.
+    /// A Bitwarden job is running: the screens' buttons ignore clicks meanwhile. One flag for the whole modal flow (install, unlock, vault, add).
     static BUSY: Cell<bool> = const { Cell::new(false) };
 }
 

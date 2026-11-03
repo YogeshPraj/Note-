@@ -36,5 +36,5 @@ These are the target. Known gaps (see `docs/audit.md` for the full list):
 | Accessible | Contrast of text on every theme background is tested; focus rings and screen-reader names of the custom-painted bars are not done. |
 | Scales | `Theme::px` exists, but components still use their own pixel constants; the Win32-parity dialogs are pixel-positioned on purpose. |
 | Toasts | There is no toast component yet: recoverable errors use the status line or a message box. |
-| Dark mode | Custom components and stock controls follow the theme. System message boxes and native list headers stay light. |
+| Dark mode | Custom components and stock controls follow the theme, and so do messages and questions (`ui_kit::message_box`). The system pickers (open/save, folder, colour, font) and the progress window stay light. |
 | Editor syntax colours | The editor's palette lives in `core` (`sci.rs`, `settings.rs`); the theme's `Syntax` tokens are for the kit's own surfaces. |

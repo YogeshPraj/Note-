@@ -4,6 +4,7 @@
 mod themed;
 
 pub mod ask;
+pub mod message_box;
 
 // wxdragon's get_event_handler_ptr is an unsafe trait method; the wrappers can only forward it.
 #[allow(unsafe_code)]

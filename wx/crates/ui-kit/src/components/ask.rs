@@ -1,16 +1,19 @@
-//! Asking the user: messages, questions and the system pickers (files, a folder, one of a list, a colour, a font).
-//! The shell asks through these and never builds a native dialog itself, so how a question looks is decided here once.
+//! Asking the user: messages and questions (in the themed [`super::message_box`]) and the system pickers (files, a
+//! folder, one of a list, a colour, a font). The shell asks through these and never builds a dialog of this kind
+//! itself, so how a question looks is decided here once.
 
 use std::path::PathBuf;
 
 use wxdragon::prelude::*;
 
+use super::message_box::{self, Choice};
 use crate::paint::{Rgb, colour};
 
 /// The icon beside a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Info,
+    Question,
     Warning,
     Error,
 }
@@ -23,35 +26,25 @@ pub enum Reply {
     Cancel,
 }
 
-fn icon_style(icon: Icon) -> MessageDialogStyle {
-    match icon {
-        Icon::Info => MessageDialogStyle::IconInformation,
-        Icon::Warning => MessageDialogStyle::IconWarning,
-        Icon::Error => MessageDialogStyle::IconError,
-    }
-}
+const OK: Choice = Choice { code: ID_OK, label: "OK" };
+const YES: Choice = Choice { code: ID_YES, label: "&Yes" };
+const NO: Choice = Choice { code: ID_NO, label: "&No" };
+const CANCEL: Choice = Choice { code: ID_CANCEL, label: "Cancel" };
 
-fn message_box(parent: &impl WxWidget, title: &str, text: &str, style: MessageDialogStyle) -> i32 {
-    MessageDialog::builder(parent, text, title).with_style(style).build().show_modal()
-}
-
-/// Tell the user something; they press OK.
+/// Tell the user something; they press OK (or Enter, or Esc).
 pub fn tell(parent: &impl WxWidget, title: &str, text: &str, icon: Icon) {
-    message_box(parent, title, text, MessageDialogStyle::OK | icon_style(icon));
+    message_box::show(parent, title, text, Some(icon), &[OK], ID_OK, ID_OK);
 }
 
-/// A Yes / No question. `safe_no` makes No the default button, for questions whose Yes is hard to undo.
+/// A Yes / No question; Esc is No. `safe_no` makes No the default button, for questions whose Yes is hard to undo.
 pub fn yes_no(parent: &impl WxWidget, title: &str, text: &str, safe_no: bool) -> bool {
-    let mut style = MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion;
-    if safe_no {
-        style |= MessageDialogStyle::NoDefault;
-    }
-    message_box(parent, title, text, style) == ID_YES
+    let default = if safe_no { ID_NO } else { ID_YES };
+    message_box::show(parent, title, text, Some(Icon::Question), &[NO, YES], default, ID_NO) == ID_YES
 }
 
-/// A Yes / No / Cancel question; closing the box is Cancel.
+/// A Yes / No / Cancel question; Esc and closing the box are Cancel.
 pub fn yes_no_cancel(parent: &impl WxWidget, title: &str, text: &str) -> Reply {
-    match message_box(parent, title, text, MessageDialogStyle::YesNo | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion) {
+    match message_box::show(parent, title, text, Some(Icon::Question), &[CANCEL, NO, YES], ID_YES, ID_CANCEL) {
         ID_YES => Reply::Yes,
         ID_NO => Reply::No,
         _ => Reply::Cancel,

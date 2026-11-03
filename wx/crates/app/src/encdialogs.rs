@@ -36,15 +36,6 @@ fn pick(frame: &Frame, save: bool, suggested: &str, wildcard: &str) -> Option<Pa
     (d.show_modal() == ID_OK).then(|| d.get_path()).flatten().map(PathBuf::from)
 }
 
-thread_local! {
-    static OWNER: RefCell<Option<Frame>> = const { RefCell::new(None) };
-    static RECOVERY: RefCell<(String, String)> = const { RefCell::new((String::new(), String::new())) };
-}
-
-fn owner() -> Option<Frame> {
-    OWNER.with(|o| *o.borrow())
-}
-
 // ---- unlock ---------------------------------------------------------------------------------
 
 const U_INTRO: usize = 10;
@@ -71,7 +62,6 @@ pub struct Unlocked {
 
 /// Ask for the password (or the recovery key) of `profile`. None when the user cancels.
 pub fn unlock(frame: &Frame, profile: &Profile, what: &str) -> Option<Unlocked> {
-    OWNER.with(|o| *o.borrow_mut() = Some(*frame));
     let out: Rc<RefCell<Option<Unlocked>>> = Rc::new(RefCell::new(None));
     let result = out.clone();
     let profile = profile.clone();
@@ -184,15 +174,22 @@ const R_COPY: usize = 31;
 const R_SAVE: usize = 32;
 const R_SAVED: usize = 33;
 
+/// What the recovery-key dialog keeps while it is open. The key is wiped from memory when the dialog goes.
+struct RecoveryState {
+    owner: Frame,
+    fingerprint: String,
+    key: zeroize::Zeroizing<String>,
+}
+
 fn recovery_click(f: &Form, id: usize) {
-    let (fp, key) = RECOVERY.with(|r| r.borrow().clone());
+    let Some((owner, fp, key)) = f.with_state(|s: &mut RecoveryState| (s.owner, s.fingerprint.clone(), s.key.clone())) else { return };
     match id {
         R_SAVED => f.enable(1, f.checked(R_SAVED)),
         R_COPY => {
             crate::services::clipboard::copy(&key);
         }
         R_SAVE => {
-            let Some(frame) = owner() else { return };
+            let frame = owner;
             if let Some(p) = pick(&frame, true, "recovery.json", "JSON (*.json)|*.json|All files (*.*)|*.*")
                 && let Err(e) = std::fs::write(&p, crypto::recovery_file(&fp, &key))
             {
@@ -205,8 +202,6 @@ fn recovery_click(f: &Form, id: usize) {
 
 /// Show the recovery key once. True when the user confirmed they saved it.
 pub fn show_recovery(frame: &Frame, fingerprint: &str, key: &str) -> bool {
-    OWNER.with(|o| *o.borrow_mut() = Some(*frame));
-    RECOVERY.with(|r| *r.borrow_mut() = (fingerprint.to_string(), key.to_string()));
     let line = "=".repeat(41);
     let text = format!(
         "Note++ Recovery Key\r\nProfile fingerprint: {}\r\n{line}\r\n{key}\r\n{line}\r\n\r\nAnyone with this code can decrypt your protected notes.\r\nStore it in a password manager or a safe place.\r\nNote++ cannot show it again without your password.",
@@ -227,7 +222,12 @@ pub fn show_recovery(frame: &Frame, fingerprint: &str, key: &str) -> bool {
         on_change: Some(recovery_click),
         on_apply: None,
     };
-    form::run(frame, spec, |f| f.enable(1, false)).is_some()
+    let state = RecoveryState { owner: *frame, fingerprint: fingerprint.to_string(), key: zeroize::Zeroizing::new(key.to_string()) };
+    form::run(frame, spec, move |f| {
+        f.set_state(state);
+        f.enable(1, false);
+    })
+    .is_some()
 }
 
 // ---- flows ----------------------------------------------------------------------------------
@@ -302,7 +302,6 @@ pub enum Action {
 
 /// Run one action of the Security page. Changes are written back to `vault`.
 pub fn act(frame: &Frame, vault: &mut Vault, action: Action) {
-    OWNER.with(|o| *o.borrow_mut() = Some(*frame));
     let has = vault.profile.is_some();
     let unlocked = vault.unlocked();
     match action {

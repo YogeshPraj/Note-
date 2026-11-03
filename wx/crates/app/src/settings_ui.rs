@@ -42,10 +42,11 @@ const FIRST: usize = 100; // edit i is FIRST + i
 const PICK: usize = 200; // button i is PICK + i
 const RESET: usize = 300;
 
-thread_local! {
-    static OWNER: std::cell::RefCell<Option<Frame>> = const { std::cell::RefCell::new(None) };
-    static APPLY: std::cell::RefCell<Option<StyleApply>> = const { std::cell::RefCell::new(None) };
-    static RESET_ALL: std::cell::RefCell<Option<std::rc::Rc<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+/// What the colour editor keeps: its owner (for the colour picker), and whom to tell about changes and a reset.
+struct ColoursState {
+    owner: Frame,
+    apply: StyleApply,
+    reset: std::rc::Rc<dyn Fn()>,
 }
 
 /// Tell the owner the colours as they are now (only once every box holds a valid colour, so half-typed text never applies).
@@ -54,20 +55,20 @@ fn send_colours(f: &crate::widgets::form::Form) {
     if entered.iter().any(|(_, h)| settings::parse_hex(h).is_none()) {
         return;
     }
-    if let Some(apply) = APPLY.with(|a| a.borrow().clone()) {
+    if let Some(apply) = f.with_state(|s: &mut ColoursState| s.apply.clone()) {
         apply(StyleEdit { reset: false, entered });
     }
 }
 
 fn colour_clicked(f: &crate::widgets::form::Form, id: usize) {
     if id == RESET {
-        if let Some(reset) = RESET_ALL.with(|r| r.borrow().clone()) {
+        if let Some(reset) = f.with_state(|s: &mut ColoursState| s.reset.clone()) {
             reset();
         }
     } else if (PICK..PICK + settings::ROLES.len()).contains(&id) {
         let edit = FIRST + (id - PICK);
         let start = settings::parse_hex(&f.text(edit)).unwrap_or((0, 0, 0));
-        let Some(owner) = OWNER.with(|o| *o.borrow()) else { return };
+        let Some(owner) = f.with_state(|s: &mut ColoursState| s.owner) else { return };
         let cd = ColourDialog::builder(&owner).with_initial_colour(crate::widgets::paint::colour(start)).build();
         if cd.show_modal() == ID_OK
             && let Some(c) = cd.get_colour()
@@ -81,9 +82,6 @@ fn colour_clicked(f: &crate::widgets::form::Form, id: usize) {
 /// `reset` restores every default.
 pub fn embed_colours(parent: &impl WxWidget, owner: &Frame, theme: &Theme, apply: std::rc::Rc<dyn Fn(StyleEdit)>, reset: std::rc::Rc<dyn Fn()>) {
     use crate::widgets::form::{Kind, Spec, ctl, embed, on_edit};
-    OWNER.with(|o| *o.borrow_mut() = Some(*owner));
-    APPLY.with(|a| *a.borrow_mut() = Some(apply));
-    RESET_ALL.with(|r| *r.borrow_mut() = Some(reset));
     on_edit(|f, id| {
         if (FIRST..FIRST + settings::ROLES.len()).contains(&id) {
             send_colours(f);
@@ -104,5 +102,6 @@ pub fn embed_colours(parent: &impl WxWidget, owner: &Frame, theme: &Theme, apply
     ctls.push(ctl(RESET, Kind::Button, "Reset every colour to the default", 0, rows * 26 + 8, 220, 26));
     let spec =
         Spec { title: "Colours", size: colours_size(settings::ROLES.len()), ctls, ok: "", buttons: None, on_change: Some(colour_clicked), on_apply: None };
-    embed(parent, spec, |_| {});
+    let state = ColoursState { owner: *owner, apply, reset };
+    embed(parent, spec, move |f| f.set_state(state));
 }

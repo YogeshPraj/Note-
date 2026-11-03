@@ -1,7 +1,7 @@
 //! Auto-update: look for a newer release, download it in the background, and swap it in on request.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use notepp_core::commands as c;
 use notepp_core::update::{self, Release};
@@ -18,7 +18,21 @@ struct Shared {
     done: Option<Result<(String, PathBuf), notepp_core::error::Error>>,
 }
 
-static UPD: Mutex<Shared> = Mutex::new(Shared { check: None, pct: None, done: None });
+/// Where the update threads leave their results for the timer; the app keeps it on its [`Plan`].
+#[derive(Clone, Default)]
+pub struct Inbox(Arc<Mutex<Shared>>);
+
+impl std::fmt::Debug for Inbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Inbox")
+    }
+}
+
+impl Inbox {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Shared> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
 
 /// Half-second timer ticks until the first background check after start-up (10 s: the window is up and the editor quiet),
 /// and between the checks after it (6 hours).
@@ -32,6 +46,8 @@ pub struct Plan {
     pub check_in: u32,
     /// The user asked for this check or download, so a failure is worth a dialog; a background one fails quietly.
     pub user_asked: bool,
+    /// What the check and download threads have finished.
+    pub inbox: Inbox,
 }
 
 /// Only an installed release updates itself in place: it replaces the folder its `notepp.exe` runs from. A development
@@ -141,20 +157,22 @@ impl App {
             self.flash = Some("Checking for updates...".into());
         }
         self.upd = State::Checking;
+        let inbox = self.upd_plan.inbox.clone();
         std::thread::spawn(move || {
             let r = update::check(update::VERSION);
-            UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).check = Some((manual, r));
+            inbox.lock().check = Some((manual, r));
         });
     }
 
     fn update_download(&mut self, rel: Release) {
         self.upd = State::Downloading(rel.clone(), 0);
         self.update_pill();
+        let inbox = self.upd_plan.inbox.clone();
         std::thread::spawn(move || {
             let r = update::download(&rel, &mut |p| {
-                UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).pct = Some(p);
+                inbox.lock().pct = Some(p);
             });
-            UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).done = Some(r.map(|dir| (rel.version.clone(), dir)));
+            inbox.lock().done = Some(r.map(|dir| (rel.version.clone(), dir)));
         });
     }
 
@@ -162,7 +180,7 @@ impl App {
     pub fn update_poll(&mut self) {
         self.update_auto_check();
         let (check, pct, done) = {
-            let mut u = UPD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut u = self.upd_plan.inbox.lock();
             (u.check.take(), u.pct.take(), u.done.take())
         };
         if check.is_none() && pct.is_none() && done.is_none() {

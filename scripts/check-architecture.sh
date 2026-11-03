@@ -38,5 +38,11 @@ if grep -rEn '(Message|File|Dir|SingleChoice|MultiChoice|Colour|Font|TextEntry)D
   echo "ARCH VIOLATION: a native dialog is built outside ui_kit::ask" >&2; fail=1
 fi
 
+# Files stay at most 400 lines (CLAUDE.md, Code rules): split by responsibility instead.
+long=$(find crates wx/crates -name '*.rs' -not -path '*/target/*' -exec wc -l {} + | awk '$2 != "total" && $1 > 400 {print "  " $2 " (" $1 ")"}')
+if [ -n "$long" ]; then
+  echo "ARCH VIOLATION: files over 400 lines:" >&2; echo "$long" >&2; fail=1
+fi
+
 [ "$fail" -eq 0 ] && echo "architecture OK"
 exit $fail

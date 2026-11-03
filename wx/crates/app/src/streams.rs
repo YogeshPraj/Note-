@@ -1,7 +1,6 @@
 //! Log Follow, the HTTP scratchpad and Compare: previews that are fed by something other than the document text.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use notepp_core::commands as c;
 use notepp_core::logfollow::{self, Follower};
@@ -13,8 +12,6 @@ use wxdragon::widgets::webview::WebView;
 use crate::app::App;
 use crate::command::CommandHandler;
 use crate::preview;
-
-static HTTP_RESULT: Mutex<Option<(isize, String)>> = Mutex::new(None);
 
 impl App {
     /// Show the log or the last HTTP response in the preview pane.
@@ -60,7 +57,7 @@ impl App {
     /// Timer: send what was added to the followed log, and show a finished HTTP response.
     pub fn stream_tick(&mut self) {
         let view = self.view.clone();
-        if let Some((doc, json)) = HTTP_RESULT.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+        if let Some((doc, json)) = self.streams.http_result.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
             self.streams.http_busy = false;
             self.streams.http_last = Some((doc, json.clone()));
             let showing = self.ws.tabs.get(self.ws.active).is_some_and(|t| t.doc == doc);
@@ -114,13 +111,14 @@ impl App {
         self.streams.http_last = Some((doc, pending));
         self.streams.http_shown = Some(doc);
         self.streams.http_busy = true;
+        let slot = self.streams.http_result.clone();
         std::thread::spawn(move || {
             // {{vault:...}} is looked up here, at send time, and never leaves this thread.
             let json = match http::send(&req, &mut |r| notepp_core::bitwarden::resolve_reference(r).ok()) {
                 Ok(res) => http::response_json(&req, &res),
                 Err(e) => http::error_json(&req, &e.to_string()),
             };
-            *HTTP_RESULT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((doc, json));
+            *slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((doc, json));
         });
     }
 

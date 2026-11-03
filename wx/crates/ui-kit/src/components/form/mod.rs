@@ -15,6 +15,10 @@ use wxdragon::prelude::*;
 
 mod layout;
 mod state;
+mod values;
+
+pub use values::Values;
+use values::collect;
 
 use crate::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
 
@@ -244,22 +248,6 @@ impl Form {
     }
 }
 
-/// What the user entered, read just before the form closed.
-#[derive(Debug)]
-pub struct Values {
-    text: HashMap<usize, String>,
-    checked: HashMap<usize, bool>,
-}
-
-impl Values {
-    pub fn text(&self, id: usize) -> &str {
-        self.text.get(&id).map_or("", String::as_str)
-    }
-    pub fn checked(&self, id: usize) -> bool {
-        self.checked.get(&id).copied().unwrap_or(false)
-    }
-}
-
 /// Called with the form and the id of the control that changed.
 pub type EditHook = fn(&Form, usize);
 
@@ -295,22 +283,6 @@ pub struct Spec<'a> {
     pub on_change: Option<fn(&Form, usize)>,
     /// Called when OK is pressed; returning true keeps the form open.
     pub on_apply: Option<ApplyHook>,
-}
-
-fn collect(kinds: &[(usize, Kind)], form: &Form) -> Values {
-    let mut v = Values { text: HashMap::new(), checked: HashMap::new() };
-    for (id, kind) in kinds {
-        match kind {
-            Kind::Edit | Kind::Password | Kind::MultiEdit(_) => {
-                v.text.insert(*id, form.text(*id));
-            }
-            Kind::Check | Kind::Radio(_) => {
-                v.checked.insert(*id, form.checked(*id));
-            }
-            _ => {}
-        }
-    }
-    v
 }
 
 const BTN_W: i32 = 80;

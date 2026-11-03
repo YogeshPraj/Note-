@@ -37,6 +37,8 @@ pub struct StreamState {
     pub http_last: Option<(isize, String)>,
     pub http_shown: Option<isize>,
     pub http_busy: bool,
+    /// Where the worker thread leaves the response (document, JSON) for the stream timer.
+    pub http_result: std::sync::Arc<std::sync::Mutex<Option<(isize, String)>>>,
     /// Tabs being tailed (Monitoring) and the file length last seen.
     pub monitoring: std::collections::HashMap<u64, u64>,
 }

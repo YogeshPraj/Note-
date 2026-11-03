@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// Apply an edit to `doc` the way the editor does.

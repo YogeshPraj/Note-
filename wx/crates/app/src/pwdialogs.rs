@@ -36,11 +36,22 @@ enum Act {
 }
 
 thread_local! {
+    /// A Bitwarden job is running: the three screens' buttons ignore clicks meanwhile. One flag for the whole modal flow.
     static BUSY: Cell<bool> = const { Cell::new(false) };
-    static ACT: Cell<Act> = const { Cell::new(Act::Close) };
-    static SECRET: RefCell<Option<Zeroizing<String>>> = const { RefCell::new(None) };
-    static ITEMS: RefCell<Vec<Item>> = const { RefCell::new(Vec::new()) };
-    static SHOWN: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the vault screen keeps while it is open: the items, which of them the list shows, and how it was left.
+struct VaultState {
+    items: Vec<Item>,
+    shown: Vec<usize>,
+    act: Act,
+    secret: Option<Zeroizing<String>>,
+}
+
+/// Leave the vault screen with `act` (and the fetched secret, for Insert / Copy).
+fn leave(f: &Form, act: Act, secret: Option<Zeroizing<String>>) {
+    f.with_state(|s: &mut VaultState| (s.act, s.secret) = (act, secret));
+    f.close(true);
 }
 
 type Progress = Arc<Mutex<(u32, String)>>;
@@ -178,25 +189,18 @@ const V_STATUS: usize = 95;
 
 fn fill_list(f: &Form) {
     let query = f.text(V_SEARCH).to_lowercase();
-    let mut shown = Vec::new();
-    let rows: Vec<Vec<String>> = ITEMS.with(|items| {
-        items
-            .borrow()
-            .iter()
-            .enumerate()
-            .filter(|(_, it)| query.is_empty() || [&it.title, &it.username, &it.url].iter().any(|s| s.to_lowercase().contains(&query)))
-            .map(|(i, it)| {
-                shown.push(i);
-                vec![it.title.clone(), it.username.clone(), it.url.clone()]
-            })
-            .collect()
+    let listed = f.with_state(|s: &mut VaultState| {
+        let matches = |it: &Item| query.is_empty() || [&it.title, &it.username, &it.url].iter().any(|t| t.to_lowercase().contains(&query));
+        s.shown = (0..s.items.len()).filter(|&i| matches(&s.items[i])).collect();
+        let rows: Vec<Vec<String>> = s.shown.iter().map(|&i| vec![s.items[i].title.clone(), s.items[i].username.clone(), s.items[i].url.clone()]).collect();
+        (rows, s.items.len())
     });
+    let (rows, total) = listed.unwrap_or_default();
     f.list_fill(V_LIST, &[("Title", 200), ("Username", 140), ("URL", 230)], &rows);
     if !rows.is_empty() {
         f.list_select(V_LIST, 0);
     }
-    f.set_text(V_STATUS, &format!("{} of {} items", rows.len(), ITEMS.with(|i| i.borrow().len())));
-    SHOWN.with(|s| *s.borrow_mut() = shown);
+    f.set_text(V_STATUS, &format!("{} of {total} items", rows.len()));
 }
 
 fn search_changed(f: &Form, id: usize) {
@@ -207,8 +211,7 @@ fn search_changed(f: &Form, id: usize) {
 
 fn selected_item(f: &Form) -> Option<Item> {
     let row = f.list_selected(V_LIST)?;
-    let index = SHOWN.with(|s| s.borrow().get(row).copied())?;
-    ITEMS.with(|i| i.borrow().get(index).cloned())
+    f.with_state(|s: &mut VaultState| s.shown.get(row).and_then(|&i| s.items.get(i).cloned())).flatten()
 }
 
 fn vault_click(f: &Form, id: usize) {
@@ -232,56 +235,42 @@ fn vault_click(f: &Form, id: usize) {
             };
             let got = work(f, V_STATUS, "Fetching...", move |_| bw::get_field(&item.id, field));
             match got {
-                Ok(v) => {
-                    SECRET.with(|s| *s.borrow_mut() = Some(Zeroizing::new(v)));
-                    ACT.with(|a| a.set(if id == V_INSERT { Act::Insert } else { Act::Copy }));
-                    f.close(true);
-                }
-                Err(notepp_core::error::Error::Locked) => {
-                    ACT.with(|a| a.set(Act::Relock));
-                    f.close(true);
-                }
+                Ok(v) => leave(f, if id == V_INSERT { Act::Insert } else { Act::Copy }, Some(Zeroizing::new(v))),
+                Err(notepp_core::error::Error::Locked) => leave(f, Act::Relock, None),
                 Err(e) => f.set_text(V_STATUS, &e.to_string()),
             }
         }
-        V_ADD => {
-            ACT.with(|a| a.set(Act::Add));
-            f.close(true);
-        }
+        V_ADD => leave(f, Act::Add, None),
         V_SYNC => {
             let r = work(f, V_STATUS, "Syncing with Bitwarden...", |_| bw::sync().and_then(|()| bw::list("")));
             match r {
                 Ok(items) => {
-                    ITEMS.with(|i| *i.borrow_mut() = items);
+                    f.with_state(|s: &mut VaultState| s.items = items);
                     fill_list(f);
                 }
-                Err(notepp_core::error::Error::Locked) => {
-                    ACT.with(|a| a.set(Act::Relock));
-                    f.close(true);
-                }
+                Err(notepp_core::error::Error::Locked) => leave(f, Act::Relock, None),
                 Err(e) => f.set_text(V_STATUS, &e.to_string()),
             }
         }
         V_LOCK => {
             bw::lock();
-            ACT.with(|a| a.set(Act::Close));
-            f.close(true);
+            leave(f, Act::Close, None);
         }
         _ => {}
     }
 }
 
-fn vault_screen(host: &Frame, can_insert: bool) -> Act {
-    ACT.with(|a| a.set(Act::Close));
+/// The vault: pick an item and a field. Returns how it was left, with the secret for Insert / Copy.
+fn vault_screen(host: &Frame, can_insert: bool) -> (Act, Option<Zeroizing<String>>) {
     // Item titles and usernames only; secrets are fetched one at a time when you use them.
-    match bw::list("") {
-        Ok(items) => ITEMS.with(|i| *i.borrow_mut() = items),
-        Err(notepp_core::error::Error::Locked) => return Act::Relock,
+    let items = match bw::list("") {
+        Ok(items) => items,
+        Err(notepp_core::error::Error::Locked) => return (Act::Relock, None),
         Err(e) => {
             show_error(host, &format!("Cannot read the vault\n\n{e}"));
-            return Act::Close;
+            return (Act::Close, None);
         }
-    }
+    };
     form::on_edit(search_changed);
     let spec = Spec {
         title: "Passwords (Bitwarden)",
@@ -307,13 +296,18 @@ fn vault_screen(host: &Frame, can_insert: bool) -> Act {
         on_change: Some(vault_click),
         on_apply: None,
     };
-    let _ = form::run(host, spec, |f| {
+    let opened: Rc<RefCell<Option<Form>>> = Rc::default();
+    let keep = opened.clone();
+    let _ = form::run(host, spec, move |f| {
+        f.set_state(VaultState { items, shown: Vec::new(), act: Act::Close, secret: None });
         f.set_checked(V_PASSWORD, true);
         f.enable(V_INSERT, can_insert);
         fill_list(f);
         f.focus(V_SEARCH);
+        *keep.borrow_mut() = Some(f.clone());
     });
-    ACT.with(std::cell::Cell::get)
+    let left = opened.borrow_mut().take().and_then(|f| f.take_state::<VaultState>());
+    left.map_or((Act::Close, None), |s| (s.act, s.secret))
 }
 
 mod add;
@@ -346,13 +340,13 @@ pub fn run(host: &Frame, can_insert: bool) -> Outcome {
             continue;
         }
         match vault_screen(host, can_insert) {
-            Act::Insert => return SECRET.with(|s| s.borrow_mut().take()).map_or(Outcome::Closed, Outcome::Insert),
-            Act::Copy => return SECRET.with(|s| s.borrow_mut().take()).map_or(Outcome::Closed, Outcome::Copy),
-            Act::Add => {
+            (Act::Insert, secret) => return secret.map_or(Outcome::Closed, Outcome::Insert),
+            (Act::Copy, secret) => return secret.map_or(Outcome::Closed, Outcome::Copy),
+            (Act::Add, _) => {
                 add_screen(host);
             }
-            Act::Relock => {}
-            Act::Close => return Outcome::Closed,
+            (Act::Relock, _) => {}
+            (Act::Close, _) => return Outcome::Closed,
         }
     }
 }

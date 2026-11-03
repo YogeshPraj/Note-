@@ -1,6 +1,6 @@
 //! Dialogs built on the form helper, defined like the Win32 shell's.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use notepp_core::hash::Algo;
@@ -33,44 +33,42 @@ pub const SORTS: [(&str, SortField, bool); 10] = [
     ("Modified Time Descending", SortField::Modified, true),
 ];
 
-thread_local! {
-    static WIN_SEL: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
-    static WIN_PICK: Cell<Option<usize>> = const { Cell::new(None) };
-    static OWNER: RefCell<Option<Frame>> = const { RefCell::new(None) };
-}
-
 const WIN_LIST: usize = 100;
 const WIN_SAVE: usize = 101;
 const WIN_CLOSE: usize = 102;
 const WIN_SORT: usize = 103;
 
+/// What the Windows dialog keeps while it is open: its owner, the selected rows and the button that closed it.
+struct WinState {
+    owner: Frame,
+    sel: Vec<usize>,
+    pick: Option<usize>,
+}
+
 fn windows_click(f: &Form, id: usize) {
     if id == WIN_SAVE || id == WIN_CLOSE {
-        WIN_SEL.with(|s| *s.borrow_mut() = f.list_selected_all(WIN_LIST));
-        WIN_PICK.with(|p| p.set(Some(id)));
+        let sel = f.list_selected_all(WIN_LIST);
+        f.with_state(|s: &mut WinState| (s.sel, s.pick) = (sel, Some(id)));
         f.close(true);
     } else if id == WIN_SORT {
-        let Some(owner) = OWNER.with(|o| *o.borrow()) else { return };
+        let Some(owner) = f.with_state(|s: &mut WinState| s.owner) else { return };
         let names: Vec<&str> = SORTS.iter().map(|s| s.0).collect();
         let d = SingleChoiceDialog::builder(&owner, "Sort the tabs by:", "Sort tabs", &names).build();
-        if d.show_modal() == ID_OK {
-            let i = d.get_selection();
-            if i >= 0 {
-                WIN_PICK.with(|p| p.set(Some(WIN_SORT + 1 + crate::platform::wx::to_usize(i))));
-                f.close(true);
-            }
+        if d.show_modal() == ID_OK
+            && let Ok(i) = usize::try_from(d.get_selection())
+        {
+            f.with_state(|s: &mut WinState| s.pick = Some(WIN_SORT + 1 + i));
+            f.close(true);
         }
     }
 }
 
 /// Window > Windows...: every open tab with Activate / Save / Close window(s) / Sort tabs.
 pub fn windows_dialog(frame: &Frame, rows: &[Vec<String>], selected: usize) -> Option<WinAction> {
-    OWNER.with(|o| *o.borrow_mut() = Some(*frame));
-    WIN_SEL.with(|s| s.borrow_mut().clear());
-    WIN_PICK.with(|p| p.set(None));
     // OK means Activate; keep the dialog's selection as it closes.
     let apply = std::rc::Rc::new(|_: &form::Values, f: &Form| {
-        WIN_SEL.with(|s| *s.borrow_mut() = f.list_selected_all(WIN_LIST));
+        let sel = f.list_selected_all(WIN_LIST);
+        f.with_state(|s: &mut WinState| s.sel = sel);
         false
     });
     let spec = Spec {
@@ -87,15 +85,19 @@ pub fn windows_dialog(frame: &Frame, rows: &[Vec<String>], selected: usize) -> O
         on_change: Some(windows_click),
         on_apply: Some(apply),
     };
-    let rows_owned = rows.to_vec();
+    let (rows_owned, owner) = (rows.to_vec(), *frame);
+    let opened: Rc<RefCell<Option<Form>>> = Rc::default();
+    let keep = opened.clone();
     let accepted = form::run(frame, spec, move |f| {
+        f.set_state(WinState { owner, sel: Vec::new(), pick: None });
         f.list_fill(WIN_LIST, &[("Name", 130), ("Path", 260), ("Type", 90), ("Size", 60)], &rows_owned);
         if selected < rows_owned.len() {
             f.list_select(WIN_LIST, selected);
         }
+        *keep.borrow_mut() = Some(f.clone());
     });
-    let sel = WIN_SEL.with(|s| s.borrow().clone());
-    match (accepted, WIN_PICK.with(std::cell::Cell::take)) {
+    let WinState { sel, pick, .. } = opened.borrow_mut().take()?.take_state::<WinState>()?;
+    match (accepted, pick) {
         (_, Some(WIN_SAVE)) => Some(WinAction::Save(sel)),
         (_, Some(WIN_CLOSE)) => Some(WinAction::Close(sel)),
         (_, Some(id)) => SORTS.get(id - WIN_SORT - 1).map(|(_, f, d)| WinAction::Sort(*f, *d)),

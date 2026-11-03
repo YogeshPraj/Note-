@@ -14,6 +14,7 @@ use wxdragon::event::WxEvtHandler;
 use wxdragon::prelude::*;
 
 mod layout;
+mod state;
 
 use crate::controls::{Button, CheckBox, Dialog, Label, ListView, RadioButton, TextBox};
 
@@ -78,6 +79,8 @@ pub struct Form {
     map: Rc<HashMap<usize, W>>,
     ok: Rc<std::cell::Cell<Option<Button>>>,
     cancel: Rc<std::cell::Cell<Option<Button>>>,
+    /// What the dialog's callbacks keep between calls (see `state.rs`).
+    state: state::Slot,
 }
 
 impl Form {
@@ -345,8 +348,13 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let (ok_btn, cancel_btn) = add_buttons(&d, ok, ok_at, cancel_at);
     d.set_escape_id(ID_CANCEL);
     d.close_on_escape();
-    let form =
-        Form { dialog: Some(d), map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(ok_btn)), cancel: Rc::new(std::cell::Cell::new(cancel_btn)) };
+    let form = Form {
+        dialog: Some(d),
+        map: Rc::new(built.map.clone()),
+        ok: Rc::new(std::cell::Cell::new(ok_btn)),
+        cancel: Rc::new(std::cell::Cell::new(cancel_btn)),
+        state: state::Slot::default(),
+    };
     wire_events(&form, on_change, &built);
     let result: Rc<RefCell<Option<Values>>> = Rc::new(RefCell::new(None));
     if let Some(ok) = ok_btn {
@@ -377,7 +385,13 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
 pub fn embed(parent: &impl WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Form {
     let Spec { ctls, on_change, .. } = spec;
     let built = build_controls(parent, &ctls);
-    let form = Form { dialog: None, map: Rc::new(built.map.clone()), ok: Rc::new(std::cell::Cell::new(None)), cancel: Rc::new(std::cell::Cell::new(None)) };
+    let form = Form {
+        dialog: None,
+        map: Rc::new(built.map.clone()),
+        ok: Rc::new(std::cell::Cell::new(None)),
+        cancel: Rc::new(std::cell::Cell::new(None)),
+        state: state::Slot::default(),
+    };
     wire_events(&form, on_change, &built);
     wire_swatches(&form, built.swatches);
     init(&form);

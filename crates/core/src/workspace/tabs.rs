@@ -134,6 +134,7 @@ impl<S: Send> Workspace<S> {
                 dirty: self.is_dirty(i),
                 pinned: self.tabs[i].pinned,
                 color: self.tabs[i].color,
+                beside: self.other_index() == Some(i),
                 badge: if self.tabs[i].kind == TabKind::Whiteboard {
                     Some("wb")
                 } else if self.tabs[i].encrypted {

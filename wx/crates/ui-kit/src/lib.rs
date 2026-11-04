@@ -19,7 +19,7 @@ pub mod pointer;
 pub mod theme;
 
 pub use components::{
-    ask, data_list, dock, form, menu_bar, popup_menu, progress, quick_pick, settings_window, status_bar, tab_strip, toast, tool_bar, web_pane,
+    ask, data_list, dock, form, menu_bar, pane_header, popup_menu, progress, quick_pick, settings_window, status_bar, tab_strip, toast, tool_bar, web_pane,
 };
 
 /// The themed stock controls, under one name.

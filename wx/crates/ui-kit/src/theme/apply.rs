@@ -57,6 +57,35 @@ pub fn own_background(panel: Panel) {
     subscribe(move |_| panel.refresh(true, None));
 }
 
+/// Paint a splitter's sash in the theme's colour: the toolkit draws it in a system colour, which shows as a white bar in
+/// the dark theme. The panes cover everything else, so only the sash is left to paint. The toolkit also draws the sash
+/// straight onto the window after every resize, so a resize of the splitter or of `pane` (which moves with the sash)
+/// asks for a paint just after it.
+pub fn own_sash(split: SplitterWindow, pane: Panel) {
+    split.set_background_style(BackgroundStyle::Paint);
+    let timer = Rc::new(Timer::new(&split));
+    timer.on_tick(move |_| split.refresh(true, None));
+    let later = timer.clone();
+    split.on_size(move |e| {
+        later.start(30, true);
+        e.skip(true);
+    });
+    pane.on_size(move |e| {
+        timer.start(30, true);
+        e.skip(true);
+    });
+    split.on_paint(move |e| {
+        e.skip(false);
+        let dc = AutoBufferedPaintDC::new(&split);
+        let size = split.get_client_size();
+        let c = colour(current().colors.border);
+        dc.set_pen(c, 1, PenStyle::Solid);
+        dc.set_brush(c, BrushStyle::Solid);
+        dc.draw_rectangle(0, 0, size.width, size.height);
+    });
+    subscribe(move |_| split.refresh(true, None));
+}
+
 /// Drop the toolkit's themed border: it is drawn in the system colours, which show as a white frame in the dark theme.
 pub fn drop_border(w: &impl WxWidget) {
     const BORDERS: i64 = 0x1F00_0000; // wxBORDER_SIMPLE | SUNKEN | RAISED | STATIC | THEME

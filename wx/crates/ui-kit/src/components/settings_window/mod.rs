@@ -68,8 +68,10 @@ impl Window {
         }
         self.host.set_sizer(sizer, true);
         *self.views.borrow_mut() = views;
-        *self.tabs.borrow_mut() =
-            pages.iter().map(|p| Tab { title: p.title.clone(), dirty: false, badge: None, pinned: false, color: None, level: p.level }).collect();
+        *self.tabs.borrow_mut() = pages
+            .iter()
+            .map(|p| Tab { title: p.title.clone(), dirty: false, badge: None, pinned: false, color: None, beside: false, level: p.level })
+            .collect();
         if let Some(id) = start {
             self.current.set(page_index(&pages, id));
         }

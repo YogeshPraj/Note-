@@ -38,7 +38,7 @@ pub(super) fn hand_off_to_running_instance(files: &[PathBuf]) {
 pub(super) struct Widgets {
     splitter: SplitterWindow,
     editor_pane: Panel,
-    dock_split: SplitterWindow,
+    dock_panes: DockPanes,
     stc: StyledTextCtrl,
     dock_stc: StyledTextCtrl,
     mini: StyledTextCtrl,
@@ -62,10 +62,7 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     // No 3-D border: it is drawn in the system colours, which show as a white frame around the editor in the dark theme.
     let splitter = SplitterWindow::builder(frame).with_style(wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash).build();
     let editor_pane = Panel::builder(&splitter).build();
-    let dock_split = SplitterWindow::builder(&editor_pane).with_style(wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash).build();
-    let stc = StyledTextCtrl::builder(&dock_split).build();
-    let dock_stc = StyledTextCtrl::builder(&dock_split).build();
-    dock_stc.show(false);
+    let (dock_panes, stc, dock_stc) = DockPanes::build(&editor_pane);
     let mini = StyledTextCtrl::builder(&editor_pane).build();
     mini.set_min_size(Size::new(crate::widgets::theme::current().px(110), -1));
     // Never shown: reads other tabs' documents for the session and tab tool tips, so `stc` never swaps documents.
@@ -77,9 +74,7 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     let panels = panels::create(&editor_pane);
     row.add(&panels.tree_box, 0, SizerFlag::Expand, 0);
-    dock_split.initialize(&stc);
-    dock_split.set_minimum_pane_size(crate::widgets::theme::current().px(120));
-    row.add(&dock_split, 1, SizerFlag::Expand, 0);
+    row.add(&dock_panes.split, 1, SizerFlag::Expand, 0);
     row.add(&mini, 0, SizerFlag::Expand, 0);
     let wbv = WebPane::new(&editor_pane);
     wbv.add_user_script(wbm::BRIDGE, wxdragon::widgets::webview::WebViewUserScriptInjectionTime::AtDocumentStart);
@@ -89,6 +84,7 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     editor_pane.set_sizer(row, true);
     let view = WebPane::new(&splitter);
     view.show(false);
+    crate::widgets::theme::own_sash(splitter, editor_pane);
     splitter.initialize(&editor_pane);
     splitter.set_minimum_pane_size(120);
 
@@ -102,7 +98,7 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     sizer.add(&findpanel::container(frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
-    Widgets { splitter, editor_pane, dock_split, stc, dock_stc, mini, probe, panels, wbv, view, mdbar }
+    Widgets { splitter, editor_pane, dock_panes, stc, dock_stc, mini, probe, panels, wbv, view, mdbar }
 }
 
 /// The workspace: settings, the last session, then the files named on the command line.
@@ -249,7 +245,7 @@ pub fn start(files: &[PathBuf]) {
     // Toolbar and tab strip above the editor, status bar below it.
     let chrome = Chrome::new(&frame);
     let w = build_widgets(&frame, &chrome);
-    let Widgets { splitter, editor_pane, dock_split, stc, dock_stc, mini, probe, panels, wbv, view, mdbar } = w;
+    let Widgets { splitter, editor_pane, dock_panes, stc, dock_stc, mini, probe, panels, wbv, view, mdbar } = w;
 
     let ui = WxUi::new(frame);
     let ws = load_workspace(&ui, [&stc, &dock_stc, &mini, &probe], settings, files);
@@ -281,8 +277,7 @@ pub fn start(files: &[PathBuf]) {
         mini,
         main_stc: stc,
         dock_stc,
-        dock_split,
-        dock_shown: None,
+        dock_panes,
         view: view.clone(),
         chrome,
         postit: false,

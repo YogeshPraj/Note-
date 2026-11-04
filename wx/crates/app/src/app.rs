@@ -60,9 +60,7 @@ pub struct App {
     /// The main editor view and the docked one; `stc()` says which the user is in.
     main_stc: StyledTextCtrl,
     dock_stc: StyledTextCtrl,
-    /// Holds both views; the second appears when a tab is docked.
-    dock_split: SplitterWindow,
-    dock_shown: Option<notepp_core::session::DockSide>,
+    dock_panes: DockPanes,
     pub(crate) view: WebPane,
     pub(crate) chrome: Chrome,
     pub(crate) menubar: MenuBar,
@@ -102,7 +100,7 @@ pub(crate) use wiring::*;
 static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 mod dock_pane;
-pub(crate) use dock_pane::DockCommands;
+pub(crate) use dock_pane::{DockCommands, DockPanes};
 mod notes;
 pub(crate) use notes::*;
 /// With `NPP_TRACE`=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).

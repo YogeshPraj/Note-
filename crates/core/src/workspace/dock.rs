@@ -50,6 +50,11 @@ impl<S: Send> Workspace<S> {
         if self.in_dock() { Some(self.active) } else { self.other_index() }
     }
 
+    /// The index of the tab in the main view.
+    pub fn main_index(&self) -> usize {
+        if self.in_dock() { self.other_index().unwrap_or(self.active) } else { self.active }
+    }
+
     /// The index of the tab in the view that is not current.
     pub(super) fn other_index(&self) -> Option<usize> {
         let other = self.dock?.other;

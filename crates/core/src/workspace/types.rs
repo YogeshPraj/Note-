@@ -161,6 +161,8 @@ pub struct TabInfo {
     pub pinned: bool,
     /// The colour mark of the tab.
     pub color: Option<(u8, u8, u8)>,
+    /// On screen in the pane the user is not in.
+    pub beside: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

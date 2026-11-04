@@ -31,6 +31,7 @@ pub mod list_box;
 pub mod list_view;
 pub mod menu_bar;
 // wxdragon's get_event_handler_ptr is an unsafe trait method; the wrappers can only forward it.
+pub mod pane_header;
 #[allow(unsafe_code)]
 pub mod panel;
 pub mod popup_menu;

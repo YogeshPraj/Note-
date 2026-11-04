@@ -86,9 +86,9 @@ fn main() {
         let tabs = TabStrip::new(&frame);
         tabs.set_tabs(
             vec![
-                Tab { title: "readme.md".into(), dirty: false, badge: None, pinned: true, color: None, level: 0 },
-                Tab { title: "main.rs".into(), dirty: true, badge: None, pinned: false, color: Some((0xE0, 0x6C, 0x75)), level: 0 },
-                Tab { title: "whiteboard-1.json".into(), dirty: false, badge: Some("wb"), pinned: false, color: None, level: 0 },
+                Tab { title: "readme.md".into(), dirty: false, badge: None, pinned: true, color: None, level: 0, beside: false },
+                Tab { title: "main.rs".into(), dirty: true, badge: None, pinned: false, color: Some((0xE0, 0x6C, 0x75)), level: 0, beside: false },
+                Tab { title: "whiteboard-1.json".into(), dirty: false, badge: Some("wb"), pinned: false, color: None, level: 0, beside: false },
             ],
             1,
         );

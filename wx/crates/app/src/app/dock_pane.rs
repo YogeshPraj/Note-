@@ -6,6 +6,59 @@ use notepp_core::session::DockSide;
 
 use super::*;
 use crate::command::CommandHandler;
+use crate::widgets::pane_header::{HeaderEvent, PaneHeader};
+
+/// The two panes: the splitter, and in each pane a header above its editor.
+pub struct DockPanes {
+    pub(super) split: SplitterWindow,
+    main_box: Panel,
+    dock_box: Panel,
+    main_head: PaneHeader,
+    dock_head: PaneHeader,
+    /// The side the docked pane is showing on.
+    shown: Option<DockSide>,
+}
+
+impl std::fmt::Debug for DockPanes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DockPanes").field("shown", &self.shown).finish_non_exhaustive()
+    }
+}
+
+impl DockPanes {
+    /// One pane: a header (hidden until something is docked) over an editor.
+    fn pane(split: SplitterWindow, badge: Option<&'static str>, closable: bool) -> (Panel, PaneHeader, StyledTextCtrl) {
+        let pane = Panel::builder(&split).build();
+        let head = PaneHeader::new(&pane, badge, closable);
+        head.panel().show(false);
+        let editor = StyledTextCtrl::builder(&pane).build();
+        let column = BoxSizer::builder(Orientation::Vertical).build();
+        column.add(&head.panel(), 0, SizerFlag::Expand, 0);
+        column.add(&editor, 1, SizerFlag::Expand, 0);
+        pane.set_sizer(column, true);
+        (pane, head, editor)
+    }
+
+    /// The panes inside `parent`, showing only the main one, and their two editors.
+    pub fn build(parent: &Panel) -> (DockPanes, StyledTextCtrl, StyledTextCtrl) {
+        let style = wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash;
+        let split = SplitterWindow::builder(parent).with_style(style).build();
+        let (main_box, main_head, main_stc) = Self::pane(split, None, false);
+        let (dock_box, dock_head, dock_stc) = Self::pane(split, Some("dock"), true);
+        dock_box.show(false);
+        crate::widgets::theme::own_sash(split, main_box);
+        split.initialize(&main_box);
+        split.set_minimum_pane_size(crate::widgets::theme::current().px(120));
+        (DockPanes { split, main_box, dock_box, main_head, dock_head, shown: None }, main_stc, dock_stc)
+    }
+
+    fn show_headers(&self, on: bool) {
+        self.main_head.panel().show(on);
+        self.dock_head.panel().show(on);
+        self.main_box.layout();
+        self.dock_box.layout();
+    }
+}
 
 fn vertical(side: DockSide) -> bool {
     matches!(side, DockSide::Left | DockSide::Right)
@@ -24,41 +77,58 @@ impl App {
 
     /// The length the splitter divides for a dock on `side`.
     fn dock_room(&self, side: DockSide) -> i32 {
-        let area = self.dock_split.get_client_size();
+        let area = self.dock_panes.split.get_client_size();
         if vertical(side) { area.width } else { area.height }
     }
 
     /// Show the docked view when the workspace has one, on its side; hide it when it has none.
     pub(crate) fn sync_dock(&mut self) {
         let side = self.ws.dock_side();
-        if side == self.dock_shown {
-            return;
+        if side != self.dock_panes.shown {
+            self.move_dock(side);
         }
-        if self.dock_shown.is_some() {
+        if side.is_some() {
+            self.name_panes();
+        }
+    }
+
+    /// Say in each header what its pane holds.
+    fn name_panes(&self) {
+        let (main, in_dock) = (self.ws.main_index(), self.ws.in_dock());
+        let dock = self.ws.docked_index().unwrap_or(main);
+        self.dock_panes.main_head.set(&self.ws.tabs[main].title, self.ws.is_dirty(main), !in_dock);
+        self.dock_panes.dock_head.set(&self.ws.tabs[dock].title, self.ws.is_dirty(dock), in_dock);
+    }
+
+    fn move_dock(&mut self, side: Option<DockSide>) {
+        if self.dock_panes.shown.is_some() {
             self.keep_dock_share();
-            self.dock_split.unsplit(Some(&self.dock_stc));
+            self.dock_panes.split.unsplit(Some(&self.dock_panes.dock_box));
         }
-        self.dock_shown = side;
+        self.dock_panes.shown = side;
+        self.dock_panes.show_headers(side.is_some());
         let Some(side) = side else { return };
         let room = self.dock_room(side);
         let dock_px = room * crate::platform::wx::to_i32(self.ws.dock_share()) / 1000;
-        let (first, second, sash) = if dock_first(side) { (self.dock_stc, self.main_stc, dock_px) } else { (self.main_stc, self.dock_stc, room - dock_px) };
+        let (main, dock) = (self.dock_panes.main_box, self.dock_panes.dock_box);
+        let (first, second, sash) = if dock_first(side) { (dock, main, dock_px) } else { (main, dock, room - dock_px) };
         if vertical(side) {
-            self.dock_split.split_vertically(&first, &second, sash);
+            self.dock_panes.split.split_vertically(&first, &second, sash);
         } else {
-            self.dock_split.split_horizontally(&first, &second, sash);
+            self.dock_panes.split.split_horizontally(&first, &second, sash);
         }
+        self.dock_panes.show_headers(true);
         self.ws.refresh_docked();
     }
 
     /// Note where the user left the splitter, so the session and the next dock keep it.
     pub(crate) fn keep_dock_share(&mut self) {
-        let Some(side) = self.dock_shown else { return };
+        let Some(side) = self.dock_panes.shown else { return };
         let room = self.dock_room(side);
         if room <= 0 {
             return;
         }
-        let sash = self.dock_split.sash_position();
+        let sash = self.dock_panes.split.sash_position();
         let dock_px = if dock_first(side) { sash } else { room - sash };
         self.ws.set_dock_share(crate::platform::wx::to_u32(dock_px * 1000 / room));
     }
@@ -109,6 +179,13 @@ pub(super) fn wire_dock(app: &Shared, frame: Frame, main: StyledTextCtrl, dock: 
             pane_focused(&a, frame, in_dock);
         });
     }
+    let dock_panes = &app.borrow().dock_panes;
+    dock_panes.main_head.on_event(move |_| main.set_focus());
+    let a = app.clone();
+    dock_panes.dock_head.on_event(move |e| match e {
+        HeaderEvent::Focus => dock.set_focus(),
+        HeaderEvent::Close => crate::app::run_command(&a, c::ID_UNDOCK),
+    });
 }
 
 /// Tab: Dock, Undock and moving between the views.

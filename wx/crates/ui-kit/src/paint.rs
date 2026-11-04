@@ -50,6 +50,18 @@ pub fn text_w(dc: &impl DeviceContext, s: &str) -> i32 {
     if s.is_empty() { 0 } else { dc.get_text_extent(s).0 }
 }
 
+/// `s`, shortened with an ellipsis if it is wider than `room`.
+pub fn ellipsize(dc: &impl DeviceContext, s: &str, room: i32) -> String {
+    let mut name = s.to_string();
+    if text_w(dc, &name) > room {
+        while name.chars().count() > 1 && text_w(dc, &format!("{name}\u{2026}")) > room {
+            name.pop();
+        }
+        name.push('\u{2026}');
+    }
+    name
+}
+
 /// `s` in `r`, vertically centred, horizontally centred when `center`.
 pub fn text_at(dc: &impl DeviceContext, s: &str, r: Rect, c: Rgb, center: bool) {
     if s.is_empty() {

@@ -112,15 +112,10 @@ pub(super) fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab
         tx += w + px(6);
     }
     // Long names end in an ellipsis rather than running under the close button.
-    let room = (r.r - px(26) - tx).max(0);
-    let mut name = info.title.clone();
-    if text_w(dc, &name) > room {
-        while name.chars().count() > 1 && text_w(dc, &format!("{name}\u{2026}")) > room {
-            name.pop();
-        }
-        name.push('\u{2026}');
+    text_at(dc, &ellipsize(dc, &info.title, (r.r - px(26) - tx).max(0)), Rect::new(tx, r.t, r.r - px(26), r.b), fg, false);
+    if info.beside {
+        fill(dc, Rect::new(r.l + px(6), r.b - px(3), r.r - px(6), r.b - px(1)), mix(lk.base(), lk.colors.accent, 0x90));
     }
-    text_at(dc, &name, Rect::new(tx, r.t, r.r - px(26), r.b), fg, false);
     if (active || hot) && !info.pinned {
         let c = close_rect(&r);
         if s.hot == Some((i, true)) {

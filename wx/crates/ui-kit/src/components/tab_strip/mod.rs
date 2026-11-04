@@ -7,7 +7,7 @@
 //!
 //! ```ignore
 //! let strip = TabStrip::new(&frame);
-//! strip.set_tabs(vec![Tab { title: "new 1".into(), dirty: true, badge: None, pinned: false, color: None, level: 0 }], 0);
+//! strip.set_tabs(vec![Tab { title: "new 1".into(), dirty: true, badge: None, pinned: false, color: None, level: 0, beside: false }], 0);
 //! strip.on_event(|e| match e { TabEvent::Select(i) => { /* activate tab i */ } _ => {} });
 //! ```
 
@@ -24,7 +24,7 @@ use wxdragon::prelude::*;
 use self::model::{Btn, Layout, Rows, Scroll};
 use super::a11y;
 use crate::geom::Rect;
-use crate::paint::{Look, colour, fill, mix, pos, text_at, text_w, wash};
+use crate::paint::{Look, colour, ellipsize, fill, mix, pos, text_at, text_w, wash};
 
 pub const HEIGHT: i32 = 32;
 
@@ -64,6 +64,8 @@ pub struct Tab {
     pub color: Option<(u8, u8, u8)>,
     /// Nesting depth in a vertical strip (indents the row); 0 elsewhere.
     pub level: u8,
+    /// On screen in another pane: a line under the tab says so.
+    pub beside: bool,
 }
 
 struct Drag {

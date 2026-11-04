@@ -18,10 +18,11 @@ button.on { background:var(--on); border-color:var(--onborder); }
 label { display:inline-flex; align-items:center; gap:4px; margin-right:6px; color:var(--fg); }
 input[type=color] { width:26px; height:22px; padding:0; border:1px solid var(--barborder); border-radius:3px; background:transparent; cursor:pointer; }
 input[type=number] { width:54px; height:22px; border:1px solid var(--barborder); border-radius:3px; background:var(--bg); color:var(--fg); font:inherit; }
-#left { position:absolute; left:0; width:34px; top:var(--toph, 64px); bottom:22px; background:var(--bar); border-right:1px solid var(--barborder); padding:4px 3px; display:flex; flex-direction:column; align-items:center; gap:2px; overflow:auto; }
-#left button { width:28px; height:28px; min-width:28px; padding:0; display:flex; align-items:center; justify-content:center; }
+#left { position:absolute; left:0; width:34px; top:var(--toph, 64px); bottom:22px; background:var(--bar); border-right:1px solid var(--barborder); padding:4px 3px; display:flex; flex-direction:column; align-items:center; gap:1px; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; }
+#left::-webkit-scrollbar { display:none; }
+#left button { width:26px; height:26px; min-width:26px; flex:none; padding:0; display:flex; align-items:center; justify-content:center; }
 #left svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
-#left .gap { height:6px; }
+#left .gap { height:4px; flex:none; }
 #view { position:absolute; left:34px; right:0; top:var(--toph, 64px); bottom:22px; overflow:auto; background:var(--stage); }
 #stage { position:relative; margin:16px; width:max-content; height:max-content; background-color:#fff; background-image:conic-gradient(#d9d9d9 25%, #fff 0 50%, #d9d9d9 0 75%, #fff 0); background-size:16px 16px; box-shadow:0 1px 6px rgba(0,0,0,.35); }
 #pic, #ov { display:block; }

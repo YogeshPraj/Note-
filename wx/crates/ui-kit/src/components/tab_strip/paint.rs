@@ -83,24 +83,25 @@ pub(super) fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab
         fill(dc, Rect::new(r.l, r.t, r.r, r.t + px(3)), c);
     }
     let mut tx = r.l + px(10);
+    let mid = i32::midpoint(r.t, r.b);
     if info.pinned {
         dc.set_pen(colour(fg), 1, PenStyle::Solid);
         dc.set_brush(colour(fg), BrushStyle::Solid);
-        dc.draw_ellipse(tx, r.t + px(9), px(8), px(8));
-        dc.draw_line(tx + px(4), r.t + px(17), tx + px(4), r.t + px(23));
+        dc.draw_ellipse(tx, mid - px(7), px(8), px(8));
+        dc.draw_line(tx + px(4), mid + px(1), tx + px(4), mid + px(7));
         tx += px(16);
     }
     if info.dirty {
         dc.set_pen(colour(lk.colors.danger), 1, PenStyle::Solid);
         dc.set_brush(colour(lk.colors.danger), BrushStyle::Solid);
-        dc.draw_ellipse(tx, r.t + px(12), px(8), px(8));
+        dc.draw_ellipse(tx, mid - px(4), px(8), px(8));
         tx += px(14);
     }
     if let Some(badge) = info.badge {
         dc.set_pen(colour(lk.colors.badge), 1, PenStyle::Solid);
         dc.set_brush(colour(lk.colors.badge), BrushStyle::Solid);
-        dc.draw_rounded_rectangle(tx, r.t + px(8), px(24), px(16), f64::from(px(6)));
-        text_at(dc, badge, Rect::new(tx, r.t + px(8), tx + px(24), r.t + px(24)), lk.colors.accent_text, true);
+        dc.draw_rounded_rectangle(tx, mid - px(8), px(24), px(16), f64::from(px(6)));
+        text_at(dc, badge, Rect::new(tx, mid - px(8), tx + px(24), mid + px(8)), lk.colors.accent_text, true);
         tx += px(30);
     }
     // Long names end in an ellipsis rather than running under the close button.

@@ -168,7 +168,7 @@ Gotchas worth knowing when working on the editor core:
 
 - The executable only loads DLLs from `System32` and its own folder.
 - Document previews do not fetch images from the web unless you turn that on in the settings.
-- Updates are downloaded over HTTPS and verified against a SHA-256 checksum before they are unpacked. The checksum catches damaged or swapped files; it is not a code signature, because releases are not signed yet.
+- Updates are downloaded over HTTPS and must carry a valid Ed25519 signature made with the release key, plus a matching SHA-256 checksum, before they are unpacked. The program itself is not Authenticode-signed, so Windows SmartScreen can still warn on first install.
 - Encrypted files use AES-256-GCM with keys derived from your password (PBKDF2); unsaved text of an encrypted tab is never written to the session file as plain text.
 
 If you find a vulnerability, please open a private security advisory on GitHub rather than a public issue.

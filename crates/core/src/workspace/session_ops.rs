@@ -5,13 +5,19 @@ use super::*;
 impl<S: Send> Workspace<S> {
     pub fn snapshot(&mut self) -> Session {
         self.remember_view();
+        self.with_docked(Self::remember_view);
         let cur = self.active;
+        let docked = self.docked_index();
         let mut tabs = Vec::new();
         let mut active = 0;
+        let mut dock = None;
         for i in 0..self.tabs.len() {
             let Some(tab) = self.snapshot_tab(i) else { continue };
             if i == cur {
                 active = tabs.len();
+            }
+            if Some(i) == docked {
+                dock = self.dock_side().map(|side| SessionDock { tab: tabs.len(), side, share: self.dock_share });
             }
             tabs.push(tab);
         }
@@ -30,6 +36,7 @@ impl<S: Send> Workspace<S> {
             symbols: self.symbols,
             date_format: self.date_format.clone(),
             kept: self.kept.clone(),
+            dock,
         }
     }
 
@@ -80,6 +87,7 @@ impl<S: Send> Workspace<S> {
             self.date_format.clone_from(&s.date_format);
         }
         self.kept.clone_from(&s.kept);
+        self.saved_dock = s.dock;
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         if s.dark {

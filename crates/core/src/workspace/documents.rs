@@ -5,6 +5,7 @@ use super::*;
 impl<S: Send> Workspace<S> {
     /// Create a tab holding `text`. The tab is clean (at the save point).
     pub(super) fn open_doc(&mut self, title: String, path: Option<PathBuf>, text: &str, enc: Enc, eol: Eol, lang: &'static str) -> usize {
+        self.leave_dock();
         self.remember_view();
         let doc = self.send(sci::SCI_CREATEDOCUMENT, 0, 0);
         self.set_doc(doc);
@@ -45,6 +46,7 @@ impl<S: Send> Workspace<S> {
 
     /// Add a whiteboard tab holding scene JSON `content`.
     pub fn open_whiteboard(&mut self, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
+        self.leave_dock();
         self.remember_view();
         let id = self.take_id();
         let disk = path.as_deref().and_then(stamp_of);
@@ -264,6 +266,10 @@ impl<S: Send> Workspace<S> {
 
     /// Drop tab `i`, showing a neighbour (or a fresh tab if it was the last one).
     pub(super) fn remove_tab(&mut self, i: usize, remember: bool) {
+        // Closing the docked tab, or the only tab beside it, ends the dock.
+        if self.docked_index().is_some_and(|d| d == i || self.tabs.len() == 2) {
+            self.undock();
+        }
         self.activate(i);
         let (doc, is_text) = (self.tabs[i].doc, self.tabs[i].kind == TabKind::Text);
         if remember && let Some(p) = self.tabs[i].path.clone() {
@@ -274,7 +280,7 @@ impl<S: Send> Workspace<S> {
             self.tabs.remove(0);
             self.active = 0;
         } else {
-            let target = if i + 1 < self.tabs.len() { i + 1 } else { i - 1 };
+            let target = self.neighbour_of(i, false).unwrap_or(0);
             let show_doc = (self.tabs[target].kind == TabKind::Text).then(|| self.tabs[target].doc);
             if let Some(d) = show_doc {
                 self.set_doc(d);

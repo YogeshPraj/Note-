@@ -17,7 +17,7 @@ use super::mdformat;
 use super::preview;
 use super::sci::{self, Send, Theme};
 use super::search::{self, Opts};
-use super::session::{Session, SessionTab};
+use super::session::{DockSide, Session, SessionDock, SessionTab};
 use super::settings::{self, Settings};
 use super::textools;
 use super::view;
@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 mod types;
 pub use self::types::*;
+mod dock;
 mod documents;
 mod editing;
 mod file_io;
@@ -57,6 +58,13 @@ pub struct Workspace<S: Send> {
     pub mini: Option<S>,
     /// A hidden view for reading other tabs' documents, and the empty document it rests on (see `with_doc`).
     probe: Option<(S, isize)>,
+    /// The editor view that is not current (see `dock`).
+    second: Option<dock::Second<S>>,
+    dock: Option<dock::Docked>,
+    /// How much of the shared space the docked view has, in thousandths.
+    dock_share: u32,
+    /// The dock the session saved, until the shell has a window to show it in.
+    saved_dock: Option<SessionDock>,
     pub tabs: Vec<Tab>,
     pub active: usize,
     pub theme: Theme,
@@ -106,6 +114,10 @@ impl<S: Send> Workspace<S> {
             sci,
             mini: None,
             probe: None,
+            second: None,
+            dock: None,
+            dock_share: 500,
+            saved_dock: None,
             tabs: Vec::new(),
             active: 0,
             theme,

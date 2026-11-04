@@ -27,6 +27,7 @@ fn session_round_trips() {
         symbols: crate::view::Symbols::default(),
         date_format: "yyyy".into(),
         kept: Vec::new(),
+        dock: Some(SessionDock { tab: 0, side: DockSide::Bottom, share: 300 }),
     };
     let p = std::env::temp_dir().join("notepp_session_test.json");
     s.save(&p).unwrap();

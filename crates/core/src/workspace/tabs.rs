@@ -76,7 +76,13 @@ impl<S: Send> Workspace<S> {
         if t.kind == TabKind::Whiteboard {
             return t.dirty || t.forced_dirty;
         }
-        t.forced_dirty || if i == self.active { self.send(sci::SCI_GETMODIFY, 0, 0) != 0 } else { t.dirty }
+        let in_second = self.second.as_ref().filter(|_| self.other_index() == Some(i));
+        t.forced_dirty
+            || match in_second {
+                _ if i == self.active => self.send(sci::SCI_GETMODIFY, 0, 0) != 0,
+                Some(s) => s.view.send(sci::SCI_GETMODIFY, 0, 0) != 0,
+                None => t.dirty,
+            }
     }
 
     /// Is the active tab a whiteboard (so the Scintilla view is not in use)?
@@ -102,7 +108,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn activate(&mut self, i: usize) {
-        if i >= self.tabs.len() || i == self.active {
+        if i >= self.tabs.len() || self.route_to_pane(i) || i == self.active {
             return;
         }
         self.remember_view();
@@ -132,6 +138,8 @@ impl<S: Send> Workspace<S> {
                     Some("wb")
                 } else if self.tabs[i].encrypted {
                     Some("enc")
+                } else if self.docked_index() == Some(i) {
+                    Some("dock")
                 } else {
                     None
                 },

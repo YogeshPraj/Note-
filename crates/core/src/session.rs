@@ -35,6 +35,27 @@ fn text_kind() -> String {
     "text".into()
 }
 
+/// Which side of the main editor a docked tab is on.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DockSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl DockSide {
+    pub const ALL: [DockSide; 4] = [DockSide::Left, DockSide::Right, DockSide::Top, DockSide::Bottom];
+}
+
+/// The docked tab as saved: its place in `Session::tabs`, its side, and its share of the space in thousandths.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionDock {
+    pub tab: usize,
+    pub side: DockSide,
+    pub share: u32,
+}
+
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct Session {
     pub tabs: Vec<SessionTab>,
@@ -62,6 +83,9 @@ pub struct Session {
     /// unchanged, so whatever unsaved content they hold is never destroyed.
     #[serde(default)]
     pub kept: Vec<serde_json::Value>,
+    /// The tab docked beside the main editor.
+    #[serde(default)]
+    pub dock: Option<SessionDock>,
 }
 
 fn yes() -> bool {
@@ -163,6 +187,7 @@ impl Session {
             symbols: ex.symbols,
             date_format: ex.date_format,
             kept,
+            dock: ex.dock,
         })
     }
 
@@ -201,6 +226,7 @@ impl Session {
             search_engine: self.search_engine,
             symbols: self.symbols,
             date_format: self.date_format.clone(),
+            dock: self.dock,
         };
         let root = serde_json::json!({ "tabs": tabs, "native": extras });
         // Write-then-rename so a crash mid-write can't leave a truncated session.

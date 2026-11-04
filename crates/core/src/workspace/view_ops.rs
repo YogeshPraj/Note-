@@ -19,6 +19,9 @@ impl<S: Send> Workspace<S> {
     pub fn set_margins_visible(&self, on: bool) {
         for (margin, width) in self.margin_widths().into_iter().enumerate() {
             self.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
+            if let Some(s) = &self.second {
+                s.view.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
+            }
         }
     }
 
@@ -36,6 +39,9 @@ impl<S: Send> Workspace<S> {
     pub fn set_symbols(&mut self, v: view::Symbols) {
         self.symbols = v;
         view::apply_symbols(&self.sci, &self.symbols);
+        if let Some(s) = &self.second {
+            view::apply_symbols(&s.view, &self.symbols);
+        }
     }
 
     /// Colours, margins and indicators for one view. The minimap is the same
@@ -99,6 +105,10 @@ impl<S: Send> Workspace<S> {
             self.style_view(m, true);
         }
         sci::set_wrap(&self.sci, self.wrap);
+        if let Some(s) = &self.second {
+            self.style_view(&s.view, false);
+            sci::set_wrap(&s.view, self.wrap);
+        }
         if !self.tabs.is_empty() {
             self.apply_palettes();
         }
@@ -204,12 +214,20 @@ impl<S: Send> Workspace<S> {
         if let Some(m) = &self.mini {
             lang::apply_palette(m, t.lang, &self.theme);
         }
+        if let (Some(s), Some(i)) = (&self.second, self.other_index()) {
+            lang::apply_palette(&s.view, self.tabs[i].lang, &self.theme);
+        }
     }
 
     /// Show the active tab: colours, then its remembered selection and scroll position.
     pub(super) fn apply_view(&self) {
-        let t = &self.tabs[self.active];
         self.apply_palettes();
+        self.apply_position();
+    }
+
+    /// Put the active tab's remembered selection and scroll position on the view.
+    pub(super) fn apply_position(&self) {
+        let t = &self.tabs[self.active];
         match t.anchor {
             Some(anchor) => drop(self.send(sci::SCI_SETSEL, anchor, crate::num::to_isize(t.caret))),
             None => drop(self.send(sci::SCI_GOTOPOS, t.caret, 0)),
@@ -267,5 +285,8 @@ impl<S: Send> Workspace<S> {
     pub fn set_wrap(&mut self, on: bool) {
         self.wrap = on;
         sci::set_wrap(&self.sci, on);
+        if let Some(s) = &self.second {
+            sci::set_wrap(&s.view, on);
+        }
     }
 }

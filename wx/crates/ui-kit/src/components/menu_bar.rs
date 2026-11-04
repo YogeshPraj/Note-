@@ -15,6 +15,7 @@ use std::rc::Rc;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
+use super::a11y;
 use crate::geom::Rect;
 use crate::paint::{Look, fill, mix, pos, text_at, text_w, wash};
 use crate::pointer::Pointer;
@@ -58,6 +59,12 @@ struct State {
     /// The menu that is showing: moving over another title switches to it.
     open: Option<usize>,
     handler: Option<Rc<dyn Fn(MenuEvent)>>,
+    reader: a11y::Items,
+}
+
+/// Show the screen reader what was just painted.
+fn publish(s: &State) {
+    s.reader.publish(s.titles.iter().zip(&s.rects).map(|(t, r)| a11y::Item::new(&split_mnemonic(t).0, a11y::Role::Menu, *r)).collect());
 }
 
 impl std::fmt::Debug for MenuBar {
@@ -88,6 +95,7 @@ impl MenuBar {
             pointer: Pointer::default(),
             open: None,
             handler: None,
+            reader: a11y::Items::default(),
         }));
         let bar = MenuBar { panel, st };
         bar.wire();
@@ -145,6 +153,17 @@ impl MenuBar {
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_paint(move |_| paint(&st, p));
+
+        let (st, items) = (self.st.clone(), self.st.borrow().reader.clone());
+        a11y::attach(self.panel, "Menu bar", a11y::Bar::Menus, items, move |i| {
+            let (r, h) = {
+                let s = st.borrow();
+                (s.rects.get(i).copied(), s.handler.clone())
+            };
+            if let (Some(r), Some(h)) = (r, h) {
+                h(MenuEvent::Open(i, r.l, r.b));
+            }
+        });
 
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_motion(move |e| {
@@ -251,6 +270,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
             fill(&dc, Rect::new(x, y, x + text_w(&dc, &letter), y + 1), lk.fg());
         }
     }
+    publish(&s);
 }
 
 #[cfg(test)]

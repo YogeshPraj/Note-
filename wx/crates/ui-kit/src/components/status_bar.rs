@@ -14,6 +14,7 @@ use std::rc::Rc;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
+use super::a11y;
 use crate::geom::Rect;
 use crate::paint::{fill, pos, text_at, text_w};
 
@@ -73,6 +74,16 @@ struct State {
     segments: Vec<Segment>,
     rects: Vec<Rect>,
     handler: Option<Rc<dyn Fn(StatusEvent)>>,
+    reader: a11y::Items,
+}
+
+/// Show the screen reader what was just painted: the left text, then the segments (buttons when clickable).
+fn publish(s: &State, width: i32, height: i32) {
+    let mut items = vec![a11y::Item::new(&s.left, a11y::Role::Text, Rect::new(0, 0, width / 3, height))];
+    for (seg, r) in s.segments.iter().zip(&s.rects) {
+        items.push(a11y::Item::new(&seg.text, if seg.id.is_some() { a11y::Role::Button } else { a11y::Role::Text }, *r));
+    }
+    s.reader.publish(items);
 }
 
 impl std::fmt::Debug for StatusBar {
@@ -98,6 +109,7 @@ impl StatusBar {
             segments: Vec::new(),
             rects: Vec::new(),
             handler: None,
+            reader: a11y::Items::default(),
         }));
         let bar = StatusBar { panel, st };
         bar.wire();
@@ -125,6 +137,19 @@ impl StatusBar {
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_paint(move |_| paint(&st, p));
+
+        let (st, items) = (self.st.clone(), self.st.borrow().reader.clone());
+        a11y::attach(self.panel, "Status bar", a11y::Bar::Status, items, move |i| {
+            // Item 0 is the left text.
+            let hit = {
+                let s = st.borrow();
+                i.checked_sub(1).and_then(|k| s.rects.get(k).zip(s.segments.get(k))).and_then(|(r, seg)| seg.id.map(|id| (id, r.l, r.t)))
+            };
+            let h = st.borrow().handler.clone();
+            if let (Some((id, l, t)), Some(h)) = (hit, h) {
+                h(StatusEvent::Clicked(id, l, t));
+            }
+        });
 
         let st = self.st.clone();
         self.panel.on_mouse_left_down(move |e| {
@@ -161,6 +186,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
         text_at(&dc, &seg.text, *r, c.accent_text, true);
         fill(&dc, Rect::new(r.l, t.px(DIVIDER_GAP), r.l + 1, h - t.px(DIVIDER_GAP)), c.accent_line);
     }
+    publish(&s, w, h);
 }
 
 #[cfg(test)]

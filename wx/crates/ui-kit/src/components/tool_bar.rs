@@ -18,6 +18,7 @@ use std::rc::Rc;
 use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
+use super::a11y;
 use crate::geom::Rect;
 use crate::paint::{Look, Rgb, fill, mix, outline, pos, text_at, text_w, wash};
 use crate::pointer::Pointer;
@@ -107,9 +108,31 @@ struct State {
     pill: Option<(Pill, Rect)>,
     pointer: Pointer,
     handler: Option<Rc<dyn Fn(ToolEvent)>>,
+    reader: a11y::Items,
 }
 
 impl State {
+    /// The commands of the items the screen reader sees, in order: the buttons, then the notice.
+    fn reader_commands(&self) -> Vec<usize> {
+        let buttons = self.items.iter().filter_map(|i| if let Item::Button { cmd, .. } = i { Some(*cmd) } else { None });
+        buttons.chain(self.pill.iter().map(|(p, _)| p.cmd)).collect()
+    }
+
+    /// Show the screen reader what was just painted.
+    fn publish(&self) {
+        let mut seen = Vec::new();
+        for (item, r) in self.items.iter().zip(&self.rects) {
+            if let Item::Button { cmd, tip, .. } = item {
+                let mut one = a11y::Item::new(tip, a11y::Role::Button, *r);
+                one.selected = self.checked.contains(cmd);
+                one.disabled = self.disabled.contains(cmd);
+                seen.push(one);
+            }
+        }
+        seen.extend(self.pill.iter().map(|(p, r)| a11y::Item::new(&p.text, a11y::Role::Button, *r)));
+        self.reader.publish(seen);
+    }
+
     fn button_at(&self, x: i32, y: i32) -> Option<usize> {
         self.items.iter().zip(&self.rects).position(|(it, r)| matches!(it, Item::Button { cmd, .. } if !self.disabled.contains(cmd)) && r.has(x, y))
     }
@@ -143,6 +166,7 @@ impl ToolBar {
             pill: None,
             pointer: Pointer::default(),
             handler: None,
+            reader: a11y::Items::default(),
         }));
         let bar = ToolBar { panel, st };
         bar.wire();
@@ -222,6 +246,14 @@ impl ToolBar {
     fn wire(&self) {
         let (p, st) = (self.panel, self.st.clone());
         p.on_paint(move |_| paint(&st, p));
+
+        let (st, items) = (self.st.clone(), self.st.borrow().reader.clone());
+        a11y::attach(self.panel, "Toolbar", a11y::Bar::Tools, items, move |i| {
+            let cmd = st.borrow().reader_commands().get(i).copied();
+            if let Some(cmd) = cmd {
+                Self::emit(&st, ToolEvent::Command(cmd));
+            }
+        });
 
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_motion(move |e| {
@@ -317,6 +349,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
             }
         }
     }
+    s.publish();
 }
 
 #[cfg(test)]

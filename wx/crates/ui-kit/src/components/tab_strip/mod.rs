@@ -22,6 +22,7 @@ use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
 use self::model::{Btn, Layout, Rows, Scroll};
+use super::a11y;
 use crate::geom::Rect;
 use crate::paint::{Look, colour, fill, mix, pos, text_at, text_w, wash};
 
@@ -90,6 +91,9 @@ struct State {
     /// Text for the tool tip of a tab that is not the active one, asked for when the pointer comes to rest on it.
     preview: Option<Rc<dyn Fn(usize) -> String>>,
     /// The tab the tool tip was last made for (None: ask again).
+    reader: a11y::Items,
+    /// The vertical list has the keyboard (it draws a ring).
+    focused: bool,
     tip_for: Option<usize>,
 }
 
@@ -137,9 +141,16 @@ impl TabStrip {
             handler: None,
             preview: None,
             tip_for: None,
+            reader: a11y::Items::default(),
+            focused: false,
         }));
         let strip = TabStrip { panel, st };
         strip.wire();
+        let (st, items) = (strip.st.clone(), strip.st.borrow().reader.clone());
+        a11y::attach(panel, if vertical { "Categories" } else { "Tabs" }, a11y::Bar::Tabs, items, move |i| Self::emit(&st, TabEvent::Select(i)));
+        if vertical {
+            column::wire_keys(&strip.st, panel);
+        }
         let (p, st) = (strip.panel, strip.st.clone());
         crate::theme::subscribe(move |t| {
             st.borrow_mut().look = t.look();

@@ -3,6 +3,7 @@
 
 mod themed;
 
+pub mod a11y;
 pub mod ask;
 pub mod message_box;
 pub mod toast;

@@ -52,6 +52,17 @@ pub(super) fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
         }
     }
     paint_button(&dc, s.layout.plus, lk, s.btn_hot == Some(Btn::Plus), s.btn_down == Some(Btn::Plus), Btn::Plus);
+    publish(&s);
+}
+
+/// Show the screen reader what was just painted.
+pub(super) fn publish(s: &State) {
+    let items = s.tabs.iter().zip(&s.layout.tabs).enumerate().map(|(i, (tab, r))| {
+        let mut one = a11y::Item::new(&if tab.dirty { format!("{} (modified)", tab.title) } else { tab.title.clone() }, a11y::Role::Tab, *r);
+        one.selected = i == s.active;
+        one
+    });
+    s.reader.publish(items.collect());
 }
 
 pub(super) fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect, h: i32) {

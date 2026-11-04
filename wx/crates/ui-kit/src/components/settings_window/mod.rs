@@ -118,6 +118,10 @@ pub fn show(owner: &Frame, title: &str, make: &MakePages, start: &str, on_change
         }
     });
     dialog.centre();
+    // The keyboard starts on the page list: arrows choose a page, Tab goes into it.
+    // (After the window is up: opening it hands the focus to a control of the page.)
+    let list = nav.panel();
+    crate::defer::later(owner, move || list.set_focus());
     dialog.show_modal();
     dialog.destroy();
 }

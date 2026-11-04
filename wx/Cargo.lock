@@ -963,7 +963,7 @@ dependencies = [
 
 [[package]]
 name = "notepp-core"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "notepp-wx"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "encoding_rs",
  "notepp-core",
@@ -1682,7 +1682,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui-kit"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "serde_json",
  "wxdragon",

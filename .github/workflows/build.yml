@@ -139,6 +139,9 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-22.04
     continue-on-error: true
+    env:
+      # rust-toolchain.toml names the Windows toolchain, which cannot run here. The audit only reads the lockfiles.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - name: Checkout
         uses: actions/checkout@v4

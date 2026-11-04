@@ -7,7 +7,7 @@ mod bookmarks_ops;
 impl<S: Send> Workspace<S> {
     /// Is the active tab a Markdown document (so the Markdown toolbar applies)?
     pub fn is_markdown(&self) -> bool {
-        !self.is_whiteboard() && self.preview_kind() == Some(preview::Kind::Markdown)
+        !self.is_page() && self.preview_kind() == Some(preview::Kind::Markdown)
     }
 
     /// Apply a Markdown formatting command to the selection as one undo step.

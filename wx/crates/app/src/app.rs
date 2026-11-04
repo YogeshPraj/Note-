@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::command::AppError;
 use crate::widgets::web_pane::WebPane;
 use notepp_core::commands::{
-    ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_FIF, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_INCR, ID_MARK, ID_MINIMAP, ID_NEXT_RESULT, ID_PALETTE,
+    ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_FIF, ID_FIND, ID_FINDNEXT, ID_FINDPREV, ID_GOTO, ID_INCR, ID_MARK, ID_MINIMAP, ID_NEXT_RESULT, ID_PALETTE, ID_PASTE,
     ID_PREV_RESULT, ID_PREVIEW, ID_QUICKOPEN, ID_REPLACE, ID_SAVE, ID_SAVE_COPY, ID_SAVEAS, ID_THEME, ID_WRAP,
 };
 use notepp_core::preview as pcore;
@@ -26,7 +26,7 @@ use crate::panels::{self, Panels};
 use crate::popups;
 use crate::preview;
 use crate::sci::WxSci;
-use crate::state::{PreviewState, SearchResults, StreamState, WhiteboardState};
+use crate::state::{ImageState, PreviewState, SearchResults, StreamState, WhiteboardState};
 use crate::ui::WxUi;
 use crate::whiteboard::{self as wbm, Pending};
 use notepp_core::schedule::Schedule;
@@ -38,6 +38,7 @@ pub struct App {
     pub(crate) clipboard: crate::services::clipboard::ClipboardService,
     pub(crate) streams: StreamState,
     pub(crate) wb: WhiteboardState,
+    pub(crate) img: ImageState,
     pub(crate) preview: PreviewState,
     bus: Rc<CommandBus<App>>,
     pub ws: Workspace<WxSci>,
@@ -47,6 +48,7 @@ pub struct App {
     splitter: SplitterWindow,
     pub(crate) editor_pane: Panel,
     wbv: WebPane,
+    imgv: WebPane,
     pub(crate) panels: Panels,
     pub(crate) side: crate::side::Side,
     pub(crate) side_key: Option<(isize, isize)>,
@@ -85,6 +87,9 @@ pub type Shared = Rc<RefCell<App>>;
 
 /// The Tab key's code (`WXK_TAB`).
 const KEY_TAB: i32 = 9;
+
+/// The V key's code (`WXK_V` is the capital letter).
+const KEY_V: i32 = 86;
 
 /// How much of another tab's text its tool tip shows: lines, and characters per line.
 const TIP_LINES: usize = 12;
@@ -125,6 +130,9 @@ impl App {
 
     /// The dispatch behind [`crate::command::execute`]: core commands first, then the registered handlers.
     pub(crate) fn dispatch_command(&mut self, id: usize) -> Result<(), AppError> {
+        if id == ID_PASTE && !self.ws.is_page() && self.paste_image() {
+            return Ok(());
+        }
         // A whiteboard is saved from the page's latest scene, so ask for it first.
         if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wbv.is_ready() {
             self.wb.pending = Some(match id {
@@ -184,6 +192,7 @@ impl App {
     /// a different tab comes to the front).
     pub fn whiteboard_reloaded(&mut self) {
         self.wb.shown = None;
+        self.img.shown = None;
     }
 
     /// Files a second launch left behind.
@@ -212,7 +221,7 @@ impl App {
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.
     pub fn refresh(&mut self) {
         self.sync_dock();
-        if !self.ws.is_whiteboard() {
+        if !self.ws.is_page() {
             self.ws.update_smart();
             self.ws.auto_detect_language();
             self.ws.sync_current_line();
@@ -241,6 +250,7 @@ impl App {
         self.menubar.check_item(crate::platform::wx::to_i32(ID_THEME), self.ws.theme.dark);
         self.menubar.check_item(crate::platform::wx::to_i32(ID_MINIMAP), self.ws.minimap);
         self.wb_sync();
+        self.image_sync();
         self.refresh_side();
         self.sync_chrome();
         self.extra_ticks();
@@ -323,5 +333,7 @@ pub fn default_shortcut(id: usize) -> Option<String> {
 mod preview_pane;
 
 mod whiteboard_pane;
+
+mod image_pane;
 
 mod find_panel;

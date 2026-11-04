@@ -5,17 +5,18 @@ use super::*;
 impl<S: Send> Workspace<S> {
     /// The active tab as it would be written to disk.
     pub(super) fn current_bytes(&self) -> Vec<u8> {
-        if self.is_whiteboard() {
-            self.tabs[self.active].content.clone().into_bytes()
-        } else {
-            doc::encode(&sci::get_text(&self.sci), self.tabs[self.active].enc)
+        let t = &self.tabs[self.active];
+        match t.kind {
+            TabKind::Whiteboard => t.content.clone().into_bytes(),
+            TabKind::Image => crate::image::from_content(&t.content),
+            TabKind::Text => doc::encode(&sci::get_text(&self.sci), t.enc),
         }
     }
 
     /// The active tab as it goes to `path`: encrypted when the tab is protected (asking for the
     /// password first if the profile is locked). None when that was declined or failed.
     pub(super) fn bytes_for(&mut self, ui: &dyn Ui, path: &Path) -> Option<Vec<u8>> {
-        if self.is_whiteboard() || !self.tabs[self.active].encrypted {
+        if self.is_page() || !self.tabs[self.active].encrypted {
             return Some(self.current_bytes());
         }
         let title = self.tabs[self.active].title.clone();
@@ -36,7 +37,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub(super) fn write_to(&mut self, ui: &dyn Ui, path: &Path) -> bool {
-        let whiteboard = self.is_whiteboard();
+        let whiteboard = self.is_page();
         if !whiteboard && !self.tabs[self.active].encrypted {
             let enc = self.tabs[self.active].enc;
             if !doc::can_encode(&sci::get_text(&self.sci), enc) && !ui.ask_yes_no(&unmappable_warning(enc)) {
@@ -71,15 +72,25 @@ impl<S: Send> Workspace<S> {
 
     pub fn save_as(&mut self, ui: &dyn Ui) -> bool {
         let t = &self.tabs[self.active];
-        let suggested = if t.kind == TabKind::Whiteboard && !t.title.contains('.') { format!("{}.excalidraw", t.title) } else { t.title.clone() };
-        let Some(p) = ui.pick_save(&suggested) else { return false };
+        let suggested = match t.kind {
+            TabKind::Whiteboard if !t.title.contains('.') => format!("{}.excalidraw", t.title),
+            TabKind::Image => crate::image::png_path(Path::new(&t.title)).to_string_lossy().into_owned(),
+            _ => t.title.clone(),
+        };
+        let Some(mut p) = ui.pick_save(&suggested) else { return false };
+        if self.is_image() {
+            p = crate::image::png_path(&p);
+        }
         self.write_and_adopt(ui, p)
     }
 
     /// Write the active tab to another file, leaving the tab itself untouched.
     pub fn save_copy_as(&mut self, ui: &dyn Ui) -> Option<PathBuf> {
         let t = &self.tabs[self.active];
-        let p = ui.pick_save(&t.title)?;
+        let mut p = ui.pick_save(&t.title)?;
+        if self.is_image() {
+            p = crate::image::png_path(&p);
+        }
         let bytes = self.bytes_for(ui, &p)?;
         match files::atomic_write(&p, &bytes) {
             Ok(()) => Some(p),
@@ -116,9 +127,16 @@ impl<S: Send> Workspace<S> {
             }
         };
         let title = self.tabs[self.active].title.clone();
+        if self.is_image() {
+            let t = &mut self.tabs[self.active];
+            t.content = crate::image::to_content(&bytes);
+            t.disk = stamp_of(&path);
+            t.dirty = false;
+            return true;
+        }
         let Some((text, enc, eol, encrypted)) = self.read_text(ui, &bytes, &title) else { return false };
         self.tabs[self.active].disk = stamp_of(&path);
-        if self.is_whiteboard() {
+        if self.is_page() {
             let t = &mut self.tabs[self.active];
             t.content = text;
             t.dirty = false;
@@ -159,7 +177,7 @@ impl<S: Send> Workspace<S> {
 
     /// Protect the active file: from now on it is saved encrypted. Returns a message for the user.
     pub fn encrypt_active(&mut self, ui: &dyn Ui) -> Option<String> {
-        if self.is_whiteboard() {
+        if self.is_page() {
             return Some("Whiteboards cannot be encrypted".into());
         }
         if self.tabs[self.active].encrypted {
@@ -283,7 +301,7 @@ impl<S: Send> Workspace<S> {
     /// Point the active tab at `p` (title, language, recent list).
     pub(super) fn adopt_path(&mut self, p: PathBuf) {
         self.note_recent(&p);
-        let whiteboard = self.is_whiteboard();
+        let whiteboard = self.is_page();
         let lang = lang_for(&p);
         let label = lang::label_for(lang, Some(&p));
         let changed = !whiteboard && self.tabs[self.active].lang != lang;

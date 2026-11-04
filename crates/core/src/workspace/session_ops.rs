@@ -45,7 +45,12 @@ impl<S: Send> Workspace<S> {
         let t = &self.tabs[i];
         let untitled = t.path.is_none();
         let mut text = None;
-        if t.kind == TabKind::Whiteboard {
+        if t.kind == TabKind::Image {
+            // A picture is kept in the session until it is saved to a file of its own.
+            if t.dirty || untitled {
+                text = Some(t.content.clone());
+            }
+        } else if t.kind == TabKind::Whiteboard {
             if t.dirty || untitled {
                 text = Some(t.content.clone());
             }
@@ -74,7 +79,11 @@ impl<S: Send> Workspace<S> {
             encrypted: t.encrypted && has_text,
             pinned: t.pinned,
             color: t.color,
-            kind: if t.kind == TabKind::Whiteboard { "whiteboard".into() } else { "text".into() },
+            kind: match t.kind {
+                TabKind::Whiteboard => "whiteboard".into(),
+                TabKind::Image => "image".into(),
+                TabKind::Text => "text".into(),
+            },
             lang: (t.path.is_none() && t.kind == TabKind::Text && t.lang != "null").then(|| t.lang_label.to_string()),
         })
     }
@@ -101,7 +110,7 @@ impl<S: Send> Workspace<S> {
             let want = s.active.min(self.tabs.len() - 1);
             if want != self.active {
                 self.activate(want);
-            } else if !self.is_whiteboard() {
+            } else if !self.is_page() {
                 self.apply_view();
             }
         }
@@ -173,6 +182,20 @@ impl<S: Send> Workspace<S> {
         self.tabs[i].color = st.color;
     }
 
+    /// One saved picture tab: its unsaved bytes if it has any, else the file on disk.
+    pub(super) fn restore_image(&mut self, st: &crate::session::SessionTab, path: Option<PathBuf>) {
+        let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).filter(|b| crate::image::sniff_mime(b).is_some());
+        let (content, dirty, path) = match (&st.text, disk) {
+            (Some(t), Some(d)) => (t.clone(), *t != crate::image::to_content(&d), path),
+            (Some(t), None) => (t.clone(), true, path),
+            (None, Some(d)) => (crate::image::to_content(&d), false, path),
+            (None, None) => return,
+        };
+        let i = self.open_image(st.title.clone(), path, content, dirty);
+        self.tabs[i].pinned = st.pinned;
+        self.tabs[i].color = st.color;
+    }
+
     /// Open the tabs described by `s` (skipping files that are already open).
     pub(super) fn restore_tabs(&mut self, ui: &dyn Ui, s: &Session) {
         // Once the user declines to unlock, the other protected tabs are skipped without asking again.
@@ -182,6 +205,10 @@ impl<S: Send> Workspace<S> {
             if let Some(p) = &path
                 && self.tabs.iter().any(|t| t.path.as_deref().is_some_and(|q| same_path(q, p)))
             {
+                continue;
+            }
+            if st.kind == "image" {
+                self.restore_image(st, path);
                 continue;
             }
             if st.kind == "whiteboard" {

@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use notepp_core::secret::{SECRET_TTL, SecretGuard};
-use wxdragon::prelude::{Bitmap, BitmapDataObject, Clipboard};
+use wxdragon::prelude::{Bitmap, BitmapDataObject, Clipboard, DataFormat};
 
 /// The clipboard service: the system clipboard plus the password guard.
 #[derive(Default)]
@@ -52,4 +52,22 @@ pub fn paste() -> Option<String> {
 pub fn copy_image(width: u32, height: u32, rgba: &[u8]) -> bool {
     let Some(bitmap) = Bitmap::from_rgba(rgba, width, height) else { return false };
     Clipboard::get().set_data(&mut BitmapDataObject::new(&bitmap))
+}
+
+/// A picture on the system clipboard, when it holds no text (text wins, as with every editor): its width, height and
+/// RGBA pixels.
+pub fn paste_image() -> Option<(u32, u32, Vec<u8>)> {
+    let clipboard = Clipboard::get();
+    if clipboard.is_format_supported(DataFormat::TEXT) || !clipboard.is_format_supported(DataFormat::BITMAP) {
+        return None;
+    }
+    let holder = BitmapDataObject::new(&Bitmap::new(1, 1)?);
+    if !clipboard.get_data(&holder) {
+        return None;
+    }
+    let bitmap = holder.get_bitmap()?;
+    let (width, height) = (u32::try_from(bitmap.get_width()).ok()?, u32::try_from(bitmap.get_height()).ok()?);
+    let rgba = bitmap.get_rgba_data()?;
+    (width > 0 && height > 0 && rgba.len() == usize::try_from(width).ok()?.checked_mul(usize::try_from(height).ok()?)?.checked_mul(4)?)
+        .then_some((width, height, rgba))
 }

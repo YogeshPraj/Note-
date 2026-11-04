@@ -45,6 +45,7 @@ pub(super) struct Widgets {
     probe: StyledTextCtrl,
     panels: Panels,
     wbv: WebPane,
+    imgv: WebPane,
     view: WebPane,
     mdbar: crate::widgets::dock::Dock,
 }
@@ -80,6 +81,10 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     wbv.add_user_script(wbm::BRIDGE, wxdragon::widgets::webview::WebViewUserScriptInjectionTime::AtDocumentStart);
     wbv.show(false);
     row.add(&wbv, 1, SizerFlag::Expand, 0);
+    let imgv = WebPane::new(&editor_pane);
+    no_border(&imgv);
+    imgv.show(false);
+    row.add(&imgv, 1, SizerFlag::Expand, 0);
     row.add(&panels.side, 0, SizerFlag::Expand, 0);
     editor_pane.set_sizer(row, true);
     let view = WebPane::new(&splitter);
@@ -98,7 +103,7 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     sizer.add(&findpanel::container(frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
-    Widgets { splitter, editor_pane, dock_panes, stc, dock_stc, mini, probe, panels, wbv, view, mdbar }
+    Widgets { splitter, editor_pane, dock_panes, stc, dock_stc, mini, probe, panels, wbv, imgv, view, mdbar }
 }
 
 /// The workspace: settings, the last session, then the files named on the command line.
@@ -194,6 +199,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     areas::wire_areas(app);
     wire_mini(app, mini);
     wire_whiteboard(app, wbv);
+    wire_image(app);
     wire_menu_keys(app, frame);
     wire(app, frame, &stc, view);
     app.borrow_mut().refresh();
@@ -246,7 +252,7 @@ pub fn start(files: &[PathBuf]) {
     // Toolbar and tab strip above the editor, status bar below it.
     let chrome = Chrome::new(&frame);
     let w = build_widgets(&frame, &chrome);
-    let Widgets { splitter, editor_pane, dock_panes, stc, dock_stc, mini, probe, panels, wbv, view, mdbar } = w;
+    let Widgets { splitter, editor_pane, dock_panes, stc, dock_stc, mini, probe, panels, wbv, imgv, view, mdbar } = w;
 
     let ui = WxUi::new(frame);
     let ws = load_workspace(&ui, [&stc, &dock_stc, &mini, &probe], settings, files);
@@ -259,6 +265,7 @@ pub fn start(files: &[PathBuf]) {
         clipboard: crate::services::clipboard::ClipboardService::default(),
         streams: crate::state::StreamState::default(),
         wb: crate::state::WhiteboardState::default(),
+        img: crate::state::ImageState::default(),
         preview: crate::state::PreviewState::default(),
         ws,
         ui,
@@ -267,6 +274,7 @@ pub fn start(files: &[PathBuf]) {
         splitter,
         editor_pane,
         wbv: wbv.clone(),
+        imgv: imgv.clone(),
         menu_bar: 0,
         panels,
         side: crate::side::Side::default(),

@@ -318,7 +318,7 @@ impl App {
                 self.set_side_rows(rows);
             }
             Some(Mode::Functions) => {
-                if self.ws.is_whiteboard() {
+                if self.ws.is_page() {
                     self.set_side_rows(Vec::new());
                     self.side_key = None;
                     return;

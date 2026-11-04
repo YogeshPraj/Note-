@@ -141,7 +141,7 @@ impl App {
     }
 
     fn compare_with_clipboard(&mut self) {
-        if self.ws.is_whiteboard() {
+        if self.ws.is_page() {
             return;
         }
         match crate::services::clipboard::paste() {
@@ -151,7 +151,7 @@ impl App {
     }
 
     fn compare_with_file(&mut self) {
-        if self.ws.is_whiteboard() {
+        if self.ws.is_page() {
             return;
         }
         use notepp_core::workspace::Ui as _;
@@ -170,7 +170,7 @@ impl App {
     /// print preview and the user closes it. (A loaded-event handler on this short-lived web view crashed the app when
     /// the window closed, so the page calls `window.print()` on its own, which is all the toolkit's print does.)
     fn print_document(&mut self) {
-        if self.ws.is_whiteboard() {
+        if self.ws.is_page() {
             self.flash = Some("Not available on a whiteboard".into());
             return;
         }

@@ -209,7 +209,7 @@ impl CommandHandler<App> for DockCommands {
             _ => return false,
         }
         app.refresh();
-        if !app.ws.is_whiteboard() {
+        if !app.ws.is_page() {
             app.stc().set_focus();
         }
         true

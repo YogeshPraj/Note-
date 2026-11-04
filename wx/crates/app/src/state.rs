@@ -13,6 +13,15 @@ pub struct WhiteboardState {
     pub pending: Option<Pending>,
 }
 
+/// The picture editor page behind picture tabs.
+#[derive(Default)]
+pub struct ImageState {
+    /// Tab whose picture the page currently shows.
+    pub shown: Option<u64>,
+    /// A picture pasted from the clipboard that the page has not been given yet: width, height, base64 RGBA pixels.
+    pub pending: Option<(u32, u32, String)>,
+}
+
 /// The preview pane (Markdown, HTML, Mermaid, JSON, logs, HTTP).
 #[derive(Default)]
 pub struct PreviewState {

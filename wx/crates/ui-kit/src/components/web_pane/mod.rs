@@ -125,6 +125,13 @@ impl WebPane {
         }
     }
 
+    /// Call `path(prefix..., data)` in the page with a large string `data` (a picture), sent in pieces.
+    pub fn call_big(&self, path: &str, prefix: &str, data: &str) {
+        for statement in script::big_call(path, prefix, data, BIG_CHUNK) {
+            self.eval(&statement);
+        }
+    }
+
     /// Record the theme: true when the page has to be told (it was not told this one yet).
     pub fn sync_dark(&self, dark: bool) -> bool {
         let mut s = self.st.borrow_mut();

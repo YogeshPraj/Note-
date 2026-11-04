@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+:root { --bg:#f3f3f3; --fg:#1b1b1b; --bar:#f3f3f3; --barborder:#d0d0d0; --btn:#e4e4e4; --on:#cfe0f7; --onborder:#7aa7e0; --stage:#e9e9ec; --muted:#6a6a6a; }
+body.dark { --bg:#1e1e1e; --fg:#d4d4d4; --bar:#2b2b2b; --barborder:#444; --btn:#444; --on:#2f4f78; --onborder:#4d8fd9; --stage:#252526; --muted:#9da5ae; }
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px "Segoe UI", system-ui, sans-serif; overflow:hidden; user-select:none; }
+#bar { display:flex; flex-wrap:wrap; align-items:center; gap:2px; padding:5px 8px; background:var(--bar); border-bottom:1px solid var(--barborder); }
+.sep { width:1px; height:20px; background:var(--barborder); margin:0 3px; }
+button { height:26px; min-width:26px; padding:0 6px; border:1px solid transparent; border-radius:4px; background:transparent; color:var(--fg); font:inherit; cursor:pointer; }
+button:hover:not(:disabled) { background:var(--btn); }
+button:disabled { opacity:.4; cursor:default; }
+button.on { background:var(--on); border-color:var(--onborder); }
+.sw { width:18px; min-width:18px; height:18px; padding:0; border:1px solid var(--barborder); border-radius:50%; margin:0 1px; }
+.sw.on { outline:2px solid var(--onborder); outline-offset:1px; }
+input[type=color] { width:28px; height:24px; padding:0; border:1px solid var(--barborder); border-radius:4px; background:transparent; cursor:pointer; }
+select, input[type=number] { height:26px; border:1px solid var(--barborder); border-radius:4px; background:var(--bg); color:var(--fg); font:inherit; }
+#view { position:absolute; top:var(--barh, 42px); left:0; right:0; bottom:24px; overflow:auto; background:var(--stage); }
+#stage { position:relative; margin:12px; width:max-content; height:max-content; background-color:#fff; background-image:conic-gradient(#d9d9d9 25%, #fff 0 50%, #d9d9d9 0 75%, #fff 0); background-size:16px 16px; box-shadow:0 1px 6px rgba(0,0,0,.35); }
+#pic, #ov { display:block; }
+#ov { position:absolute; left:0; top:0; cursor:crosshair; }
+#pic.crisp { image-rendering:pixelated; }
+#status { position:absolute; left:0; right:0; bottom:0; height:24px; padding:3px 10px; font-size:12px; color:var(--muted); background:var(--bar); border-top:1px solid var(--barborder); white-space:nowrap; overflow:hidden; }
+#cropbar { position:absolute; display:none; gap:4px; padding:4px; background:var(--bar); border:1px solid var(--barborder); border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,.35); z-index:5; }
+#resize { position:absolute; display:none; top:60px; left:50%; transform:translateX(-50%); padding:12px 14px; background:var(--bar); border:1px solid var(--barborder); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.4); z-index:6; }
+#resize label { display:flex; align-items:center; gap:8px; margin:4px 0; }
+#resize input[type=number] { width:90px; }
+#resize .row { display:flex; justify-content:flex-end; gap:6px; margin-top:10px; }
+#textbox { position:absolute; display:none; padding:0; margin:0; border:1px dashed #888; background:transparent; outline:none; font-family:"Segoe UI", sans-serif; z-index:4; min-width:40px; }
+.hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button data-tool="crop" title="Crop: drag a rectangle, then Enter or Apply">Crop</button>
+  <button data-tool="pen" title="Pen">Pen</button>
+  <button data-tool="marker" title="Highlighter">Marker</button>
+  <button data-tool="arrow" title="Arrow">Arrow</button>
+  <button data-tool="rect" title="Rectangle">Rect</button>
+  <button data-tool="oval" title="Ellipse">Oval</button>
+  <button data-tool="text" title="Text: click where it goes, type, Enter">Text</button>
+  <button data-tool="hide" title="Hide: pixelate a rectangle (for passwords and faces)">Hide</button>
+  <span class="sep"></span>
+  <span id="swatches"></span>
+  <input id="color" type="color" value="#e53935" title="Colour">
+  <select id="size" title="Line width and text size">
+    <option value="2">Thin</option><option value="4" selected>Medium</option><option value="8">Thick</option><option value="14">Huge</option>
+  </select>
+  <span class="sep"></span>
+  <button id="rotl" title="Rotate left">&#8634;</button>
+  <button id="rotr" title="Rotate right">&#8635;</button>
+  <button id="fliph" title="Flip horizontally">&#8660;</button>
+  <button id="flipv" title="Flip vertically">&#8661;</button>
+  <button id="resz" title="Resize the picture">Resize</button>
+  <span class="sep"></span>
+  <button id="undo" title="Undo (Ctrl+Z)">&#8630;</button>
+  <button id="redo" title="Redo (Ctrl+Y)">&#8631;</button>
+  <span class="sep"></span>
+  <button id="zout" title="Zoom out">&minus;</button>
+  <button id="zlabel" title="Actual size (100%)">100%</button>
+  <button id="zin" title="Zoom in">+</button>
+  <button id="zfit" title="Fit to the window">Fit</button>
+  <span class="sep"></span>
+  <button id="copy" title="Copy the picture to the clipboard (Ctrl+C)">Copy</button>
+  <button id="save" title="Save (Ctrl+S)">Save</button>
+</div>
+<div id="view"><div id="stage"><canvas id="pic"></canvas><canvas id="ov"></canvas><input id="textbox" type="text"></div></div>
+<div id="cropbar"><button id="cropok">Apply</button><button id="cropno">Cancel</button></div>
+<div id="resize">
+  <label>Width <input id="rw" type="number" min="1" max="16000"> px</label>
+  <label>Height <input id="rh" type="number" min="1" max="16000"> px</label>
+  <label><input id="rlock" type="checkbox" checked> Keep proportions</label>
+  <div class="row"><button id="rok">Resize</button><button id="rno">Cancel</button></div>
+</div>
+<div id="status">No picture</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var post = function (m) { window.ipc.postMessage(m); };
+  var pic = $('pic'), pctx = pic.getContext('2d', { willReadFrequently: true });
+  var ov = $('ov'), octx = ov.getContext('2d');
+  var tool = 'pen', color = '#e53935', size = 4, zoom = 1, fitMode = true, loaded = false;
+  var undoStack = [], redoStack = [], crop = null, stateTimer = 0;
+  var COLORS = ['#e53935', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#000000', '#ffffff'];
+
+  /* ---- keys the window owns (the page has the keyboard, so the window never sees them) ---- */
+  window.addEventListener('keydown', function (e) {
+    var typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
+    if (e.key === 'Tab' && e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); post(e.shiftKey ? 'tab:prev' : 'tab:next'); return; }
+    if ((e.altKey && !e.ctrlKey && /^[a-z0-9]$/i.test(e.key)) || (e.key === 'F10' && !e.altKey && !e.ctrlKey && !e.shiftKey)) { e.preventDefault(); e.stopPropagation(); post('menu:' + (e.key === 'F10' ? '' : e.key)); return; }
+    if (e.ctrlKey && !e.altKey && !typing) {
+      var k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+      else if (k === 's') { e.preventDefault(); save(); }
+      else if (k === 'c') { e.preventDefault(); copyImage(); }
+    } else if (e.key === 'Enter' && crop && !typing) { e.preventDefault(); applyCrop(); }
+    else if (e.key === 'Escape') { cancelCrop(); cancelText(); $('resize').style.display = 'none'; }
+  }, true);
+
+  /* ---- the picture, its history and what is shown ---- */
+  function snapshot() { var c = document.createElement('canvas'); c.width = pic.width; c.height = pic.height; c.getContext('2d').drawImage(pic, 0, 0); return c; }
+  function pushUndo() { undoStack.push(snapshot()); redoStack = []; trim(); buttons(); }
+  function trim() {
+    var total = 0;
+    for (var i = undoStack.length - 1; i >= 0; i--) {
+      total += undoStack[i].width * undoStack[i].height;
+      if (total > 60e6 || undoStack.length - i > 50) { undoStack.splice(0, i + 1); break; }
+    }
+  }
+  function setSize(w, h) { pic.width = ov.width = w; pic.height = ov.height = h; applyZoom(); }
+  function replaceWith(c) { setSize(c.width, c.height); pctx.drawImage(c, 0, 0); }
+  function undo() { if (!undoStack.length) return; cancelCrop(); redoStack.push(snapshot()); replaceWith(undoStack.pop()); changed(); buttons(); }
+  function redo() { if (!redoStack.length) return; cancelCrop(); undoStack.push(snapshot()); replaceWith(redoStack.pop()); changed(); buttons(); }
+  function buttons() {
+    $('undo').disabled = !undoStack.length; $('redo').disabled = !redoStack.length;
+    ['rotl', 'rotr', 'fliph', 'flipv', 'resz', 'copy', 'save'].forEach(function (id) { $(id).disabled = !loaded; });
+  }
+  function status() { $('status').textContent = loaded ? pic.width + ' \u00d7 ' + pic.height + ' px' : 'No picture'; }
+  function applyZoom() {
+    var w = pic.width * zoom, h = pic.height * zoom;
+    pic.style.width = ov.style.width = w + 'px'; pic.style.height = ov.style.height = h + 'px';
+    pic.classList.toggle('crisp', zoom > 2);
+    $('zlabel').textContent = Math.round(zoom * 100) + '%';
+    status();
+  }
+  function fitZoom() {
+    var v = $('view'), z = Math.min(1, (v.clientWidth - 30) / Math.max(1, pic.width), (v.clientHeight - 30) / Math.max(1, pic.height));
+    zoom = Math.max(0.05, z); fitMode = true; applyZoom();
+  }
+  function setZoom(z) { zoom = Math.min(8, Math.max(0.05, z)); fitMode = false; applyZoom(); }
+  window.addEventListener('resize', function () { if (fitMode && loaded) fitZoom(); });
+  $('view').addEventListener('wheel', function (e) { if (e.ctrlKey) { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); } }, { passive: false });
+  $('zin').onclick = function () { setZoom(zoom * 1.25); };
+  $('zout').onclick = function () { setZoom(zoom / 1.25); };
+  $('zlabel').onclick = function () { setZoom(1); };
+  $('zfit').onclick = fitZoom;
+
+  /* ---- telling the app about the picture (as a PNG), and saving ---- */
+  function toBase64(blob, done) { var fr = new FileReader(); fr.onload = function () { done(String(fr.result).split(',')[1] || ''); }; fr.readAsDataURL(blob); }
+  function emitNow(edited, then) {
+    clearTimeout(stateTimer); stateTimer = 0;
+    pic.toBlob(function (b) { if (!b) { if (then) then(); return; } toBase64(b, function (s) { post('state:' + (edited ? '1' : '0') + ':' + s); if (then) then(); }); }, 'image/png');
+  }
+  function changed() { loaded = true; buttons(); status(); clearTimeout(stateTimer); stateTimer = setTimeout(function () { emitNow(true); }, 150); }
+  function save() { if (!loaded) return; commitText(); emitNow(true, function () { post('save'); }); }
+  function copyImage() {
+    if (!loaded) return;
+    var w = pic.width, h = pic.height, s = Math.min(1, Math.sqrt(8e6 / (w * h)));
+    var pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
+    var c = document.createElement('canvas'); c.width = pw; c.height = ph;
+    var g = c.getContext('2d'); g.drawImage(pic, 0, 0, pw, ph);
+    toBase64(new Blob([g.getImageData(0, 0, pw, ph).data]), function (s64) { post('copy-image:' + pw + ':' + ph + ':' + s64); flash($('copy'), 'Copied'); });
+  }
+  function flash(b, text) { var old = b.textContent; b.textContent = text; setTimeout(function () { b.textContent = old; }, 1200); }
+  $('copy').onclick = copyImage; $('save').onclick = save;
+  $('undo').onclick = undo; $('redo').onclick = redo;
+
+  /* ---- whole-picture operations ---- */
+  function transform(w, h, draw) {
+    commitText(); cancelCrop(); pushUndo();
+    var src = snapshot(); setSize(w, h); pctx.save(); draw(pctx, src); pctx.restore();
+    if (fitMode) fitZoom(); changed();
+  }
+  $('rotl').onclick = function () { transform(pic.height, pic.width, function (g, s) { g.translate(0, s.width); g.rotate(-Math.PI / 2); g.drawImage(s, 0, 0); }); };
+  $('rotr').onclick = function () { transform(pic.height, pic.width, function (g, s) { g.translate(s.height, 0); g.rotate(Math.PI / 2); g.drawImage(s, 0, 0); }); };
+  $('fliph').onclick = function () { transform(pic.width, pic.height, function (g, s) { g.translate(s.width, 0); g.scale(-1, 1); g.drawImage(s, 0, 0); }); };
+  $('flipv').onclick = function () { transform(pic.width, pic.height, function (g, s) { g.translate(0, s.height); g.scale(1, -1); g.drawImage(s, 0, 0); }); };
+  $('resz').onclick = function () { $('rw').value = pic.width; $('rh').value = pic.height; $('resize').style.display = 'block'; $('rw').focus(); };
+  $('rno').onclick = function () { $('resize').style.display = 'none'; };
+  $('rw').oninput = function () { if ($('rlock').checked) $('rh').value = Math.max(1, Math.round($('rw').value * pic.height / pic.width)); };
+  $('rh').oninput = function () { if ($('rlock').checked) $('rw').value = Math.max(1, Math.round($('rh').value * pic.width / pic.height)); };
+  $('rok').onclick = function () {
+    var w = Math.min(16000, Math.max(1, Math.round(+$('rw').value))), h = Math.min(16000, Math.max(1, Math.round(+$('rh').value)));
+    $('resize').style.display = 'none';
+    if (w === pic.width && h === pic.height) return;
+    transform(w, h, function (g, s) { g.imageSmoothingQuality = 'high'; g.drawImage(s, 0, 0, w, h); });
+  };
+
+  /* ---- tools ---- */
+  function setTool(t) {
+    commitText(); cancelCrop(); tool = t;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) { b.classList.toggle('on', b.getAttribute('data-tool') === t); });
+    ov.style.cursor = t === 'text' ? 'text' : 'crosshair';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) { b.onclick = function () { setTool(b.getAttribute('data-tool')); }; });
+  function setColor(c) {
+    color = c; $('color').value = c;
+    Array.prototype.forEach.call(document.querySelectorAll('.sw'), function (b) { b.classList.toggle('on', b.getAttribute('data-c') === c); });
+  }
+  COLORS.forEach(function (c) { var b = document.createElement('button'); b.className = 'sw'; b.setAttribute('data-c', c); b.style.background = c; b.title = c; b.onclick = function () { setColor(c); }; $('swatches').appendChild(b); });
+  $('color').oninput = function () { setColor(this.value); };
+  $('size').onchange = function () { size = +this.value; };
+
+  function pt(e) { var r = ov.getBoundingClientRect(); return { x: (e.clientX - r.left) * ov.width / r.width, y: (e.clientY - r.top) * ov.height / r.height }; }
+  function rectOf(a, b) { var x = Math.min(a.x, b.x), y = Math.min(a.y, b.y); return { x: Math.round(x), y: Math.round(y), w: Math.round(Math.abs(a.x - b.x)), h: Math.round(Math.abs(a.y - b.y)) }; }
+  function clampRect(r) { var x = Math.max(0, r.x), y = Math.max(0, r.y); return { x: x, y: y, w: Math.min(pic.width - x, r.w - (x - r.x)), h: Math.min(pic.height - y, r.h - (y - r.y)) }; }
+  function strokeStyle(g) {
+    g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = g.fillStyle = color;
+    g.lineWidth = tool === 'marker' ? size * 4 : size; g.globalAlpha = tool === 'marker' ? 0.35 : 1;
+  }
+  function drawFree(g, pts) {
+    strokeStyle(g); g.beginPath(); g.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 1) g.lineTo(pts[0].x + 0.01, pts[0].y);
+    for (var i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.stroke();
+  }
+  function drawShape(g, a, b) {
+    strokeStyle(g);
+    if (tool === 'rect') { g.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
+    else if (tool === 'oval') { g.beginPath(); g.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(a.x - b.x) / 2, Math.abs(a.y - b.y) / 2, 0, 0, Math.PI * 2); g.stroke(); }
+    else if (tool === 'arrow') {
+      var ang = Math.atan2(b.y - a.y, b.x - a.x), head = Math.max(12, size * 4);
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x - Math.cos(ang) * head * 0.6, b.y - Math.sin(ang) * head * 0.6); g.stroke();
+      g.beginPath(); g.moveTo(b.x, b.y);
+      g.lineTo(b.x - head * Math.cos(ang - 0.45), b.y - head * Math.sin(ang - 0.45));
+      g.lineTo(b.x - head * Math.cos(ang + 0.45), b.y - head * Math.sin(ang + 0.45));
+      g.closePath(); g.fill();
+    }
+  }
+  function pixelate(r) {
+    var block = Math.max(6, Math.round(Math.max(r.w, r.h) / 22));
+    var sw = Math.max(1, Math.round(r.w / block)), sh = Math.max(1, Math.round(r.h / block));
+    var small = document.createElement('canvas'); small.width = sw; small.height = sh;
+    small.getContext('2d').drawImage(pic, r.x, r.y, r.w, r.h, 0, 0, sw, sh);
+    pctx.imageSmoothingEnabled = false; pctx.drawImage(small, 0, 0, sw, sh, r.x, r.y, r.w, r.h); pctx.imageSmoothingEnabled = true;
+  }
+  function drawCropOverlay() {
+    octx.clearRect(0, 0, ov.width, ov.height);
+    if (!crop) return;
+    octx.fillStyle = 'rgba(0,0,0,.5)'; octx.fillRect(0, 0, ov.width, ov.height);
+    octx.clearRect(crop.x, crop.y, crop.w, crop.h);
+    octx.setLineDash([6, 4]); octx.lineWidth = 1 / zoom * 1.5; octx.strokeStyle = '#fff'; octx.strokeRect(crop.x + 0.5, crop.y + 0.5, crop.w, crop.h); octx.setLineDash([]);
+  }
+  function cropBar() {
+    var bar = $('cropbar');
+    if (!crop || crop.w < 2 || crop.h < 2) { bar.style.display = 'none'; return; }
+    var r = ov.getBoundingClientRect();
+    bar.style.display = 'flex'; bar.style.left = Math.max(4, r.left + (crop.x + crop.w) * zoom - 150) + 'px'; bar.style.top = Math.min(window.innerHeight - 50, r.top + (crop.y + crop.h) * zoom + 8) + 'px';
+  }
+  function cancelCrop() { crop = null; octx.clearRect(0, 0, ov.width, ov.height); $('cropbar').style.display = 'none'; }
+  function applyCrop() {
+    if (!crop || crop.w < 2 || crop.h < 2) return cancelCrop();
+    var r = clampRect(crop); cancelCrop(); pushUndo();
+    var data = pctx.getImageData(r.x, r.y, r.w, r.h); setSize(r.w, r.h); pctx.putImageData(data, 0, 0);
+    if (fitMode) fitZoom(); changed();
+  }
+  $('cropok').onclick = applyCrop; $('cropno').onclick = cancelCrop;
+
+  var tb = $('textbox'), textAt = null;
+  function startText(p) {
+    commitText(); textAt = p;
+    var fs = Math.max(14, size * 5);
+    tb.style.display = 'block'; tb.style.left = p.x * zoom + 'px'; tb.style.top = p.y * zoom + 'px';
+    tb.style.fontSize = fs * zoom + 'px'; tb.style.color = color; tb.style.width = '200px'; tb.value = ''; tb.focus();
+  }
+  function commitText() {
+    if (!textAt) return;
+    var t = tb.value, p = textAt, fs = Math.max(14, size * 5); textAt = null; tb.style.display = 'none';
+    if (!t.trim()) return;
+    pushUndo(); pctx.font = fs + 'px "Segoe UI", system-ui, sans-serif'; pctx.fillStyle = color; pctx.textBaseline = 'top'; pctx.globalAlpha = 1;
+    t.split('\n').forEach(function (line, i) { pctx.fillText(line, p.x, p.y + i * fs * 1.25); });
+    changed();
+  }
+  function cancelText() { textAt = null; tb.style.display = 'none'; }
+  tb.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commitText(); } });
+  tb.addEventListener('blur', commitText);
+
+  ov.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || !loaded) return;
+    e.preventDefault();
+    var a = pt(e), pts = [a], cur = a;
+    if (tool === 'text') { startText(a); return; }
+    if (tool === 'crop') { crop = { x: 0, y: 0, w: 0, h: 0 }; $('cropbar').style.display = 'none'; }
+    function move(m) {
+      cur = pt(m);
+      if (tool === 'pen' || tool === 'marker') { pts.push(cur); octx.clearRect(0, 0, ov.width, ov.height); octx.save(); drawFree(octx, pts); octx.restore(); }
+      else if (tool === 'crop') { crop = clampRect(rectOf(a, cur)); drawCropOverlay(); }
+      else if (tool === 'hide') { var r = rectOf(a, cur); octx.clearRect(0, 0, ov.width, ov.height); octx.strokeStyle = '#fff'; octx.lineWidth = 2 / zoom; octx.strokeRect(r.x, r.y, r.w, r.h); octx.strokeStyle = '#000'; octx.setLineDash([5, 4]); octx.strokeRect(r.x, r.y, r.w, r.h); octx.setLineDash([]); }
+      else { octx.clearRect(0, 0, ov.width, ov.height); octx.save(); drawShape(octx, a, cur); octx.restore(); }
+    }
+    function up() {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      octx.clearRect(0, 0, ov.width, ov.height);
+      var moved = Math.abs(cur.x - a.x) + Math.abs(cur.y - a.y) > 2;
+      if (tool === 'crop') { drawCropOverlay(); cropBar(); return; }
+      if (tool === 'pen' || tool === 'marker') { pushUndo(); pctx.save(); drawFree(pctx, pts); pctx.restore(); changed(); }
+      else if (!moved) { return; }
+      else if (tool === 'hide') { var r = clampRect(rectOf(a, cur)); if (r.w > 1 && r.h > 1) { pushUndo(); pixelate(r); changed(); } }
+      else { pushUndo(); pctx.save(); drawShape(pctx, a, cur); pctx.restore(); changed(); }
+    }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  });
+
+  /* ---- what the app sends ---- */
+  function showLoaded() { loaded = true; undoStack = []; redoStack = []; cancelCrop(); cancelText(); fitZoom(); buttons(); }
+  window.np = {
+    load: function (mime, b64) {
+      var img = new Image();
+      img.onload = function () {
+        setSize(img.naturalWidth, img.naturalHeight); pctx.clearRect(0, 0, pic.width, pic.height); pctx.drawImage(img, 0, 0);
+        showLoaded();
+        if (mime !== 'image/png') emitNow(false);        // from now on the app holds a PNG
+      };
+      img.onerror = function () { $('status').textContent = 'This picture could not be read'; };
+      img.src = 'data:' + mime + ';base64,' + b64;
+    },
+    loadPixels: function (w, h, b64) {
+      var bin = atob(b64), data = new Uint8ClampedArray(w * h * 4);
+      for (var i = 0; i < data.length; i++) data[i] = bin.charCodeAt(i);
+      setSize(w, h); pctx.putImageData(new ImageData(data, w, h), 0, 0);
+      showLoaded(); emitNow(false);
+    },
+    setTheme: function (d) { document.body.classList.toggle('dark', d); }
+  };
+  setColor(color); setTool('pen'); buttons();
+  document.documentElement.style.setProperty('--barh', $('bar').offsetHeight + 'px');
+  window.addEventListener('resize', function () { document.documentElement.style.setProperty('--barh', $('bar').offsetHeight + 'px'); });
+  post('ready');
+})();
+</script>
+</body>
+</html>

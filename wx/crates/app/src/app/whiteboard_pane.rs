@@ -56,13 +56,14 @@ impl App {
     /// tab's scene (and the theme) into the page when needed.
     pub(crate) fn wb_sync(&mut self) {
         let wb = self.ws.is_whiteboard();
+        let page = self.ws.is_page();
         self.sync_preview_pane();
         let mut relayout = false;
-        if self.dock_panes.split.is_shown() == wb {
-            self.dock_panes.split.show(!wb);
+        if self.dock_panes.split.is_shown() == page {
+            self.dock_panes.split.show(!page);
             relayout = true;
         }
-        let want_mini = self.ws.minimap && !wb;
+        let want_mini = self.ws.minimap && !page;
         if self.mini.is_shown() != want_mini {
             self.mini.show(want_mini);
             relayout = true;

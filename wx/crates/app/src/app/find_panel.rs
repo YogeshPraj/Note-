@@ -13,7 +13,7 @@ impl App {
             self.ws.search = opts.clone();
         }
         // Searching the current document means nothing on a whiteboard: the editor behind it holds another tab's text.
-        if searches_document(&cmd, mode) && self.ws.is_whiteboard() {
+        if searches_document(&cmd, mode) && self.ws.is_page() {
             return findpanel::set_status("Not available on a whiteboard: switch to a text tab");
         }
         let (found, outcome) = (found_note, count_note);
@@ -86,7 +86,7 @@ impl App {
         use notepp_core::search;
         if let Some(h) = self.results.hits.get(idx).cloned() {
             // A hit in "the current document" (Find All) has no file to open; on a whiteboard there is no text to select.
-            if h.path.is_none() && self.ws.is_whiteboard() {
+            if h.path.is_none() && self.ws.is_page() {
                 return;
             }
             let App { ws, ui, .. } = self;

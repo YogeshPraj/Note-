@@ -26,6 +26,15 @@ pub fn chunks(js: &str, size: usize) -> Vec<&str> {
     out
 }
 
+/// The statements that call `path(prefix..., <data>)` where `data` is a string too large for one script call: it goes
+/// over in pieces and is joined in the page. `prefix` is text such as `"'image/png',"` placed before the data.
+pub fn big_call(path: &str, prefix: &str, data: &str, size: usize) -> Vec<String> {
+    let mut v = vec!["window.__bigarg=[]".to_string()];
+    v.extend(chunks(data, size).into_iter().map(|c| format!("window.__bigarg.push({})", js_string(c))));
+    v.push(format!("(function(){{var d=window.__bigarg.join('');window.__bigarg=null;{path}({prefix}d)}})()"));
+    v
+}
+
 /// The statements that hand `js` to the page in pieces and evaluate it once in the global scope. Large libraries
 /// cannot go through one script call.
 pub fn big_script(js: &str, size: usize) -> Vec<String> {
@@ -81,6 +90,14 @@ mod tests {
     #[test]
     fn empty_input_has_no_chunks() {
         assert!(chunks("", 10).is_empty());
+    }
+
+    #[test]
+    fn a_big_call_joins_the_pieces_and_calls_with_the_prefix() {
+        let v = big_call("window.np.load", "'image/png',", &"A".repeat(25), 10);
+        assert_eq!(v.first().unwrap(), "window.__bigarg=[]");
+        assert_eq!(v.iter().filter(|s| s.starts_with("window.__bigarg.push(")).count(), 3);
+        assert!(v.last().unwrap().contains("window.np.load('image/png',d)"), "{}", v.last().unwrap());
     }
 
     #[test]

@@ -18,11 +18,7 @@ fn area_after(from: usize, step: usize, forward: bool) -> usize {
 impl App {
     /// Give the keyboard to what the active tab shows.
     fn focus_editor(&self) {
-        if self.ws.is_whiteboard() {
-            self.wbv.set_focus();
-        } else {
-            self.stc().set_focus();
-        }
+        self.focus_shown();
     }
 
     fn move_area(&self, forward: bool) {

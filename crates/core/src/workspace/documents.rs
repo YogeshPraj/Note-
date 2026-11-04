@@ -46,13 +46,28 @@ impl<S: Send> Workspace<S> {
 
     /// Add a whiteboard tab holding scene JSON `content`.
     pub fn open_whiteboard(&mut self, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
+        self.open_page(TabKind::Whiteboard, title, path, content, dirty)
+    }
+
+    /// Add a picture tab holding the file's bytes as base64 `content`.
+    pub fn open_image(&mut self, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
+        self.open_page(TabKind::Image, title, path, content, dirty)
+    }
+
+    /// A new picture tab named `image-N` for bytes that are not a file yet (a picture pasted from the clipboard).
+    pub fn new_image(&mut self, content: String) -> usize {
+        let title = crate::image::next_title(self.tabs.iter().map(|t| t.title.as_str()));
+        self.open_image(title, None, content, true)
+    }
+
+    fn open_page(&mut self, kind: TabKind, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
         self.leave_dock();
         self.remember_view();
         let id = self.take_id();
         let disk = path.as_deref().and_then(stamp_of);
         self.tabs.push(Tab {
             id,
-            kind: TabKind::Whiteboard,
+            kind,
             title,
             path,
             doc: 0,
@@ -94,7 +109,7 @@ impl<S: Send> Workspace<S> {
     pub fn auto_detect_language(&mut self) -> bool {
         /// A jump in length at least this big counts as a paste (typing adds a character at a time).
         const MIN_PASTE: usize = 12;
-        if self.is_whiteboard() {
+        if self.is_page() {
             return false;
         }
         let t = &self.tabs[self.active];
@@ -124,7 +139,7 @@ impl<S: Send> Workspace<S> {
         if self.tabs[self.active].enc == enc {
             return None;
         }
-        if !self.is_whiteboard() && !doc::can_encode(&sci::get_text(&self.sci), enc) && !ui.ask_yes_no(&unmappable_warning(enc)) {
+        if !self.is_page() && !doc::can_encode(&sci::get_text(&self.sci), enc) && !ui.ask_yes_no(&unmappable_warning(enc)) {
             return Some("Conversion cancelled".into());
         }
         self.set_encoding(enc);
@@ -134,7 +149,7 @@ impl<S: Send> Workspace<S> {
     /// "Encode in": read the file's bytes again as `enc`. For a tab with no file
     /// the current text is re-read the same way. Returns false if cancelled.
     pub fn reload_as(&mut self, ui: &dyn Ui, enc: Enc) -> bool {
-        if self.is_whiteboard() {
+        if self.is_page() {
             return false;
         }
         let t = &self.tabs[self.active];
@@ -208,6 +223,13 @@ impl<S: Send> Workspace<S> {
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return, // the user cancelled the read
             Err(e) => return ui.error(&format!("Cannot open {}\n\n{e}", path.display())),
         };
+        if crate::image::is_image_path(path) && crate::num::to_u64(bytes.len()) <= crate::image::MAX_FILE_BYTES && crate::image::sniff_mime(&bytes).is_some() {
+            // A PNG is edited in place; any other format becomes a new picture that is saved as a PNG.
+            let in_place = crate::image::is_png(&bytes).then(|| path.to_path_buf());
+            self.open_image(file_title(path), in_place, crate::image::to_content(&bytes), false);
+            self.note_recent(path);
+            return;
+        }
         let Some((text, enc, eol, encrypted)) = self.read_text(ui, &bytes, &file_title(path)) else { return };
         if !encrypted && crate::whiteboard::is_whiteboard_file(&text, path) {
             self.open_whiteboard(file_title(path), Some(path.to_path_buf()), text, false);

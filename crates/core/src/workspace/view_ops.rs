@@ -180,7 +180,7 @@ impl<S: Send> Workspace<S> {
         let a = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0));
         let b = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0));
         let key = (a, b, crate::num::to_usize(sci::length(&self.sci).max(0)));
-        if !self.is_whiteboard() {
+        if !self.is_page() {
             search::highlight_braces(&self.sci);
         }
         if key != self.smart_key {
@@ -192,7 +192,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub(super) fn remember_view(&mut self) {
-        if self.tabs.is_empty() || self.is_whiteboard() {
+        if self.tabs.is_empty() || self.is_page() {
             return;
         }
         let dirty = self.send(sci::SCI_GETMODIFY, 0, 0) != 0;

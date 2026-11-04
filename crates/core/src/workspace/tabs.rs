@@ -73,7 +73,7 @@ impl<S: Send> Workspace<S> {
 
     pub fn is_dirty(&self, i: usize) -> bool {
         let t = &self.tabs[i];
-        if t.kind == TabKind::Whiteboard {
+        if t.kind != TabKind::Text {
             return t.dirty || t.forced_dirty;
         }
         let in_second = self.second.as_ref().filter(|_| self.other_index() == Some(i));
@@ -85,9 +85,19 @@ impl<S: Send> Workspace<S> {
             }
     }
 
-    /// Is the active tab a whiteboard (so the Scintilla view is not in use)?
+    /// Is the active tab a whiteboard?
     pub fn is_whiteboard(&self) -> bool {
         self.tabs.get(self.active).is_some_and(|t| t.kind == TabKind::Whiteboard)
+    }
+
+    /// Is the active tab a picture?
+    pub fn is_image(&self) -> bool {
+        self.tabs.get(self.active).is_some_and(|t| t.kind == TabKind::Image)
+    }
+
+    /// Is the active tab a whiteboard or a picture, so the Scintilla view is not in use?
+    pub fn is_page(&self) -> bool {
+        self.tabs.get(self.active).is_some_and(|t| t.kind != TabKind::Text)
     }
 
     pub(super) fn take_id(&mut self) -> u64 {
@@ -137,6 +147,8 @@ impl<S: Send> Workspace<S> {
                 beside: self.other_index() == Some(i),
                 badge: if self.tabs[i].kind == TabKind::Whiteboard {
                     Some("wb")
+                } else if self.tabs[i].kind == TabKind::Image {
+                    Some("img")
                 } else if self.tabs[i].encrypted {
                     Some("enc")
                 } else if self.docked_index() == Some(i) {
@@ -163,7 +175,11 @@ impl<S: Send> Workspace<S> {
                 SortKeys {
                     name: t.title.clone(),
                     path: t.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
-                    kind: if t.kind == TabKind::Whiteboard { "Whiteboard".into() } else { t.lang_label.to_string() },
+                    kind: match t.kind {
+                        TabKind::Whiteboard => "Whiteboard".into(),
+                        TabKind::Image => "Image".into(),
+                        TabKind::Text => t.lang_label.to_string(),
+                    },
                     len: self.doc_length(i),
                     modified,
                 }
@@ -174,7 +190,7 @@ impl<S: Send> Workspace<S> {
     /// Size in bytes of tab `i`'s document.
     pub(super) fn doc_length(&self, i: usize) -> usize {
         let t = &self.tabs[i];
-        if t.kind == TabKind::Whiteboard {
+        if t.kind != TabKind::Text {
             return t.content.len();
         }
         if i == self.active {
@@ -226,6 +242,9 @@ impl<S: Send> Workspace<S> {
         if t.kind == TabKind::Whiteboard {
             return format!("{head}\n\nWhiteboard, {} elements", scene_element_count(&t.content));
         }
+        if t.kind == TabKind::Image {
+            return format!("{head}\n\nPicture{}", crate::image::size_of_content(&t.content).map_or(String::new(), |(w, h)| format!(", {w} x {h}")));
+        }
         // Enough bytes for the lines wanted, even when every character takes up to four.
         let want = lines * width * 4;
         let text = if i == self.active { peek_text(&self.sci, want) } else { self.with_doc(t.doc, |s| peek_text(s, want)) };
@@ -262,15 +281,8 @@ impl<S: Send> Workspace<S> {
 
     pub fn status(&self) -> Status {
         let t = &self.tabs[self.active];
-        if t.kind == TabKind::Whiteboard {
-            return Status {
-                position: "Whiteboard".into(),
-                lines: String::new(),
-                length: format!("elements: {}", scene_element_count(&t.content)),
-                eol: String::new(),
-                enc: "UTF-8".into(),
-                lang: "Excalidraw".into(),
-            };
+        if t.kind != TabKind::Text {
+            return page_status(t);
         }
         let pos = self.send(sci::SCI_GETCURRENTPOS, 0, 0);
         let line = self.send(sci::SCI_LINEFROMPOSITION, crate::num::to_usize(pos), 0) + 1;
@@ -321,5 +333,28 @@ impl<S: Send> Workspace<S> {
             enc: t.enc.label().into(),
             lang: t.lang_label.to_string(),
         }
+    }
+}
+
+/// The status bar for a tab that is not text: a whiteboard or a picture.
+fn page_status(t: &Tab) -> Status {
+    if t.kind == TabKind::Image {
+        let bytes = t.content.len() / 4 * 3;
+        return Status {
+            position: "Picture".into(),
+            lines: crate::image::size_of_content(&t.content).map_or(String::new(), |(w, h)| format!("{w} x {h}")),
+            length: format!("size: {} KB", commafy(bytes.div_ceil(1024))),
+            eol: String::new(),
+            enc: String::new(),
+            lang: crate::image::content_mime(&t.content).trim_start_matches("image/").to_uppercase(),
+        };
+    }
+    Status {
+        position: "Whiteboard".into(),
+        lines: String::new(),
+        length: format!("elements: {}", scene_element_count(&t.content)),
+        eol: String::new(),
+        enc: "UTF-8".into(),
+        lang: "Excalidraw".into(),
     }
 }

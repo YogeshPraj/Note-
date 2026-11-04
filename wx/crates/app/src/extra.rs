@@ -190,7 +190,7 @@ impl App {
     /// Passwords (Bitwarden): pick an item and insert it at the cursor or copy it for 30 seconds.
     fn passwords(&mut self) {
         use crate::pwdialogs::{Outcome, run};
-        match run(&self.frame, !self.ws.is_whiteboard()) {
+        match run(&self.frame, !self.ws.is_page()) {
             Outcome::Insert(secret) => {
                 self.ws.insert_text(&secret);
                 self.flash = Some("Inserted at the cursor (the clipboard was not used)".into());

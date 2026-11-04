@@ -108,6 +108,8 @@ pub enum TabKind {
     Text,
     /// An Excalidraw board: no Scintilla document, `content` holds the scene JSON.
     Whiteboard,
+    /// A picture: no Scintilla document, `content` holds the file's bytes as base64 (see `image`).
+    Image,
 }
 
 #[derive(Debug)]
@@ -118,7 +120,7 @@ pub struct Tab {
     pub title: String,
     pub path: Option<PathBuf>,
     pub doc: isize,
-    /// Scene JSON for whiteboards; unused for text tabs.
+    /// Scene JSON for whiteboards, base64 picture bytes for picture tabs; unused for text tabs.
     pub content: String,
     pub dirty: bool,
     /// Set when something other than the text changed (e.g. encoding) so the tab shows as modified.

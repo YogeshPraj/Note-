@@ -11,6 +11,7 @@ mod extra;
 mod find;
 mod findpanel;
 mod handlers;
+mod imageedit;
 mod in_files;
 mod incr;
 mod mdbar;

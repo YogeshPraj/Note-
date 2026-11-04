@@ -46,7 +46,7 @@ pub struct CommandState {
     pub can_undo: bool,
     pub can_redo: bool,
     pub has_path: bool,
-    /// The active tab is a whiteboard, so the editor's text is not what the user sees (see [`needs_text`]).
+    /// The active tab is a whiteboard or a picture, so the editor's text is not what the user sees (see [`needs_text`]).
     pub whiteboard: bool,
     /// A tab is docked beside the main editor.
     pub docked: bool,
@@ -60,7 +60,7 @@ impl CommandState {
             can_undo: sci.send(sci::SCI_CANUNDO, 0, 0) != 0,
             can_redo: sci.send(sci::SCI_CANREDO, 0, 0) != 0,
             has_path: ws.tabs.get(ws.active).is_some_and(|t| t.path.is_some()),
-            whiteboard: ws.is_whiteboard(),
+            whiteboard: ws.is_page(),
             docked: ws.dock_side().is_some(),
         }
     }

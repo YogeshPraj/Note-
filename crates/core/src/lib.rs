@@ -16,6 +16,7 @@ mod fuzz;
 pub mod gutter;
 pub mod hash;
 pub mod http;
+pub mod image;
 pub mod jsonpath;
 pub mod keymap;
 pub mod lang;

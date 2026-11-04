@@ -54,12 +54,12 @@ pub(super) fn wire_mini(app: &Shared, mini: StyledTextCtrl) {
 /// it somewhere deliberate, such as the find box).
 pub(crate) fn refocus_editor(app: &Shared) {
     let Ok(a) = app.try_borrow() else { return };
-    let (frame, stc, wbv, bars) = (a.frame, a.stc(), a.wbv.clone(), [a.chrome.menu, a.chrome.tools, a.chrome.tabs, a.chrome.status]);
-    let whiteboard = a.ws.is_whiteboard();
+    let (frame, stc, bars) = (a.frame, a.stc(), [a.chrome.menu, a.chrome.tools, a.chrome.tabs, a.chrome.status]);
+    let page = a.ws.is_page().then(|| if a.ws.is_image() { a.imgv.clone() } else { a.wbv.clone() });
     let took = a.menu_took_focus.replace(false);
     crate::widgets::defer::later(&frame, move || {
-        if took && whiteboard {
-            wbv.set_focus();
+        if let (true, Some(page)) = (took, &page) {
+            page.set_focus();
         } else if took || bars.iter().any(WxWidget::has_focus) {
             stc.set_focus();
         }
@@ -70,7 +70,7 @@ pub(crate) fn refocus_editor(app: &Shared) {
 /// the menu (Esc, arrows). So the window takes the focus for as long as the menu shows; `refocus_editor` gives it back.
 pub(crate) fn take_focus_for_menu(app: &Shared) {
     let Ok(a) = app.try_borrow() else { return };
-    if a.ws.is_whiteboard() || a.preview.split {
+    if a.ws.is_page() || a.preview.split {
         a.menu_took_focus.set(true);
         crate::widgets::native::current().focus_window(a.frame.get_handle() as isize);
     }
@@ -91,6 +91,12 @@ pub(crate) fn open_menu_for_key(a: &Shared, key: &str) {
 }
 
 /// Alt+letter opens the menu whose title underlines that letter; F10 opens the first.
+/// Ctrl+V in the editor: open the picture on the clipboard, if that is all it holds. True when the key was used.
+fn paste_picture_from_editor(app: &Shared) -> bool {
+    let Ok(mut a) = app.try_borrow_mut() else { return false };
+    a.stc().has_focus() && a.paste_image()
+}
+
 pub(super) fn wire_menu_keys(app: &Shared, frame: Frame) {
     let a = app.clone();
     frame.on_char_hook(move |e| {
@@ -116,6 +122,10 @@ pub(super) fn wire_menu_keys(app: &Shared, frame: Frame) {
         // before any menu shortcut sees it, so it is handled here.
         if code == KEY_TAB && k.control_down() && !k.alt_down() {
             switch_tab(&a, if k.shift_down() { -1 } else { 1 });
+            return;
+        }
+        // Ctrl+V with only a picture on the clipboard opens it in a tab of its own; with text it pastes as usual.
+        if code == KEY_V && k.control_down() && !k.alt_down() && !k.shift_down() && paste_picture_from_editor(&a) {
             return;
         }
         if code == 344 && !k.alt_down() && !k.control_down() {
@@ -201,6 +211,30 @@ pub(super) fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
     });
 }
 
+/// Messages from the picture editor page: readiness, the edited picture, save and copy requests, the window's keys.
+pub(super) fn wire_image(app: &Shared) {
+    let imgv = app.borrow().imgv.clone();
+    let a = app.clone();
+    imgv.on_script_message_received(move |e| {
+        let msg = notepp_core::jsonpath::page_text(&e.get_string().unwrap_or_default());
+        let Some(m) = crate::imageedit::parse(&msg) else { return };
+        match m {
+            crate::imageedit::Message::Tab(delta) => switch_tab(&a, delta),
+            crate::imageedit::Message::Menu(key) => open_menu_for_key(&a, &key),
+            crate::imageedit::Message::CopyImage(copy) => {
+                if let Some((w, h, rgba)) = preview::parse_image(&copy) {
+                    crate::services::clipboard::copy_image(w, h, &rgba);
+                }
+            }
+            m => {
+                if let Ok(mut app) = a.try_borrow_mut() {
+                    app.image_message(m);
+                }
+            }
+        }
+    });
+}
+
 /// Go to the next (1) or previous (-1) tab and give the keyboard to what that tab shows: a page keeps it otherwise.
 pub(crate) fn switch_tab(app: &Shared, delta: i32) {
     run_command(app, if delta < 0 { notepp_core::commands::ID_PREV_TAB } else { notepp_core::commands::ID_NEXT_TAB });
@@ -213,11 +247,7 @@ fn focus_shown_tab(app: &Shared) {
     let frame = app.borrow().frame;
     crate::widgets::defer::later(&frame, move || {
         let Ok(app) = a.try_borrow() else { return };
-        if app.ws.is_whiteboard() {
-            app.wbv.set_focus();
-        } else {
-            app.stc().set_focus();
-        }
+        app.focus_shown();
     });
 }
 

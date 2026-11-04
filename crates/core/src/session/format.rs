@@ -162,8 +162,15 @@ pub(super) fn extras_from_settings() -> Extras {
 
 pub(super) fn tab_to_json(i: usize, t: &SessionTab, active: bool) -> serde_json::Value {
     let whiteboard = t.kind == "whiteboard";
+    let image = t.kind == "image";
     let by_menu = t.lang.as_deref().and_then(|l| LANG_IDS.iter().find(|(_, label)| *label == l)).map(|(id, _)| *id);
-    let language = if whiteboard { "whiteboard" } else { by_menu.unwrap_or_else(|| language_of(t.path.as_deref().unwrap_or(&t.title))) };
+    let language = if whiteboard {
+        "whiteboard"
+    } else if image {
+        "image"
+    } else {
+        by_menu.unwrap_or_else(|| language_of(t.path.as_deref().unwrap_or(&t.title)))
+    };
     let mut o = serde_json::json!({
         "id": i + 1,
         "name": t.title,
@@ -181,6 +188,9 @@ pub(super) fn tab_to_json(i: usize, t: &SessionTab, active: bool) -> serde_json:
     });
     if whiteboard {
         o["type"] = "whiteboard".into();
+    }
+    if image {
+        o["type"] = "image".into();
     }
     if let Some(l) = &t.lang {
         o["nativeLanguage"] = l.clone().into();
@@ -200,6 +210,7 @@ pub(super) fn tab_from_json(v: &serde_json::Value) -> Option<SessionTab> {
         return None;
     }
     let whiteboard = kind == "whiteboard" || language == "whiteboard";
+    let image = kind == "image";
     let path = v["filePath"].as_str().filter(|p| !p.is_empty()).map(String::from);
     let encrypted = v["encrypted"].as_bool().unwrap_or(false);
     let dirty = v["dirty"].as_bool().unwrap_or(false);
@@ -227,7 +238,13 @@ pub(super) fn tab_from_json(v: &serde_json::Value) -> Option<SessionTab> {
         pinned: v["pinned"].as_bool().unwrap_or(false),
         color: v["color"].as_str().and_then(tab_colour_from_hex),
         encrypted,
-        kind: if whiteboard { "whiteboard".into() } else { "text".into() },
+        kind: if image {
+            "image".into()
+        } else if whiteboard {
+            "whiteboard".into()
+        } else {
+            "text".into()
+        },
         lang,
     })
 }

@@ -14,7 +14,7 @@ impl App {
 
     /// The pane is only beside the editor while preview is on and the active tab has something to preview.
     pub(crate) fn sync_preview_pane(&mut self) {
-        let previewable = !self.ws.is_whiteboard() && self.ws.preview_kind().is_some();
+        let previewable = !self.ws.is_page() && self.ws.preview_kind().is_some();
         self.show_preview_pane(self.preview.on && previewable);
     }
 

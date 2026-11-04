@@ -147,7 +147,7 @@ impl<S: Send> Workspace<S> {
         if self.in_dock() {
             return true;
         }
-        if self.is_whiteboard() {
+        if self.is_page() {
             // The main view shows nothing behind a whiteboard: it needs a text tab beside the dock.
             let Some(j) = self.neighbour_of(i, true) else {
                 self.undock();

@@ -301,6 +301,8 @@
   3130	Move to New Instance	true	None
   3131	Open in New Instance	true	None
 3160	Focus on &Other Pane	F8	true	None
+3162	Ne&xt Area	F6	true	None
+3163	Pre&vious Area	Shift+F6	true	None
 > Monitoring
   3212	Monitoring (tail -f)	true	Some(false)
   3213	Log Follow (.log / .out / .err)	true	Some(false)

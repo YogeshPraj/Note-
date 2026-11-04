@@ -120,6 +120,7 @@ impl CommandBus<App> {
                 .register(PanelCommands)
                 .register(UpdateCommands)
                 .register(crate::app::DockCommands)
+                .register(crate::app::AreaCommands)
                 .register(StreamCommands)
                 .register(ExtraCommands)
                 .register(crate::paste_special::PasteSpecialCommands)

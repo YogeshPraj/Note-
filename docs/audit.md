@@ -10,7 +10,7 @@ The sections below are the historical audit. Measured today:
 | Clippy warnings | **0** in both workspaces. The "Lint debt" tables further down are history. |
 | Functions over 60 lines (`too_many_lines`) | **0**, none suppressed. |
 | `unwrap` / `expect` / `panic!` in production code | **0** (the five `expect`s left are in test modules). |
-| Tests | core 229, ui-kit 62 + 1 token test, app 93. |
+| Tests | Core, ui-kit and app suites all pass; `cargo test` gives the counts. |
 | Files over 400 lines | **0** (finding 5). `check-architecture.sh` fails on any file over 400. |
 | Global mutable state | Only the deliberate globals listed under "Deliberate global state" below (finding 16). |
 | Raw native dialogs | **0** outside `ui_kit::ask` (findings 15, 17); enforced by `check-architecture.sh`. |

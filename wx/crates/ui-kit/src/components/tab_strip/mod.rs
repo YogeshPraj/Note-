@@ -24,6 +24,7 @@ use wxdragon::prelude::*;
 
 use self::model::{Btn, Layout, Rows, Scroll};
 use super::a11y;
+use super::keynav::KeyNav;
 use crate::geom::Rect;
 use crate::paint::{Look, colour, ellipsize, fill, mix, pos, text_at, text_w, wash};
 
@@ -112,6 +113,7 @@ impl std::fmt::Debug for TabStrip {
 pub struct TabStrip {
     panel: Panel,
     st: Rc<RefCell<State>>,
+    keys: Option<KeyNav>,
 }
 
 impl TabStrip {
@@ -150,12 +152,19 @@ impl TabStrip {
             reader: a11y::Items::default(),
             focused: false,
         }));
-        let strip = TabStrip { panel, st };
+        let items = st.borrow().reader.clone();
+        let keys = (!vertical).then(|| KeyNav::new(panel, items.clone()));
+        let strip = TabStrip { panel, st, keys };
         strip.wire();
-        let (st, items) = (strip.st.clone(), strip.st.borrow().reader.clone());
-        a11y::attach(panel, if vertical { "Categories" } else { "Tabs" }, a11y::Bar::Tabs, items, move |i| Self::emit(&st, TabEvent::Select(i)));
+        let st = strip.st.clone();
+        let press = a11y::attach(panel, if vertical { "Categories" } else { "Tabs" }, a11y::Bar::Tabs, items, move |i| Self::emit(&st, TabEvent::Select(i)));
         if vertical {
             column::wire_keys(&strip.st, panel);
+        }
+        if let Some(keys) = &strip.keys {
+            keys.set_press(press);
+            let st = strip.st.clone();
+            keys.on_moved(move |i| scroll_into_view(&st, i));
         }
         let (p, st) = (strip.panel, strip.st.clone());
         crate::theme::subscribe(move |t| {
@@ -168,6 +177,11 @@ impl TabStrip {
     /// The panel to place in a sizer.
     pub fn panel(&self) -> Panel {
         self.panel
+    }
+
+    /// The keyboard in the strip (a vertical strip handles its own keys).
+    pub fn keys(&self) -> Option<&KeyNav> {
+        self.keys.as_ref()
     }
 
     pub fn on_event(&self, f: impl Fn(TabEvent) + 'static) {

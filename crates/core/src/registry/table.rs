@@ -39,6 +39,8 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_DOCK_BASE + 3, "", "Tab: Dock Bottom", "", ""),
     gated(ID_UNDOCK, "", "Tab: Undock", "", "", docked),
     gated(ID_FOCUS_OTHER, "Focus on &Other Pane", "View: Focus on Other Pane", "F8", "", docked),
+    row(ID_NEXT_AREA, "Ne&xt Area", "View: Next Area", "F6", ""),
+    row(ID_PREV_AREA, "Pre&vious Area", "View: Previous Area", "Shift+F6", ""),
     row(ID_TAB_COLOR_NONE, "", "Tab: Clear Colour Mark", "", ""),
     row(ID_TAB_COLOR_CUSTOM, "", "Tab: Custom Colour...", "", ""),
     row(ID_TAB_CMP_FILE, "", "Tab: Compare with File...", "", ""),

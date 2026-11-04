@@ -15,6 +15,7 @@ use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
 use super::a11y;
+use super::keynav::{self, KeyNav};
 use crate::geom::Rect;
 use crate::paint::{fill, pos, text_at, text_w};
 
@@ -96,6 +97,7 @@ impl std::fmt::Debug for StatusBar {
 pub struct StatusBar {
     panel: Panel,
     st: Rc<RefCell<State>>,
+    keys: KeyNav,
 }
 
 impl StatusBar {
@@ -103,21 +105,27 @@ impl StatusBar {
         let panel = Panel::builder(parent).build();
         panel.set_background_style(BackgroundStyle::Paint);
         panel.set_min_size(Size::new(-1, height()));
+        let reader = a11y::Items::default();
         let st = Rc::new(RefCell::new(State {
             font: crate::theme::current().ui_font(),
             left: String::new(),
             segments: Vec::new(),
             rects: Vec::new(),
             handler: None,
-            reader: a11y::Items::default(),
+            reader: reader.clone(),
         }));
-        let bar = StatusBar { panel, st };
+        let bar = StatusBar { panel, st, keys: KeyNav::new(panel, reader) };
         bar.wire();
         bar
     }
 
     pub fn panel(&self) -> Panel {
         self.panel
+    }
+
+    /// The keyboard in the bar.
+    pub fn keys(&self) -> &KeyNav {
+        &self.keys
     }
 
     pub fn on_event(&self, f: impl Fn(StatusEvent) + 'static) {
@@ -139,7 +147,7 @@ impl StatusBar {
         p.on_paint(move |_| paint(&st, p));
 
         let (st, items) = (self.st.clone(), self.st.borrow().reader.clone());
-        a11y::attach(self.panel, "Status bar", a11y::Bar::Status, items, move |i| {
+        let press = a11y::attach(self.panel, "Status bar", a11y::Bar::Status, items, move |i| {
             // Item 0 is the left text.
             let hit = {
                 let s = st.borrow();
@@ -150,6 +158,7 @@ impl StatusBar {
                 h(StatusEvent::Clicked(id, l, t));
             }
         });
+        self.keys.set_press(press);
 
         let st = self.st.clone();
         self.panel.on_mouse_left_down(move |e| {
@@ -187,6 +196,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
         fill(&dc, Rect::new(r.l, t.px(DIVIDER_GAP), r.l + 1, h - t.px(DIVIDER_GAP)), c.accent_line);
     }
     publish(&s, w, h);
+    keynav::ring(&dc, &s.reader, c.accent_text);
 }
 
 #[cfg(test)]

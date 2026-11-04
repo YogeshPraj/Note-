@@ -97,6 +97,8 @@ pub(super) fn menu_view_rest(view: M) {
     B::submenu(view, "Text Direction", direction);
     B::submenu(view, "New Instance", view_new_instance());
     B::cmd(view, ID_FOCUS_OTHER);
+    B::cmd(view, ID_NEXT_AREA);
+    B::cmd(view, ID_PREV_AREA);
     let follow = B::popup();
     B::cmd(follow, ID_MONITOR);
     B::cmd(follow, ID_LOG_FOLLOW);

@@ -59,6 +59,7 @@ pub(super) fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     }
     paint_button(&dc, s.layout.plus, lk, s.btn_hot == Some(Btn::Plus), s.btn_down == Some(Btn::Plus), Btn::Plus);
     publish(&s);
+    super::super::keynav::ring(&dc, &s.reader, lk.colors.accent);
 }
 
 /// Show the screen reader what was just painted.
@@ -153,5 +154,17 @@ pub(super) fn paint_button(dc: &impl DeviceContext, r: Rect, lk: Look, hot: bool
             dc.draw_line(cx - b, cy, cx + e, cy);
             dc.draw_line(cx, cy - b, cx, cy + e);
         }
+    }
+}
+
+/// The keyboard reached tab `i`: scroll one tab towards it if it is out of view.
+pub(super) fn scroll_into_view(st: &Rc<RefCell<State>>, i: usize) {
+    let mut s = st.borrow_mut();
+    let Some(r) = s.layout.tabs.get(i).copied() else { return };
+    let (left, right) = s.layout.clip;
+    if r.l < left {
+        s.scroll.step(Btn::Left);
+    } else if r.r > right {
+        s.scroll.step(Btn::Right);
     }
 }

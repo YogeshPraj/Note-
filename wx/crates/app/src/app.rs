@@ -99,6 +99,8 @@ pub(crate) use wiring::*;
 /// by commands while the app is borrowed, so it lives outside `App`.
 static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+mod areas;
+pub(crate) use areas::AreaCommands;
 mod dock_pane;
 pub(crate) use dock_pane::{DockCommands, DockPanes};
 mod notes;

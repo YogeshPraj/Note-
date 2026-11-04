@@ -191,6 +191,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     replace_editor_popup(app, stc);
     replace_editor_popup(app, dock_stc);
     dock_pane::wire_dock(app, frame, stc, dock_stc);
+    areas::wire_areas(app);
     wire_mini(app, mini);
     wire_whiteboard(app, wbv);
     wire_menu_keys(app, frame);

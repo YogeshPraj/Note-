@@ -19,6 +19,7 @@ use wxdragon::dc::{AutoBufferedPaintDC, DeviceContext};
 use wxdragon::prelude::*;
 
 use super::a11y;
+use super::keynav::{self, KeyNav};
 use crate::geom::Rect;
 use crate::paint::{Look, Rgb, fill, mix, outline, pos, text_at, text_w, wash};
 use crate::pointer::Pointer;
@@ -148,6 +149,7 @@ impl std::fmt::Debug for ToolBar {
 pub struct ToolBar {
     panel: Panel,
     st: Rc<RefCell<State>>,
+    keys: KeyNav,
 }
 
 impl ToolBar {
@@ -156,6 +158,7 @@ impl ToolBar {
         panel.set_background_style(BackgroundStyle::Paint);
         panel.set_min_size(Size::new(-1, crate::theme::current().px(HEIGHT)));
         let kinds: Vec<bool> = items.iter().map(|i| matches!(i, Item::Button { .. })).collect();
+        let reader = a11y::Items::default();
         let st = Rc::new(RefCell::new(State {
             look: crate::theme::current().look(),
             font: crate::theme::current().ui_font(),
@@ -166,9 +169,9 @@ impl ToolBar {
             pill: None,
             pointer: Pointer::default(),
             handler: None,
-            reader: a11y::Items::default(),
+            reader: reader.clone(),
         }));
-        let bar = ToolBar { panel, st };
+        let bar = ToolBar { panel, st, keys: KeyNav::new(panel, reader) };
         bar.wire();
         let (p, st) = (bar.panel, bar.st.clone());
         crate::theme::subscribe(move |t| {
@@ -180,6 +183,11 @@ impl ToolBar {
 
     pub fn panel(&self) -> Panel {
         self.panel
+    }
+
+    /// The keyboard in the bar.
+    pub fn keys(&self) -> &KeyNav {
+        &self.keys
     }
 
     pub fn on_event(&self, f: impl Fn(ToolEvent) + 'static) {
@@ -248,12 +256,12 @@ impl ToolBar {
         p.on_paint(move |_| paint(&st, p));
 
         let (st, items) = (self.st.clone(), self.st.borrow().reader.clone());
-        a11y::attach(self.panel, "Toolbar", a11y::Bar::Tools, items, move |i| {
+        self.keys.set_press(a11y::attach(self.panel, "Toolbar", a11y::Bar::Tools, items, move |i| {
             let cmd = st.borrow().reader_commands().get(i).copied();
             if let Some(cmd) = cmd {
                 Self::emit(&st, ToolEvent::Command(cmd));
             }
-        });
+        }));
 
         let (p, st) = (self.panel, self.st.clone());
         p.on_mouse_motion(move |e| {
@@ -350,6 +358,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
         }
     }
     s.publish();
+    keynav::ring(&dc, &s.reader, lk.colors.accent);
 }
 
 #[cfg(test)]

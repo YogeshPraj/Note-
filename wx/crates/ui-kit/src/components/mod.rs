@@ -20,6 +20,7 @@ pub mod data_list;
 pub mod dialog;
 pub mod dock;
 pub mod form;
+pub mod keynav;
 // wxdragon's get_event_handler_ptr is an unsafe trait method; the wrappers can only forward it.
 #[allow(unsafe_code)]
 pub mod label;

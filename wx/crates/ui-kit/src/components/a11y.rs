@@ -51,7 +51,7 @@ impl Item {
 
 /// The items a bar shows now. Cheap to clone; clones share them.
 #[derive(Debug, Clone, Default)]
-pub struct Items(Rc<RefCell<Vec<Item>>>);
+pub struct Items(Rc<RefCell<Vec<Item>>>, Rc<Cell<Option<usize>>>);
 
 impl Items {
     /// Replace the items, as they were just painted.
@@ -59,6 +59,20 @@ impl Items {
         if let Ok(mut now) = self.0.try_borrow_mut() {
             *now = items;
         }
+    }
+
+    /// A copy of the items.
+    pub(super) fn snapshot(&self) -> Vec<Item> {
+        self.0.try_borrow().map_or_else(|_| Vec::new(), |v| v.clone())
+    }
+
+    /// The item the keyboard is on (see [`super::keynav`]).
+    pub fn at(&self) -> Option<usize> {
+        self.1.get()
+    }
+
+    pub(super) fn set_at(&self, at: Option<usize>) {
+        self.1.set(at);
     }
 
     /// Item `child` (children count from 1; 0 is the bar itself).
@@ -136,7 +150,14 @@ mod msaa {
         }
 
         fn get_state(&self, child: i32) -> (AccStatus, AccState) {
-            self.items.child(child).map_or((AccStatus::NotImplemented, AccState::empty()), |i| (AccStatus::Ok, state(&i)))
+            let focused = child > 0 && self.items.at() == Some(crate::num::to_usize(child - 1));
+            self.items
+                .child(child)
+                .map_or((AccStatus::NotImplemented, AccState::empty()), |i| (AccStatus::Ok, if focused { state(&i) | AccState::FOCUSED } else { state(&i) }))
+        }
+
+        fn get_focus(&self) -> (AccStatus, i32, Option<Accessible>) {
+            self.items.at().map_or((AccStatus::NotImplemented, 0, None), |i| (AccStatus::Ok, crate::num::to_i32(i + 1), None))
         }
 
         fn get_default_action(&self, child: i32) -> (AccStatus, Option<String>) {
@@ -170,8 +191,20 @@ mod msaa {
     }
 }
 
-/// Name the bar and, on Windows, show its items to screen readers. `press` is told the index of the item pressed.
-pub fn attach(panel: Panel, name: &str, bar: Bar, items: Items, press: impl Fn(usize) + 'static) {
+/// Tell screen readers the keyboard moved to item `i` of the bar.
+pub fn focus_moved(panel: Panel, i: usize) {
+    const EVENT_OBJECT_FOCUS: u32 = 0x8005;
+    #[cfg(windows)]
+    wxdragon::accessible::Accessible::notify_event(EVENT_OBJECT_FOCUS, &panel, wxdragon::accessible::AccObjectType::Client, crate::num::to_i32(i + 1));
+    #[cfg(not(windows))]
+    let _ = (panel, i, EVENT_OBJECT_FOCUS);
+}
+
+/// Name the bar and, on Windows, show its items to screen readers. `press` is told the index of the item pressed, and is
+/// handed back for the bar's keyboard to use.
+pub fn attach(panel: Panel, name: &str, bar: Bar, items: Items, press: impl Fn(usize) + 'static) -> Rc<dyn Fn(usize)> {
+    let press: Rc<dyn Fn(usize)> = Rc::new(press);
+    let pressed = press.clone();
     panel.set_accessibility_label(name);
     // A press can open a dialog, which must not run inside the reader's call.
     let pending: Rc<Cell<Option<usize>>> = Rc::default();
@@ -179,13 +212,14 @@ pub fn attach(panel: Panel, name: &str, bar: Bar, items: Items, press: impl Fn(u
     let due = pending.clone();
     timer.on_tick(move |_| {
         if let Some(i) = due.take() {
-            press(i);
+            pressed(i);
         }
     });
     #[cfg(windows)]
     panel.set_accessible(wxdragon::accessible::Accessible::new(&panel, msaa::Reader { panel, name: name.to_string(), bar, items, pending, timer }));
     #[cfg(not(windows))]
     let _ = (bar, items, pending, timer);
+    press
 }
 
 #[cfg(test)]

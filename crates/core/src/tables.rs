@@ -3,13 +3,13 @@
 #![allow(dead_code)]
 use crate::commands::{
     ID_ABOUT, ID_CLOSE, ID_CLOSE_ALL, ID_CLOSE_LEFT, ID_CLOSE_OTHERS, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_EDIT_CONTEXT, ID_ENC_LOCK, ID_ENC_SETTINGS,
-    ID_EXIT, ID_EXPORT_THEME, ID_IMPORT_THEME, ID_MD_BOLD, ID_MD_BULLET, ID_MD_CODE, ID_MD_CODEBLOCK, ID_MD_H1, ID_MD_H2, ID_MD_H3, ID_MD_H4, ID_MD_H5,
-    ID_MD_H6, ID_MD_IMAGE, ID_MD_ITALIC, ID_MD_LINK, ID_MD_NUMBERED, ID_MD_QUOTE, ID_MD_RULE, ID_MD_STRIKE, ID_MD_TABLE, ID_MD_TASK, ID_NEW, ID_NEW_WB,
-    ID_NEXT_TAB, ID_OPEN, ID_OPEN_ALL_RECENT, ID_OPEN_FOLDER_CMD, ID_OPEN_FOLDER_EXPLORER, ID_OPEN_FOLDER_WS, ID_OPEN_VIEWER, ID_OPEN_WORKSPACE, ID_PALETTE,
-    ID_PASSWORDS, ID_PREFS, ID_PRESET_BASE, ID_PREV_TAB, ID_PW_LOCK, ID_PW_TOOLBAR, ID_QUICKOPEN, ID_RECENT_BASE, ID_RECENT_CLEAR, ID_RECYCLE, ID_RELOAD,
-    ID_RENAME, ID_REPORT_ISSUE, ID_RESTORE_CLOSED, ID_SAVE, ID_SAVE_COPY, ID_SAVEALL, ID_SAVEAS, ID_SHORTCUTS, ID_STYLE_CFG, ID_TAB_COLOR_CUSTOM,
-    ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_TAB_REVEAL, ID_THEME, ID_UPDATE_AUTO, ID_UPDATE_CHECK, ID_UPDATE_PILL, ID_WINDOW_DOC_BASE, ID_WINDOW_SORT_BASE,
-    ID_WINDOWS, ID_WORKSPACE_TOGGLE,
+    ID_EXIT, ID_EXPORT_THEME, ID_FOCUS_OTHER, ID_IMPORT_THEME, ID_MD_BOLD, ID_MD_BULLET, ID_MD_CODE, ID_MD_CODEBLOCK, ID_MD_H1, ID_MD_H2, ID_MD_H3, ID_MD_H4,
+    ID_MD_H5, ID_MD_H6, ID_MD_IMAGE, ID_MD_ITALIC, ID_MD_LINK, ID_MD_NUMBERED, ID_MD_QUOTE, ID_MD_RULE, ID_MD_STRIKE, ID_MD_TABLE, ID_MD_TASK, ID_NEW,
+    ID_NEW_WB, ID_NEXT_AREA, ID_NEXT_TAB, ID_OPEN, ID_OPEN_ALL_RECENT, ID_OPEN_FOLDER_CMD, ID_OPEN_FOLDER_EXPLORER, ID_OPEN_FOLDER_WS, ID_OPEN_VIEWER,
+    ID_OPEN_WORKSPACE, ID_PALETTE, ID_PASSWORDS, ID_PREFS, ID_PRESET_BASE, ID_PREV_AREA, ID_PREV_TAB, ID_PW_LOCK, ID_PW_TOOLBAR, ID_QUICKOPEN, ID_RECENT_BASE,
+    ID_RECENT_CLEAR, ID_RECYCLE, ID_RELOAD, ID_RENAME, ID_REPORT_ISSUE, ID_RESTORE_CLOSED, ID_SAVE, ID_SAVE_COPY, ID_SAVEALL, ID_SAVEAS, ID_SHORTCUTS,
+    ID_STYLE_CFG, ID_TAB_COLOR_CUSTOM, ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_TAB_REVEAL, ID_THEME, ID_UNDOCK, ID_UPDATE_AUTO, ID_UPDATE_CHECK, ID_UPDATE_PILL,
+    ID_WINDOW_DOC_BASE, ID_WINDOW_SORT_BASE, ID_WINDOWS, ID_WORKSPACE_TOGGLE,
 };
 use crate::doc::Enc;
 use crate::error::Error;
@@ -53,63 +53,68 @@ pub fn md_fmt(id: usize) -> Option<mdformat::Fmt> {
     })
 }
 
+/// Moving the keyboard works whatever the tab shows.
+const PANE_COMMANDS: [usize; 4] = [ID_FOCUS_OTHER, ID_UNDOCK, ID_NEXT_AREA, ID_PREV_AREA];
+
 /// Commands that make sense on a whiteboard tab (everything else targets the text editor).
 pub fn wb_allows(id: usize) -> bool {
-    matches!(
-        id,
-        ID_NEW
-            | ID_NEW_WB
-            | ID_OPEN
-            | ID_SAVE
-            | ID_SAVEAS
-            | ID_SAVEALL
-            | ID_CLOSE
-            | ID_EXIT
-            | ID_THEME
-            | ID_NEXT_TAB
-            | ID_PREV_TAB
-            | ID_ABOUT
-            | ID_REPORT_ISSUE
-            | ID_PALETTE
-            | ID_QUICKOPEN
-            | ID_RECENT_CLEAR
-            | ID_OPEN_FOLDER_EXPLORER
-            | ID_OPEN_FOLDER_CMD
-            | ID_OPEN_FOLDER_WS
-            | ID_OPEN_VIEWER
-            | ID_OPEN_WORKSPACE
-            | ID_RELOAD
-            | ID_SAVE_COPY
-            | ID_RENAME
-            | ID_CLOSE_ALL
-            | ID_CLOSE_OTHERS
-            | ID_CLOSE_LEFT
-            | ID_CLOSE_RIGHT
-            | ID_CLOSE_UNCHANGED
-            | ID_RECYCLE
-            | ID_RESTORE_CLOSED
-            | ID_OPEN_ALL_RECENT
-            | ID_WORKSPACE_TOGGLE
-            | ID_PREFS
-            | ID_STYLE_CFG
-            | ID_SHORTCUTS
-            | ID_IMPORT_THEME
-            | ID_EXPORT_THEME
-            | ID_EDIT_CONTEXT
-            | ID_WINDOWS
-            | ID_ENC_SETTINGS
-            | ID_PASSWORDS
-            | ID_PW_TOOLBAR
-            | ID_PW_LOCK
-            | ID_ENC_LOCK
-            | ID_TAB_PIN
-            | ID_TAB_COLOR_NONE
-            | ID_TAB_COLOR_CUSTOM
-            | ID_TAB_REVEAL
-            | ID_UPDATE_PILL
-            | ID_UPDATE_CHECK
-            | ID_UPDATE_AUTO
-    ) || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
+    PANE_COMMANDS.contains(&id)
+        || matches!(
+            id,
+            ID_NEW
+                | ID_NEW_WB
+                | ID_OPEN
+                | ID_SAVE
+                | ID_SAVEAS
+                | ID_SAVEALL
+                | ID_CLOSE
+                | ID_EXIT
+                | ID_THEME
+                | ID_NEXT_TAB
+                | ID_PREV_TAB
+                | ID_ABOUT
+                | ID_REPORT_ISSUE
+                | ID_PALETTE
+                | ID_QUICKOPEN
+                | ID_RECENT_CLEAR
+                | ID_OPEN_FOLDER_EXPLORER
+                | ID_OPEN_FOLDER_CMD
+                | ID_OPEN_FOLDER_WS
+                | ID_OPEN_VIEWER
+                | ID_OPEN_WORKSPACE
+                | ID_RELOAD
+                | ID_SAVE_COPY
+                | ID_RENAME
+                | ID_CLOSE_ALL
+                | ID_CLOSE_OTHERS
+                | ID_CLOSE_LEFT
+                | ID_CLOSE_RIGHT
+                | ID_CLOSE_UNCHANGED
+                | ID_RECYCLE
+                | ID_RESTORE_CLOSED
+                | ID_OPEN_ALL_RECENT
+                | ID_WORKSPACE_TOGGLE
+                | ID_PREFS
+                | ID_STYLE_CFG
+                | ID_SHORTCUTS
+                | ID_IMPORT_THEME
+                | ID_EXPORT_THEME
+                | ID_EDIT_CONTEXT
+                | ID_WINDOWS
+                | ID_ENC_SETTINGS
+                | ID_PASSWORDS
+                | ID_PW_TOOLBAR
+                | ID_PW_LOCK
+                | ID_ENC_LOCK
+                | ID_TAB_PIN
+                | ID_TAB_COLOR_NONE
+                | ID_TAB_COLOR_CUSTOM
+                | ID_TAB_REVEAL
+                | ID_UPDATE_PILL
+                | ID_UPDATE_CHECK
+                | ID_UPDATE_AUTO
+        )
+        || (ID_RECENT_BASE..ID_RECENT_BASE + 100).contains(&id)
         || (ID_WINDOW_DOC_BASE..ID_WINDOW_DOC_BASE + WINDOW_DOCS_SHOWN).contains(&id)
         || (ID_PRESET_BASE..ID_PRESET_BASE + 2 + settings::PRESETS.len()).contains(&id)
         || (ID_WINDOW_SORT_BASE..ID_WINDOW_SORT_BASE + 8).contains(&id)

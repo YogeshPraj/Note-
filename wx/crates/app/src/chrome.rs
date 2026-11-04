@@ -184,6 +184,28 @@ impl Chrome {
         self.menu_bar.locator()
     }
 
+    /// The bars F6 moves through, in order.
+    fn bars(&self) -> Vec<&crate::widgets::keynav::KeyNav> {
+        [Some(self.tool_bar.keys()), self.strip.keys(), Some(self.status_bar.keys())].into_iter().flatten().collect()
+    }
+
+    /// Which bar has the keyboard.
+    pub fn bar_in_use(&self) -> Option<usize> {
+        self.bars().iter().position(|b| b.in_use())
+    }
+
+    /// Bring the keyboard into bar `n`. False if it is hidden or has nothing to land on.
+    pub fn enter_bar(&self, n: usize) -> bool {
+        self.bars().get(n).is_some_and(|b| b.enter())
+    }
+
+    /// Told when the keyboard should leave a bar.
+    pub fn set_bar_exit(&self, f: &Rc<dyn Fn(crate::widgets::keynav::Exit)>) {
+        for b in self.bars() {
+            b.on_exit(f.clone());
+        }
+    }
+
     /// Route every control's events to `h`.
     pub fn set_handler(&self, h: Rc<dyn Fn(Act)>) {
         let a = h.clone();

@@ -48,6 +48,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     <button id="undo" title="Undo (Ctrl+Z)">&#8630;</button>
     <button id="redo" title="Redo (Ctrl+Y)">&#8631;</button>
     <button id="del" title="Delete the selected object (Delete)">Delete</button>
+    <button id="center" title="Centre the picture on the canvas (or drag the picture with Select)">Centre</button>
     <span class="sep"></span>
     <button id="zout" title="Zoom out">&minus;</button>
     <button id="zlabel" title="Actual size (100%)">100%</button>
@@ -80,6 +81,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
   var base = document.createElement('canvas');                    // the picture itself; replaced, never drawn on
   var objects = [], sel = null, tool = 'select', zoom = 1, fitMode = true, loaded = false;
   var undoStack = [], redoStack = [], crop = null, stateTimer = 0, dragging = false;
+  var photo = { x: 0, y: 0, w: 0, h: 0 };                         // where the original picture sits on the canvas
   var style = { line: '#e53935', fill: null, w: 3, fs: 22 };
 
   /* ---- icons for the tool bar (drawn here, 24 x 24) ---- */
@@ -233,8 +235,8 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
   }
 
   /* ---- history ---- */
-  function snap() { return { base: base, objects: JSON.parse(JSON.stringify(objects)) }; }
-  function apply(s) { base = s.base; objects = JSON.parse(JSON.stringify(s.objects)); sel = null; setSize(base.width, base.height); redraw(); showProps(); }
+  function snap() { return { base: base, objects: JSON.parse(JSON.stringify(objects)), photo: { x: photo.x, y: photo.y, w: photo.w, h: photo.h } }; }
+  function apply(s) { base = s.base; photo = { x: s.photo.x, y: s.photo.y, w: s.photo.w, h: s.photo.h }; objects = JSON.parse(JSON.stringify(s.objects)); sel = null; setSize(base.width, base.height); redraw(); showProps(); }
   function pushUndo() { undoStack.push(snap()); redoStack = []; if (undoStack.length > 60) undoStack.shift(); buttons(); }
   function undo() { if (!undoStack.length) return; cancelCrop(); commitText(); redoStack.push(snap()); apply(undoStack.pop()); changed(); buttons(); }
   function redo() { if (!redoStack.length) return; cancelCrop(); undoStack.push(snap()); apply(redoStack.pop()); changed(); buttons(); }
@@ -290,7 +292,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     commitText(); cancelCrop(); pushUndo();
     var src = composite(), out = document.createElement('canvas'); out.width = w; out.height = h;
     var g = out.getContext('2d'); g.save(); draw(g, src); g.restore();
-    base = out; objects = []; setSize(w, h); redraw(); showProps(); if (fitMode) fitZoom(); changed();
+    base = out; objects = []; photo = { x: 0, y: 0, w: w, h: h }; setSize(w, h); redraw(); showProps(); if (fitMode) fitZoom(); changed();
   }
   function doAction(a) {
     if (!loaded) return;
@@ -427,7 +429,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     if (!crop || crop.w < 2 || crop.h < 2) return cancelCrop();
     var r = clampBox(crop); cancelCrop(); commitText(); pushUndo();
     var src = composite(), out = document.createElement('canvas'); out.width = r.w; out.height = r.h; out.getContext('2d').drawImage(src, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
-    base = out; objects = []; setSize(r.w, r.h); redraw(); showProps(); if (fitMode) fitZoom(); changed();
+    base = out; objects = []; photo = { x: 0, y: 0, w: r.w, h: r.h }; setSize(r.w, r.h); redraw(); showProps(); if (fitMode) fitZoom(); changed();
   }
   $('cropok').onclick = applyCrop; $('cropno').onclick = cancelCrop;
 
@@ -466,8 +468,29 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
       var out = document.createElement('canvas'); out.width = r.w; out.height = r.h;
       var g = out.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, r.w, r.h); g.drawImage(base, -r.x, -r.y);
       objects.forEach(function (o) { moveBy(o, -r.x, -r.y); });
-      base = out; setSize(r.w, r.h); redraw(); if (fitMode) fitZoom(); changed();
+      base = out; photo.x -= r.x; photo.y -= r.y; setSize(r.w, r.h); redraw(); if (fitMode) fitZoom(); changed();
     }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  }
+
+  /* ---- moving the picture on the canvas: the Centre button, or drag the picture with Select ---- */
+  function shiftAll(dx, dy) {
+    if (!dx && !dy) return;
+    pushUndo();
+    var out = document.createElement('canvas'); out.width = base.width; out.height = base.height;
+    var g = out.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, out.width, out.height); g.drawImage(base, dx, dy);
+    objects.forEach(function (o) { moveBy(o, dx, dy); });
+    base = out; photo.x += dx; photo.y += dy; redraw(); changed();
+  }
+  $('center').onclick = function () { if (loaded) { commitText(); shiftAll(Math.round((pic.width - photo.w) / 2 - photo.x), Math.round((pic.height - photo.h) / 2 - photo.y)); } };
+  function dragPicture(a) {
+    var dx = 0, dy = 0;
+    function move(m) {
+      var p = pt(m); dx = Math.round(p.x - a.x); dy = Math.round(p.y - a.y);
+      if (Math.abs(dx) + Math.abs(dy) < 3) { dx = dy = 0; drawOverlay(); return; }
+      drawOverlay(); octx.save(); octx.setLineDash([6 / zoom, 4 / zoom]); octx.lineWidth = 1.5 / zoom; octx.strokeStyle = '#1e88e5'; octx.strokeRect(photo.x + dx, photo.y + dy, photo.w, photo.h); octx.restore();
+    }
+    function up() { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); drawOverlay(); shiftAll(dx, dy); }
     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
   }
 
@@ -477,7 +500,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     var a = pt(e), cur = a, moved = false;
     if (tool === 'select') {
       var k = handleAt(a), o = k ? sel : objectAt(a);
-      if (!o) { select(null); return; }
+      if (!o) { select(null); dragPicture(a); return; }
       if (o !== sel) select(o);
       var last = a, first = true;
       function move(m) {
@@ -523,7 +546,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
   });
 
   /* ---- what the app sends ---- */
-  function showLoaded() { loaded = true; undoStack = []; redoStack = []; objects = []; sel = null; cancelCrop(); editing = null; tb.style.display = 'none'; redraw(); fitZoom(); buttons(); layout(); }
+  function showLoaded() { loaded = true; photo = { x: 0, y: 0, w: base.width, h: base.height }; undoStack = []; redoStack = []; objects = []; sel = null; cancelCrop(); editing = null; tb.style.display = 'none'; redraw(); fitZoom(); buttons(); layout(); }
   window.np = {
     load: function (mime, b64) {
       var img = new Image();

@@ -45,7 +45,7 @@
 2003	Cu&t	Ctrl+X or Shift+DEL	true	None
 2004	&Copy	Ctrl+C or Ctrl+INS	true	None
 2005	&Paste	Ctrl+V or Shift+INS	true	None
-2201	&Delete	DEL	true	None
+2201	&Delete	Delete key	true	None
 2006	Select &All	Ctrl+A	true	None
 2202	Begin/End &Select	Ctrl+Shift+B	true	None
 2203	Begin/End Select in Column Mode	Alt+Shift+B	true	None

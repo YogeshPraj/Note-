@@ -91,7 +91,9 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_UNCMT_LINE, "Single Line &Uncomment", "Edit: Single Line Uncomment", "Ctrl+Shift+K", ""),
     row(ID_CMT_BLOCK, "&Block Comment", "Edit: Block Comment", "Ctrl+Shift+Q", ""),
     row(ID_UNCMT_BLOCK, "Block Uncomment", "Edit: Block Uncomment", "Ctrl+Shift+R", ""),
-    gated(ID_DELETE, "&Delete", "Edit: Delete", "Del", "DEL", has_selection),
+    // No shortcut: the Delete key belongs to whichever control has the keyboard, and the editor handles it itself. As a
+    // shortcut it was taken by this command, which needs a selection, so it did nothing without one.
+    gated(ID_DELETE, "&Delete", "Edit: Delete", "", "Delete key", has_selection),
     row(ID_BEGIN_END_SEL, "Begin/End &Select", "Edit: Begin/End Select", "Ctrl+Shift+B", ""),
     row(ID_BEGIN_END_COL, "Begin/End Select in Column Mode", "Edit: Begin/End Select in Column Mode", "Alt+Shift+B", ""),
     row(ID_INS_DATE_SHORT, "Date Time (short version)", "Edit: Insert Date Time (short)", "", ""),

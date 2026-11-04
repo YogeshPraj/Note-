@@ -136,9 +136,24 @@ impl FileIndex {
     }
 }
 
+/// A program of Windows by its full path (`rel` is relative to the Windows folder). A bare name is looked for in the
+/// current folder first, and that can be the folder of a file someone sent.
+pub fn system_program(rel: &str) -> PathBuf {
+    let windows = std::env::var_os("SystemRoot").map(PathBuf::from).filter(|p| p.is_absolute());
+    windows.unwrap_or_else(|| PathBuf::from("C:\\Windows")).join(rel)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_programs_are_named_in_full() {
+        let p = system_program("System32\\cmd.exe");
+        assert!(p.to_string_lossy().ends_with("System32\\cmd.exe"));
+        #[cfg(windows)]
+        assert!(p.is_absolute() && p.is_file(), "{}", p.display());
+    }
 
     #[test]
     fn the_index_lists_in_the_background_and_answers_once_done() {

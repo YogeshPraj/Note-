@@ -171,7 +171,7 @@ VIAddVersionKey "LegalCopyright" "Yogesh Prajapati"
       ${EndIf}
       IntOp $R9 $R9 + 1
       ${If} $R9 > 16
-        nsExec::Exec 'taskkill /F /IM ${APP_EXE}'
+        nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM ${APP_EXE}'
         Pop $R1
         Sleep 600
         ${Break}
@@ -209,7 +209,7 @@ FunctionEnd
     Call ExtractExe
     ${GetParent} $R2 $R5
     ${If} ${FileExists} $R2
-      nsExec::Exec 'taskkill /F /IM "${OLD_EXE_NAME}"'
+      nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM "${OLD_EXE_NAME}"'
       Pop $R6
       Sleep 800
       ; "_?=" keeps the uninstaller in place so this waits for it to finish.

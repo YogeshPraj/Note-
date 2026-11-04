@@ -117,6 +117,8 @@ pub enum Error {
     NoChecksum,
     #[error("The download does not match its checksum - it was not installed.")]
     UpdateChecksumMismatch,
+    #[error("The update is not signed by Note++ - it was not installed.")]
+    UpdateNotSigned,
     #[error("cannot find the app folder")]
     NoAppFolder,
     #[error("Cannot start the updater: {0}")]

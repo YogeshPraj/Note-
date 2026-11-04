@@ -975,6 +975,7 @@ dependencies = [
  "md-5",
  "pbkdf2",
  "pulldown-cmark",
+ "ring",
  "serde",
  "serde_json",
  "sha1",

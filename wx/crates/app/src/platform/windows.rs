@@ -7,6 +7,7 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 
 use notepp_core::edit::DateTime;
+use notepp_core::files::system_program;
 
 use super::Platform;
 
@@ -46,10 +47,22 @@ unsafe extern "system" {
     fn GetLocalTime(t: *mut SystemTime);
     fn GetDateFormatEx(locale: *const u16, flags: u32, date: *const SystemTime, format: *const u16, out: *mut u16, cch: i32, calendar: *const u16) -> i32;
     fn GetTimeFormatEx(locale: *const u16, flags: u32, time: *const SystemTime, format: *const u16, out: *mut u16, cch: i32) -> i32;
+    fn SetDllDirectoryW(path: *const u16) -> i32;
+}
+
+#[link(name = "shell32")]
+unsafe extern "system" {
+    fn ShellExecuteW(window: isize, verb: *const u16, file: *const u16, args: *const u16, dir: *const u16, show: i32) -> isize;
 }
 
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 2;
+const SW_SHOWNORMAL: i32 = 1;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// The file for [`Windows::recycle`]. It goes to the script as data: quotes in a file name, curly ones included, are
+/// quotes to PowerShell, and a name built into the script would be code.
+const RECYCLE_VAR: &str = "NOTEPP_RECYCLE_PATH";
+const RECYCLE_SCRIPT: &str = "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:NOTEPP_RECYCLE_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')";
 
 /// The clipboard, held open; closed when dropped.
 struct Clipboard;
@@ -108,12 +121,24 @@ impl Drop for Clipboard {
     }
 }
 
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
 fn format_id(name: &str) -> u32 {
-    let w: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let w = wide(name);
     unsafe { RegisterClipboardFormatW(w.as_ptr()) }
 }
 
 impl Platform for Windows {
+    fn harden_library_search(&self) {
+        // Libraries loaded by name are no longer looked for in the current folder, which is the folder of a file that was
+        // double-clicked. SetDefaultDllDirectories would be stricter but stops WebView2 from loading, and the web views
+        // then fall back to Internet Explorer and stay blank. Ones the program links to: see docs/audit.md.
+        let empty = wide("");
+        unsafe { SetDllDirectoryW(empty.as_ptr()) };
+    }
+
     fn clipboard_format(&self, owner: isize, name: &str) -> Option<Vec<u8>> {
         let id = format_id(name);
         Clipboard::open(owner)?.read(id)
@@ -129,11 +154,11 @@ impl Platform for Windows {
 
     fn reveal_in_file_manager(&self, path: &Path) {
         // Explorer wants `/select,"path"` as one argument with its own quotes.
-        let _ = std::process::Command::new("explorer").raw_arg(format!("/select,\"{}\"", path.display())).spawn();
+        let _ = std::process::Command::new(system_program("explorer.exe")).raw_arg(format!("/select,\"{}\"", path.display())).spawn();
     }
 
     fn open_terminal(&self, dir: Option<&Path>) {
-        let mut cmd = std::process::Command::new("cmd");
+        let mut cmd = std::process::Command::new(system_program("System32\\cmd.exe"));
         cmd.arg("/K");
         if let Some(d) = dir {
             cmd.current_dir(d);
@@ -143,21 +168,24 @@ impl Platform for Windows {
 
     fn open_default(&self, target: &str) {
         // Not `cmd /c start`: that would parse `&` and friends in addresses.
-        let _ = std::process::Command::new("rundll32").arg("url.dll,FileProtocolHandler").arg(target).spawn();
+        let _ = std::process::Command::new(system_program("System32\\rundll32.exe")).arg("url.dll,FileProtocolHandler").arg(target).spawn();
     }
 
     fn open_with(&self, program: &str, path: &Path) {
-        // `start` resolves registered programs such as chrome.exe; raw_arg keeps the quoting.
-        let _ = std::process::Command::new("cmd").raw_arg(format!("/C start \"\" {program} \"{}\"", path.display())).creation_flags(0x0800_0000).spawn();
+        // The shell finds registered programs such as chrome.exe, and no command line parses the file's name. The folder
+        // is given so that the search does not start in the current one.
+        let (verb, file, args) = (wide("open"), wide(program), wide(&format!("\"{}\"", path.display())));
+        let dir = wide(&system_program("System32").display().to_string());
+        unsafe { ShellExecuteW(0, verb.as_ptr(), file.as_ptr(), args.as_ptr(), dir.as_ptr(), SW_SHOWNORMAL) };
     }
 
     fn recycle(&self, path: &Path) -> std::io::Result<()> {
         // The shell's own "send to Recycle Bin", through the .NET file-system helper.
-        let script = format!(
-            "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin')",
-            path.display().to_string().replace('\'', "''")
-        );
-        let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).output()?;
+        let out = std::process::Command::new(system_program("System32\\WindowsPowerShell\\v1.0\\powershell.exe"))
+            .args(["-NoProfile", "-NonInteractive", "-Command", RECYCLE_SCRIPT])
+            .env(RECYCLE_VAR, path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()?;
         if out.status.success() { Ok(()) } else { Err(std::io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string())) }
     }
 
@@ -193,5 +221,25 @@ impl Platform for Windows {
             let part = |buf: &[u16], n: i32| String::from_utf16_lossy(&buf[..(n.max(1) as usize - 1).min(buf.len())]);
             format!("{} {}", part(&time, t), part(&date, d))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "moves a file to the real Recycle Bin"]
+    fn a_quote_in_a_file_name_is_not_code() {
+        let dir = std::env::temp_dir().join(format!("npp_recycle_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        let file = dir.join("x\u{2019}+(New-Item ran)+\u{2019}.txt");
+        std::fs::write(&file, b"x").unwrap();
+        Windows.recycle(&file).unwrap();
+        assert!(!file.exists(), "it went to the Recycle Bin");
+        assert!(!dir.join("ran").exists(), "the name ran as code");
+        std::env::set_current_dir(std::env::temp_dir()).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

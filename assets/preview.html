@@ -179,11 +179,14 @@ body.dark .jsoneditor-poweredBy { display:none; }
     if (e.ctrlKey) { e.preventDefault(); setZoom(zoom + (e.deltaY < 0 ? 0.1 : -0.1)); }
   }, { passive: false });
 
-  // An in-page link (#section) scrolls the pane to that heading; the page itself must not navigate.
+  // The page itself never navigates: an in-page link (#section) scrolls the pane to that heading, and any other link
+  // goes to the application, which hands web and mail addresses to the system.
   document.addEventListener('click', function (e) {
-    var a = e.target.closest && e.target.closest('a[href^="#"]'); if (!a) return;
+    var a = e.target.closest && e.target.closest('a[href]'); if (!a) return;
     e.preventDefault();
-    var id = ''; try { id = decodeURIComponent(a.getAttribute('href').slice(1)); } catch (x) {}
+    var href = a.getAttribute('href');
+    if (href.charAt(0) !== '#') { post('open:' + href); return; }
+    var id = ''; try { id = decodeURIComponent(href.slice(1)); } catch (x) {}
     var t = id && document.getElementById(id); if (t) t.scrollIntoView({ block: 'start' });
   });
 

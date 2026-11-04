@@ -101,6 +101,9 @@ impl App {
             self.flash = Some("No request found at the cursor".into());
             return;
         };
+        if !self.vault_send_agreed(&req) {
+            return;
+        }
         if !self.preview.on {
             self.set_preview(true);
         }
@@ -120,6 +123,19 @@ impl App {
             };
             *slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((doc, json));
         });
+    }
+
+    /// Ask before a request sends vault values somewhere for the first time: its file can come from anyone.
+    fn vault_send_agreed(&mut self, req: &http::Request) -> bool {
+        let Some(consent) = http::vault_consent(req) else { return true };
+        if self.streams.vault_origins.contains(&consent.origin) {
+            return true;
+        }
+        let yes = crate::widgets::ask::yes_no(&self.frame, "Send vault values?", &consent.question, true);
+        if yes {
+            self.streams.vault_origins.insert(consent.origin);
+        }
+        yes
     }
 
     /// Compare the active document with `right` in a new window.

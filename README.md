@@ -76,7 +76,7 @@ All files are on the [latest release page](https://github.com/YogeshPraj/Note-/r
 - Text tools: hashes (MD5, SHA-1, SHA-256, ...), Base64, case conversion, sort, line operations.
 
 ### Updates
-- **Windows updates itself.** A few seconds after start (and every few hours) Note++ checks GitHub for a newer release, downloads it in the background and says so in the status bar: it is installed the next time you start Note++, with your tabs and any files you opened still there. A green toolbar notice lets you install it right away instead. Downloads are verified against a published SHA-256 before they are used. Turn it off under *Settings > General* or *? > Update Automatically*. macOS and Linux builds do not update themselves; *Check for Updates* opens the releases page.
+- **Windows updates itself.** A few seconds after start (and every few hours) Note++ checks GitHub for a newer release, downloads it in the background and says so in the status bar: it is installed the next time you start Note++, with your tabs and any files you opened still there. A green toolbar notice lets you install it right away instead. Updates are signed: a download is used only when its signature and SHA-256 check out. Turn it off under *Settings > General* or *? > Update Automatically*. macOS and Linux builds do not update themselves; *Check for Updates* opens the releases page.
 
 ## Install
 

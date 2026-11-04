@@ -84,6 +84,10 @@ impl App {
             self.take_json(text);
         } else if let Some(path) = msg.strip_prefix("jpath:") {
             self.go_to_json_node(path);
+        } else if let Some(url) = msg.strip_prefix("open:") {
+            if let Some(url) = pcore::external_link(url) {
+                crate::platform::current().open_default(url);
+            }
         } else {
             self.page_scrolled(msg);
         }

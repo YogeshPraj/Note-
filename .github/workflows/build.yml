@@ -107,6 +107,15 @@ jobs:
           $tag = "${{ github.ref_name }}".TrimStart('v')
           if ($ver -ne $tag) { throw "Tag ${{ github.ref_name }} does not match version $ver in Cargo.toml" }
 
+      - name: Sign the update
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          cargo run --locked -p notepp-core --example update_key -- sign $ver dist/release/NotePP-windows-x64.zip.sha256 dist/release/NotePP-windows-x64.zip.sha256.sig
+          if ($LASTEXITCODE -ne 0) { throw 'Signing the update failed' }
+
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -114,8 +123,8 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $ver = $tag.TrimStart('v')
-          # zip + checksum: the in-app updater; installer + latest.yml: the updater of the 1.x app
-          $files = @('dist/release/NotePP-windows-x64.zip', 'dist/release/NotePP-windows-x64.zip.sha256', "dist/release/NotePP-Setup-$ver.exe", 'dist/release/latest.yml')
+          # zip + checksum + signature: the in-app updater; installer + latest.yml: the updater of the 1.x app
+          $files = @('dist/release/NotePP-windows-x64.zip', 'dist/release/NotePP-windows-x64.zip.sha256', 'dist/release/NotePP-windows-x64.zip.sha256.sig', "dist/release/NotePP-Setup-$ver.exe", 'dist/release/latest.yml')
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "Note++ $ver" --generate-notes $files
@@ -123,6 +132,27 @@ jobs:
             gh release upload $tag $files --clobber
           }
           if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed' }
+
+  # ---------------------------------------------------------------- known vulnerabilities in dependencies
+  # Reports only: an advisory shows up here without blocking a release.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Core
+        run: cargo audit
+
+      - name: Shell
+        if: always()
+        working-directory: wx
+        run: cargo audit
 
   # ---------------------------------------------------------------- Linux and macOS (experimental)
   # Built by the same wxWidgets shell, but not yet tested on those systems. A failure here never blocks the

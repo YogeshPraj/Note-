@@ -16,6 +16,9 @@ pub mod wx;
 
 /// Operating-system services the shell needs. Window handles are raw native handles (`0` = none).
 pub trait Platform: Sync {
+    /// Tighten how the process finds libraries. First thing in `main`, before anything loads one.
+    fn harden_library_search(&self) {}
+
     /// Show `path` selected in the system file manager.
     fn reveal_in_file_manager(&self, path: &Path);
     /// Open a terminal, in `dir` when given.

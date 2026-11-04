@@ -52,10 +52,49 @@ pub fn resolve_location(base: &str, loc: &str) -> String {
     format!("{origin}{}{loc}", if dir.is_empty() { "/" } else { dir })
 }
 
-pub(super) fn host_of(url: &str) -> &str {
+pub fn host_of(url: &str) -> &str {
     let s = url.find("://").map_or(0, |i| i + 3);
     let rest = &url[s..];
     &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())]
+}
+
+/// May what was sent to `from` go on to `to`? Not to another host, and not from https down to plain http.
+pub(super) fn keeps_credentials(from: &str, to: &str) -> bool {
+    let secure = |u: &str| u.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+    host_of(from) == host_of(to) && (secure(to) || !secure(from))
+}
+
+/// Does `name` carry a credential? The usual headers, and any the request fills from the vault.
+fn secret_header(req: &Request, name: &str) -> bool {
+    ["authorization", "cookie", "proxy-authorization"].iter().any(|h| h.eq_ignore_ascii_case(name))
+        || req.headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(name) && has_vault_ref(v))
+}
+
+/// 307 and 308 send the body again, so one with vault values in it stops at a redirect that credentials may not follow.
+fn may_follow(req: &Request, status: u16, from: &str, to: &str) -> bool {
+    keeps_credentials(from, to) || !(matches!(status, 307 | 308) && req.body.as_deref().is_some_and(has_vault_ref))
+}
+
+/// What Send has to ask before vault values leave for a place the user has not agreed to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultConsent {
+    /// Scheme and host: agreeing covers this, for the session.
+    pub origin: String,
+    pub question: String,
+}
+
+/// The question for `req`; `None` when it uses no vault value. A `.http` file can come from anyone and name any host.
+pub fn vault_consent(req: &Request) -> Option<VaultConsent> {
+    let used = has_vault_ref(&req.url) || req.headers.iter().any(|(_, v)| has_vault_ref(v)) || req.body.as_deref().is_some_and(has_vault_ref);
+    if !used {
+        return None;
+    }
+    let scheme = req.url.split("://").next().unwrap_or_default().to_ascii_lowercase();
+    let host = host_of(&req.url);
+    let warning = if scheme == "https" { "" } else { "\n\nThis address is not https: they would travel unencrypted." };
+    let question =
+        format!("This request sends values from your Passwords vault to {host}.{warning}\n\nSend only if you trust this file and that address. Send them?");
+    Some(VaultConsent { origin: format!("{scheme}://{host}"), question })
 }
 
 struct Raw {
@@ -117,20 +156,17 @@ pub fn send(req: &Request, vault: &mut dyn FnMut(&str) -> Option<String>) -> Res
     loop {
         let raw = perform(&method, &url, &headers, payload.as_deref())?;
         let location = raw.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.clone());
-        if let (Some(loc), 300..=399) = (location, raw.status)
-            && redirects < MAX_REDIRECTS
-        {
+        let target = location.filter(|_| (300..=399).contains(&raw.status) && redirects < MAX_REDIRECTS).map(|loc| resolve_location(&url, &loc));
+        if let Some(next) = target.filter(|next| may_follow(req, raw.status, &url, next)) {
             redirects += 1;
-            let next = resolve_location(&url, &loc);
             // 303, and 301/302 in practice, turn into a GET without a body.
             if raw.status == 303 || ((raw.status == 301 || raw.status == 302) && method != "HEAD") {
                 method = "GET".into();
                 payload = None;
                 headers.retain(|(k, _)| !k.eq_ignore_ascii_case("content-type") && !k.eq_ignore_ascii_case("content-length"));
             }
-            // Credentials never follow a redirect to another host.
-            if host_of(&next) != host_of(&url) {
-                headers.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization") && !k.eq_ignore_ascii_case("cookie"));
+            if !keeps_credentials(&url, &next) {
+                headers.retain(|(k, _)| !secret_header(req, k));
             }
             url = next;
             continue;

@@ -200,3 +200,28 @@ Cast, `Debug` and `unwrap` lints are at zero.
   reported on the status line; before, both bound the same chord.
 - Update-pill colours changed slightly (`info`, `warning`, `success` tokens); the tab badge and dirty dot use tokens with
   the same values as before.
+
+## Security review against Notepad++ advisories (2026-11-04)
+
+Checked the kinds of flaw reported against Notepad++: updater hijacking, DLL search order, command injection through file names, unsafe links. Fixed after v2.0.7:
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | High | A curly quote in a file name ran as PowerShell code on Move to Recycle Bin (proven) | The path goes to a constant script through an environment variable |
+| 2 | High | Updates had only a checksum from the same release page | Ed25519 signature over the version and digest file; public key in `core::update`, private key in CI |
+| 3 | Medium | A clicked link navigated the web view, which has the `ipc` bridge | The page sends links to the app (http, https, mailto go to the system); `WebPane` vetoes every navigation it did not ask for |
+| 4 | Medium | `cmd`, `explorer`, `rundll32`, `powershell`, `xcopy`, `ping`, `taskkill` by bare name, found in the current folder first | Full paths (`files::system_program`, `$SYSDIR`); `open_with` uses `ShellExecuteW`, so no command line parses a file name |
+| 5 | Medium/Low | DLL search included the current folder | `SetDllDirectoryW("")` first thing in `main` |
+| 6 | Low | https to http redirects kept credentials; a `.http` file could send vault values anywhere | Credentials stay on the host and on https, vault-filled headers included; a body with vault values stops at a 307/308 away; Send asks once per scheme and host per session |
+
+Known limits, on purpose:
+
+- **DLLs the exe imports** (UxTheme, VERSION, dwmapi, OLEACC, MSIMG32, WINMM, WINSPOOL, USERENV) load before `main`, from the exe's folder first, and mingw has no delay-load. Copying the exe into a folder with a planted DLL still works; an installed copy's folder is the user's own.
+- **`SetDefaultDllDirectories` must not be used.** With `LOAD_LIBRARY_SEARCH_SYSTEM32` or `DEFAULT_DIRS` WebView2 fails to load and every web view silently falls back to Internet Explorer and stays blank (tested 2026-11-04).
+- **Scintilla** is 5.0.0 inside wxWidgets 3.3.4, old against upstream. It comes with the toolkit, so it moves with wxdragon.
+- **Copies before the first signed release** do not check signatures; they take that release on the checksum alone.
+- **The program is not Authenticode-signed**, so SmartScreen still warns. The update key says nothing to Windows.
+- **Print and Compare** windows have no navigation veto: their pages have no links and a handler on those short-lived views has crashed the app before.
+- `cargo audit` runs in CI and reports only.
+
+The release key: `examples/update_key.rs` makes it. The private half is the `UPDATE_SIGNING_KEY` repository secret; the release build fails if it is missing or is not the key built into the app. Losing it means installed copies accept no more updates; changing it needs a release signed by the old key that carries the new public key.

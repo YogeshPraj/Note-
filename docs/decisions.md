@@ -52,3 +52,9 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - Moving the picture on a bigger canvas: the editor remembers where the original picture sits (`photo`) through canvas resizes. The Centre button puts it in the middle, and dragging the background with Select (nothing selected) moves it; annotation objects move with it, so they stay in place on the picture, and the exposed area is white. Crop, rotate, flip and Resize flatten and reset it to the whole canvas.
 - Tab and Shift+Tab are not shortcuts of the Indent commands, for the same reason as Del: a plain editing key stays with the focused control. The editor types at the caret and indents a multi-line selection itself. Do not bind plain editing keys as menu shortcuts.
 - Del is not a shortcut of Edit > Delete: the key stays with the focused control (the editor handles it natively, the Find box edits its own text). The menu shows `Delete key` as a hint, which is not a parsable chord, so it makes no accelerator.
+- The update signature covers `Note++ update <version>` plus the digest file, not the digest alone: an old genuine build served under a higher tag would otherwise pass. The private key was generated locally and is not in the repository.
+- The update download addresses must start with this repository's release path, on top of the signature.
+- `ring` is a direct dependency of core only for checking update signatures; it was already in the build through ureq's TLS.
+- Links in the preview open in the system browser on a single click, without a confirmation, as in any browser. Only http, https and mailto; relative links do nothing, as before.
+- Vault consent is per scheme and host for the session and is not saved: agreeing for https does not cover http.
+- The Recycle Bin keeps going through PowerShell with the path as data, and now runs without a console window.

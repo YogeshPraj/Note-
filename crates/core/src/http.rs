@@ -203,6 +203,13 @@ pub fn request_at(text: &str, cursor_line: usize) -> Option<Request> {
 
 // ---- vault references -----------------------------------------------------------------------
 
+/// Does `text` have a `{{vault:...}}` reference in it?
+fn has_vault_ref(text: &str) -> bool {
+    let mut missing = Vec::new();
+    resolve_vault_refs(text, &mut HashMap::new(), &mut |_| None, &mut Vec::new(), &mut missing);
+    !missing.is_empty()
+}
+
 /// Substitute `{{vault:...}}` using `lookup(reference)`. Returns the text, the references used and
 /// the ones that could not be found.
 pub fn resolve_vault_refs(

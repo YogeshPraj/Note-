@@ -11,6 +11,7 @@
 //! pane.eval("document.title = 'x'"); // queued until the page is ready
 //! ```
 
+pub mod nav;
 pub mod queue;
 pub mod script;
 
@@ -18,6 +19,7 @@ use std::cell::RefCell;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use wxdragon::event::WebViewEvents;
 use wxdragon::prelude::*;
 use wxdragon::widgets::webview::WebView;
 use wxdragon_sys as ffi;
@@ -35,6 +37,8 @@ struct State {
     dark: Option<bool>,
     /// What has been set up in the page since it loaded (libraries handed over; see [`WebPane::first_time`]).
     given: Vec<&'static str>,
+    /// The application just asked for an address: the next navigation is that one.
+    asked: bool,
 }
 
 impl std::fmt::Debug for WebPane {
@@ -50,11 +54,20 @@ pub struct WebPane {
 }
 
 impl WebPane {
-    /// A web view in `parent` that can post messages back through `window.ipc`.
+    /// A web view in `parent` that can post messages back through `window.ipc`. It goes only where the application
+    /// sends it: the page runs with that bridge, so a link in a document must not take it to a site.
     pub fn new(parent: &impl WxWidget) -> WebPane {
         let view = WebView::builder(parent).build();
         view.add_script_message_handler("ipc");
-        WebPane { view, st: Rc::new(RefCell::new(State::default())) }
+        let st = Rc::new(RefCell::new(State::default()));
+        let state = st.clone();
+        view.on_navigating(move |e| {
+            let asked = state.try_borrow_mut().is_ok_and(|mut s| std::mem::take(&mut s.asked));
+            if !asked && !nav::stays_in_app(&e.get_url().unwrap_or_default()) {
+                e.event.event.veto();
+            }
+        });
+        WebPane { view, st }
     }
 
     pub fn is_loaded(&self) -> bool {
@@ -94,6 +107,7 @@ impl WebPane {
     /// Show the page at `url`.
     pub fn load_url(&self, url: &str) {
         self.begin_load();
+        self.st.borrow_mut().asked = true;
         self.view.load_url(url);
     }
 

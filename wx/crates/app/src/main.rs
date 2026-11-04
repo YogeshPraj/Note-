@@ -43,6 +43,7 @@ use wxdragon::prelude::*;
 
 fn main() {
     // Our resources carry the visual-styles manifest; the check is for programs that forgot it.
+    platform::current().harden_library_search();
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
     sci::register_lexilla();
     let _ = widgets::form::PROBLEM_SINK.set(|line| app::trace(0, line));

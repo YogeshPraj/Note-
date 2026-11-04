@@ -27,5 +27,7 @@ zeroize = "1"
 thiserror = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 ureq = { version = "3", features = ["gzip", "brotli"] }
+# Checking that an update was signed (already in the build through ureq's TLS).
+ring = "0.17"
 # Compare (text diff).
 similar = { version = "2", features = ["inline"] }

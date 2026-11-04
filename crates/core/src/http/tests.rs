@@ -1,4 +1,4 @@
-use super::send::{host_of, is_text_type};
+use super::send::{host_of, is_text_type, keeps_credentials};
 use super::*;
 use std::io::Write;
 use std::net::TcpListener;
@@ -128,6 +128,55 @@ fn sends_a_request_follows_a_302_as_get_and_reads_json() {
     assert!(!seen[1].contains("{\"a\":1}"), "the body is dropped on the redirect");
     let json = response_json(&req, &res);
     assert!(!json.contains("SECRET"), "the secret never reaches the page");
+}
+
+#[test]
+fn credentials_stay_on_the_host_and_on_https() {
+    assert!(keeps_credentials("https://a.com/x", "https://a.com/y"));
+    assert!(keeps_credentials("http://a.com/x", "https://a.com/y"), "upwards is fine");
+    assert!(keeps_credentials("http://a.com/x", "http://a.com/y"));
+    assert!(!keeps_credentials("https://a.com/x", "http://a.com/y"), "never down to plain http");
+    assert!(!keeps_credentials("HTTPS://a.com/x", "http://a.com/y"));
+    assert!(!keeps_credentials("https://a.com/x", "https://b.com/y"));
+    assert!(!keeps_credentials("https://a.com/x", "https://a.com:8443/y"));
+}
+
+#[test]
+fn a_header_filled_from_the_vault_does_not_follow_to_another_host() {
+    let (other, second) = serve(vec!["HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()]);
+    let (base, first) = serve(vec![format!("HTTP/1.1 302 Found\r\nLocation: {other}/x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")]);
+    let headers = vec![("X-Api-Key".into(), "{{vault:Tok}}".into()), ("Authorization".into(), "Bearer t".into()), ("X-Plain".into(), "kept".into())];
+    let req = Request { method: "GET".into(), url: format!("{base}/start"), headers, body: None, name: None };
+    assert_eq!(send(&req, &mut |_| Some("SECRET".to_string())).unwrap().status, 200);
+    assert!(first.join().unwrap()[0].contains("SECRET"));
+    let seen = &second.join().unwrap()[0];
+    assert!(!seen.contains("SECRET") && !seen.to_ascii_lowercase().contains("authorization"), "{seen}");
+    assert!(seen.contains("kept"), "{seen}");
+}
+
+#[test]
+fn a_body_with_vault_values_stops_at_a_307_to_another_host() {
+    let (base, server) =
+        serve(vec!["HTTP/1.1 307 Temporary Redirect\r\nLocation: http://other.invalid/x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()]);
+    let req = Request { method: "POST".into(), url: format!("{base}/start"), headers: vec![], body: Some("p={{vault:Tok}}".into()), name: None };
+    let res = send(&req, &mut |_| Some("SECRET".to_string())).unwrap();
+    assert_eq!((res.status, res.redirects), (307, 0), "shown to the user, not followed");
+    server.join().unwrap();
+}
+
+#[test]
+fn sending_vault_values_asks_first_and_names_the_host() {
+    let req =
+        |url: &str, auth: &str| Request { method: "GET".into(), url: url.into(), headers: vec![("Authorization".into(), auth.into())], body: None, name: None };
+    assert_eq!(vault_consent(&req("https://a.com/x", "Bearer plain")), None);
+    let safe = vault_consent(&req("https://a.com/x", "Bearer {{vault:Tok}}")).unwrap();
+    assert_eq!(safe.origin, "https://a.com");
+    assert!(safe.question.contains("a.com") && !safe.question.contains("unencrypted"));
+    let plain = vault_consent(&req("http://a.com/x", "Bearer {{vault:Tok}}")).unwrap();
+    assert_eq!(plain.origin, "http://a.com", "agreeing to https does not cover http");
+    assert!(plain.question.contains("unencrypted"));
+    let in_body = Request { method: "POST".into(), url: "https://b.com".into(), headers: vec![], body: Some("{{vault:Tok}}".into()), name: None };
+    assert!(vault_consent(&in_body).is_some());
 }
 
 #[test]

@@ -33,7 +33,7 @@ New-Item -ItemType Directory $dist | Out-Null
 Copy-Item $exe (Join-Path $dist 'notepp.exe')
 Copy-Item $wbSrc (Join-Path $dist 'whiteboard') -Recurse
 
-# Every DLL the exe imports must be a Windows system DLL: the exe restricts loading to System32 and its own folder.
+# Every DLL the exe imports must be a Windows system DLL: none is shipped beside it.
 $system = 'kernel32|user32|gdi32|gdiplus|advapi32|shell32|shlwapi|ole32|oleaut32|oleacc|comctl32|comdlg32|dwmapi|msimg32|imm32|ws2_32|userenv|ntdll|bcrypt|bcryptprimitives|winspool|wtsapi32|winmm|version|crypt32|secur32|ncrypt|combase|propsys|rpcrt4|uxtheme'
 $objdump = Get-Command objdump -ErrorAction SilentlyContinue
 if (-not $objdump) { throw 'objdump not found (it ships with MinGW): cannot check the exe imports' }

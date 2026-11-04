@@ -219,6 +219,7 @@ impl App {
             enc: s.enc.clone(),
             eol: s.eol.clone(),
             lang: s.lang.clone(),
+            overtype: self.ws.overtype(),
         });
         let th = &self.ws.theme;
         let base = if th.dark { crate::widgets::theme::Theme::dark() } else { crate::widgets::theme::Theme::light() };

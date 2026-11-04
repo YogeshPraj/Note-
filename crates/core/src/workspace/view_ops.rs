@@ -242,6 +242,11 @@ impl<S: Send> Workspace<S> {
         (self.tabs.get(self.active).map_or(0, |t| t.doc), text.len(), h)
     }
 
+    /// Does typing replace text (the Insert key)?
+    pub fn overtype(&self) -> bool {
+        self.send(sci::SCI_GETOVERTYPE, 0, 0) != 0
+    }
+
     /// The 0-based line the caret is on.
     pub fn caret_line(&self) -> usize {
         let pos = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));

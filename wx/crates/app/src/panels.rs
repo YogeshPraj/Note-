@@ -26,6 +26,7 @@ pub struct Panels {
     pub tree_box: Panel,
     pub tree: TreeView,
     title: Label,
+    close: Button,
     pub side: ListView,
 }
 
@@ -65,16 +66,19 @@ pub fn create(parent: &wxdragon::prelude::Panel) -> Panels {
     tree_box.set_sizer(col, true);
     tree_box.set_min_size(Size::new(t.px(TREE_W), -1));
     tree_box.show(false);
+    close.set_tooltip("Close this panel");
     close.set_min_size(Size::new(t.px(24), t.px(HEADER_H - 4)));
 
     let side = ListView::adopt_as(ListCtrl::builder(parent).with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel).build(), Role::Editor);
     side.set_min_size(Size::new(t.px(SIDE_W), -1));
     side.show(false);
-    Panels { tree_box, tree, title, side }
+    Panels { tree_box, tree, title, close, side }
 }
 
 pub fn wire(app: &Shared) {
     let p = app.borrow().panels;
+    let a = app.clone();
+    p.close.on_click(move |_| crate::app::run_command(&a, c::ID_WORKSPACE_TOGGLE));
     // Expanding a folder reads it; a file is opened by double-click or Enter.
     let tree = p.tree;
     p.tree.on_item_expanding(move |e| {

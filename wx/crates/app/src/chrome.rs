@@ -47,6 +47,8 @@ pub struct StatusText {
     pub enc: String,
     pub eol: String,
     pub lang: String,
+    /// Typing replaces text (the Insert key).
+    pub overtype: bool,
 }
 
 pub struct Chrome {
@@ -219,7 +221,7 @@ impl Chrome {
         self.status_bar.set(
             t.position,
             vec![
-                Segment::text("INS"),
+                Segment::text(if t.overtype { "OVR" } else { "INS" }),
                 Segment::button(t.lang, SEG_LANG),
                 Segment::button(t.eol, SEG_EOL),
                 Segment::button(t.enc, SEG_ENC),

@@ -175,6 +175,14 @@ Each of these is global because its owner cannot hold it: a C callback with no u
 | `BUSY` | `app/pwdialogs.rs` | A Bitwarden job is running; one flag across the flow's four screens (install, unlock, vault, add), each its own form. |
 | `EDITS` | `app/app.rs` | Bumped by Scintilla's change notification, which fires during commands that hold `App` borrowed. |
 
+### Controls with nothing behind them (checked 2026-11-04)
+
+Swept: every command against its handlers, form buttons, native buttons, Settings rows, find options, preview page messages, whiteboard events, tab and status bar events.
+
+Fixed: the folder panel's close button, the JSON preview's `json:`, `jsonfix:` and `jpath:` messages, and the status bar's INS/OVR.
+
+Still open, waiting for the owner's decision: View > Move to Other View, Clone to Other View, Focus on Another View (shows F8), Synchronize Vertical and Horizontal Scrolling, and Project Panel 1 to 3 are permanently greyed menu entries with no handler (there is no second view). `Settings::md_preview` and `Settings::whats_new_seen` are stored but never read.
+
 ### Lint debt after Phase 7
 
 | Workspace | Warnings | Largest groups |

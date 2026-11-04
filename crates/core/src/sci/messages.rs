@@ -2,6 +2,7 @@
 
 // ── Messages (scintilla/include/Scintilla.h) ───────────────────────────────
 pub const SCI_SETTEXT: u32 = 2181;
+pub const SCI_GETOVERTYPE: u32 = 2187;
 pub const SCI_GETTEXT: u32 = 2182;
 pub const SCI_GETLENGTH: u32 = 2006;
 pub const SCI_GETLINECOUNT: u32 = 2154;

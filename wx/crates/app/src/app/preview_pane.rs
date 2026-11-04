@@ -77,8 +77,48 @@ impl App {
         }
     }
 
+    /// A message from the page that is about the document: an edit in the JSON tree, "fix" on broken JSON, a node
+    /// picked in the tree, or a scroll.
+    pub(crate) fn page_message(&mut self, msg: &str) {
+        if let Some(text) = msg.strip_prefix("json:").or_else(|| msg.strip_prefix("jsonfix:")) {
+            self.take_json(text);
+        } else if let Some(path) = msg.strip_prefix("jpath:") {
+            self.go_to_json_node(path);
+        } else {
+            self.page_scrolled(msg);
+        }
+    }
+
+    /// Is the page showing the active tab? It can lag behind a tab switch, and must not then write into the new tab.
+    fn page_shows_active_tab(&self) -> bool {
+        let doc = self.ws.tabs.get(self.ws.active).map(|t| t.doc);
+        self.ws.preview_kind() == Some(pcore::Kind::Json) && self.preview.key.is_some_and(|k| Some(k.0) == doc)
+    }
+
+    /// The JSON view changed the document: take its text (one undo step).
+    fn take_json(&mut self, text: &str) {
+        if self.page_shows_active_tab() {
+            self.ws.replace_text(text);
+            self.refresh();
+        }
+    }
+
+    /// A node was picked in the JSON tree (`path` as the page sends it): put the editor on its line.
+    fn go_to_json_node(&mut self, path: &str) {
+        use notepp_core::jsonpath;
+        if !self.page_shows_active_tab() {
+            return;
+        }
+        let text = notepp_core::sci::get_text(&self.ws.sci);
+        if let Some(line) = jsonpath::parse_path(path).and_then(|p| jsonpath::line_of(&text, &p)) {
+            notepp_core::search::goto_line(&self.ws.sci, line + 1);
+            self.preview.applied = Some(self.ws.top_doc_line());
+            self.refresh();
+        }
+    }
+
     /// The page scrolled by itself: bring the editor along.
-    pub(crate) fn page_scrolled(&mut self, msg: &str) {
+    fn page_scrolled(&mut self, msg: &str) {
         if let Some(line) = msg.strip_prefix("line:").and_then(|v| v.split('.').next()).and_then(|v| v.parse::<usize>().ok()) {
             self.preview.applied = Some(line);
             self.ws.set_top_doc_line(line);

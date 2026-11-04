@@ -229,14 +229,14 @@ pub(super) fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view
     let a = app.clone();
     let pv = view.clone();
     view.on_script_message_received(move |e| {
-        let msg = e.get_string().unwrap_or_default();
-        match msg.trim_matches('"') {
+        let msg = notepp_core::jsonpath::page_text(&e.get_string().unwrap_or_default());
+        match msg.as_str() {
             // The libraries go in from the main loop: scripts run from inside the page's own message callback get dropped.
             "need-mermaid" => {
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_mermaid(&pv));
             }
-            "tab:next" | "tab:prev" => switch_tab(&a, if msg.trim_matches('"') == "tab:prev" { -1 } else { 1 }),
+            "tab:next" | "tab:prev" => switch_tab(&a, if msg == "tab:prev" { -1 } else { 1 }),
             m if m.starts_with("menu:") => open_menu_for_key(&a, &m[5..]),
             "need-jsoneditor" => {
                 let pv = pv.clone();
@@ -261,7 +261,7 @@ pub(super) fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view
             }
             other => {
                 if let Ok(mut app) = a.try_borrow_mut() {
-                    app.page_scrolled(other);
+                    app.page_message(other);
                 }
             }
         }

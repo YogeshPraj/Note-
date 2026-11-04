@@ -8,6 +8,15 @@ pub enum Seg {
     Index(usize),
 }
 
+/// The text of a message from the preview page. The web view may hand it over JSON-quoted, which must be undone
+/// properly: the message can be a whole document, full of quotes and backslashes.
+pub fn page_text(raw: &str) -> String {
+    if raw.len() >= 2 && raw.starts_with('"') && raw.ends_with('"') {
+        return serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.trim_matches('"').to_string());
+    }
+    raw.to_string()
+}
+
 /// Parse a path as the preview sends it: a JSON array of strings and numbers.
 pub fn parse_path(json: &str) -> Option<Vec<Seg>> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
@@ -166,6 +175,14 @@ mod tests {
 
     fn k(s: &str) -> Seg {
         Seg::Key(s.into())
+    }
+
+    #[test]
+    fn a_quoted_page_message_is_decoded_and_a_plain_one_kept() {
+        assert_eq!(page_text(r#""close""#), "close");
+        assert_eq!(page_text("close"), "close");
+        assert_eq!(page_text(r#""json:{\"a\": 1}""#), r#"json:{"a": 1}"#);
+        assert_eq!(page_text(r#"json:"text""#), r#"json:"text""#);
     }
 
     #[test]

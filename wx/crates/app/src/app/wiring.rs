@@ -247,6 +247,14 @@ pub(super) fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_mermaid(&pv));
             }
+            "need-highlight" => {
+                let pv = pv.clone();
+                crate::widgets::defer::later(&frame, move || preview::load_highlighter(&pv));
+            }
+            "need-katex" => {
+                let pv = pv.clone();
+                crate::widgets::defer::later(&frame, move || preview::load_katex(&pv));
+            }
             "tab:next" | "tab:prev" => switch_tab(&a, if msg == "tab:prev" { -1 } else { 1 }),
             m if m.starts_with("menu:") => open_menu_for_key(&a, &m[5..]),
             m if m.starts_with("copy-image:") => {

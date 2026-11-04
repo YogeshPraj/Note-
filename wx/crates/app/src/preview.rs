@@ -9,6 +9,8 @@ const JSONEDITOR_JS: &str = include_str!("../../../../assets/jsoneditor.min.js")
 const JSONEDITOR_CSS: &str = include_str!("../../../../assets/jsoneditor.min.css");
 const JSONEDITOR_ICONS: &str = include_str!("../../../../assets/jsoneditor-icons.svg");
 const JSON5_JS: &str = include_str!("../../../../assets/json5.min.js");
+const HIGHLIGHT_JS: &str = include_str!("../../../../assets/highlight.min.js");
+const KATEX_JS: &str = include_str!("../../../../assets/katex.min.js");
 
 /// The page with remote images allowed only when the user asked for them.
 pub fn page_html(remote_images: bool) -> String {
@@ -35,6 +37,22 @@ pub fn load_mermaid(pane: &WebPane) {
         pane.eval_big(MERMAID_JS);
     }
     pane.eval("window.np.mermaidLoaded()");
+}
+
+/// Inject the code highlighter (once), then tell the page to colour the code blocks it was waiting on.
+pub fn load_highlighter(pane: &WebPane) {
+    if pane.first_time("highlight") {
+        pane.eval_big(HIGHLIGHT_JS);
+    }
+    pane.eval("window.np.highlightLoaded()");
+}
+
+/// Inject `KaTeX` (once), then tell the page to typeset the formulas it was waiting on.
+pub fn load_katex(pane: &WebPane) {
+    if pane.first_time("katex") {
+        pane.eval_big(KATEX_JS);
+    }
+    pane.eval("window.np.katexLoaded()");
 }
 
 /// The editor's stylesheet with its icon sprite inlined (the page has no files to load it from).

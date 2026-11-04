@@ -95,7 +95,12 @@ pub fn markdown_to_html(src: &str) -> String {
 /// Like `markdown_to_html`, and with `base` (the folder of the document) images that point at
 /// local files are embedded, so they show although the page itself may load no files.
 pub fn markdown_to_html_in(src: &str, base: Option<&Path>) -> String {
-    let opts = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_GFM;
+    let opts = Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_GFM
+        | Options::ENABLE_MATH;
     let line_starts: Vec<usize> = std::iter::once(0).chain(src.match_indices('\n').map(|(i, _)| i + 1)).collect();
     let line_of = |offset: usize| line_starts.partition_point(|&s| s <= offset) - 1;
     let marker = |offset: usize| Event::Html(format!("<span class=\"ln\" data-line=\"{}\"></span>\n", line_of(offset)).into());
@@ -322,6 +327,14 @@ mod tests {
         assert!(h.contains("Careful here."), "{h}");
         assert!(!h.contains("[!WARNING]"), "{h}");
         assert_eq!(h.matches("<blockquote").count(), 2);
+    }
+
+    #[test]
+    fn math_is_marked_for_the_page_to_typeset() {
+        let h = markdown_to_html("Inline $a<b$ and\n\n$$\\frac{1}{2}$$\n\nPrice is $5 or $10.");
+        assert!(h.contains("<span class=\"math math-inline\">a&lt;b</span>"), "{h}");
+        assert!(h.contains("math-display") && h.contains("\\frac{1}{2}"), "{h}");
+        assert_eq!(h.matches("class=\"math ").count(), 2, "currency is not math: {h}");
     }
 
     #[test]

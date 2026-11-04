@@ -55,6 +55,20 @@ body.dark #md blockquote.markdown-alert-warning { --ac:#d29922; } body.dark #md 
 .tb button { width:auto; min-width:24px; padding:0 8px; height:22px; font-size:11px; background:var(--bar); border-color:var(--barborder); }
 .tb button:hover { background:var(--btn); }
 .mermaid { background:transparent !important; text-align:center; }
+/* Code colours (highlight.js classes) and formulas */
+body { --c-kw:#cf222e; --c-str:#0a3069; --c-num:#0550ae; --c-com:#6e7781; --c-fn:#8250df; --c-attr:#116329; --c-meta:#953800; }
+body.dark { --c-kw:#ff7b72; --c-str:#a5d6ff; --c-num:#79c0ff; --c-com:#8b949e; --c-fn:#d2a8ff; --c-attr:#7ee787; --c-meta:#ffa657; }
+#md .hljs-keyword, #md .hljs-doctag, #md .hljs-template-tag, #md .hljs-selector-tag, #md .hljs-literal, #md .hljs-type { color:var(--c-kw); }
+#md .hljs-string, #md .hljs-regexp, #md .hljs-symbol, #md .hljs-template-variable { color:var(--c-str); }
+#md .hljs-number, #md .hljs-variable, #md .hljs-built_in, #md .hljs-attr, #md .hljs-selector-attr, #md .hljs-selector-class, #md .hljs-selector-id { color:var(--c-num); }
+#md .hljs-comment, #md .hljs-quote { color:var(--c-com); font-style:italic; }
+#md .hljs-title, #md .hljs-section, #md .hljs-class .hljs-title { color:var(--c-fn); }
+#md .hljs-name, #md .hljs-tag, #md .hljs-attribute, #md .hljs-bullet { color:var(--c-attr); }
+#md .hljs-meta, #md .hljs-meta .hljs-keyword, #md .hljs-link { color:var(--c-meta); }
+#md .hljs-addition { color:var(--c-attr); } #md .hljs-deletion { color:var(--c-kw); }
+#md .hljs-emphasis { font-style:italic; } #md .hljs-strong { font-weight:700; }
+#md .math-display { display:block; text-align:center; margin:1em 0; overflow-x:auto; }
+#md .math math { font-size:1.15em; }
 pre.mermaid { overflow:auto; }
 pre.mermaid.pan { cursor:grab; }
 pre.mermaid.pan:active { cursor:grabbing; }
@@ -291,6 +305,30 @@ body.dark .jsoneditor-poweredBy { display:none; }
       if (junk) junk.remove();
     }
   }
+
+  /* ---- code colours (highlight.js) and formulas (KaTeX, as MathML), both loaded on first use like Mermaid ---- */
+  var pendingHl = null, pendingMath = null;
+  function runHighlight(root) {
+    var blocks = Array.prototype.filter.call(root.querySelectorAll('pre > code[class*="language-"]'), function (c) {
+      return !c.classList.contains('hljs') && !c.classList.contains('language-mermaid') && c.textContent.length < 60000;
+    });
+    if (!blocks.length) return;
+    if (!window.hljs) { pendingHl = root; post('need-highlight'); return; }
+    blocks.forEach(function (c) {
+      var lang = (/language-([\w+#-]+)/.exec(c.className) || [])[1];
+      if (lang && window.hljs.getLanguage(lang)) { try { window.hljs.highlightElement(c); } catch (e) {} }
+    });
+  }
+  function runMath(root) {
+    var spans = root.querySelectorAll('.math');
+    if (!spans.length) return;
+    if (!window.katex) { pendingMath = root; post('need-katex'); return; }
+    Array.prototype.forEach.call(spans, function (s) {
+      var tex = s.dataset.tex || (s.dataset.tex = s.textContent);
+      try { window.katex.render(tex, s, { displayMode: s.classList.contains('math-display'), output: 'mathml', throwOnError: false }); } catch (e) {}
+    });
+  }
+  function decorateText(root) { runHighlight(root); runMath(root); }
 
   /* ---- scroll sync with the editor ----
      Each top-level block is preceded by <span class="ln" data-line="N">. Between two markers the
@@ -548,7 +586,7 @@ body.dark .jsoneditor-poweredBy { display:none; }
   function drawKind(kind, payload) {
     if (kind === 'markdown') {
       var y = $('md').scrollTop;
-      $('md').innerHTML = payload; decorate($('md')); show('md'); $('md').scrollTop = y;
+      $('md').innerHTML = payload; decorate($('md')); decorateText($('md')); show('md'); $('md').scrollTop = y;
       runMermaid($('md'));
     } else if (kind === 'mermaid') {
       var y2 = $('mm').scrollTop;
@@ -591,6 +629,8 @@ body.dark .jsoneditor-poweredBy { display:none; }
     setTheme: function (d) { dark = d; document.body.classList.toggle('dark', d); },
     setMax: function (m) { $('max').classList.toggle('on', m); },
     mermaidLoaded: function () { if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); } },
+    highlightLoaded: function () { if (pendingHl) { var r = pendingHl; pendingHl = null; runHighlight(r); } },
+    katexLoaded: function () { if (pendingMath) { var r = pendingMath; pendingMath = null; runMath(r); } },
     logAppend: logAppend,
     jsonLoaded: function () { if (pendingJson !== null) { var t = pendingJson; pendingJson = null; guarded(function () { renderJson(t); }); } }
   };

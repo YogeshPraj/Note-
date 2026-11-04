@@ -62,7 +62,7 @@ All files are on the [latest release page](https://github.com/YogeshPraj/Note-/r
 - Folder as Workspace tree with a one-click close button.
 
 ### Previews
-- **Markdown** and **HTML** live preview (`Ctrl+Shift+V`), with Mermaid diagrams rendered inside Markdown, GitHub alerts (`> [!NOTE]`), heading anchors, and Copy buttons on tables, code and diagrams (diagrams also zoom and copy as a picture).
+- **Markdown** and **HTML** live preview (`Ctrl+Shift+V`), with Mermaid diagrams rendered inside Markdown, syntax-coloured code blocks, math (`$x^2$` and `$$…$$`), GitHub alerts (`> [!NOTE]`), heading anchors, and Copy buttons on tables, code and diagrams (diagrams also zoom and copy as a picture).
 - **JSON** tree view and editor; **Mermaid** (`.mmd`) diagram preview.
 - **Log Follow** mode for `.log` / `.out` / `.err`: live tail with level filters (ERROR / WARN / INFO / DEBUG), text or regex search, stack traces kept with their line.
 
@@ -174,7 +174,7 @@ If you find a vulnerability, please open a private security advisory on GitHub r
 
 ## License
 
-MIT. Scintilla and Lexilla are by Neil Hodgson and are used under the HPND license.
+MIT. Scintilla and Lexilla are by Neil Hodgson and are used under the HPND license. The preview also bundles [highlight.js](https://highlightjs.org/) (BSD-3-Clause), [KaTeX](https://katex.org/) (MIT), [Mermaid](https://mermaid.js.org/) (MIT) and [JSON Editor](https://github.com/josdejong/jsoneditor) (Apache-2.0).
 
 ---
 

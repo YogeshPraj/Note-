@@ -198,6 +198,11 @@ pub(super) fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
 /// Go to the next (1) or previous (-1) tab and give the keyboard to what that tab shows: a page keeps it otherwise.
 pub(crate) fn switch_tab(app: &Shared, delta: i32) {
     run_command(app, if delta < 0 { notepp_core::commands::ID_PREV_TAB } else { notepp_core::commands::ID_NEXT_TAB });
+    focus_shown_tab(app);
+}
+
+/// Give the keyboard to what the active tab shows, just after the event in hand (it may have been in the preview page).
+fn focus_shown_tab(app: &Shared) {
     let a = app.clone();
     let frame = app.borrow().frame;
     crate::widgets::defer::later(&frame, move || {
@@ -316,7 +321,12 @@ pub(super) fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view
                 drop(app);
                 return run_command(&a2, id);
             }
-            Act::Select(i) => app.ws.activate(i),
+            Act::Select(i) => {
+                app.ws.activate(i);
+                app.refresh();
+                drop(app);
+                return focus_shown_tab(&a2);
+            }
             Act::Close(i) => {
                 let App { ws, ui, .. } = &mut *app;
                 ws.close(ui, i);

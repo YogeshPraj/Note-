@@ -3,6 +3,7 @@
 //! Win32 structures use fixed-width integers, so the cast lints are allowed in this platform adapter only.
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 
@@ -48,6 +49,8 @@ unsafe extern "system" {
     fn GetDateFormatEx(locale: *const u16, flags: u32, date: *const SystemTime, format: *const u16, out: *mut u16, cch: i32, calendar: *const u16) -> i32;
     fn GetTimeFormatEx(locale: *const u16, flags: u32, time: *const SystemTime, format: *const u16, out: *mut u16, cch: i32) -> i32;
     fn SetDllDirectoryW(path: *const u16) -> i32;
+    fn SetDefaultDllDirectories(flags: u32) -> i32;
+    fn LoadLibraryExW(path: *const u16, file: isize, flags: u32) -> isize;
 }
 
 #[link(name = "shell32")]
@@ -58,6 +61,7 @@ unsafe extern "system" {
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 2;
 const SW_SHOWNORMAL: i32 = 1;
+const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x800;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// The file for [`Windows::recycle`]. It goes to the script as data: quotes in a file name, curly ones included, are
 /// quotes to PowerShell, and a name built into the script would be code.
@@ -132,11 +136,21 @@ fn format_id(name: &str) -> u32 {
 
 impl Platform for Windows {
     fn harden_library_search(&self) {
-        // Libraries loaded by name are no longer looked for in the current folder, which is the folder of a file that was
-        // double-clicked. SetDefaultDllDirectories would be stricter but stops WebView2 from loading, and the web views
-        // then fall back to Internet Explorer and stay blank. Ones the program links to: see docs/audit.md.
+        // wxWidgets asks for the WebView2 loader by name when the first web view is made. Loaded here by its full path, it
+        // is the copy beside the program, whatever else is on the search path. It has to come first: from then on a
+        // library named without a path comes from System32 only, not the current folder (the folder of a file that was
+        // double-clicked), the program's folder or PATH. The ones the program links to load before this runs, and
+        // assets/app.manifest names those.
+        let beside_exe = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("WebView2Loader.dll")));
         let empty = wide("");
-        unsafe { SetDllDirectoryW(empty.as_ptr()) };
+        unsafe {
+            SetDllDirectoryW(empty.as_ptr());
+            if let Some(path) = beside_exe {
+                let path: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+                LoadLibraryExW(path.as_ptr(), 0, LOAD_LIBRARY_SEARCH_SYSTEM32);
+            }
+            SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+        }
     }
 
     fn clipboard_format(&self, owner: isize, name: &str) -> Option<Vec<u8>> {

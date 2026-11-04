@@ -8,6 +8,23 @@
       <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
     </dependentAssembly>
   </dependency>
+  <!-- These load before the program's first line and are not Windows' known DLLs, so Windows would take a copy lying
+       beside the exe first. Each is pinned to System32. scripts/package.ps1 fails when the exe imports one not listed. -->
+  <file name="bcrypt.dll" loadFrom="%SystemRoot%\system32\bcrypt.dll"/>
+  <file name="bcryptprimitives.dll" loadFrom="%SystemRoot%\system32\bcryptprimitives.dll"/>
+  <file name="cfgmgr32.dll" loadFrom="%SystemRoot%\system32\cfgmgr32.dll"/>
+  <file name="cryptbase.dll" loadFrom="%SystemRoot%\system32\cryptbase.dll"/>
+  <file name="dwmapi.dll" loadFrom="%SystemRoot%\system32\dwmapi.dll"/>
+  <file name="dxcore.dll" loadFrom="%SystemRoot%\system32\dxcore.dll"/>
+  <file name="glu32.dll" loadFrom="%SystemRoot%\system32\glu32.dll"/>
+  <file name="msimg32.dll" loadFrom="%SystemRoot%\system32\msimg32.dll"/>
+  <file name="oleacc.dll" loadFrom="%SystemRoot%\system32\oleacc.dll"/>
+  <file name="opengl32.dll" loadFrom="%SystemRoot%\system32\opengl32.dll"/>
+  <file name="userenv.dll" loadFrom="%SystemRoot%\system32\userenv.dll"/>
+  <file name="uxtheme.dll" loadFrom="%SystemRoot%\system32\uxtheme.dll"/>
+  <file name="version.dll" loadFrom="%SystemRoot%\system32\version.dll"/>
+  <file name="winmm.dll" loadFrom="%SystemRoot%\system32\winmm.dll"/>
+  <file name="winspool.drv" loadFrom="%SystemRoot%\system32\winspool.drv"/>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>

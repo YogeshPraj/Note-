@@ -58,3 +58,5 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - Links in the preview open in the system browser on a single click, without a confirmation, as in any browser. Only http, https and mailto; relative links do nothing, as before.
 - Vault consent is per scheme and host for the session and is not saved: agreeing for https does not cover http.
 - The Recycle Bin keeps going through PowerShell with the path as data, and now runs without a console window.
+- The release ships Microsoft's WebView2Loader.dll beside the exe. `Scintilla.dll`, left by older builds, is deleted by the installer and the updater: the exe has Scintilla built in.
+- The clean-start check in `package.ps1` runs only on a build server: run locally it would open a window.

@@ -131,6 +131,7 @@ fn the_apply_script_waits_copies_restarts_and_cleans_up() {
     assert!(s.contains("\"%SystemRoot%\\System32\\ping.exe\" -n 2"), "named in full");
     assert!(s.contains("start \"\" \"C:\\Apps\\Note PP\\notepp.exe\""));
     assert!(s.contains("del \"%~f0\""));
+    assert!(s.contains("del /Q \"C:\\Apps\\Note PP\\Scintilla.dll\""), "a file of older versions goes");
     assert!(apply_script(Path::new("C:\\100%"), Path::new("D:\\a"), Path::new("l"), &[]).contains("100%%"));
 }
 

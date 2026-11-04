@@ -287,6 +287,7 @@ Section "Note++" SecMain
   Call CloseRunningApp
 
   SetOutPath "$INSTDIR"
+  Delete "$INSTDIR\Scintilla.dll" ; left by older versions, nothing loads it
   File /r "${APP_DIR}\*.*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 

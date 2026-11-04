@@ -282,6 +282,7 @@ pub fn apply_script(staged: &Path, app_dir: &Path, log: &Path, files: &[PathBuf]
          :copy\r\n\
          \"%SystemRoot%\\System32\\xcopy.exe\" \"{src}\\*\" \"{dst}\\\" /E /Y /Q /I /R >nul 2>\"{log}\"\r\n\
          if errorlevel 1 (echo update copy failed >> \"{log}\") else (rmdir /S /Q \"{src}\" & del \"{ready}\")\r\n\
+         del /Q \"{dst}\\Scintilla.dll\" 2>nul\r\n\
          start \"\" \"{dst}\\{EXE}\"{files}\r\n\
          (goto) 2>nul & del \"%~f0\"\r\n",
         src = q(staged),

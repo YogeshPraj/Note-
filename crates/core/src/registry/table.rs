@@ -104,8 +104,10 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_CP_DIR, "Current Dir. Path to Clipboard", "Edit: Copy Current Dir. Path", "", ""),
     row(ID_CP_ALLNAMES, "Copy All Filenames", "Edit: Copy All Filenames", "", ""),
     row(ID_CP_ALLPATHS, "Copy All File Paths", "Edit: Copy All File Paths", "", ""),
-    row(ID_INDENT_INC, "&Increase Line Indent", "Edit: Increase Line Indent", "Tab", ""),
-    row(ID_INDENT_DEC, "&Decrease Line Indent", "Edit: Decrease Line Indent", "Shift+Tab", ""),
+    // No shortcuts, like Delete below: Tab belongs to whichever control has the keyboard. As shortcuts these took it from
+    // the Find box and changed the document, and in the editor Tab indented the line instead of typing at the caret.
+    row(ID_INDENT_INC, "&Increase Line Indent", "Edit: Increase Line Indent", "", "Tab key"),
+    row(ID_INDENT_DEC, "&Decrease Line Indent", "Edit: Decrease Line Indent", "", "Shift+Tab key"),
     row(ID_CASE_PROPER, "&Proper Case", "Edit: Proper Case", "Alt+U", ""),
     row(ID_CASE_PROPER_BLEND, "Proper Case (blend)", "Edit: Proper Case (blend)", "Alt+Shift+U", ""),
     row(ID_CASE_SENTENCE, "&Sentence case", "Edit: Sentence case", "Ctrl+Alt+U", ""),

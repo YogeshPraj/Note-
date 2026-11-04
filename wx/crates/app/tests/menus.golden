@@ -62,8 +62,8 @@
   2223	Copy All Filenames	true	None
   2224	Copy All File Paths	true	None
 > &Indent
-  2230	&Increase Line Indent	Tab	true	None
-  2231	&Decrease Line Indent	Shift+Tab	true	None
+  2230	&Increase Line Indent	Tab key	true	None
+  2231	&Decrease Line Indent	Shift+Tab key	true	None
 > Convert Case &to
   2110	&UPPERCASE	Ctrl+Shift+U	true	None
   2111	&lowercase	Ctrl+U	true	None

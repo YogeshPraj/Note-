@@ -167,7 +167,6 @@ pub(super) fn wire_menu_keys(app: &Shared, frame: Frame) {
 /// are opened here, with nothing borrowed.
 pub(crate) fn run_command(a: &Shared, id: usize) {
     trace(id, "event");
-    let id = super::areas::in_bar(a, id);
     // The enabled rule first: some commands below open their window directly instead of going through `execute`.
     if a.try_borrow().is_ok_and(|app| !notepp_core::registry::is_enabled(id, notepp_core::registry::CommandState::of(&app.ws))) {
         return;

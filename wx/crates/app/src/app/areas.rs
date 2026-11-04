@@ -53,21 +53,6 @@ impl CommandHandler<App> for AreaCommands {
     }
 }
 
-/// The command a shortcut means. Tab and Shift+Tab are editor shortcuts, which fire before a bar sees the key; while a bar
-/// has the keyboard they move on, and must not change text the user is not in.
-pub(super) fn in_bar(app: &Shared, id: usize) -> usize {
-    let in_bar = app.try_borrow().is_ok_and(|a| a.chrome.bar_in_use().is_some());
-    bar_command(id, in_bar)
-}
-
-fn bar_command(id: usize, in_bar: bool) -> usize {
-    match id {
-        c::ID_INDENT_INC if in_bar => c::ID_NEXT_AREA,
-        c::ID_INDENT_DEC if in_bar => c::ID_PREV_AREA,
-        _ => id,
-    }
-}
-
 /// Tab and Esc inside a bar.
 pub(super) fn wire_areas(app: &Shared) {
     let a = app.clone();
@@ -85,15 +70,7 @@ pub(super) fn wire_areas(app: &Shared) {
 
 #[cfg(test)]
 mod tests {
-    use super::{area_after, bar_command, c};
-
-    #[test]
-    fn tab_moves_on_inside_a_bar_and_indents_in_the_editor() {
-        assert_eq!(bar_command(c::ID_INDENT_INC, true), c::ID_NEXT_AREA);
-        assert_eq!(bar_command(c::ID_INDENT_DEC, true), c::ID_PREV_AREA);
-        assert_eq!(bar_command(c::ID_INDENT_INC, false), c::ID_INDENT_INC);
-        assert_eq!(bar_command(c::ID_SAVE, true), c::ID_SAVE);
-    }
+    use super::area_after;
 
     #[test]
     fn forward_goes_round_through_the_bars_to_the_editor() {

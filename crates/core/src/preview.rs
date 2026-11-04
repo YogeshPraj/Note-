@@ -95,15 +95,17 @@ pub fn markdown_to_html(src: &str) -> String {
 /// Like `markdown_to_html`, and with `base` (the folder of the document) images that point at
 /// local files are embedded, so they show although the page itself may load no files.
 pub fn markdown_to_html_in(src: &str, base: Option<&Path>) -> String {
-    let opts = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let opts = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_GFM;
     let line_starts: Vec<usize> = std::iter::once(0).chain(src.match_indices('\n').map(|(i, _)| i + 1)).collect();
     let line_of = |offset: usize| line_starts.partition_point(|&s| s <= offset) - 1;
     let marker = |offset: usize| Event::Html(format!("<span class=\"ln\" data-line=\"{}\"></span>\n", line_of(offset)).into());
 
     let mut events: Vec<Event> = Vec::new();
     let mut mermaid: Option<String> = None;
+    let mut headings = Headings::default();
     let mut depth = 0usize;
     for (ev, range) in Parser::new_ext(src, opts).into_offset_iter() {
+        headings.read(&ev);
         // Mark where each top-level block starts (nested items are not marked).
         match &ev {
             Event::Start(_) => {
@@ -136,12 +138,72 @@ pub fn markdown_to_html_in(src: &str, base: Option<&Path>) -> String {
                 let dest = if bad { "#".into() } else { dest_url };
                 events.push(Event::Start(Tag::Link { link_type: if bad { LinkType::Inline } else { link_type }, dest_url: dest, title, id }));
             }
+            Event::Start(Tag::Heading { .. }) => {
+                headings.open(events.len());
+                events.push(ev);
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                headings.close(&mut events);
+                events.push(ev);
+            }
             other => events.push(other),
         }
     }
     let mut out = String::new();
     html::push_html(&mut out, events.into_iter());
     out
+}
+
+/// Gives every heading an `id` (GitHub's rules: lower case, spaces to hyphens, punctuation dropped, `-1`, `-2` for
+/// repeats) so links such as `#install` reach it. A heading with an id of its own keeps it.
+#[derive(Default)]
+struct Headings {
+    open: Option<(usize, String)>,
+    seen: std::collections::HashMap<String, usize>,
+}
+
+impl Headings {
+    fn open(&mut self, at: usize) {
+        self.open = Some((at, String::new()));
+    }
+
+    /// Collect the text of the heading being read.
+    fn read(&mut self, ev: &Event) {
+        if let (Some((_, text)), Event::Text(t) | Event::Code(t)) = (self.open.as_mut(), ev) {
+            text.push_str(t);
+        }
+    }
+
+    fn close(&mut self, events: &mut [Event]) {
+        let Some((at, text)) = self.open.take() else { return };
+        let slug = slug(&text);
+        let n = self.seen.entry(slug.clone()).or_insert(0);
+        let id = if *n == 0 { slug } else { format!("{slug}-{n}") };
+        *n += 1;
+        if let Some(Event::Start(Tag::Heading { id: own, .. })) = events.get_mut(at)
+            && own.is_none()
+        {
+            *own = Some(id.into());
+        }
+    }
+}
+
+fn slug(text: &str) -> String {
+    let s: String = text
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                Some(c)
+            } else if c.is_whitespace() {
+                Some('-')
+            } else {
+                None
+            }
+        })
+        .collect();
+    if s.is_empty() { "section".into() } else { s }
 }
 
 /// Biggest local image that is embedded in the preview.
@@ -234,7 +296,7 @@ mod tests {
         let lines: Vec<usize> = h.split("data-line=\"").skip(1).map(|s| s.split('"').next().unwrap().parse().unwrap()).collect();
         // heading, paragraph, list (items are not marked), mermaid fence, rule
         assert_eq!(lines, vec![0, 2, 5, 8, 12], "{h}");
-        assert!(h.contains("<span class=\"ln\" data-line=\"0\"></span>\n<h1>A</h1>"), "{h}");
+        assert!(h.contains("<span class=\"ln\" data-line=\"0\"></span>\n<h1 id=\"a\">A</h1>"), "{h}");
     }
 
     #[test]
@@ -245,9 +307,27 @@ mod tests {
     }
 
     #[test]
+    fn headings_get_github_style_ids() {
+        let h = markdown_to_html("# Hello, World!\n\n## Install `cargo`\n\n## Install `cargo`\n\n### \n");
+        assert!(h.contains("<h1 id=\"hello-world\">"), "{h}");
+        assert!(h.contains("<h2 id=\"install-cargo\">") && h.contains("<h2 id=\"install-cargo-1\">"), "{h}");
+        assert_eq!(slug("  Ünïcode Ñame "), "ünïcode-ñame");
+        assert_eq!(slug("!!!"), "section");
+    }
+
+    #[test]
+    fn github_alerts_become_classed_blocks() {
+        let h = markdown_to_html("> [!WARNING]\n> Careful here.\n\n> plain quote\n");
+        assert!(h.contains("markdown-alert-warning"), "{h}");
+        assert!(h.contains("Careful here."), "{h}");
+        assert!(!h.contains("[!WARNING]"), "{h}");
+        assert_eq!(h.matches("<blockquote").count(), 2);
+    }
+
+    #[test]
     fn renders_gfm() {
         let h = markdown_to_html("# Hi\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n~~gone~~");
-        assert!(h.contains("<h1>Hi</h1>"));
+        assert!(h.contains("<h1 id=\"hi\">Hi</h1>"));
         assert!(h.contains("<table>"));
         assert!(h.contains("checked"));
         assert!(h.contains("<del>gone</del>"));
@@ -273,8 +353,19 @@ mod tests {
     fn heading_attributes_cannot_carry_event_handlers() {
         for src in ["# Hi {onmouseover=alert(1) #x .c}", "setext {onclick=alert(2)}\n===", "## T {#id onfocus=x}"] {
             let h = markdown_to_html(src).to_lowercase();
-            // Plain `<h1>` / `<h2>` only: the braces stay visible as text, never become attributes.
-            assert!(!h.contains("<h1 ") && !h.contains("<h2 "), "{h}");
+            // The braces stay visible as text and never become attributes: the only attribute is the generated id,
+            // which holds nothing but letters, digits, hyphens and underscores.
+            for tag in h.split("<h").skip(1).map(|s| s.split('>').next().unwrap_or("")) {
+                let attrs = tag.get(1..).unwrap_or("");
+                assert!(
+                    attrs.is_empty()
+                        || attrs
+                            .strip_prefix(" id=\"")
+                            .and_then(|r| r.strip_suffix('"'))
+                            .is_some_and(|id| id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')),
+                    "{h}"
+                );
+            }
         }
     }
 

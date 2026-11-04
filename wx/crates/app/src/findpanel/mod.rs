@@ -83,7 +83,7 @@ fn results_visible() -> bool {
 
 /// Height the panel needs in the current mode (0 while it is closed).
 pub fn height() -> i32 {
-    if visible() { layout::height(mode(), results_visible()) } else { 0 }
+    if visible() { crate::widgets::theme::current().px(layout::height(mode(), results_visible())) } else { 0 }
 }
 
 /// The widget behind a control of the layout.
@@ -163,7 +163,9 @@ fn all_controls(p: &P) -> Vec<&dyn WxWidget> {
 pub fn arrange() {
     let Some(p) = p() else { return };
     let mode = mode();
-    let l = layout::layout(mode, p.panel.get_client_size().width, results_visible());
+    // The layout is written at 100%: lay out at the panel's unscaled width, then place scaled.
+    let t = crate::widgets::theme::current();
+    let l = layout::layout(mode, t.unpx(p.panel.get_client_size().width), results_visible());
     for w in all_controls(&p) {
         w.show(false);
     }
@@ -172,7 +174,8 @@ pub fn arrange() {
     }
     for (c, r) in &l.placed {
         let w = widget(&p, *c);
-        w.set_size_with_pos(r.l, r.t, r.w(), r.h());
+        let (x, y) = (t.px(r.l), t.px(r.t));
+        w.set_size_with_pos(x, y, t.px(r.r) - x, t.px(r.b) - y);
         w.show(true);
     }
 }

@@ -20,6 +20,35 @@ pub const INSET: i32 = 4;
 /// Gap between tabs.
 const GAP: i32 = 2;
 
+/// The sizes above on this display (they are given at 100%).
+#[derive(Clone, Copy, Debug)]
+struct Metrics {
+    arrow_w: i32,
+    slot: i32,
+    plus_w: i32,
+    reserve: i32,
+    inset: i32,
+    gap: i32,
+    /// The small gaps around the buttons.
+    edge: i32,
+}
+
+impl Metrics {
+    fn current() -> Metrics {
+        let t = crate::theme::current();
+        let arrow_w = t.px(ARROW_W);
+        Metrics {
+            arrow_w,
+            slot: arrow_w + t.px(SLOT - ARROW_W),
+            plus_w: t.px(PLUS_W),
+            reserve: t.px(RESERVE),
+            inset: t.px(INSET),
+            gap: t.px(GAP),
+            edge: t.px(2),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Btn {
     Left,
@@ -115,11 +144,11 @@ impl Scroll {
 
     /// Lay out `widths` (tab widths without the gap) in a strip `strip_w` wide.
     pub fn layout(&mut self, widths: &[i32], active: usize, strip_w: i32, rows: Rows) -> Layout {
-        let n = widths.len();
-        let full = strip_w - RESERVE;
+        let (n, m) = (widths.len(), Metrics::current());
+        let full = strip_w - m.reserve;
         // Width of tabs [s, e).
-        let span = |s: usize, e: usize| -> i32 { widths[s.min(n)..e.min(n)].iter().map(|w| w + GAP).sum() };
-        let start_x = |s: usize| if s > 0 { SLOT } else { INSET };
+        let span = |s: usize, e: usize| -> i32 { widths[s.min(n)..e.min(n)].iter().map(|w| w + m.gap).sum() };
+        let start_x = |s: usize| if s > 0 { m.slot } else { m.inset };
         // Do tabs from `s` to the end fit without a right arrow?
         let fits = |s: usize| start_x(s) + span(s, n) <= full;
 
@@ -134,7 +163,7 @@ impl Scroll {
                 } else {
                     // The smallest first tab that lets the active one be seen whole.
                     while self.first < active {
-                        let end = full - if fits(self.first) { 0 } else { SLOT };
+                        let end = full - if fits(self.first) { 0 } else { m.slot };
                         if start_x(self.first) + span(self.first, active + 1) <= end {
                             break;
                         }
@@ -152,20 +181,20 @@ impl Scroll {
         let left = first > 0;
         let right = n > 0 && !fits(first);
         let x0 = start_x(first);
-        let end = full - if right { SLOT } else { 0 } + 4;
+        let end = full - if right { m.slot } else { 0 } + 2 * m.edge;
 
         let mut tabs = Vec::with_capacity(n);
         for (i, w) in widths.iter().enumerate().take(n) {
             let l = if i >= first { x0 + span(first, i) } else { x0 - span(i, first) };
             tabs.push(Rect::new(l, rows.tab_top, l + w, rows.tab_bottom));
         }
-        let plus_x = if right { end } else { (x0 + span(first, n) + 4).min(end) };
+        let plus_x = if right { end } else { (x0 + span(first, n) + 2 * m.edge).min(end) };
         Layout {
             tabs,
-            left: left.then(|| Rect::new(2, rows.btn_top, 2 + ARROW_W, rows.btn_bottom)),
-            right: right.then(|| Rect::new(strip_w - ARROW_W - 2, rows.btn_top, strip_w - 2, rows.btn_bottom)),
-            plus: Rect::new(plus_x, rows.btn_top, plus_x + PLUS_W, rows.btn_bottom - 2),
-            clip: (if left { SLOT } else { 0 }, end),
+            left: left.then(|| Rect::new(m.edge, rows.btn_top, m.edge + m.arrow_w, rows.btn_bottom)),
+            right: right.then(|| Rect::new(strip_w - m.arrow_w - m.edge, rows.btn_top, strip_w - m.edge, rows.btn_bottom)),
+            plus: Rect::new(plus_x, rows.btn_top, plus_x + m.plus_w, rows.btn_bottom - m.edge),
+            clip: (if left { m.slot } else { 0 }, end),
             first,
         }
     }

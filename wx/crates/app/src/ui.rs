@@ -18,7 +18,7 @@ pub struct WxUi {
 impl WxUi {
     pub fn new(frame: Frame) -> WxUi {
         let toasts = crate::widgets::toast::Toaster::new(&frame);
-        toasts.set_bottom_inset(crate::widgets::status_bar::HEIGHT);
+        toasts.set_bottom_inset(crate::widgets::status_bar::height());
         WxUi { frame, toasts }
     }
 

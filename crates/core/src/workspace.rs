@@ -93,6 +93,8 @@ pub struct Workspace<S: Send> {
     /// Saved tabs of kinds this app cannot show, passed through the session untouched (see `Session::kept`).
     kept: Vec<serde_json::Value>,
     next_id: u64,
+    /// The display scale in percent (100 = 100%): margin widths are given at 100% and scaled by it.
+    ui_percent: isize,
 }
 
 pub const MAX_RECENT: usize = 10;
@@ -125,6 +127,7 @@ impl<S: Send> Workspace<S> {
             parked: Vec::new(),
             kept: Vec::new(),
             next_id: 1,
+            ui_percent: 100,
         };
         ws.style_view(&ws.sci, false);
         sci::set_wrap(&ws.sci, true);

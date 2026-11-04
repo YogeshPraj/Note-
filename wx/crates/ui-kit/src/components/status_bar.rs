@@ -17,9 +17,18 @@ use wxdragon::prelude::*;
 use crate::geom::Rect;
 use crate::paint::{fill, pos, text_at, text_w};
 
+/// Sizes before scaling (see [`crate::theme::Theme::px`]).
 pub const HEIGHT: i32 = 24;
 const RIGHT_MARGIN: i32 = 8;
 const SEGMENT_PAD: i32 = 22;
+const LEFT_TEXT: i32 = 10;
+/// Gap above and below a segment divider.
+const DIVIDER_GAP: i32 = 5;
+
+/// The bar's height on this display.
+pub fn height() -> i32 {
+    crate::theme::current().px(HEIGHT)
+}
 
 /// One right-aligned piece of text; clickable when it has an id.
 #[derive(Clone, Default, Debug)]
@@ -45,11 +54,12 @@ pub enum StatusEvent {
 
 /// Segment rectangles, the first segment rightmost, each `SEGMENT_PAD` wider than its text.
 pub fn layout_right(text_widths: &[i32], bar_w: i32, height: i32) -> Vec<Rect> {
-    let mut x = bar_w - RIGHT_MARGIN;
+    let t = crate::theme::current();
+    let mut x = bar_w - t.px(RIGHT_MARGIN);
     text_widths
         .iter()
         .map(|w| {
-            let wd = w + SEGMENT_PAD;
+            let wd = w + t.px(SEGMENT_PAD);
             let r = Rect::new(x - wd, 0, x, height);
             x -= wd;
             r
@@ -81,7 +91,7 @@ impl StatusBar {
     pub fn new(parent: &Frame) -> StatusBar {
         let panel = Panel::builder(parent).build();
         panel.set_background_style(BackgroundStyle::Paint);
-        panel.set_min_size(Size::new(-1, HEIGHT));
+        panel.set_min_size(Size::new(-1, height()));
         let st = Rc::new(RefCell::new(State {
             font: crate::theme::current().ui_font(),
             left: String::new(),
@@ -141,14 +151,15 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     }
     let size = panel.get_client_size();
     let (w, h) = (size.width, size.height);
-    let c = crate::theme::current().colors;
+    let t = crate::theme::current();
+    let c = t.colors;
     fill(&dc, Rect::new(0, 0, w, h), c.accent);
-    text_at(&dc, &s.left, Rect::new(10, 0, w / 3, h), c.accent_text, false);
+    text_at(&dc, &s.left, Rect::new(t.px(LEFT_TEXT), 0, w / 3, h), c.accent_text, false);
     let widths: Vec<i32> = s.segments.iter().map(|g| text_w(&dc, &g.text)).collect();
     s.rects = layout_right(&widths, w, h);
     for (seg, r) in s.segments.iter().zip(&s.rects) {
         text_at(&dc, &seg.text, *r, c.accent_text, true);
-        fill(&dc, Rect::new(r.l, 5, r.l + 1, h - 5), c.accent_line);
+        fill(&dc, Rect::new(r.l, t.px(DIVIDER_GAP), r.l + 1, h - t.px(DIVIDER_GAP)), c.accent_line);
     }
 }
 

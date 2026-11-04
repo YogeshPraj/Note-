@@ -52,6 +52,10 @@ pub trait Native: Sync {
         false
     }
     fn set_topmost(&self, _window: isize, _on: bool) {}
+    /// The display scale windows are drawn at (1.0 = 100%).
+    fn display_scale(&self) -> f64 {
+        1.0
+    }
 }
 
 /// Used where there is no native implementation.

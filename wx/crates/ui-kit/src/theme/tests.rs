@@ -120,6 +120,22 @@ fn spacing_scales_with_the_display() {
 }
 
 #[test]
+fn unpx_undoes_px() {
+    let mut t = Theme::light();
+    t.scale = 1.5;
+    assert_eq!(t.unpx(t.px(800)), 800);
+}
+
+#[test]
+fn the_hub_gives_every_theme_the_display_scale() {
+    let mut hub = Hub { scale: Some(1.5), ..Hub::default() };
+    assert!((hub.current().scale - 1.5).abs() < f64::EPSILON);
+    let _ = hub.set(dark());
+    assert!(hub.current().dark);
+    assert!((hub.current().scale - 1.5).abs() < f64::EPSILON);
+}
+
+#[test]
 fn dark_and_light_have_distinct_surfaces_and_readable_ink() {
     let (d, l) = (dark(), Theme::default());
     assert_ne!(d.surface(), l.surface());

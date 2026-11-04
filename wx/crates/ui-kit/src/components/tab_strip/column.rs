@@ -40,7 +40,8 @@ fn paint_row(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab, r: Rect) 
     let hot = s.hot.map(|h| h.0) == Some(i);
     if active {
         fill(dc, r, lk.colors.bg_active);
-        fill(dc, Rect::new(r.l, r.t + 4, r.l + 3, r.b - 4), lk.colors.accent);
+        let (gap, bar) = (theme::current().px(4), theme::current().px(3));
+        fill(dc, Rect::new(r.l, r.t + gap, r.l + bar, r.b - gap), lk.colors.accent);
     } else if hot {
         wash(dc, r, mix(lk.colors.surface, lk.ink(), 0x18), 0.0);
     }

@@ -77,14 +77,15 @@ fn refiller(items: Rc<Vec<Item>>, shown: Rc<RefCell<Vec<usize>>>, edit: TextBox,
 /// Show the list over `frame`; the id of the chosen item, if any.
 pub fn pick(frame: &Frame, items: Vec<Item>) -> Option<usize> {
     let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(frame, "").with_style(DialogStyle::StayOnTop).build());
-    let list_h = ROW_H * PAGE;
-    d.set_client_size(Size::new(WIDTH, EDIT_H + list_h));
+    let t = crate::theme::current();
+    let (width, edit_h, list_h) = (t.px(WIDTH), t.px(EDIT_H), t.px(ROW_H) * PAGE);
+    d.set_client_size(Size::new(width, edit_h + list_h));
     let edit = TextBox::new(&d, "", true);
-    edit.set_size_with_pos(0, 0, WIDTH, EDIT_H);
+    edit.set_size_with_pos(0, 0, width, edit_h);
     let list = ListBox::new(&d);
-    list.set_size_with_pos(0, EDIT_H, WIDTH, list_h);
+    list.set_size_with_pos(0, edit_h, width, list_h);
     let (fp, fs) = (frame.get_position(), frame.get_size());
-    d.move_window(fp.x + (fs.width - WIDTH) / 2, fp.y + 60);
+    d.move_window(fp.x + (fs.width - width) / 2, fp.y + t.px(60));
 
     let items = Rc::new(items);
     // Indices into `items` of the rows currently listed.

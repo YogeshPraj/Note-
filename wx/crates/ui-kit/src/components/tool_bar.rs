@@ -22,11 +22,26 @@ use crate::geom::Rect;
 use crate::paint::{Look, Rgb, fill, mix, outline, pos, text_at, text_w, wash};
 use crate::pointer::Pointer;
 
+/// Sizes before scaling (see [`crate::theme::Theme::px`]).
 pub const HEIGHT: i32 = 34;
 const ICON: i32 = 18;
 const BTN: i32 = 28;
 const LEFT: i32 = 6;
 const SEP_W: i32 = 8;
+/// Space above a button.
+const TOP: i32 = 3;
+const PILL_PAD: i32 = 26;
+const PILL_RIGHT: i32 = 10;
+const PILL_TOP: i32 = 6;
+
+fn theme_px(v: i32) -> i32 {
+    crate::theme::current().px(v)
+}
+
+/// The side of a tool icon on this display: rasterise the icons at this size.
+pub fn icon_size() -> i32 {
+    crate::theme::current().px(ICON)
+}
 
 /// What goes in the row.
 #[derive(Debug)]
@@ -56,17 +71,19 @@ pub enum ToolEvent {
 
 /// Where each item goes: a button is `BTN` wide with a 1px gap, a separator `SEP_W` wide. `is_button` says which.
 pub fn layout(is_button: &[bool]) -> Vec<Rect> {
-    let mut x = LEFT;
+    let t = crate::theme::current();
+    let (top, btn, sep) = (t.px(TOP), t.px(BTN), t.px(SEP_W));
+    let mut x = t.px(LEFT);
     is_button
         .iter()
         .map(|b| {
             if *b {
-                let r = Rect::new(x, 3, x + BTN, 3 + BTN);
-                x += BTN + 1;
+                let r = Rect::new(x, top, x + btn, top + btn);
+                x += btn + 1;
                 r
             } else {
-                let r = Rect::new(x, 3, x + SEP_W, 3 + BTN);
-                x += SEP_W;
+                let r = Rect::new(x, top, x + sep, top + btn);
+                x += sep;
                 r
             }
         })
@@ -75,8 +92,9 @@ pub fn layout(is_button: &[bool]) -> Vec<Rect> {
 
 /// The notice's rectangle for a text `text_w` wide in a bar `bar_w` wide.
 pub fn pill_rect(text_w: i32, bar_w: i32) -> Rect {
-    let wd = text_w + 26;
-    Rect::new(bar_w - wd - 10, 6, bar_w - 10, 3 + BTN - 3)
+    let t = crate::theme::current();
+    let (wd, right) = (text_w + t.px(PILL_PAD), t.px(PILL_RIGHT));
+    Rect::new(bar_w - wd - right, t.px(PILL_TOP), bar_w - right, t.px(BTN))
 }
 
 struct State {
@@ -113,7 +131,7 @@ impl ToolBar {
     pub fn new(parent: &Frame, items: Vec<Item>) -> ToolBar {
         let panel = Panel::builder(parent).build();
         panel.set_background_style(BackgroundStyle::Paint);
-        panel.set_min_size(Size::new(-1, HEIGHT));
+        panel.set_min_size(Size::new(-1, crate::theme::current().px(HEIGHT)));
         let kinds: Vec<bool> = items.iter().map(|i| matches!(i, Item::Button { .. })).collect();
         let st = Rc::new(RefCell::new(State {
             look: crate::theme::current().look(),
@@ -275,7 +293,10 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     }
     for (i, (item, r)) in s.items.iter().zip(&s.rects).enumerate() {
         match item {
-            Item::Separator => fill(&dc, Rect::new(r.l + 3, r.t + 6, r.l + 4, r.b - 6), mix(lk.base(), lk.ink(), 0x40)),
+            Item::Separator => {
+                let (inset, gap) = (r.w() / 2 - 1, theme_px(6));
+                fill(&dc, Rect::new(r.l + inset, r.t + gap, r.l + inset + 1, r.b - gap), mix(lk.base(), lk.ink(), 0x40));
+            }
             Item::Button { cmd, icon, faded, .. } => {
                 let off = s.disabled.contains(cmd);
                 if off {
@@ -290,7 +311,8 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
                     outline(&dc, *r, mix(lk.base(), lk.colors.accent, 0xB0));
                 }
                 if let Some(b) = if off { faded.as_ref().or(icon.as_ref()) } else { icon.as_ref() } {
-                    dc.draw_bitmap(b, r.l + (BTN - ICON) / 2, r.t + (BTN - ICON) / 2, true);
+                    let at = (r.w() - icon_size()) / 2;
+                    dc.draw_bitmap(b, r.l + at, r.t + at, true);
                 }
             }
         }
@@ -304,7 +326,7 @@ mod tests {
     #[test]
     fn buttons_and_separators_advance_by_their_own_width() {
         let r = layout(&[true, true, false, true]);
-        assert_eq!(r[0], Rect::new(LEFT, 3, LEFT + BTN, 3 + BTN));
+        assert_eq!(r[0], Rect::new(LEFT, TOP, LEFT + BTN, TOP + BTN));
         assert_eq!(r[1].l, r[0].r + 1);
         assert_eq!(r[2].l, r[1].r + 1);
         assert_eq!(r[2].w(), SEP_W);

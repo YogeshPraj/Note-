@@ -127,7 +127,10 @@ impl App {
         let name = self.ws.tabs[self.ws.active].title.clone();
         let left = sci::get_text(&self.ws.sci);
         let html = notepp_core::compare::diff_html(&name, &left, right_name, right, self.ws.theme.dark);
-        let f = Frame::builder().with_title(&format!("Compare - {name} / {right_name}")).with_size(Size::new(1100, 700)).build();
+        let f = Frame::builder()
+            .with_title(&format!("Compare - {name} / {right_name}"))
+            .with_size(Size::new(crate::widgets::theme::current().px(1100), crate::widgets::theme::current().px(700)))
+            .build();
         let view = WebView::builder(&f).build();
         let sizer = BoxSizer::builder(Orientation::Vertical).build();
         sizer.add(&view, 1, SizerFlag::Expand, 0);
@@ -181,7 +184,10 @@ impl App {
             esc(&font),
             esc(&text)
         );
-        let f = Frame::builder().with_title(&format!("Print - {title}")).with_size(Size::new(820, 700)).build();
+        let f = Frame::builder()
+            .with_title(&format!("Print - {title}"))
+            .with_size(Size::new(crate::widgets::theme::current().px(820), crate::widgets::theme::current().px(700)))
+            .build();
         let view = WebView::builder(&f).build();
         let sizer = BoxSizer::builder(Orientation::Vertical).build();
         sizer.add(&view, 1, SizerFlag::Expand, 0);

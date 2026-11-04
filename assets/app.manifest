@@ -23,6 +23,9 @@
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <ws2:longPathAware xmlns:ws2="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</ws2:longPathAware>
+      <!-- System-DPI aware: drawn sharp at the scale in force when the program starts (Theme::px). On a monitor with a
+           different scale Windows stretches the window. -->
+      <ws1:dpiAware xmlns:ws1="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</ws1:dpiAware>
     </windowsSettings>
   </application>
 </assembly>

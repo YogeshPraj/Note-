@@ -19,17 +19,24 @@ use crate::geom::Rect;
 use crate::paint::{Look, fill, mix, pos, text_at, text_w, wash};
 use crate::pointer::Pointer;
 
+/// Sizes before scaling (see [`crate::theme::Theme::px`]).
 pub const HEIGHT: i32 = 26;
 const LEFT: i32 = 6;
 const PAD: i32 = 20;
+/// Space above and below a title's highlight.
+const INSET: i32 = 2;
+/// How far the mnemonic underline sits above the bottom.
+const UNDERLINE: i32 = 5;
 
 /// Where each title goes: left to right from the left margin, `PAD` wider than its text.
 pub fn layout(text_widths: &[i32], height: i32) -> Vec<Rect> {
-    let mut x = LEFT;
+    let t = crate::theme::current();
+    let (pad, inset) = (t.px(PAD), t.px(INSET));
+    let mut x = t.px(LEFT);
     text_widths
         .iter()
         .map(|w| {
-            let r = Rect::new(x, 2, x + w + PAD, height - 2);
+            let r = Rect::new(x, inset, x + w + pad, height - inset);
             x = r.r;
             r
         })
@@ -72,7 +79,7 @@ impl MenuBar {
     pub fn new(parent: &Frame) -> MenuBar {
         let panel = Panel::builder(parent).build();
         panel.set_background_style(BackgroundStyle::Paint);
-        panel.set_min_size(Size::new(-1, HEIGHT));
+        panel.set_min_size(Size::new(-1, crate::theme::current().px(HEIGHT)));
         let st = Rc::new(RefCell::new(State {
             look: crate::theme::current().look(),
             font: crate::theme::current().ui_font(),
@@ -121,7 +128,7 @@ impl MenuBar {
         let (st, panel) = (self.st.clone(), self.panel);
         let n = crate::num::to_i32(st.borrow().titles.len());
         let at = move |i: i32| {
-            let (x, y) = st.borrow().rects.get(crate::num::to_usize(i)).map_or((0, HEIGHT), |r| (r.l, r.b));
+            let (x, y) = st.borrow().rects.get(crate::num::to_usize(i)).map_or((0, crate::theme::current().px(HEIGHT)), |r| (r.l, r.b));
             let p = panel.client_to_screen(Point::new(x, y));
             (p.x, p.y)
         };
@@ -240,7 +247,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
             let before: String = label.chars().take(*k).collect();
             let letter: String = label.chars().skip(*k).take(1).collect();
             let x = r.l + (r.w() - text_w(&dc, label)) / 2 + text_w(&dc, &before);
-            let y = r.b - 5;
+            let y = r.b - crate::theme::current().px(UNDERLINE);
             fill(&dc, Rect::new(x, y, x + text_w(&dc, &letter), y + 1), lk.fg());
         }
     }

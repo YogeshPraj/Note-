@@ -315,7 +315,7 @@ pub fn run(owner: &dyn WxWidget, spec: Spec, init: impl FnOnce(&Form)) -> Option
     let (ok_at, cancel_at) = button_positions(&spec);
     let Spec { title, size, ctls, ok, on_change, on_apply, .. } = spec;
     let d = Dialog::adopt(wxdragon::prelude::Dialog::builder(owner, title).build());
-    d.set_client_size(Size::new(size.0, size.1));
+    d.set_client_size(Size::new(px(size.0), px(size.1)));
     let built = build_controls(&d, &ctls);
     let (ok_btn, cancel_btn) = add_buttons(&d, ok, ok_at, cancel_at);
     d.set_escape_id(ID_CANCEL);

@@ -27,7 +27,15 @@ use crate::paint::{Look, colour, fill, mix, pos, text_at, text_w, wash};
 
 pub const HEIGHT: i32 = 32;
 
-const ROWS: Rows = Rows { tab_top: 4, tab_bottom: HEIGHT, btn_top: 6, btn_bottom: HEIGHT - 2 };
+/// Where tabs and buttons sit vertically, on this display.
+fn rows() -> Rows {
+    let t = crate::theme::current();
+    let h = t.px(HEIGHT);
+    Rows { tab_top: t.px(4), tab_bottom: h, btn_top: t.px(6), btn_bottom: h - t.px(2) }
+}
+/// How far the pointer must move before a press becomes a drag, and the edge band that scrolls while dragging.
+const DRAG_START: i32 = 6;
+const DRAG_EDGE: i32 = 16;
 /// How often dragging a tab against the edge scrolls by one tab.
 const AUTO_SCROLL: Duration = Duration::from_millis(120);
 
@@ -100,7 +108,7 @@ pub struct TabStrip {
 impl TabStrip {
     pub fn new(parent: &impl WxWidget) -> TabStrip {
         let panel = Panel::builder(parent).build();
-        panel.set_min_size(Size::new(-1, HEIGHT));
+        panel.set_min_size(Size::new(-1, crate::theme::current().px(HEIGHT)));
         Self::build(panel, false)
     }
 
@@ -315,15 +323,16 @@ impl TabStrip {
 fn drag_to(s: &mut State, x: i32) -> Option<(usize, usize)> {
     let d = s.drag.as_ref()?;
     let (from, x0, moving) = (d.from, d.x0, d.moving);
-    if !moving && (x - x0).abs() <= 6 {
+    let t = crate::theme::current();
+    if !moving && (x - x0).abs() <= t.px(DRAG_START) {
         return None;
     }
     // Against an edge, scroll one tab at a time.
     if s.last_auto.elapsed() >= AUTO_SCROLL {
-        if s.layout.left.is_some() && x < s.layout.clip.0 + 16 {
+        if s.layout.left.is_some() && x < s.layout.clip.0 + t.px(DRAG_EDGE) {
             s.scroll.step(Btn::Left);
             s.last_auto = Instant::now();
-        } else if s.layout.right.is_some() && x > s.layout.clip.1 - 16 {
+        } else if s.layout.right.is_some() && x > s.layout.clip.1 - t.px(DRAG_EDGE) {
             s.scroll.step(Btn::Right);
             s.last_auto = Instant::now();
         }

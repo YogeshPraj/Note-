@@ -19,8 +19,6 @@ use crate::widgets::status_bar::{Segment, StatusBar, StatusEvent};
 use crate::widgets::tab_strip::{TabEvent, TabStrip};
 use crate::widgets::tool_bar::{Item, Pill, ToolBar, ToolEvent};
 
-const ICON: i32 = 18;
-
 /// What the user did in the chrome.
 #[derive(Clone, Copy, Debug)]
 pub enum Act {
@@ -126,7 +124,8 @@ fn faded_svg(svg: &[u8]) -> Vec<u8> {
 }
 
 fn toolbar_items() -> Vec<Item> {
-    let bitmap = |svg: &[u8]| BitmapBundle::from_svg_data(svg, Size::new(ICON, ICON)).and_then(|b| b.get_bitmap(Size::new(ICON, ICON)));
+    let side = crate::widgets::tool_bar::icon_size();
+    let bitmap = |svg: &[u8]| BitmapBundle::from_svg_data(svg, Size::new(side, side)).and_then(|b| b.get_bitmap(Size::new(side, side)));
     toolbar_table()
         .into_iter()
         .map(|(cmd, data, tip)| match cmd {

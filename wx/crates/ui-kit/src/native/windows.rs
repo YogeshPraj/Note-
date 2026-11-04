@@ -7,6 +7,7 @@ pub struct Windows;
 #[link(name = "user32")]
 unsafe extern "system" {
     fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
+    fn GetDpiForSystem() -> u32;
     fn SetWindowLongPtrW(hwnd: isize, index: i32, value: isize) -> isize;
     fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
     fn RedrawWindow(hwnd: isize, rect: *const i32, region: isize, flags: u32) -> i32;
@@ -262,5 +263,10 @@ impl Native for Windows {
 
     fn set_topmost(&self, window: isize, on: bool) {
         unsafe { SetWindowPos(window, if on { -1 } else { -2 }, 0, 0, 0, 0, 0x13) }; // NOMOVE | NOSIZE | NOACTIVATE
+    }
+
+    fn display_scale(&self) -> f64 {
+        // The process is system-DPI aware (app.manifest), so this is the scale every window is drawn at.
+        f64::from(unsafe { GetDpiForSystem() }) / 96.0
     }
 }

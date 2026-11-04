@@ -205,6 +205,11 @@ impl Theme {
         crate::num::round_i32(f64::from(px) * self.scale)
     }
 
+    /// The other way: `px` pixels on this display as pixels at 100% (for layouts written at 100%).
+    pub fn unpx(self, px: i32) -> i32 {
+        crate::num::round_i32(f64::from(px) / self.scale)
+    }
+
     pub fn look(self) -> Look {
         Look { dark: self.dark, editor_bg: self.editor_bg, editor_fg: self.editor_fg, colors: self.colors }
     }
@@ -276,11 +281,20 @@ pub struct Hub {
     current: Option<Theme>,
     listeners: Vec<(u64, Listener)>,
     next_id: u64,
+    /// The display scale every theme is given (see [`init_display_scale`]); None is 100%.
+    scale: Option<f64>,
 }
 
 impl Hub {
     pub fn current(&self) -> Theme {
-        self.current.unwrap_or_default()
+        self.scaled(self.current.unwrap_or_default())
+    }
+
+    fn scaled(&self, mut theme: Theme) -> Theme {
+        if let Some(s) = self.scale {
+            theme.scale = s;
+        }
+        theme
     }
 
     /// Add a listener; the theme it must be applied to now, if one has been set already.
@@ -299,6 +313,7 @@ impl Hub {
     /// Record `theme`. Returns the listeners to call: all of them when the theme changed (or was never set, so the
     /// start-up theme is applied explicitly instead of following the system), none when it is the same.
     pub fn set(&mut self, theme: Theme) -> Vec<(u64, Listener)> {
+        let theme = self.scaled(theme);
         if self.current == Some(theme) {
             return Vec::new();
         }
@@ -319,9 +334,18 @@ pub fn is_dark() -> bool {
     current().dark
 }
 
+/// Draw at the display's scale from now on: the system's, or `NOTEPP_UI_SCALE` (for example `1.5`) to try a layout
+/// at another scale on this display. Call it once, before the first window is built.
+pub fn init_display_scale() {
+    let forced = std::env::var("NOTEPP_UI_SCALE").ok().and_then(|v| v.trim().parse::<f64>().ok());
+    let scale = forced.unwrap_or_else(|| crate::native::current().display_scale());
+    HUB.with(|h| h.borrow_mut().scale = Some(scale.clamp(1.0, 4.0)));
+}
+
 /// Set the theme and tell every subscriber if it changed.
 pub fn set(theme: Theme) {
     let listeners = HUB.with(|h| h.borrow_mut().set(theme));
+    let theme = current();
     let dead: Vec<u64> = listeners.iter().filter(|(_, l)| !l(&theme)).map(|(id, _)| *id).collect();
     if !dead.is_empty() {
         HUB.with(|h| h.borrow_mut().remove(&dead));

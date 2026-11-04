@@ -51,7 +51,7 @@ impl ListView {
                     self.0.clear_all();
                 }
                 data_list::ColumnOp::Insert { index, name, width } => {
-                    self.0.insert_column(crate::num::to_i64(index), &name, ListColumnFormat::Left, width);
+                    self.0.insert_column(crate::num::to_i64(index), &name, ListColumnFormat::Left, crate::theme::current().px(width));
                 }
             }
         }

@@ -195,7 +195,7 @@ fn add_control(sw: &ScrolledWindow, body: &BoxSizer, control: &Control, report: 
         }
         Control::Custom(c) => {
             let host = ThemedPanel::new(sw);
-            host.set_min_size(Size::new(c.size.0, c.size.1));
+            host.set_min_size(Size::new(t.px(c.size.0), t.px(c.size.1)));
             (c.build)(&host, on_change);
             body.add(&host, 0, SizerFlag::Bottom, t.px(4));
         }

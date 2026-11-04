@@ -62,7 +62,7 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     let editor_pane = Panel::builder(&splitter).build();
     let stc = StyledTextCtrl::builder(&editor_pane).build();
     let mini = StyledTextCtrl::builder(&editor_pane).build();
-    mini.set_min_size(Size::new(110, -1));
+    mini.set_min_size(Size::new(crate::widgets::theme::current().px(110), -1));
     // Never shown: reads other tabs' documents for the session and tab tool tips, so `stc` never swaps documents.
     let probe = StyledTextCtrl::builder(&editor_pane).build();
     probe.show(false);
@@ -103,6 +103,7 @@ pub(super) fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 3], settings: S
     let [stc, mini, probe] = views;
     let sci = WxSci::of(stc);
     let mut ws = Workspace::new(sci);
+    ws.set_ui_percent(crate::platform::wx::to_isize(crate::widgets::theme::current().px(100)));
     ws.set_settings(settings);
     ws.attach_minimap(WxSci::of(mini));
     ws.attach_probe(WxSci::of(probe));
@@ -199,6 +200,13 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     stc.set_focus();
 }
 
+/// The main window, sized for the display (the display scale is taken first: everything after is laid out with it).
+fn main_frame() -> Frame {
+    crate::widgets::theme::init_display_scale();
+    let t = crate::widgets::theme::current();
+    Frame::builder().with_title("Note++").with_size(Size::new(t.px(1200), t.px(800))).build()
+}
+
 pub fn start(files: &[PathBuf]) {
     hand_off_to_running_instance(files);
     // The only copy running: a downloaded update goes in now, before there is a window to flicker.
@@ -207,7 +215,7 @@ pub fn start(files: &[PathBuf]) {
     let keymap = notepp_core::keymap::KeyMap::build(&settings.shortcuts);
     menus::set_keymap(&keymap);
 
-    let frame = Frame::builder().with_title("Note++").with_size(Size::new(1200, 800)).build();
+    let frame = main_frame();
 
     // Menu bar.
     let (bar, menu_set) = menus::build_menus();

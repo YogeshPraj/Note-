@@ -191,3 +191,14 @@ fn recent_list_is_deduped_newest_first_and_capped() {
     assert_eq!(l.iter().filter(|p| p.as_path() == Path::new("C:\\f5.txt")).count(), 1);
     assert_eq!(l.len(), 10);
 }
+
+#[test]
+fn margins_follow_the_display_scale() {
+    let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+    let at_100 = ws.margin_widths();
+    ws.set_ui_percent(150);
+    let at_150 = ws.margin_widths();
+    assert_eq!(at_100.map(|w| w * 3 / 2), at_150);
+    ws.set_ui_percent(50);
+    assert_eq!(ws.margin_widths(), at_100, "a scale under 100% is not a display scale");
+}

@@ -56,18 +56,19 @@ pub fn create(parent: &wxdragon::prelude::Panel) -> Panels {
     let close = Button::adopt_as(wxdragon::prelude::Button::builder(&tree_box).with_label("\u{2715}").build(), Role::Editor);
     let tree = TreeView::adopt_as(TreeCtrl::builder(&tree_box).with_style(TreeCtrlStyle::HasButtons | TreeCtrlStyle::LinesAtRoot).build(), Role::Editor);
     let head = BoxSizer::builder(Orientation::Horizontal).build();
-    head.add(&title, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
-    head.add(&close, 0, SizerFlag::All, 2);
+    let t = crate::widgets::theme::current();
+    head.add(&title, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, t.px(8));
+    head.add(&close, 0, SizerFlag::All, t.px(2));
     let col = BoxSizer::builder(Orientation::Vertical).build();
     col.add_sizer(&head, 0, SizerFlag::Expand, 0);
     col.add(&tree, 1, SizerFlag::Expand, 0);
     tree_box.set_sizer(col, true);
-    tree_box.set_min_size(Size::new(TREE_W, -1));
+    tree_box.set_min_size(Size::new(t.px(TREE_W), -1));
     tree_box.show(false);
-    close.set_min_size(Size::new(24, HEADER_H - 4));
+    close.set_min_size(Size::new(t.px(24), t.px(HEADER_H - 4)));
 
     let side = ListView::adopt_as(ListCtrl::builder(parent).with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel).build(), Role::Editor);
-    side.set_min_size(Size::new(SIDE_W, -1));
+    side.set_min_size(Size::new(t.px(SIDE_W), -1));
     side.show(false);
     Panels { tree_box, tree, title, side }
 }

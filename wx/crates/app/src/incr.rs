@@ -76,11 +76,13 @@ pub fn open(app: &Shared) {
 fn make(app: &Shared, frame: &Frame) -> Win {
     {
         let d = Dialog::new(frame, "Incremental Search");
-        d.set_client_size(Size::new(360, 136));
+        // Laid out at 100%, placed scaled to the display.
+        let t = crate::widgets::theme::current();
+        d.set_client_size(Size::new(t.px(360), t.px(136)));
         let fp = frame.get_position();
         let fs = frame.get_size();
-        d.move_window(fp.x + fs.width - 400, fp.y + 110);
-        let at = |x, y, w, h| (Point::new(x, y), Size::new(w, h));
+        d.move_window(fp.x + fs.width - t.px(400), fp.y + t.px(110));
+        let at = |x, y, w, h| (Point::new(t.px(x), t.px(y)), Size::new(t.px(w), t.px(h)));
         let (p, s) = at(14, 12, 332, 18);
         Label::new(&d, "Search for:").set_size_with_pos(p.x, p.y, s.width, s.height);
         let (p, s) = at(14, 34, 332, 26);

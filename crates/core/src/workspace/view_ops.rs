@@ -6,7 +6,13 @@ impl<S: Send> Workspace<S> {
     /// Widths of the bookmark, line-number and fold margins under the current settings.
     pub(super) fn margin_widths(&self) -> [isize; 3] {
         let s = &self.settings;
-        [if s.bookmark_margin { 16 } else { 0 }, if s.line_numbers { 54 } else { 0 }, if s.fold_margin { 16 } else { 0 }]
+        let px = |w: isize| w * self.ui_percent / 100;
+        [if s.bookmark_margin { px(16) } else { 0 }, if s.line_numbers { px(54) } else { 0 }, if s.fold_margin { px(16) } else { 0 }]
+    }
+
+    /// The display scale in percent (100 = 100%); margins are sized for it from the next restyle (`set_settings`).
+    pub fn set_ui_percent(&mut self, percent: isize) {
+        self.ui_percent = percent.max(100);
     }
 
     /// Show or hide the bookmark, line-number and fold margins (Distraction Free Mode).

@@ -53,13 +53,14 @@ pub fn create(frame: &Frame) -> Dock {
 
 pub fn wire(app: &Shared) {
     let bar = app.borrow().mdbar.panel();
-    let (mut x, y, gap) = (8, 5, 8);
+    let t = crate::widgets::theme::current();
+    let (mut x, y, gap) = (t.px(8), t.px(5), t.px(8));
     for slot in layout() {
         match slot {
             None => x += gap,
             Some((id, label, tip, w, style)) => {
                 let b = Button::new(&bar, label);
-                b.set_size_with_pos(x, y, w, 28);
+                b.set_size_with_pos(x, y, t.px(w), t.px(28));
                 let size = 9;
                 let font = match style {
                     Style::Plain => None,
@@ -73,7 +74,7 @@ pub fn wire(app: &Shared) {
                 b.set_tooltip(tip);
                 let a = app.clone();
                 b.on_click(move |_| crate::app::run_command(&a, id));
-                x += w + 2;
+                x += t.px(w) + t.px(2);
             }
         }
     }

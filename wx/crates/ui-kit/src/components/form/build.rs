@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// `v` pixels at 100%, on this display.
+pub(super) fn px(v: i32) -> i32 {
+    crate::theme::current().px(v)
+}
+
+/// A spec rectangle (at 100%) on this display.
+fn scaled((x, y, w, h): (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
+    (px(x), px(y), px(w), px(h))
+}
+
 /// Everything created for a spec's controls, for wiring them afterwards.
 pub(super) struct Built {
     pub(super) map: HashMap<usize, W>,
@@ -15,13 +25,15 @@ pub(super) struct Built {
 impl Built {
     #[allow(clippy::too_many_lines, reason = "one arm per kind of control")]
     fn add(&mut self, d: &impl WxWidget, c: &Ctl) {
-        let (p, s) = (Point::new(c.rect.0, c.rect.1), Size::new(c.rect.2, c.rect.3));
+        // Specs are written at 100%; they are placed scaled to the display.
+        let (x, y, w, h) = scaled(c.rect);
+        let (p, s) = (Point::new(x, y), Size::new(w, h));
         match c.kind {
             Kind::Group => {
                 // A section heading with an etched line under it.
-                let (x, y, w, _) = c.rect;
-                let _line = StaticLine::builder(d).with_pos(Point::new(x, y + 18)).with_size(Size::new(w, 2)).build();
-                let l = Label::adopt(StaticText::builder(d).with_label(&c.text).with_pos(Point::new(x, y)).with_size(Size::new(w, 18)).build());
+                let (under, line) = (px(18), px(2));
+                let _line = StaticLine::builder(d).with_pos(Point::new(x, y + under)).with_size(Size::new(w, line)).build();
+                let l = Label::adopt(StaticText::builder(d).with_label(&c.text).with_pos(Point::new(x, y)).with_size(Size::new(w, under)).build());
                 self.map.insert(c.id, W::Label(l));
             }
             Kind::Label => {
@@ -106,11 +118,11 @@ pub(super) fn add_buttons(d: &Dialog, ok_label: &str, ok_at: (i32, i32), cancel_
     if ok_label.is_empty() {
         return (None, None);
     }
-    let size = Size::new(BTN_W, BTN_H);
-    let ok = Button::adopt(wxdragon::prelude::Button::builder(d).with_label(ok_label).with_pos(Point::new(ok_at.0, ok_at.1)).with_size(size).build());
+    let size = Size::new(px(BTN_W), px(BTN_H));
+    let (ok_at, cancel_at) = (Point::new(px(ok_at.0), px(ok_at.1)), Point::new(px(cancel_at.0), px(cancel_at.1)));
+    let ok = Button::adopt(wxdragon::prelude::Button::builder(d).with_label(ok_label).with_pos(ok_at).with_size(size).build());
     ok.set_default();
-    let cancel =
-        Button::adopt(wxdragon::prelude::Button::builder(d).with_label("Cancel").with_pos(Point::new(cancel_at.0, cancel_at.1)).with_size(size).build());
+    let cancel = Button::adopt(wxdragon::prelude::Button::builder(d).with_label("Cancel").with_pos(cancel_at).with_size(size).build());
     let dialog = *d;
     cancel.on_click(move |_| dialog.end_modal(ID_CANCEL));
     (Some(ok), Some(cancel))

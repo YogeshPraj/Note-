@@ -112,7 +112,9 @@ pub(super) fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab
         tx += w + px(6);
     }
     // Long names end in an ellipsis rather than running under the close button.
-    text_at(dc, &ellipsize(dc, &info.title, (r.r - px(26) - tx).max(0)), Rect::new(tx, r.t, r.r - px(26), r.b), fg, false);
+    let name = ellipsize(dc, &info.title, (r.r - px(26) - tx).max(0));
+    s.cut.borrow_mut().insert(i, name != info.title);
+    text_at(dc, &name, Rect::new(tx, r.t, r.r - px(26), r.b), fg, false);
     if info.beside {
         fill(dc, Rect::new(r.l + px(6), r.b - px(3), r.r - px(6), r.b - px(1)), mix(lk.base(), lk.colors.accent, 0x90));
     }

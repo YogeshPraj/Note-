@@ -43,6 +43,8 @@ struct State {
     pointer: Pointer,
     handler: Option<Rc<dyn Fn(HeaderEvent)>>,
     reader: a11y::Items,
+    /// The tool tip in place: the full name while it is cut short.
+    tip: String,
 }
 
 /// The close mark's place in a bar `w` wide and `h` high.
@@ -88,6 +90,7 @@ impl PaneHeader {
             pointer: Pointer::default(),
             handler: None,
             reader: reader.clone(),
+            tip: String::new(),
         }));
         let head = PaneHeader { panel, st };
         head.wire(reader);
@@ -162,7 +165,7 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     let dc = AutoBufferedPaintDC::new(&panel);
     let t = theme::current();
     let c = t.colors;
-    let s = st.borrow();
+    let mut s = st.borrow_mut();
     let area = panel.get_client_size();
     let (w, h) = (area.width, area.height);
     fill(&dc, Rect::new(0, 0, w, h), if s.current { c.surface } else { mix(c.surface, c.ink, 0x0C) });
@@ -195,7 +198,13 @@ fn paint(st: &Rc<RefCell<State>>, panel: Panel) {
     }
     let close = close_rect(w, bar_h);
     let end = if s.closable { close.l } else { w } - t.px(PAD);
-    text_at(&dc, &ellipsize(&dc, &s.title, (end - x).max(0)), Rect::new(x, 0, end, bar_h), if s.current { c.text } else { c.text_muted }, false);
+    let name = ellipsize(&dc, &s.title, (end - x).max(0));
+    text_at(&dc, &name, Rect::new(x, 0, end, bar_h), if s.current { c.text } else { c.text_muted }, false);
+    let tip = if name == s.title { String::new() } else { s.title.clone() };
+    if tip != s.tip {
+        panel.set_tooltip(&tip);
+        s.tip = tip;
+    }
     if s.closable {
         if s.pointer.hot().is_some() {
             wash(&dc, close, mix(c.surface, c.ink, 0x24), f64::from(t.px(2)));

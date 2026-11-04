@@ -15,6 +15,7 @@ mod column;
 pub mod model;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -97,6 +98,8 @@ struct State {
     /// The vertical list has the keyboard (it draws a ring).
     focused: bool,
     tip_for: Option<usize>,
+    /// Whether each tab's name was shortened when last painted.
+    cut: RefCell<HashMap<usize, bool>>,
 }
 
 impl std::fmt::Debug for TabStrip {
@@ -143,6 +146,7 @@ impl TabStrip {
             handler: None,
             preview: None,
             tip_for: None,
+            cut: RefCell::default(),
             reader: a11y::Items::default(),
             focused: false,
         }));
@@ -366,23 +370,7 @@ fn drag_to(s: &mut State, x: i32) -> Option<(usize, usize)> {
     moved
 }
 
-/// The tool tip for the tab under the pointer: a preview of its text, but not for the active tab (its text is on
-/// screen), nor over a close button. `None` leaves the tool tip as it is (already made for this tab).
-fn tab_tip(st: &Rc<RefCell<State>>) -> Option<String> {
-    let (hot, active, vertical, preview, done) = {
-        let s = st.borrow();
-        (s.hot, s.active, s.vertical, s.preview.clone(), s.tip_for)
-    };
-    let wanted = hot.filter(|(i, on_close)| !vertical && !on_close && *i != active).map(|(i, _)| i);
-    if wanted == done {
-        return None;
-    }
-    st.borrow_mut().tip_for = wanted;
-    Some(match (wanted, preview) {
-        (Some(i), Some(f)) => f(i),
-        _ => String::new(),
-    })
-}
-
+mod tips;
+use tips::tab_tip;
 mod paint;
 use paint::*;

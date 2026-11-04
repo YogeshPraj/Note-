@@ -60,7 +60,7 @@ All files are on the [latest release page](https://github.com/YogeshPraj/Note-/r
 - Command Palette (`Ctrl+Shift+P`), Quick Open (`Ctrl+P`), Print Preview, Page Setup, distraction-free mode.
 - Tabs you can pin and colour, with Close All / Close Others / Reveal in File Tree / Copy Full Path from the right-click menu.
 - Folder as Workspace tree with a one-click close button.
-- **Pictures**: copy an image anywhere and press `Ctrl+V` in the editor: it opens in a new tab with tools to crop, rotate, flip, resize, draw (pen, highlighter, arrow, rectangle, ellipse), add text, hide a region by pixelating it, undo and redo, copy and save as PNG. PNG, JPEG, GIF, BMP and WebP files open the same way.
+- **Pictures**: copy an image anywhere and press `Ctrl+V` in the editor: it opens in a new tab with an icon bar on the left (select, rectangle, ellipse, line, arrow, freehand, text, speech bubble, numbered step label, highlight, hide by pixelating, crop, rotate, flip, resize). Annotations stay editable objects until you save: move, resize, restyle or delete them; undo and redo, copy and save as PNG. PNG, JPEG, GIF, BMP and WebP files open the same way.
 
 ### Previews
 - **Markdown** and **HTML** live preview (`Ctrl+Shift+V`), with Mermaid diagrams rendered inside Markdown, syntax-coloured code blocks, math (`$x^2$` and `$$…$$`), GitHub alerts (`> [!NOTE]`), heading anchors, and Copy buttons on tables, code and diagrams (diagrams also zoom and copy as a picture).

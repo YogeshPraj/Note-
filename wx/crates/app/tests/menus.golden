@@ -241,11 +241,6 @@
   3006	Document Map	true	Some(false)
   3206	Document List	true	Some(false)
   3207	Function List	true	Some(false)
-  -
-  > Project Panels
-    3201	Project Panel 1	false	None
-    3202	Project Panel 2	false	None
-    3203	Project Panel 3	false	None
 > Folding
   3170	Fold All	Alt+0	true	None
   3171	Unfold All	Alt+Shift+0	true	None
@@ -302,15 +297,9 @@
 > Text Direction
   3210	Text Direction RTL	Ctrl+Alt+R	true	None
   3211	Text Direction LTR	Ctrl+Alt+L	true	None
-> Other View
-  3132	Move to Other View	false	None
-  3133	Clone to Other View	false	None
+> New Instance
   3130	Move to New Instance	true	None
   3131	Open in New Instance	true	None
-  -
-  3160	Focus on Another View	F8	false	None
-  3208	Synchronize Vertical Scrolling	false	None
-  3209	Synchronize Horizontal Scrolling	false	None
 > Monitoring
   3212	Monitoring (tail -f)	true	Some(false)
   3213	Log Follow (.log / .out / .err)	true	Some(false)

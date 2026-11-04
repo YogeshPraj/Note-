@@ -24,12 +24,6 @@ pub(super) fn view_panels() -> M {
     B::cmd(panels, ID_MINIMAP);
     B::cmd(panels, ID_DOC_LIST);
     B::cmd(panels, ID_FUNC_LIST);
-    B::sep(panels);
-    let projects = B::popup();
-    for i in 0..3 {
-        B::add_state(projects, ID_PROJECT_BASE + i, &format!("Project Panel {}", i + 1), false);
-    }
-    B::submenu(panels, "Project Panels", projects);
     panels
 }
 
@@ -78,17 +72,11 @@ pub(super) fn view_tabs() -> M {
     tab
 }
 
-/// Moving and cloning documents, the second view and synchronised scrolling.
-pub(super) fn view_other_view() -> M {
+/// Moving a document to another instance of the program, or opening it in one.
+pub(super) fn view_new_instance() -> M {
     let other = B::popup();
-    B::cmd_state(other, ID_MOVE_OTHER_VIEW, false);
-    B::cmd_state(other, ID_CLONE_OTHER_VIEW, false);
     B::cmd(other, ID_MOVE_NEW_INSTANCE);
     B::cmd(other, ID_OPEN_NEW_INSTANCE);
-    B::sep(other);
-    B::cmd_state(other, ID_FOCUS_OTHER, false);
-    B::cmd_state(other, ID_SYNC_V, false);
-    B::cmd_state(other, ID_SYNC_H, false);
     other
 }
 
@@ -107,7 +95,7 @@ pub(super) fn menu_view_rest(view: M) {
     B::cmd(direction, ID_RTL);
     B::cmd(direction, ID_LTR);
     B::submenu(view, "Text Direction", direction);
-    B::submenu(view, "Other View", view_other_view());
+    B::submenu(view, "New Instance", view_new_instance());
     let follow = B::popup();
     B::cmd(follow, ID_MONITOR);
     B::cmd(follow, ID_LOG_FOLLOW);

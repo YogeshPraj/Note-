@@ -239,11 +239,6 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_COLUMN_MODE, "Column Mode...", "", "", ""),
     row(ID_SYM_NONPRINT, "Show Non-Printing Characters", "", "", ""),
     row(ID_SYM_CTRL, "Show Control Characters && Unicode EOL", "", "", ""),
-    row(ID_MOVE_OTHER_VIEW, "Move to Other View", "", "", ""),
-    row(ID_CLONE_OTHER_VIEW, "Clone to Other View", "", "", ""),
-    row(ID_FOCUS_OTHER, "Focus on Another View", "", "F8", ""),
-    row(ID_SYNC_V, "Synchronize Vertical Scrolling", "", "", ""),
-    row(ID_SYNC_H, "Synchronize Horizontal Scrolling", "", "", ""),
     row(ID_PALETTE, "Command Palette...", "", "Ctrl+Shift+P", ""),
     row(ID_PRESET_BASE, "Default (light)", "", "", ""),
 ];

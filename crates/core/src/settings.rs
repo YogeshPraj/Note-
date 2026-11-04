@@ -27,8 +27,6 @@ pub struct Settings {
     pub preview_remote_images: bool,
     /// Show the Markdown formatting toolbar above Markdown files.
     pub md_toolbar: bool,
-    /// Whether Markdown files open with the live preview showing (remembers the last choice).
-    pub md_preview: bool,
     pub show_toolbar: bool,
     pub show_tabbar: bool,
     pub show_statusbar: bool,
@@ -45,8 +43,6 @@ pub struct Settings {
     pub auto_update: bool,
     /// Lock the Bitwarden vault after this many idle minutes; 0 = never.
     pub passwords_auto_lock_min: u32,
-    /// The version whose "what's new" notice was already shown.
-    pub whats_new_seen: String,
 }
 
 impl Default for Settings {
@@ -64,7 +60,6 @@ impl Default for Settings {
             smart_highlight: true,
             preview_remote_images: false,
             md_toolbar: true,
-            md_preview: true,
             show_toolbar: true,
             show_tabbar: true,
             show_statusbar: true,
@@ -75,7 +70,6 @@ impl Default for Settings {
             shortcuts: BTreeMap::new(),
             passwords_auto_lock_min: 15,
             auto_update: true,
-            whats_new_seen: String::new(),
         }
     }
 }

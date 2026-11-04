@@ -151,7 +151,7 @@ pub(super) fn handle_3(app: &mut App, id: usize) -> bool {
             });
         }
         c::ID_RTL | c::ID_LTR => {
-            crate::widgets::native::current().set_rtl(app.stc.get_handle() as isize, id == c::ID_RTL);
+            crate::widgets::native::current().set_rtl(app.stc().get_handle() as isize, id == c::ID_RTL);
             // Scintilla's own bidirectional mode: 1 = right-to-left, 0 = off.
             notepp_core::sci::Send::send(&app.ws.sci, 2709, usize::from(id == c::ID_RTL), 0);
         }

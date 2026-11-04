@@ -83,6 +83,6 @@ pub fn open_files(app: &Shared) {
         let crate::app::App { ws, ui, .. } = &mut *a;
         ws.open_path(ui, &p);
         a.refresh();
-        a.stc.set_focus();
+        a.stc().set_focus();
     }
 }

@@ -51,7 +51,7 @@ impl App {
             Cmd::Close => {
                 self.in_files_cancel();
                 findpanel::close();
-                self.stc.set_focus();
+                self.stc().set_focus();
             }
         }
         if let Some(n) = note {

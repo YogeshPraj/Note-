@@ -88,6 +88,15 @@ Message boxes and the system pickers (files, folder, one of a list, colour, font
 A dialog that needs state between its callbacks keeps it in its form (`Form::set_state`), not in a static; the few
 deliberate globals are listed in `docs/audit.md`.
 
+## Docked tab
+
+One tab can sit in a second Scintilla view beside the main one, both editable (`workspace/dock.rs`, `app/dock_pane.rs`).
+`Workspace::sci` and `active` always mean the view the user is in and its tab, so commands, the status bar and the
+preview follow the keyboard without knowing about docking: moving between views swaps them, and the other view waits in
+`second`. The docked tab is fixed: any other tab opens in the main view, new tabs included. The app reads the workspace
+in `sync_dock` (called from `refresh`) to show, move or hide the pane; `App::stc()` is the view the user is in. A
+whiteboard in the main view hides both editors.
+
 ## Threading
 
 wxWidgets is single-threaded: all UI is on the main thread. Work that can take long runs on a worker thread and hands

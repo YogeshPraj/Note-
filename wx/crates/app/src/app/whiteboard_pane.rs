@@ -58,8 +58,8 @@ impl App {
         let wb = self.ws.is_whiteboard();
         self.sync_preview_pane();
         let mut relayout = false;
-        if self.stc.is_shown() == wb {
-            self.stc.show(!wb);
+        if self.dock_split.is_shown() == wb {
+            self.dock_split.show(!wb);
             relayout = true;
         }
         let want_mini = self.ws.minimap && !wb;

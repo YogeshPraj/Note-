@@ -181,7 +181,7 @@ Swept: every command against its handlers, form buttons, native buttons, Setting
 
 Fixed: the folder panel's close button, the JSON preview's `json:`, `jsonfix:` and `jpath:` messages, and the status bar's INS/OVR.
 
-Removed at the owner's request: View > Move to Other View, Clone to Other View, Focus on Another View, Synchronize Vertical and Horizontal Scrolling, and Project Panel 1 to 3 (always greyed, no handler, no second view to act on), and the unread settings `md_preview` and `whats_new_seen`. The Other View submenu is now New Instance.
+Removed at the owner's request: View > Move to Other View, Clone to Other View, Focus on Another View, Synchronize Vertical and Horizontal Scrolling, and Project Panel 1 to 3 (always greyed, no handler; Focus on Other Pane came back with the docked tab), and the unread settings `md_preview` and `whats_new_seen`. The Other View submenu is now New Instance.
 
 ### Lint debt after Phase 7
 

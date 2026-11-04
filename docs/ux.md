@@ -31,6 +31,7 @@ These are the target. Known gaps (see `docs/audit.md` for the full list):
 
 | Rule | State |
 |---|---|
+| Docked tab | Tab menu > Dock > Left, Right, Top or Bottom shows that tab in its own editor pane, with a draggable splitter; Undock puts it back. One tab at a time; a whiteboard cannot be docked. F8 moves between the panes. The pane, its side and the split survive a restart. |
 | Keyboard first | Commands are in one registry with default shortcuts; the shortcut mapper edits them. Alt+letter and F10 open the menus, also while a web page has the keyboard. |
 | Never block the UI | Find in Files, the Quick Open listing, tree folder reads, the session write, hashing and large file reads run off the UI thread, with progress and Stop/Cancel where they can take long. Inserting text into Scintilla stays on it. |
 | Accessible | Contrast of text on every theme background is tested. The custom-painted bars (menu, tool, tab, status) show their items to screen readers and can be pressed through them (`ui_kit::a11y`, MSAA, Windows only). The Settings page list takes the keyboard: Up, Down, Home, End, with a focus ring. The bars themselves are not in the Tab order: their commands are reached by shortcuts and menus. |

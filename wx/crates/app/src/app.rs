@@ -57,7 +57,12 @@ pub struct App {
     pub(crate) incr: Option<crate::incr::Search>,
     menu_bar: isize,
     mini: StyledTextCtrl,
-    pub(crate) stc: StyledTextCtrl,
+    /// The main editor view and the docked one; `stc()` says which the user is in.
+    main_stc: StyledTextCtrl,
+    dock_stc: StyledTextCtrl,
+    /// Holds both views; the second appears when a tab is docked.
+    dock_split: SplitterWindow,
+    dock_shown: Option<notepp_core::session::DockSide>,
     pub(crate) view: WebPane,
     pub(crate) chrome: Chrome,
     pub(crate) menubar: MenuBar,
@@ -89,12 +94,15 @@ const TIP_WIDTH: usize = 90;
 
 mod start;
 pub use start::*;
+mod timers;
 mod wiring;
 pub(crate) use wiring::*;
 /// How many times the editor's text has changed. Bumped from the change notification, which also fires for edits made
 /// by commands while the app is borrowed, so it lives outside `App`.
 static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+mod dock_pane;
+pub(crate) use dock_pane::DockCommands;
 mod notes;
 pub(crate) use notes::*;
 /// With `NPP_TRACE`=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
@@ -156,7 +164,7 @@ impl App {
             }
         }
         self.refresh();
-        self.stc.set_focus();
+        self.stc().set_focus();
         if self.frame.is_iconized() {
             self.frame.iconize(false);
         }
@@ -203,6 +211,7 @@ impl App {
 
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.
     pub fn refresh(&mut self) {
+        self.sync_dock();
         if !self.ws.is_whiteboard() {
             self.ws.update_smart();
             self.ws.auto_detect_language();
@@ -282,6 +291,7 @@ impl App {
     pub fn save_session(&mut self) {
         if !session::standalone() {
             let ticket = session::ticket();
+            self.keep_dock_share();
             let _ = self.ws.snapshot().save_in_order(&session::session_path(), ticket);
         }
     }
@@ -294,6 +304,7 @@ impl App {
             return;
         }
         self.session_key = key;
+        self.keep_dock_share();
         // The snapshot is taken here; turning it into JSON and writing it (slow with large unsaved documents) happens
         // on a worker thread. The tickets keep a late write from replacing a newer one.
         let (snapshot, ticket) = (self.ws.snapshot(), session::ticket());

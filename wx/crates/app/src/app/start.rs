@@ -38,7 +38,9 @@ pub(super) fn hand_off_to_running_instance(files: &[PathBuf]) {
 pub(super) struct Widgets {
     splitter: SplitterWindow,
     editor_pane: Panel,
+    dock_split: SplitterWindow,
     stc: StyledTextCtrl,
+    dock_stc: StyledTextCtrl,
     mini: StyledTextCtrl,
     probe: StyledTextCtrl,
     panels: Panels,
@@ -60,19 +62,24 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     // No 3-D border: it is drawn in the system colours, which show as a white frame around the editor in the dark theme.
     let splitter = SplitterWindow::builder(frame).with_style(wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash).build();
     let editor_pane = Panel::builder(&splitter).build();
-    let stc = StyledTextCtrl::builder(&editor_pane).build();
+    let dock_split = SplitterWindow::builder(&editor_pane).with_style(wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash).build();
+    let stc = StyledTextCtrl::builder(&dock_split).build();
+    let dock_stc = StyledTextCtrl::builder(&dock_split).build();
+    dock_stc.show(false);
     let mini = StyledTextCtrl::builder(&editor_pane).build();
     mini.set_min_size(Size::new(crate::widgets::theme::current().px(110), -1));
     // Never shown: reads other tabs' documents for the session and tab tool tips, so `stc` never swaps documents.
     let probe = StyledTextCtrl::builder(&editor_pane).build();
     probe.show(false);
-    for editor in [&stc, &mini] {
+    for editor in [&stc, &dock_stc, &mini] {
         no_border(editor);
     }
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     let panels = panels::create(&editor_pane);
     row.add(&panels.tree_box, 0, SizerFlag::Expand, 0);
-    row.add(&stc, 1, SizerFlag::Expand, 0);
+    dock_split.initialize(&stc);
+    dock_split.set_minimum_pane_size(crate::widgets::theme::current().px(120));
+    row.add(&dock_split, 1, SizerFlag::Expand, 0);
     row.add(&mini, 0, SizerFlag::Expand, 0);
     let wbv = WebPane::new(&editor_pane);
     wbv.add_user_script(wbm::BRIDGE, wxdragon::widgets::webview::WebViewUserScriptInjectionTime::AtDocumentStart);
@@ -95,18 +102,19 @@ pub(super) fn build_widgets(frame: &Frame, chrome: &Chrome) -> Widgets {
     sizer.add(&findpanel::container(frame), 0, SizerFlag::Expand, 0);
     sizer.add(&chrome.status, 0, SizerFlag::Expand, 0);
     frame.set_sizer(sizer, true);
-    Widgets { splitter, editor_pane, stc, mini, probe, panels, wbv, view, mdbar }
+    Widgets { splitter, editor_pane, dock_split, stc, dock_stc, mini, probe, panels, wbv, view, mdbar }
 }
 
 /// The workspace: settings, the last session, then the files named on the command line.
-pub(super) fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 3], settings: Settings, files: &[PathBuf]) -> Workspace<WxSci> {
-    let [stc, mini, probe] = views;
+pub(super) fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 4], settings: Settings, files: &[PathBuf]) -> Workspace<WxSci> {
+    let [stc, dock_stc, mini, probe] = views;
     let sci = WxSci::of(stc);
     let mut ws = Workspace::new(sci);
     ws.set_ui_percent(crate::platform::wx::to_isize(crate::widgets::theme::current().px(100)));
     ws.set_settings(settings);
     ws.attach_minimap(WxSci::of(mini));
     ws.attach_probe(WxSci::of(probe));
+    ws.attach_second(WxSci::of(dock_stc));
     if !session::standalone()
         && let Some(s) = Session::load(&session::session_path())
     {
@@ -122,7 +130,7 @@ pub(super) fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 3], settings: S
 }
 
 /// Files dropped on the window or the editor open as tabs; folders become the workspace.
-pub(super) fn attach_drop_targets(app: &Shared, frame: Frame, stc: StyledTextCtrl) {
+pub(super) fn attach_drop_targets(app: &Shared, frame: Frame, views: [StyledTextCtrl; 2]) {
     let drop = |a: Shared| {
         move |files: Vec<String>, _: i32, _: i32| {
             let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
@@ -133,7 +141,9 @@ pub(super) fn attach_drop_targets(app: &Shared, frame: Frame, stc: StyledTextCtr
         }
     };
     let _ = FileDropTarget::builder(&frame).with_on_drop_files(drop(app.clone())).build();
-    let _ = FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build();
+    for stc in views {
+        let _ = FileDropTarget::builder(&stc).with_on_drop_files(drop(app.clone())).build();
+    }
 }
 
 /// The editor's own popup is replaced by the configurable one.
@@ -145,6 +155,8 @@ pub(super) fn replace_editor_popup(app: &Shared, stc: StyledTextCtrl) {
         if let wxdragon::event::WindowEventData::MouseButton(m) = &e
             && let Some(p) = m.get_position()
         {
+            // The menu acts on the view that was clicked.
+            s.set_focus();
             popups::editor_menu(&a, s.client_to_screen(p));
         }
     });
@@ -172,7 +184,8 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
         // The title bar and native controls follow the theme.
         crate::widgets::theme::style_native(&frame);
     });
-    attach_drop_targets(app, frame, stc);
+    let dock_stc = app.borrow().dock_stc;
+    attach_drop_targets(app, frame, [stc, dock_stc]);
     {
         let mut a = app.borrow_mut();
         if let Some(dir) = a.ws.workspace.clone() {
@@ -180,7 +193,9 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
         }
     }
     replace_editor_popup(app, stc);
-    wire_mini(app, mini, stc);
+    replace_editor_popup(app, dock_stc);
+    dock_pane::wire_dock(app, frame, stc, dock_stc);
+    wire_mini(app, mini);
     wire_whiteboard(app, wbv);
     wire_menu_keys(app, frame);
     wire(app, frame, &stc, view);
@@ -198,6 +213,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     }
     frame.layout();
     stc.set_focus();
+    app.borrow_mut().restore_dock();
 }
 
 /// The main window, sized for the display (the display scale is taken first: everything after is laid out with it).
@@ -205,6 +221,17 @@ fn main_frame() -> Frame {
     crate::widgets::theme::init_display_scale();
     let t = crate::widgets::theme::current();
     Frame::builder().with_title("Note++").with_size(Size::new(t.px(1200), t.px(800))).build()
+}
+
+/// Build the menus and give them to the window.
+fn attach_menu_bar(frame: &Frame) -> (Vec<(String, menus::M)>, menus::Menus) {
+    let (bar, menu_set) = menus::build_menus();
+    let mut mb = MenuBar::builder();
+    for (title, m) in &bar {
+        mb = mb.append(menus::realize(*m), title);
+    }
+    frame.set_menu_bar(mb.build());
+    (bar, menu_set)
 }
 
 pub fn start(files: &[PathBuf]) {
@@ -217,22 +244,15 @@ pub fn start(files: &[PathBuf]) {
 
     let frame = main_frame();
 
-    // Menu bar.
-    let (bar, menu_set) = menus::build_menus();
-    let mut mb = MenuBar::builder();
-    for (title, m) in &bar {
-        mb = mb.append(menus::realize(*m), title);
-    }
-    let menubar = mb.build();
-    frame.set_menu_bar(menubar);
+    let (bar, menu_set) = attach_menu_bar(&frame);
 
     // Toolbar and tab strip above the editor, status bar below it.
     let chrome = Chrome::new(&frame);
     let w = build_widgets(&frame, &chrome);
-    let Widgets { splitter, editor_pane, stc, mini, probe, panels, wbv, view, mdbar } = w;
+    let Widgets { splitter, editor_pane, dock_split, stc, dock_stc, mini, probe, panels, wbv, view, mdbar } = w;
 
     let ui = WxUi::new(frame);
-    let ws = load_workspace(&ui, [&stc, &mini, &probe], settings, files);
+    let ws = load_workspace(&ui, [&stc, &dock_stc, &mini, &probe], settings, files);
 
     let Some(menubar) = frame.get_menu_bar() else { return };
     let app: Shared = Rc::new(RefCell::new(App {
@@ -259,7 +279,10 @@ pub fn start(files: &[PathBuf]) {
         upd_plan: crate::updates::Plan::default(),
         incr: None,
         mini,
-        stc,
+        main_stc: stc,
+        dock_stc,
+        dock_split,
+        dock_shown: None,
         view: view.clone(),
         chrome,
         postit: false,

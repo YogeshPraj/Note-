@@ -11,8 +11,14 @@ pub(super) fn close_rect(r: &Rect) -> Rect {
     Rect::new(r.r - px(24), r.t + px(7), r.r - px(8), r.b - px(7))
 }
 
+/// A badge fits its text.
+fn badge_width(dc: &impl DeviceContext, badge: &str) -> i32 {
+    (text_w(dc, badge) + px(8)).max(px(24))
+}
+
 pub(super) fn tab_width(dc: &impl DeviceContext, info: &Tab) -> i32 {
-    let extra = if info.badge.is_some() { px(30) } else { 0 } + if info.pinned { px(16) } else { 0 };
+    let badge = info.badge.map_or(0, |b| badge_width(dc, b) + px(6));
+    let extra = badge + if info.pinned { px(16) } else { 0 };
     (text_w(dc, &info.title) + px(56) + extra).clamp(px(96), px(260))
 }
 
@@ -100,9 +106,10 @@ pub(super) fn paint_tab(dc: &impl DeviceContext, s: &State, i: usize, info: &Tab
     if let Some(badge) = info.badge {
         dc.set_pen(colour(lk.colors.badge), 1, PenStyle::Solid);
         dc.set_brush(colour(lk.colors.badge), BrushStyle::Solid);
-        dc.draw_rounded_rectangle(tx, mid - px(8), px(24), px(16), f64::from(px(6)));
-        text_at(dc, badge, Rect::new(tx, mid - px(8), tx + px(24), mid + px(8)), lk.colors.accent_text, true);
-        tx += px(30);
+        let w = badge_width(dc, badge);
+        dc.draw_rounded_rectangle(tx, mid - px(8), w, px(16), f64::from(px(6)));
+        text_at(dc, badge, Rect::new(tx, mid - px(8), tx + w, mid + px(8)), lk.colors.accent_text, true);
+        tx += w + px(6);
     }
     // Long names end in an ellipsis rather than running under the close button.
     let room = (r.r - px(26) - tx).max(0);

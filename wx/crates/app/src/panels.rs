@@ -96,7 +96,7 @@ pub fn wire(app: &Shared) {
             let App { ws, ui, .. } = &mut *app;
             ws.open_path(ui, &path);
             app.refresh();
-            app.stc.set_focus();
+            app.stc().set_focus();
         }
     });
     let a = app.clone();
@@ -350,7 +350,7 @@ impl App {
             None => {}
         }
         self.refresh();
-        self.stc.set_focus();
+        self.stc().set_focus();
     }
 }
 

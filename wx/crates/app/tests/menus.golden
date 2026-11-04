@@ -300,6 +300,7 @@
 > New Instance
   3130	Move to New Instance	true	None
   3131	Open in New Instance	true	None
+3160	Focus on &Other Pane	F8	true	None
 > Monitoring
   3212	Monitoring (tail -f)	true	Some(false)
   3213	Log Follow (.log / .out / .err)	true	Some(false)

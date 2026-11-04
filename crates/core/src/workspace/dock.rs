@@ -56,9 +56,11 @@ impl<S: Send> Workspace<S> {
         self.tabs.iter().position(|t| t.id == other)
     }
 
-    /// Can tab `i` be docked? It must be text, and leave a text tab for the main view.
+    /// Can tab `i` be docked? It must be text, and leave a text tab for the main view (which can be the docked tab,
+    /// since that goes back among the others).
     pub fn can_dock(&self, i: usize) -> bool {
-        self.second.is_some() && self.tabs.get(i).is_some_and(|t| t.kind == TabKind::Text) && self.neighbour_of(i, true).is_some()
+        let text = |t: &Tab| t.kind == TabKind::Text;
+        self.second.is_some() && self.tabs.get(i).is_some_and(text) && self.tabs.iter().enumerate().any(|(j, t)| j != i && text(t))
     }
 
     /// The tab nearest `i` for the main view to show instead of it: never `i` or the docked tab.

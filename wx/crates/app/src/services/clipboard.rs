@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use notepp_core::secret::{SECRET_TTL, SecretGuard};
-use wxdragon::prelude::Clipboard;
+use wxdragon::prelude::{Bitmap, BitmapDataObject, Clipboard};
 
 /// The clipboard service: the system clipboard plus the password guard.
 #[derive(Default)]
@@ -45,4 +45,11 @@ pub fn copy(text: &str) -> bool {
 /// The text on the system clipboard, if any.
 pub fn paste() -> Option<String> {
     Clipboard::get().get_text()
+}
+
+/// Put a picture (RGBA pixels, `width` by `height`) on the system clipboard. False when it cannot be made or the
+/// clipboard is busy.
+pub fn copy_image(width: u32, height: u32, rgba: &[u8]) -> bool {
+    let Some(bitmap) = Bitmap::from_rgba(rgba, width, height) else { return false };
+    Clipboard::get().set_data(&mut BitmapDataObject::new(&bitmap))
 }

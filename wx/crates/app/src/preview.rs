@@ -68,3 +68,28 @@ fn base64(data: &[u8]) -> String {
     }
     out
 }
+
+/// A picture sent by the page: `copy-image:<width>:<height>:<base64 RGBA pixels>`.
+pub fn parse_image(msg: &str) -> Option<(u32, u32, Vec<u8>)> {
+    let mut parts = msg.strip_prefix("copy-image:")?.splitn(3, ':');
+    let width: u32 = parts.next()?.parse().ok()?;
+    let height: u32 = parts.next()?.parse().ok()?;
+    let pixels = notepp_core::textools::base64_decode(parts.next()?).ok()?;
+    let expected = usize::try_from(width).ok()?.checked_mul(usize::try_from(height).ok()?)?.checked_mul(4)?;
+    (width > 0 && height > 0 && pixels.len() == expected).then_some((width, height, pixels))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_image;
+
+    #[test]
+    fn a_picture_needs_four_bytes_for_each_pixel() {
+        let rgba = notepp_core::textools::base64_encode(&[1, 2, 3, 255, 4, 5, 6, 255]);
+        assert_eq!(parse_image(&format!("copy-image:2:1:{rgba}")), Some((2, 1, vec![1, 2, 3, 255, 4, 5, 6, 255])));
+        assert_eq!(parse_image(&format!("copy-image:3:1:{rgba}")), None);
+        assert_eq!(parse_image("copy-image:0:0:"), None);
+        assert_eq!(parse_image("copy-image:x:1:AAAA"), None);
+        assert_eq!(parse_image("tab:next"), None);
+    }
+}

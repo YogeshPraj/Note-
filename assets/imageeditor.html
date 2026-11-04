@@ -35,6 +35,8 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
 #resize .row { justify-content:flex-end; padding:8px 0 0; }
 #textbox { position:absolute; display:none; margin:0; padding:0 2px; border:1px dashed #888; background:rgba(255,255,255,.6); outline:none; resize:none; overflow:hidden; font-family:"Segoe UI", sans-serif; line-height:1.25; z-index:4; min-width:40px; white-space:pre; }
 .hidden { display:none !important; }
+.ch { position:absolute; width:7px; height:7px; margin:-3.5px 0 0 -3.5px; background:#fff; border:1px solid #222; z-index:3; display:none; }
+#newsize { position:absolute; display:none; border:1px dashed #1e88e5; background:rgba(30,136,229,.08); pointer-events:none; z-index:2; }
 </style>
 </head>
 <body>
@@ -60,7 +62,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
   </div>
 </div>
 <div id="left"></div>
-<div id="view"><div id="stage"><canvas id="pic"></canvas><canvas id="ov"></canvas><textarea id="textbox" rows="1" spellcheck="false"></textarea></div></div>
+<div id="view"><div id="stage"><canvas id="pic"></canvas><canvas id="ov"></canvas><div id="newsize"></div><textarea id="textbox" rows="1" spellcheck="false"></textarea></div></div>
 <div id="cropbar"><button id="cropok">Apply</button><button id="cropno">Cancel</button></div>
 <div id="resize">
   <label>Width <input id="rw" type="number" min="1" max="16000"> px</label>
@@ -220,6 +222,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     return hs;
   }
   function drawOverlay() {
+    syncHandles();
     octx.clearRect(0, 0, ov.width, ov.height);
     if (crop) { drawCropOverlay(); return; }
     if (!sel) return;
@@ -313,6 +316,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     commitText(); cancelCrop(); tool = t; if (t !== 'select') select(null);
     Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) { b.classList.toggle('on', b.getAttribute('data-tool') === t); });
     ov.style.cursor = t === 'select' ? 'default' : t === 'text' ? 'text' : 'crosshair';
+    syncHandles();
   }
   function select(o) { sel = o; drawOverlay(); showProps(); buttons(); }
   function removeSelected() { if (!sel) return; pushUndo(); objects.splice(objects.indexOf(sel), 1); sel = null; redraw(); showProps(); buttons(); changed(); }
@@ -426,6 +430,46 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     base = out; objects = []; setSize(r.w, r.h); redraw(); showProps(); if (fitMode) fitZoom(); changed();
   }
   $('cropok').onclick = applyCrop; $('cropno').onclick = cancelCrop;
+
+  /* ---- the dots around the picture: drag one to make the canvas bigger or smaller ---- */
+  var HANDLES = { nw: [0, 0, 'nwse-resize'], n: [50, 0, 'ns-resize'], ne: [100, 0, 'nesw-resize'], w: [0, 50, 'ew-resize'], e: [100, 50, 'ew-resize'], sw: [0, 100, 'nesw-resize'], s: [50, 100, 'ns-resize'], se: [100, 100, 'nwse-resize'] };
+  Object.keys(HANDLES).forEach(function (k) {
+    var d = document.createElement('div'); d.className = 'ch'; d.setAttribute('data-h', k);
+    d.style.left = HANDLES[k][0] + '%'; d.style.top = HANDLES[k][1] + '%'; d.style.cursor = HANDLES[k][2];
+    d.addEventListener('mousedown', function (e) { startCanvasResize(e, k); });
+    $('stage').appendChild(d);
+  });
+  function syncHandles() {
+    var on = loaded && tool === 'select' && !sel && !crop && !editing;
+    Array.prototype.forEach.call(document.querySelectorAll('.ch'), function (d) { d.style.display = on ? 'block' : 'none'; });
+  }
+  function startCanvasResize(e, k) {
+    if (e.button !== 0 || !loaded) return;
+    e.preventDefault(); e.stopPropagation(); commitText();
+    var sx = e.clientX, sy = e.clientY, W = pic.width, H = pic.height, ns = $('newsize'), r = { x: 0, y: 0, w: W, h: H };
+    function calc(m) {
+      var dx = (m.clientX - sx) / zoom, dy = (m.clientY - sy) / zoom;
+      var left = k.indexOf('w') >= 0 ? dx : 0, right = W + (k.indexOf('e') >= 0 ? dx : 0), top = k.indexOf('n') >= 0 ? dy : 0, bottom = H + (k.indexOf('s') >= 0 ? dy : 0);
+      if (right - left < 1) { if (k.indexOf('w') >= 0) left = right - 1; else right = left + 1; }
+      if (bottom - top < 1) { if (k.indexOf('n') >= 0) top = bottom - 1; else bottom = top + 1; }
+      if (right - left > 16000) { if (k.indexOf('w') >= 0) left = right - 16000; else right = left + 16000; }
+      if (bottom - top > 16000) { if (k.indexOf('n') >= 0) top = bottom - 16000; else bottom = top + 16000; }
+      r = { x: Math.round(left), y: Math.round(top), w: Math.round(right - left), h: Math.round(bottom - top) };
+      ns.style.display = 'block'; ns.style.left = r.x * zoom + 'px'; ns.style.top = r.y * zoom + 'px'; ns.style.width = r.w * zoom + 'px'; ns.style.height = r.h * zoom + 'px';
+      $('status').textContent = r.w + ' \u00d7 ' + r.h + ' px';
+    }
+    function move(m) { calc(m); }
+    function up() {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); ns.style.display = 'none';
+      if (r.w === W && r.h === H && !r.x && !r.y) { status(); return; }
+      pushUndo();
+      var out = document.createElement('canvas'); out.width = r.w; out.height = r.h;
+      var g = out.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, r.w, r.h); g.drawImage(base, -r.x, -r.y);
+      objects.forEach(function (o) { moveBy(o, -r.x, -r.y); });
+      base = out; setSize(r.w, r.h); redraw(); if (fitMode) fitZoom(); changed();
+    }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  }
 
   /* ---- the mouse ---- */
   ov.addEventListener('mousedown', function (e) {

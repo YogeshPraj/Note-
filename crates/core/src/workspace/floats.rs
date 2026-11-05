@@ -1,4 +1,5 @@
-//! Floating tabs: a tab that left the strip and lives in a window of its own, with an editor view of its own.
+//! Floating tabs: a tab that left the strip and lives in a window of its own: a text tab with an editor view of its own,
+//! a whiteboard or picture with a page of its own, which the workspace knows nothing about.
 //!
 //! As with the dock, `sci` and `active` mean the view the user is in and its tab, so commands, the status bar and the
 //! preview need to know nothing about floating. Going into a floating window swaps its view into `sci` and leaves the
@@ -12,11 +13,11 @@ use super::*;
 
 use crate::session::FloatRect;
 
-/// One floating window, by the tab it holds. While the user is in it, `view` is the main view.
+/// One floating window, by the tab it holds. While the user is in it, `view` is the main view. A page has none.
 #[derive(Debug)]
 pub(super) struct Float<S> {
     pub(super) tab: u64,
-    pub(super) view: S,
+    pub(super) view: Option<S>,
     /// The empty document the view started on, kept for when it lets go of the tab.
     idle: isize,
     rect: Option<FloatRect>,
@@ -56,12 +57,12 @@ impl<S: Send> Workspace<S> {
 
     /// Every view beside the current one and the minimap.
     pub(super) fn side_views(&self) -> impl Iterator<Item = &S> {
-        self.second.iter().map(|s| &s.view).chain(self.floats.iter().map(|f| &f.view))
+        self.second.iter().map(|s| &s.view).chain(self.floats.iter().filter_map(|f| f.view.as_ref()))
     }
 
     /// The floating slots, each with the index of the tab its view shows.
     pub(super) fn float_views(&self) -> impl Iterator<Item = (&S, usize)> {
-        self.floats.iter().filter_map(|f| Some((&f.view, self.index_of(self.slot_tab(f))?)))
+        self.floats.iter().filter_map(|f| Some((f.view.as_ref()?, self.index_of(self.slot_tab(f))?)))
     }
 
     /// The view showing tab `i`, when it is not the current one.
@@ -72,17 +73,34 @@ impl<S: Send> Workspace<S> {
         self.float_views().find(|(_, j)| *j == i).map(|(v, _)| v)
     }
 
-    /// Can tab `i` float? It must be a text tab of the strip, and leave a text tab for the main view.
+    /// Can tab `i` float? It must be in the strip, and leave a tab for the main window.
     pub fn can_float(&self, i: usize) -> bool {
-        let text = |j: usize| self.tabs[j].kind == TabKind::Text;
         let docked = self.docked_index();
-        i < self.main_count() && text(i) && (0..self.main_count()).any(|j| j != i && Some(j) != docked && text(j))
+        i < self.main_count() && (0..self.main_count()).any(|j| j != i && Some(j) != docked)
     }
 
-    /// Put tab `i` in a floating window whose editor is `view`. It leaves the strip and stops being pinned, since it comes
-    /// back last. False if it cannot float: `view` is then not used.
-    pub fn float_tab(&mut self, i: usize, view: S) -> bool {
-        if !self.can_float(i) {
+    /// Does the main window show a whiteboard or a picture? `is_page` is about where the keyboard is, which can be a
+    /// floating window.
+    pub fn main_is_page(&self) -> bool {
+        self.main_kind() != TabKind::Text
+    }
+
+    pub fn main_is_whiteboard(&self) -> bool {
+        self.main_kind() == TabKind::Whiteboard
+    }
+
+    pub fn main_is_image(&self) -> bool {
+        self.main_kind() == TabKind::Image
+    }
+
+    fn main_kind(&self) -> TabKind {
+        self.tabs.get(self.main_index()).map_or(TabKind::Text, |t| t.kind)
+    }
+
+    /// Put tab `i` in a floating window: `view` is the window's editor, for a text tab. The tab leaves the strip and stops
+    /// being pinned, since it comes back last. False if it cannot float: `view` is then not used.
+    pub fn float_tab(&mut self, i: usize, view: Option<S>) -> bool {
+        if !self.can_float(i) || view.is_some() != (self.tabs[i].kind == TabKind::Text) {
             return false;
         }
         self.leave_float();
@@ -92,19 +110,13 @@ impl<S: Send> Workspace<S> {
             self.undock();
         }
         if i == self.active
-            && let Some(j) = self.neighbour_of(i, true)
+            && let Some(j) = self.neighbour_of(i, false)
         {
             self.activate(j);
         }
         self.remember_view();
-        self.style_view(&view, false);
-        sci::set_wrap(&view, self.wrap);
-        view::apply_symbols(&view, &self.symbols);
-        // The view frees the document it leaves, so its first one needs a reference of ours to last.
-        let idle = view.send(sci::SCI_GETDOCPOINTER, 0, 0);
-        view.send(sci::SCI_ADDREFDOCUMENT, 0, idle);
-        view.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[i].doc);
-        lang::apply_palette(&view, self.tabs[i].lang, &self.theme);
+        let i = self.index_of(id).unwrap_or(i);
+        let idle = view.as_ref().map_or(0, |v| self.show_in(v, i));
         let active = self.tabs[self.active].id;
         let mut tab = self.tabs.remove(i);
         tab.pinned = false;
@@ -113,6 +125,19 @@ impl<S: Send> Workspace<S> {
         self.floats.push(Float { tab: id, view, idle, rect: None });
         self.with_float(id, |w| w.apply_position());
         true
+    }
+
+    /// Make `view` look like the others and show tab `i`. Returns the document it started on.
+    fn show_in(&self, view: &S, i: usize) -> isize {
+        self.style_view(view, false);
+        sci::set_wrap(view, self.wrap);
+        view::apply_symbols(view, &self.symbols);
+        // The view frees the document it leaves, so its first one needs a reference of ours to last.
+        let idle = view.send(sci::SCI_GETDOCPOINTER, 0, 0);
+        view.send(sci::SCI_ADDREFDOCUMENT, 0, idle);
+        view.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[i].doc);
+        lang::apply_palette(view, self.tabs[i].lang, &self.theme);
+        idle
     }
 
     /// Put floating tab `tab` back, last in the strip, as the active tab.
@@ -134,8 +159,10 @@ impl<S: Send> Workspace<S> {
 
     /// The view lets go of its tab, and its own document becomes the view's alone.
     fn rest(f: &Float<S>) {
-        f.view.send(sci::SCI_SETDOCPOINTER, 0, f.idle);
-        f.view.send(sci::SCI_RELEASEDOCUMENT, 0, f.idle);
+        if let Some(v) = &f.view {
+            v.send(sci::SCI_SETDOCPOINTER, 0, f.idle);
+            v.send(sci::SCI_RELEASEDOCUMENT, 0, f.idle);
+        }
     }
 
     /// Tab `i` is closing, and it floats.
@@ -150,7 +177,9 @@ impl<S: Send> Workspace<S> {
         Self::rest(&f);
         let Some(i) = self.index_of(id) else { return };
         let t = self.tabs.remove(i);
-        self.send(sci::SCI_RELEASEDOCUMENT, 0, t.doc);
+        if t.kind == TabKind::Text {
+            self.send(sci::SCI_RELEASEDOCUMENT, 0, t.doc);
+        }
     }
 
     /// The keyboard went into floating window `tab`: its view becomes the current one.
@@ -160,18 +189,13 @@ impl<S: Send> Workspace<S> {
         }
         self.leave_float();
         self.leave_dock();
-        if self.is_page() {
-            // The main window shows nothing behind a whiteboard: as beside a dock, it needs a text tab.
-            match self.neighbour_of(self.active, true) {
-                Some(j) => self.activate(j),
-                None => drop(self.new_tab()),
-            }
-        }
         self.remember_view();
         let home = self.tabs[self.active].id;
         let Some(i) = self.index_of(tab) else { return };
         if let Some(f) = self.floats.iter_mut().find(|f| f.tab == tab) {
-            std::mem::swap(&mut self.sci, &mut f.view);
+            if let Some(v) = &mut f.view {
+                std::mem::swap(&mut self.sci, v);
+            }
             self.active = i;
             self.in_float = Some(home);
         }
@@ -184,8 +208,8 @@ impl<S: Send> Workspace<S> {
         let tab = self.tabs[self.active].id;
         self.in_float = None;
         self.active = self.index_of(home).unwrap_or(0);
-        if let Some(f) = self.floats.iter_mut().find(|f| f.tab == tab) {
-            std::mem::swap(&mut self.sci, &mut f.view);
+        if let Some(v) = self.floats.iter_mut().find(|f| f.tab == tab).and_then(|f| f.view.as_mut()) {
+            std::mem::swap(&mut self.sci, v);
         }
     }
 
@@ -211,13 +235,17 @@ impl<S: Send> Workspace<S> {
         if self.current_float() == Some(tab) {
             return f(self);
         }
-        let (Some(slot), Some(i)) = (self.floats.iter().position(|x| x.tab == tab), self.index_of(tab)) else { return };
+        let Some(i) = self.index_of(tab) else { return };
+        let Some(mut view) = self.floats.iter_mut().find(|x| x.tab == tab).and_then(|x| x.view.take()) else { return };
         let cur = self.active;
-        std::mem::swap(&mut self.sci, &mut self.floats[slot].view);
+        std::mem::swap(&mut self.sci, &mut view);
         self.active = i;
         f(self);
         self.active = cur;
-        std::mem::swap(&mut self.sci, &mut self.floats[slot].view);
+        std::mem::swap(&mut self.sci, &mut view);
+        if let Some(x) = self.floats.iter_mut().find(|x| x.tab == tab) {
+            x.view = Some(view);
+        }
     }
 
     /// Put each floating view's scroll position back once it is laid out.

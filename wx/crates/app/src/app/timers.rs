@@ -48,7 +48,9 @@ pub(super) fn wire_timers(app: &Shared, frame: Frame) {
     frame.on_close(move |e| {
         if let Ok(mut app) = a.try_borrow_mut() {
             app.save_session();
-            app.close_float_windows();
+            // The session is written and nothing runs after the main loop, so the program ends here. Taking the windows
+            // and their web views down one by one crashed now and then (twice in about 30 test runs, cause not found).
+            std::process::exit(0);
         }
         e.skip(true);
     });

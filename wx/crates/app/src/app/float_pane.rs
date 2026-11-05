@@ -1,23 +1,39 @@
-//! Floating tabs on screen: each is a window of its own with a Dock Back bar over its editor. The workspace decides what
-//! floats and which view is current (see `workspace::floats`); this keeps the windows matching it and tells it where the
-//! keyboard went.
+//! Floating tabs on screen: each is a window of its own with a Dock Back bar over its editor or whiteboard page. The
+//! workspace decides what floats and which view is current (see `workspace::floats`); this keeps the windows matching it
+//! and tells it where the keyboard went.
 //!
 //! The windows have no parent, so that they minimise, maximise and sit on the taskbar on their own, and the menu shortcuts
 //! are the main window's: here the keys go through the key map instead.
 
 use notepp_core::session::FloatRect;
-use notepp_core::shortcuts::Chord;
+use notepp_core::workspace::TabKind;
 
 use super::*;
 use crate::widgets::pane_header::{HeaderEvent, PaneHeader};
 
+/// What a floating window shows.
+#[derive(Clone)]
+pub(super) enum Body {
+    Editor(StyledTextCtrl),
+    Board(WebPane),
+    Picture(WebPane),
+}
+
+/// What to do once a whiteboard page has handed back its latest scene.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum After {
+    Close,
+    DockBack,
+}
+
 /// One floating window.
 pub struct FloatWindow {
-    tab: u64,
+    pub(super) tab: u64,
     frame: Frame,
     head: PaneHeader,
-    stc: StyledTextCtrl,
+    pub(super) body: Body,
     title: String,
+    pub(super) after: Option<After>,
 }
 
 impl std::fmt::Debug for FloatWindow {
@@ -32,16 +48,29 @@ const HEIGHT: i32 = 650;
 
 /// The active tab becomes a window.
 pub(crate) fn undock(a: &Shared) {
-    let i = {
+    {
         let Ok(mut app) = a.try_borrow_mut() else { return };
         let i = app.ws.active;
         if !app.ws.can_float(i) {
-            app.flash = Some("Only a text tab can float, with another text tab left in the main window".into());
+            app.flash = Some("One tab always stays in the main window".into());
             app.refresh();
             return;
         }
-        i
-    };
+        // The last strokes are still in the page: the window opens when they have come back.
+        let page = app.current_page();
+        if app.ws.is_page() && page.is_ready() {
+            app.wb.then = Some(crate::state::WbThen::Float);
+            let kind = app.ws.tabs[i].kind;
+            dock_board::request_from_main_loop(&app.frame, page, kind);
+            return;
+        }
+    }
+    undock_now(a);
+}
+
+/// The active tab becomes a window, with nothing left to wait for.
+pub(crate) fn undock_now(a: &Shared) {
+    let Some(i) = a.try_borrow().ok().map(|app| app.ws.active) else { return };
     open(a, i, None);
     if let Ok(mut app) = a.try_borrow_mut() {
         app.refresh();
@@ -70,6 +99,27 @@ fn frame_for(title: &str, rect: Option<FloatRect>) -> Frame {
     }
 }
 
+/// The window's content, added to `column`, with its tab moved to the workspace's floating ones. `None` if it cannot be made.
+fn fill(app: &mut App, panel: &Panel, i: usize, column: &BoxSizer) -> Option<Body> {
+    if app.ws.tabs[i].kind == TabKind::Image {
+        let page = float_picture::page(panel);
+        column.add(&page, 1, SizerFlag::Expand, 0);
+        return app.ws.float_tab(i, None).then_some(Body::Picture(page));
+    }
+    if app.ws.tabs[i].kind == TabKind::Whiteboard {
+        let Some(page) = float_board::page(panel) else {
+            app.flash = Some("Whiteboard unavailable: assets/whiteboard not found".into());
+            return None;
+        };
+        column.add(&page, 1, SizerFlag::Expand, 0);
+        return app.ws.float_tab(i, None).then_some(Body::Board(page));
+    }
+    let stc = StyledTextCtrl::builder(panel).build();
+    no_border(&stc);
+    column.add(&stc, 1, SizerFlag::Expand, 0);
+    app.ws.float_tab(i, Some(WxSci::of(&stc))).then_some(Body::Editor(stc))
+}
+
 /// Make the window for tab `i`.
 fn open(a: &Shared, i: usize, rect: Option<FloatRect>) {
     let Ok(mut app) = a.try_borrow_mut() else { return };
@@ -80,20 +130,27 @@ fn open(a: &Shared, i: usize, rect: Option<FloatRect>) {
     let frame = frame_for(&title, rect);
     let panel = Panel::builder(&frame).build();
     let head = PaneHeader::with_action(&panel, Some("float"), "Dock Back");
-    let stc = StyledTextCtrl::builder(&panel).build();
-    no_border(&stc);
     let column = BoxSizer::builder(Orientation::Vertical).build();
     column.add(&head.panel(), 0, SizerFlag::Expand, 0);
-    column.add(&stc, 1, SizerFlag::Expand, 0);
-    panel.set_sizer(column, true);
-    if !app.ws.float_tab(i, WxSci::of(&stc)) {
+    let Some(body) = fill(&mut app, &panel, i, &column) else {
         frame.destroy();
         return;
-    }
-    app.float_windows.push(FloatWindow { tab, frame, head: head.clone(), stc, title });
+    };
+    panel.set_sizer(column, true);
+    app.float_windows.push(FloatWindow { tab, frame, head: head.clone(), body: body.clone(), title, after: None });
     let main = app.frame;
     drop(app);
-    wire(a, main, frame, tab, &head, stc);
+    wire_window(a, main, frame, tab, &head);
+    match &body {
+        Body::Editor(stc) => wire_editor(a, main, frame, tab, *stc),
+        Body::Board(page) => float_board::wire(a, tab, page),
+        Body::Picture(page) => float_picture::wire(a, Some(tab), page),
+    }
+    show(a, frame, tab, rect, &body);
+}
+
+/// Put the finished window on screen.
+fn show(a: &Shared, frame: Frame, tab: u64, rect: Option<FloatRect>, body: &Body) {
     crate::widgets::theme::style_native(&frame);
     crate::widgets::theme::subscribe(move |_| {
         if frame.is_valid() {
@@ -109,7 +166,9 @@ fn open(a: &Shared, i: usize, rect: Option<FloatRect>) {
     if let Ok(mut app) = a.try_borrow_mut() {
         app.ws.refresh_float(tab);
     }
-    if rect.is_none() {
+    if rect.is_none()
+        && let Body::Editor(stc) = body
+    {
         stc.set_focus();
     }
 }
@@ -132,50 +191,64 @@ fn float_focused(app: &Shared, main: Frame, tab: u64) {
     }
 }
 
-/// Closing the window closes the document, asking first as closing a tab does.
-fn close(app: &Shared, tab: u64) {
+/// The user closed the window, or pressed Dock Back: a whiteboard hands back its last strokes first.
+fn finish(app: &Shared, tab: u64, then: After) {
     let Ok(mut a) = app.try_borrow_mut() else { return };
-    let Some(i) = a.ws.tabs.iter().position(|t| t.id == tab) else { return };
-    let app = &mut *a;
-    app.ws.close(&app.ui, i);
-    app.refresh();
-}
-
-fn dock_back(app: &Shared, tab: u64) {
-    if let Ok(mut a) = app.try_borrow_mut() {
-        a.dock_back_window(tab);
+    if !a.ask_board_first(tab, then) {
+        a.finish_window(tab, then);
     }
 }
 
-/// The menu shortcuts belong to the main window, so a key meant for one is looked up here. Everything else goes on to
-/// the editor, which also keeps keys such as Del and Tab its own.
-fn wire_keys(a: &Shared, frame: Frame) {
-    let a = a.clone();
-    frame.on_char_hook(move |e| {
-        let wxdragon::event::WindowEventData::Keyboard(k) = &e else {
-            e.skip(true);
-            return;
-        };
-        let code = k.get_key_code().unwrap_or(0);
-        let (ctrl, alt, shift) = (k.control_down(), k.alt_down(), k.shift_down());
-        if crate::widgets::popup_menu::key(code, !ctrl && !alt) {
-            return;
+/// What every floating window needs.
+fn wire_window(a: &Shared, main: Frame, frame: Frame, tab: u64, head: &PaneHeader) {
+    float_keys::wire(a, frame);
+    let app = a.clone();
+    frame.on_close(move |e| {
+        // The window stays until the document has gone, and a Cancel at the save prompt keeps both. Destroyed here, the
+        // workspace would still be using its editor.
+        match &e {
+            wxdragon::event::WindowEventData::General(close) => close.veto(),
+            wxdragon::event::WindowEventData::Session(close) => close.event.veto(),
+            _ => {}
         }
-        // The next tab is in the other window: Ctrl+Tab has nothing to go to, and must not insert a tab.
-        if code == KEY_TAB && ctrl {
-            return;
+        let app = app.clone();
+        crate::widgets::defer::later(&main, move || finish(&app, tab, After::Close));
+    });
+    // A page takes the keyboard without the toolkit hearing of it, so the window's activation says where the user is.
+    let app = a.clone();
+    frame.on_activate(move |e| {
+        if let wxdragon::event::WindowEventData::Activate(act) = &e
+            && act.is_active()
+        {
+            let app = app.clone();
+            crate::widgets::defer::later(&main, move || float_focused(&app, main, tab));
         }
-        let chord = crate::dialogs::vk_of(code).map(|vk| Chord { ctrl, alt, shift, vk });
-        let id = chord.and_then(|c| a.try_borrow().ok()?.keymap.command_for(&c));
-        match id {
-            Some(id) => crate::app::run_command(&a, id),
-            None => e.skip(true),
+        e.skip(true);
+    });
+    frame.on_size(|e| {
+        crate::widgets::popup_menu::close_all();
+        e.skip(true);
+    });
+    frame.on_move_event(|e| {
+        crate::widgets::popup_menu::close_all();
+        e.skip(true);
+    });
+    let app = a.clone();
+    head.on_event(move |e| match e {
+        HeaderEvent::Focus => {
+            if let Ok(a) = app.try_borrow() {
+                a.focus_window(tab);
+            }
+        }
+        HeaderEvent::Close => {
+            let app = app.clone();
+            crate::widgets::defer::later(&main, move || finish(&app, tab, After::DockBack));
         }
     });
 }
 
-/// What a floating window needs from the main view's wiring.
-fn wire(a: &Shared, main: Frame, frame: Frame, tab: u64, head: &PaneHeader, stc: StyledTextCtrl) {
+/// What a floating editor needs from the main view's wiring.
+fn wire_editor(a: &Shared, main: Frame, frame: Frame, tab: u64, stc: StyledTextCtrl) {
     stc.on_stc_change(|_| {
         EDITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });
@@ -192,42 +265,44 @@ fn wire(a: &Shared, main: Frame, frame: Frame, tab: u64, head: &PaneHeader, stc:
     });
     attach_drop_targets(a, frame, [stc]);
     replace_editor_popup(a, stc);
-    wire_keys(a, frame);
-    let app = a.clone();
-    frame.on_close(move |e| {
-        // The window stays until the document has gone, and a Cancel at the save prompt keeps both. Destroyed here, the
-        // workspace would still be using its editor.
-        match &e {
-            wxdragon::event::WindowEventData::General(close) => close.veto(),
-            wxdragon::event::WindowEventData::Session(close) => close.event.veto(),
-            _ => {}
-        }
-        let app = app.clone();
-        crate::widgets::defer::later(&main, move || close(&app, tab));
-    });
-    frame.on_size(|e| {
-        crate::widgets::popup_menu::close_all();
-        e.skip(true);
-    });
-    frame.on_move_event(|e| {
-        crate::widgets::popup_menu::close_all();
-        e.skip(true);
-    });
-    let app = a.clone();
-    head.on_event(move |e| match e {
-        HeaderEvent::Focus => stc.set_focus(),
-        HeaderEvent::Close => {
-            let app = app.clone();
-            crate::widgets::defer::later(&main, move || dock_back(&app, tab));
-        }
-    });
 }
 
 impl App {
+    pub(super) fn window_of(&self, tab: u64) -> Option<&FloatWindow> {
+        self.float_windows.iter().find(|w| w.tab == tab)
+    }
+
     /// The editor of the floating window the user is in.
     pub(super) fn float_stc(&self) -> Option<StyledTextCtrl> {
-        let tab = self.ws.current_float()?;
-        self.float_windows.iter().find(|w| w.tab == tab).map(|w| w.stc)
+        match self.window_of(self.ws.current_float()?)?.body {
+            Body::Editor(stc) => Some(stc),
+            Body::Board(_) | Body::Picture(_) => None,
+        }
+    }
+
+    fn focus_window(&self, tab: u64) {
+        match self.window_of(tab).map(|w| &w.body) {
+            Some(Body::Editor(stc)) => stc.set_focus(),
+            Some(Body::Board(page) | Body::Picture(page)) => page.set_focus(),
+            None => {}
+        }
+    }
+
+    pub(super) fn finish_window(&mut self, tab: u64, then: After) {
+        match then {
+            After::DockBack if self.ws.docked_tab() == Some(tab) => {
+                self.ws.undock();
+                self.refresh();
+                self.focus_shown();
+            }
+            After::DockBack => self.dock_back_window(tab),
+            After::Close => {
+                if let Some(i) = self.ws.tabs.iter().position(|t| t.id == tab) {
+                    self.ws.close(&self.ui, i);
+                }
+                self.refresh();
+            }
+        }
     }
 
     /// Match the windows to the workspace: close those whose tab has gone, name the others, bring one forward if asked.
@@ -240,7 +315,7 @@ impl App {
             }
             keep
         });
-        let current = self.ws.current_float();
+        let (current, dark) = (self.ws.current_float(), self.ws.theme.dark);
         for w in &mut self.float_windows {
             let Some(i) = self.ws.tabs.iter().position(|t| t.id == w.tab) else { continue };
             let title = self.ws.title_of(i);
@@ -249,15 +324,20 @@ impl App {
                 w.title = title;
             }
             w.head.set(&self.ws.tabs[i].title, self.ws.is_dirty(i), current == Some(w.tab));
+            match &w.body {
+                Body::Board(page) if page.is_ready() && page.sync_dark(dark) => wbm::set_theme(page, dark),
+                Body::Picture(page) if page.is_ready() && page.sync_dark(dark) => crate::imageedit::set_theme(page, dark),
+                _ => {}
+            }
         }
         if let Some(tab) = self.ws.take_raise()
-            && let Some(w) = self.float_windows.iter().find(|w| w.tab == tab)
+            && let Some(w) = self.window_of(tab)
         {
             if w.frame.is_iconized() {
                 w.frame.iconize(false);
             }
             w.frame.raise();
-            w.stc.set_focus();
+            self.focus_window(tab);
         }
     }
 
@@ -266,7 +346,14 @@ impl App {
         self.ws.dock_back(tab);
         self.refresh();
         crate::widgets::native::current().focus_window(self.frame.get_handle() as isize);
-        self.stc().set_focus();
+        self.focus_shown();
+    }
+
+    /// Dock Back from a menu: a whiteboard hands back its last strokes first.
+    pub(super) fn dock_back_current(&mut self, tab: u64) {
+        if !self.ask_board_first(tab, After::DockBack) {
+            self.dock_back_window(tab);
+        }
     }
 
     /// Note where the windows are, for the session.
@@ -287,12 +374,12 @@ impl App {
         }
     }
 
-    /// The program is ending: its windows go with it.
-    pub(super) fn close_float_windows(&mut self) {
-        // Out of their views first: nothing may reach an editor that has gone.
-        self.ws.focus_pane(false);
-        for w in self.float_windows.drain(..) {
-            w.frame.destroy();
+    /// The main window came forward. A page takes the keyboard without a word, so nothing else would say so when a
+    /// floating page was current, or when the main window shows one.
+    pub(super) fn main_activated(&mut self) {
+        if self.ws.current_float().is_some() && (self.ws.is_page() || self.ws.main_is_page()) {
+            self.ws.focus_pane(false);
+            self.refresh();
         }
     }
 }

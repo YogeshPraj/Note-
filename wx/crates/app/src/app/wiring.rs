@@ -1,61 +1,13 @@
-//! Event wiring: the minimap, menu keys, commands, the whiteboard and preview pages, the timers.
+//! Event wiring: menu keys, commands, the whiteboard and preview pages, the timers.
 
 use super::*;
-
-/// The minimap is a second view of the document: clicking or dragging in it scrolls the editor.
-pub(super) fn wire_mini(app: &Shared, mini: StyledTextCtrl) {
-    use notepp_core::sci::Send;
-    let jump = |app: &Shared, mini: StyledTextCtrl, e: &wxdragon::event::WindowEventData| {
-        let p = match e {
-            wxdragon::event::WindowEventData::MouseButton(m) => m.get_position(),
-            wxdragon::event::WindowEventData::MouseMotion(m) => m.get_position(),
-            _ => None,
-        };
-        let Some(p) = p else { return };
-        let sci = WxSci::of(&mini);
-        let pos = sci.send(sci::SCI_POSITIONFROMPOINT, crate::platform::wx::to_usize(p.x), p.y as isize).max(0);
-        let line = sci.send(sci::SCI_LINEFROMPOSITION, crate::platform::wx::to_usize(pos), 0).max(0);
-        if let Ok(mut a) = app.try_borrow_mut() {
-            a.ws.scroll_to_line(crate::platform::wx::to_usize(line));
-            a.refresh();
-        }
-    };
-    let down = Rc::new(std::cell::Cell::new(false));
-    let (a, d) = (app.clone(), down.clone());
-    mini.on_mouse_left_down(move |e| {
-        d.set(true);
-        jump(&a, mini, &e);
-    });
-    let d = down.clone();
-    mini.on_mouse_left_up(move |_| d.set(false));
-    let a = app.clone();
-    mini.on_mouse_motion(move |e| {
-        if down.get() {
-            jump(&a, mini, &e);
-        }
-    });
-    let a = app.clone();
-    mini.on_mouse_right_up(move |e| {
-        if let wxdragon::event::WindowEventData::MouseButton(m) = &e
-            && let Some(p) = m.get_position()
-        {
-            popups::minimap_menu(&a, mini.client_to_screen(p));
-        }
-    });
-    let a = app.clone();
-    mini.on_set_focus(move |_| {
-        if let Ok(app) = a.try_borrow() {
-            app.stc().set_focus();
-        }
-    });
-}
 
 /// Clicking a bar hands it the focus once the click has been handled; give it back to the editor (unless a command has put
 /// it somewhere deliberate, such as the find box).
 pub(crate) fn refocus_editor(app: &Shared) {
     let Ok(a) = app.try_borrow() else { return };
     let (frame, stc, bars) = (a.frame, a.stc(), [a.chrome.menu, a.chrome.tools, a.chrome.tabs, a.chrome.status]);
-    let page = a.ws.is_page().then(|| if a.ws.is_image() { a.imgv.clone() } else { a.wbv.clone() });
+    let page = a.ws.is_page().then(|| a.current_page());
     let took = a.menu_took_focus.replace(false);
     crate::widgets::defer::later(&frame, move || {
         if let (true, Some(page)) = (took, &page) {
@@ -143,6 +95,7 @@ pub(super) fn wire_menu_keys(app: &Shared, frame: Frame) {
                 let a = a.clone();
                 crate::widgets::defer::later(&frame, move || {
                     if let Ok(mut app) = a.try_borrow_mut() {
+                        app.main_activated();
                         app.check_files_on_disk();
                     }
                 });
@@ -173,6 +126,9 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
     }
     match id {
         notepp_core::commands::ID_FLOAT_TAB => return float_pane::undock(a),
+        id if (notepp_core::commands::ID_DOCK_BASE..notepp_core::commands::ID_DOCK_BASE + notepp_core::session::DockSide::ALL.len()).contains(&id) => {
+            return dock_board::dock(a, notepp_core::session::DockSide::ALL[id - notepp_core::commands::ID_DOCK_BASE]);
+        }
         notepp_core::commands::ID_PREFS => return crate::settings_window::open(a, "general"),
         notepp_core::commands::ID_STYLE_CFG => return crate::settings_window::open(a, "colours"),
         notepp_core::commands::ID_SHORTCUTS => return crate::settings_window::open(a, "shortcuts"),
@@ -205,8 +161,12 @@ pub(super) fn wire_whiteboard(app: &Shared, wbv: &WebPane) {
             wbm::Event::Menu(key) => return open_menu_for_key(&a, &key),
             _ => {}
         }
+        let scene_is_in = matches!(ev, wbm::Event::Data(_));
         if let Ok(mut app) = a.try_borrow_mut() {
             app.wb_event(ev);
+        }
+        if scene_is_in {
+            dock_board::scene_arrived(&a);
         }
     });
 }
@@ -227,8 +187,12 @@ pub(super) fn wire_image(app: &Shared) {
                 }
             }
             m => {
+                let flushed = m == crate::imageedit::Message::Flushed;
                 if let Ok(mut app) = a.try_borrow_mut() {
                     app.image_message(m);
+                }
+                if flushed {
+                    dock_board::scene_arrived(&a);
                 }
             }
         }

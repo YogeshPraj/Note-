@@ -23,6 +23,11 @@ pub fn load_pixels(pane: &WebPane, width: u32, height: u32, rgba_base64: &str) {
     pane.call_big("window.np.loadPixels", &format!("{width},{height},"), rgba_base64);
 }
 
+/// Ask the page for what is pending. It answers [`Message::Flushed`] after the last [`Message::State`].
+pub fn flush(pane: &WebPane) {
+    pane.eval("window.np.flush()");
+}
+
 pub fn set_theme(pane: &WebPane, dark: bool) {
     pane.eval(&format!("window.np.setTheme({dark})"));
 }
@@ -37,6 +42,10 @@ pub enum Message {
         content: String,
     },
     Save,
+    /// Everything pending has been sent.
+    Flushed,
+    /// The user clicked in the page.
+    Focus,
     /// `copy-image:...`, handled like the preview's copy.
     CopyImage(String),
     Tab(i32),
@@ -47,6 +56,8 @@ pub fn parse(msg: &str) -> Option<Message> {
     Some(match msg {
         "ready" => Message::Ready,
         "save" => Message::Save,
+        "flushed" => Message::Flushed,
+        "focus" => Message::Focus,
         "tab:next" => Message::Tab(1),
         "tab:prev" => Message::Tab(-1),
         m if m.starts_with("menu:") => Message::Menu(m[5..].to_string()),

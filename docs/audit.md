@@ -226,3 +226,7 @@ Known limits, on purpose:
 - `cargo audit` runs in CI and reports only.
 
 The release key: `examples/update_key.rs` makes it. The private half is the `UPDATE_SIGNING_KEY` repository secret; the release build fails if it is missing or is not the key built into the app. Losing it means installed copies accept no more updates; changing it needs a release signed by the old key that carries the new public key.
+
+## Open: crash on closing, worked around (2026-11-05)
+
+Closing the main window crashed twice in about 30 hidden-desktop runs, in the main process, a call through a null pointer, after sessions that used whiteboard pages. It would not come back under gdb or in repeated runs of the same sequence, so the cause is not known; a shutdown race with a web page is a guess. Since 2.0.9 the program calls `process::exit` once the session is written (`app/timers.rs`), so that teardown does not run. That hides the crash, it does not explain it: if a crash is reported while a window or page is closing with the program still running, look here first.

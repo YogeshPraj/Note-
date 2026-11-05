@@ -209,12 +209,13 @@ impl<S: Send> Workspace<S> {
 
     /// Re-apply language colours to every view (does not touch caret or scroll).
     pub(super) fn apply_palettes(&self) {
-        let t = &self.tabs[self.active];
+        // A page has no colours: with the keyboard in a docked or floating one, `sci` is still the main view with its tab.
+        let t = &self.tabs[if self.is_page() { self.main_index() } else { self.active }];
         lang::apply_palette(&self.sci, t.lang, &self.theme);
         if let (Some(m), None) = (&self.mini, self.in_float) {
             lang::apply_palette(m, t.lang, &self.theme);
         }
-        if let (Some(s), Some(i)) = (&self.second, self.other_index()) {
+        if let (Some(s), Some(i), false) = (&self.second, self.other_index(), self.dock_is_page()) {
             lang::apply_palette(&s.view, self.tabs[i].lang, &self.theme);
         }
         for (v, i) in self.float_views() {

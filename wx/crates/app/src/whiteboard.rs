@@ -16,6 +16,10 @@ window.addEventListener('message', function (e) {
     window.ipc.postMessage(JSON.stringify(d));
   }
 });
+// The toolkit does not hear of a click in a page, and the app has to know which pane the user is in.
+window.addEventListener('pointerdown', function () {
+  window.ipc.postMessage(JSON.stringify({ type: 'wb-focus' }));
+}, true);
 // While the page has the keyboard the window never sees keys, so the window's own shortcuts are passed on:
 // Ctrl+Tab and Ctrl+Shift+Tab (next and previous tab), Alt+letter (a menu) and F10 (the first menu).
 window.addEventListener('keydown', function (e) {
@@ -37,6 +41,8 @@ pub enum Event {
     State(String),
     Data(String),
     SaveRequest,
+    /// The user clicked in the page.
+    Focus,
     /// Ctrl+Tab (1) or Ctrl+Shift+Tab (-1) pressed inside the page.
     Tab(i32),
     /// Alt+letter pressed inside the page: the letter, or empty for F10.
@@ -74,6 +80,7 @@ pub fn parse(msg: &str) -> Option<Event> {
         "wb-state" => Event::State(content()),
         "wb-data" => Event::Data(content()),
         "wb-save-request" => Event::SaveRequest,
+        "wb-focus" => Event::Focus,
         "wb-menu" => Event::Menu(v.get("key").and_then(|k| k.as_str()).unwrap_or("").to_string()),
         "wb-tab" => Event::Tab(if v.get("delta").and_then(serde_json::Value::as_i64) == Some(-1) { -1 } else { 1 }),
         _ => return None,

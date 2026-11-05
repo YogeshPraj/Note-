@@ -90,7 +90,7 @@ deliberate globals are listed in `docs/audit.md`.
 
 ## Floating tabs
 
-A text tab can leave the strip for a window of its own with its own Scintilla view (`workspace/floats.rs`, `app/float_pane.rs`),
+Any tab can leave the strip for a window of its own, with its own Scintilla view or its own whiteboard or picture page (`workspace/floats.rs`, `app/float_pane.rs`),
 any number of them. Floating tabs stay in `Workspace::tabs`, always at the end: the strip draws the first `main_count()`, so its
 indices are still `tabs` indices and Save All, the session and closing see every tab without knowing. As with the dock, `sci` and
 `active` mean where the user is: going into a window swaps its view into `sci`, leaves the main view in the window's slot, and
@@ -98,6 +98,10 @@ indices are still `tabs` indices and Save All, the session and closing see every
 menu bar, so `wire_keys` turns keys into commands through `KeyMap`. `sync_floats` (from `refresh`) closes windows whose tab has
 gone. A window is only ever destroyed after the workspace has let go of its view: the close event is vetoed, and `sync_floats`
 does it.
+A floating whiteboard has no view in the workspace, so `sci` stays on the main view and `is_page()` is true while the main window
+shows text: the main window goes by `main_is_page()`, and commands by `is_page()`. Its last strokes are in the page, so undocking,
+Dock Back and closing ask for the scene first (`wb-get-data`) and act when it arrives. Scenes are applied to a tab by id, never
+to the active tab, since the page sending one need not be where the keyboard is.
 
 ## Docked tab
 
@@ -107,6 +111,9 @@ preview follow the keyboard without knowing about docking: moving between views 
 `second`. The docked tab is fixed: any other tab opens in the main view, new tabs included. The app reads the workspace
 in `sync_dock` (called from `refresh`) to show, move or hide the pane; `App::stc()` is the view the user is in. A
 whiteboard in the main view hides both editors.
+A docked whiteboard or picture has its own page (`app/dock_board.rs`, one of each kind), made the first time one docks; `second` stays on its empty document and
+nothing is swapped, so `active` alone says which side the user is on. The toolkit hears nothing of a click in a page, so the page
+reports it (`wb-focus`, `focus`).
 
 ## Threading
 

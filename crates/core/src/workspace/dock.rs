@@ -3,6 +3,9 @@
 //! `sci` and `active` always mean the view the user is in and its tab, so every command, the status bar and the preview
 //! follow the keyboard without knowing about docking: moving between the views swaps them. The other view waits in
 //! `second`. The docked tab is fixed: a tab chosen from the strip always opens in the main view.
+//!
+//! A docked whiteboard or picture has a page beside the main editor instead of a view: `second` stays on its empty document, nothing
+//! is swapped, and `active` alone says which side the user is on.
 
 use super::*;
 
@@ -64,12 +67,27 @@ impl<S: Send> Workspace<S> {
         self.tabs.iter().position(|t| t.id == other)
     }
 
-    /// Can tab `i` be docked? It must be text, and leave a text tab for the main view (which can be the docked tab,
-    /// since that goes back among the others).
+    /// Can tab `i` be docked? It must leave a text tab for the main view (which can be the docked tab, since that goes
+    /// back among the others).
     pub fn can_dock(&self, i: usize) -> bool {
         let text = |t: &Tab| t.kind == TabKind::Text;
         let strip = &self.tabs[..self.main_count()];
-        self.second.is_some() && strip.get(i).is_some_and(text) && strip.iter().enumerate().any(|(j, t)| j != i && text(t))
+        self.second.is_some() && i < strip.len() && strip.iter().enumerate().any(|(j, t)| j != i && text(t))
+    }
+
+    /// Is the docked tab a whiteboard or a picture?
+    pub fn dock_is_page(&self) -> bool {
+        self.dock_kind().is_some_and(|k| k != TabKind::Text)
+    }
+
+    /// What kind of tab is docked.
+    pub fn dock_kind(&self) -> Option<TabKind> {
+        self.docked_index().map(|i| self.tabs[i].kind)
+    }
+
+    /// The docked tab's id.
+    pub fn docked_tab(&self) -> Option<u64> {
+        self.docked_index().map(|i| self.tabs[i].id)
     }
 
     /// The tab nearest `i` for the main view to show instead of it: never `i` or the docked tab.
@@ -102,8 +120,11 @@ impl<S: Send> Workspace<S> {
             self.activate(j);
         }
         let Some(second) = &self.second else { return false };
-        second.view.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[i].doc);
-        lang::apply_palette(&second.view, self.tabs[i].lang, &self.theme);
+        // A page has no document: it is the app's.
+        if self.tabs[i].kind == TabKind::Text {
+            second.view.send(sci::SCI_SETDOCPOINTER, 0, self.tabs[i].doc);
+            lang::apply_palette(&second.view, self.tabs[i].lang, &self.theme);
+        }
         self.dock = Some(Docked { other: self.tabs[i].id, in_dock: false, side });
         self.with_docked(|w| w.apply_position());
         true
@@ -170,15 +191,18 @@ impl<S: Send> Workspace<S> {
         let Some(target) = self.other_index() else { return };
         self.remember_view();
         let id = self.tabs[self.active].id;
+        let page = self.dock_is_page();
         if let (Some(s), Some(d)) = (&mut self.second, &mut self.dock) {
-            std::mem::swap(&mut self.sci, &mut s.view);
+            if !page {
+                std::mem::swap(&mut self.sci, &mut s.view);
+            }
             d.other = id;
             d.in_dock = !d.in_dock;
             self.active = target;
         }
         if let Some(m) = &self.mini {
             let t = &self.tabs[self.active];
-            if t.kind == TabKind::Text {
+            if t.kind == TabKind::Text && !page {
                 m.send(sci::SCI_SETDOCPOINTER, 0, t.doc);
                 lang::apply_palette(m, t.lang, &self.theme);
             }
@@ -187,6 +211,9 @@ impl<S: Send> Workspace<S> {
 
     /// Run `f` as if the docked tab were current, without moving the keyboard or the minimap.
     pub(super) fn with_docked(&mut self, f: impl FnOnce(&mut Self)) {
+        if self.dock_is_page() {
+            return;
+        }
         if self.in_dock() {
             return f(self);
         }

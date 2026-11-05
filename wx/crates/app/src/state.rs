@@ -11,6 +11,15 @@ pub struct WhiteboardState {
     pub shown: Option<u64>,
     /// What to do once the page hands back its latest scene.
     pub pending: Option<Pending>,
+    /// Where the active tab goes once the page has handed back its latest scene.
+    pub then: Option<WbThen>,
+}
+
+/// Where a whiteboard goes once its page has handed back its last strokes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WbThen {
+    Float,
+    Dock(notepp_core::session::DockSide),
 }
 
 /// The picture editor page behind picture tabs.

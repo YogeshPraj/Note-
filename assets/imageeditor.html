@@ -565,8 +565,16 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
       base = document.createElement('canvas'); base.width = w; base.height = h; base.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0);
       setSize(w, h); showLoaded(); emitNow(false);
     },
-    setTheme: function (d) { document.body.classList.toggle('dark', d); }
+    setTheme: function (d) { document.body.classList.toggle('dark', d); },
+    // The app is moving this picture to another page: everything pending goes first, and 'flushed' says when it has.
+    flush: function () {
+      if (!loaded) { post('flushed'); return; }
+      commitText();
+      emitNow(stateTimer !== 0, function () { post('flushed'); });
+    }
   };
+  // The toolkit does not hear of a click in a page, and the app has to know which pane the user is in.
+  window.addEventListener('pointerdown', function () { post('focus'); }, true);
   choose('select'); showProps(); buttons(); layout();
   post('ready');
 })();

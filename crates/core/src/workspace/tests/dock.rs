@@ -121,14 +121,116 @@ fn docking_the_docked_tab_again_only_moves_it() {
 }
 
 #[test]
-fn a_whiteboard_or_the_only_text_tab_cannot_be_docked() {
+fn a_docked_whiteboard_needs_a_text_tab_for_the_main_view() {
     let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
     ws.new_tab();
     ws.attach_second(FakeSci { next: Cell::new(800), ..FakeSci::default() });
     assert!(!ws.can_dock(0), "nothing would be left for the main view");
     let wb = ws.new_whiteboard();
-    assert!(!ws.can_dock(wb));
+    assert!(ws.can_dock(wb), "the text tab stays in the main view");
     assert!(!ws.can_dock(0), "a whiteboard cannot stand in for the main view");
+    let img = ws.new_image("AAAA".into());
+    assert!(ws.can_dock(img), "a picture docks like a whiteboard");
+}
+
+#[test]
+fn a_docked_picture_leaves_the_second_view_on_its_empty_document() {
+    let mut ws = docking_workspace();
+    let img = ws.new_image("AAAA".into());
+    let id = ws.tabs[img].id;
+    assert!(ws.dock_tab(img, DockSide::Right));
+    assert_eq!(second_shows(&ws), 900);
+    assert_eq!(ws.dock_kind(), Some(TabKind::Image));
+    assert!(ws.dock_is_page());
+    let main = ws.sci.shown.get();
+    ws.focus_pane(true);
+    assert!(ws.is_image());
+    assert_eq!(ws.docked_tab(), Some(id));
+    assert_eq!(ws.sci.shown.get(), main, "the main editor keeps its document");
+    assert!(!ws.main_is_page());
+}
+
+fn board_beside_text() -> (Workspace<FakeSci>, usize) {
+    let mut ws = docking_workspace();
+    let wb = ws.new_whiteboard();
+    (ws, wb)
+}
+
+#[test]
+fn a_docked_whiteboard_leaves_the_second_view_on_its_empty_document() {
+    let (mut ws, wb) = board_beside_text();
+    assert!(ws.dock_tab(wb, DockSide::Right));
+    assert_eq!(second_shows(&ws), 900);
+    assert!(!ws.sci.selected_zero.get() && ws.second.as_ref().is_some_and(|s| !s.view.selected_zero.get()), "a whiteboard has no document");
+    assert_eq!(ws.docked_index(), Some(wb));
+    assert!(ws.dock_is_page());
+    assert_ne!(ws.active, wb, "a text tab comes forward in the main view");
+    assert!(!ws.is_page());
+}
+
+#[test]
+fn going_to_a_docked_whiteboard_swaps_no_views() {
+    let (mut ws, wb) = board_beside_text();
+    ws.dock_tab(wb, DockSide::Bottom);
+    let main = ws.sci.shown.get();
+    let home = ws.active;
+    ws.focus_pane(true);
+    assert!(ws.in_dock() && ws.is_whiteboard());
+    assert_eq!(ws.active, wb);
+    assert_eq!(ws.sci.shown.get(), main, "the main editor keeps its document");
+    assert_eq!(second_shows(&ws), 900);
+    assert_eq!(ws.main_index(), home);
+    assert!(!ws.main_is_page(), "the main window shows its text beside the board");
+    ws.focus_pane(false);
+    assert_eq!(ws.active, home);
+    assert_eq!(ws.sci.shown.get(), main);
+}
+
+#[test]
+fn undocking_a_whiteboard_keeps_its_scene_and_the_main_view() {
+    let (mut ws, wb) = board_beside_text();
+    ws.dock_tab(wb, DockSide::Left);
+    ws.focus_pane(true);
+    ws.tabs[ws.active].content = "{\"drawn\":1}".into();
+    let main = ws.sci.shown.get();
+    ws.undock();
+    assert!(ws.dock_side().is_none() && !ws.in_dock());
+    assert!(!ws.is_page());
+    assert_eq!(ws.sci.shown.get(), main);
+    assert_eq!(ws.tabs[wb].content, "{\"drawn\":1}");
+}
+
+#[test]
+fn a_docked_whiteboard_comes_back_from_the_session() {
+    let (mut ws, wb) = board_beside_text();
+    ws.tabs[0].path = Some(PathBuf::from("a.txt"));
+    ws.tabs[wb].path = Some(PathBuf::from("b.excalidraw"));
+    ws.dock_tab(wb, DockSide::Top);
+    let saved = ws.snapshot();
+    let dock = saved.dock.unwrap();
+    assert_eq!(saved.tabs[dock.tab].path.as_deref(), Some("b.excalidraw"));
+    assert_eq!(dock.side, DockSide::Top);
+}
+
+#[test]
+fn closing_a_docked_whiteboard_rests_the_dock() {
+    let (mut ws, wb) = board_beside_text();
+    ws.dock_tab(wb, DockSide::Right);
+    ws.focus_pane(true);
+    ws.remove_tab(ws.active, true);
+    assert!(ws.dock_side().is_none());
+    assert!(!ws.is_page());
+    assert!(!ws.sci.selected_zero.get());
+}
+
+#[test]
+fn a_docked_whiteboard_can_float() {
+    let (mut ws, wb) = board_beside_text();
+    let id = ws.tabs[wb].id;
+    ws.dock_tab(wb, DockSide::Right);
+    assert!(ws.float_tab(wb, None));
+    assert!(ws.dock_side().is_none());
+    assert_eq!(ws.floating_tabs(), vec![id]);
 }
 
 #[test]

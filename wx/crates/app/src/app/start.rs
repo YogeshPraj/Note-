@@ -197,7 +197,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     replace_editor_popup(app, dock_stc);
     dock_pane::wire_dock(app, frame, stc, dock_stc);
     areas::wire_areas(app);
-    wire_mini(app, mini);
+    mini_wiring::wire_mini(app, mini);
     wire_whiteboard(app, wbv);
     wire_image(app);
     wire_menu_keys(app, frame);
@@ -216,7 +216,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     }
     frame.layout();
     stc.set_focus();
-    app.borrow_mut().restore_dock();
+    dock_board::restore(app);
     float_pane::restore(app);
 }
 

@@ -15,6 +15,10 @@ pub struct DockPanes {
     dock_box: Panel,
     main_head: PaneHeader,
     dock_head: PaneHeader,
+    /// Where a docked whiteboard's page and a docked picture's go, in place of the docked editor.
+    pub(super) boxes: [Panel; 2],
+    /// Those pages, once one of the kind has been docked.
+    pub(super) pages: [Option<dock_board::DockBoard>; 2],
     /// The side the docked pane is showing on.
     shown: Option<DockSide>,
 }
@@ -27,7 +31,7 @@ impl std::fmt::Debug for DockPanes {
 
 impl DockPanes {
     /// One pane: a header (hidden until something is docked) over an editor.
-    fn pane(split: SplitterWindow, badge: Option<&'static str>, closable: bool) -> (Panel, PaneHeader, StyledTextCtrl) {
+    fn pane(split: SplitterWindow, badge: Option<&'static str>, closable: bool) -> (Panel, PaneHeader, StyledTextCtrl, [Panel; 2]) {
         let pane = Panel::builder(&split).build();
         let head = PaneHeader::new(&pane, badge, closable);
         head.panel().show(false);
@@ -35,21 +39,30 @@ impl DockPanes {
         let column = BoxSizer::builder(Orientation::Vertical).build();
         column.add(&head.panel(), 0, SizerFlag::Expand, 0);
         column.add(&editor, 1, SizerFlag::Expand, 0);
+        let boxes = [Panel::builder(&pane).build(), Panel::builder(&pane).build()];
+        for b in &boxes {
+            b.show(false);
+            column.add(b, 1, SizerFlag::Expand, 0);
+        }
         pane.set_sizer(column, true);
-        (pane, head, editor)
+        (pane, head, editor, boxes)
     }
 
     /// The panes inside `parent`, showing only the main one, and their two editors.
     pub fn build(parent: &Panel) -> (DockPanes, StyledTextCtrl, StyledTextCtrl) {
         let style = wxdragon::widgets::splitter_window::SplitterWindowStyle::ThinSash;
         let split = SplitterWindow::builder(parent).with_style(style).build();
-        let (main_box, main_head, main_stc) = Self::pane(split, None, false);
-        let (dock_box, dock_head, dock_stc) = Self::pane(split, Some("dock"), true);
+        let (main_box, main_head, main_stc, _) = Self::pane(split, None, false);
+        let (dock_box, dock_head, dock_stc, boxes) = Self::pane(split, Some("dock"), true);
         dock_box.show(false);
         crate::widgets::theme::own_sash(split, main_box);
         split.initialize(&main_box);
         split.set_minimum_pane_size(crate::widgets::theme::current().px(120));
-        (DockPanes { split, main_box, dock_box, main_head, dock_head, shown: None }, main_stc, dock_stc)
+        (DockPanes { split, main_box, dock_box, main_head, dock_head, boxes, pages: [None, None], shown: None }, main_stc, dock_stc)
+    }
+
+    pub(super) fn layout_dock(&self) {
+        self.dock_box.layout();
     }
 
     fn show_headers(&self, on: bool) {
@@ -90,6 +103,7 @@ impl App {
         if side.is_some() {
             self.name_panes();
         }
+        self.sync_dock_board();
     }
 
     /// Say in each header what its pane holds.
@@ -131,15 +145,6 @@ impl App {
         let sash = self.dock_panes.split.sash_position();
         let dock_px = if dock_first(side) { sash } else { room - sash };
         self.ws.set_dock_share(crate::platform::wx::to_u32(dock_px * 1000 / room));
-    }
-
-    /// The dock the last session had, once the window has its size.
-    pub(crate) fn restore_dock(&mut self) {
-        if let Some(d) = self.ws.take_saved_dock() {
-            self.ws.set_dock_share(d.share);
-            self.ws.dock_tab(d.tab, d.side);
-            self.refresh();
-        }
     }
 }
 
@@ -183,7 +188,13 @@ pub(super) fn wire_dock(app: &Shared, frame: Frame, main: StyledTextCtrl, dock: 
     dock_panes.main_head.on_event(move |_| main.set_focus());
     let a = app.clone();
     dock_panes.dock_head.on_event(move |e| match e {
-        HeaderEvent::Focus => dock.set_focus(),
+        HeaderEvent::Focus => {
+            if let Ok(mut app) = a.try_borrow_mut() {
+                app.ws.focus_pane(true);
+                app.refresh();
+                app.focus_shown();
+            }
+        }
         HeaderEvent::Close => crate::app::run_command(&a, c::ID_UNDOCK),
     });
 }
@@ -199,22 +210,15 @@ impl CommandHandler<App> for DockCommands {
     fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
             c::ID_UNDOCK => match app.ws.current_float() {
-                Some(tab) => app.dock_back_window(tab),
+                Some(tab) => app.dock_back_current(tab),
+                None if app.ws.dock_is_page() => app.dock_back_page(),
                 None => app.ws.undock(),
             },
             c::ID_FOCUS_OTHER => app.ws.focus_other_pane(),
-            id if (c::ID_DOCK_BASE..c::ID_DOCK_BASE + DockSide::ALL.len()).contains(&id) => {
-                let i = app.ws.active;
-                if !app.ws.dock_tab(i, DockSide::ALL[id - c::ID_DOCK_BASE]) {
-                    app.flash = Some("Only a text tab can be docked, with another text tab open beside it".into());
-                }
-            }
             _ => return false,
         }
         app.refresh();
-        if !app.ws.is_page() {
-            app.stc().set_focus();
-        }
+        app.focus_shown();
         true
     }
 }

@@ -108,8 +108,12 @@ static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0
 
 mod areas;
 pub(crate) use areas::AreaCommands;
+mod dock_board;
 mod dock_pane;
+mod float_board;
+mod float_keys;
 mod float_pane;
+mod float_picture;
 pub(crate) use dock_pane::{DockCommands, DockPanes};
 mod notes;
 pub(crate) use notes::*;
@@ -137,13 +141,14 @@ impl App {
             return Ok(());
         }
         // A whiteboard is saved from the page's latest scene, so ask for it first.
-        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && self.wbv.is_ready() {
+        let board = self.current_page();
+        if matches!(id, ID_SAVE | ID_SAVEAS | ID_SAVE_COPY) && self.ws.is_whiteboard() && board.is_ready() {
             self.wb.pending = Some(match id {
                 ID_SAVE => Pending::Save,
                 ID_SAVEAS => Pending::SaveAs,
                 _ => Pending::SaveCopy,
             });
-            wbm::request_data(&self.wbv);
+            wbm::request_data(&board);
             return Ok(());
         }
         if notepp_core::dispatch::command_core(&mut self.ws, &self.ui, &mut self.flash, id) {
@@ -342,5 +347,6 @@ mod preview_pane;
 mod whiteboard_pane;
 
 mod image_pane;
+mod mini_wiring;
 
 mod find_panel;

@@ -77,7 +77,7 @@ impl<S: Send> Workspace<S> {
             return t.dirty || t.forced_dirty;
         }
         t.forced_dirty
-            || match self.side_view_of(i) {
+            || match self.side_view_of(i).filter(|_| !self.dock_is_page()) {
                 _ if i == self.active => self.send(sci::SCI_GETMODIFY, 0, 0) != 0,
                 Some(v) => v.send(sci::SCI_GETMODIFY, 0, 0) != 0,
                 None => t.dirty,

@@ -25,7 +25,7 @@ base64 = "0.22"
 getrandom = "0.3"
 zeroize = "1"
 thiserror = "2"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 ureq = { version = "3", features = ["gzip", "brotli"] }
 # Checking that an update was signed (already in the build through ureq's TLS).
 ring = "0.17"

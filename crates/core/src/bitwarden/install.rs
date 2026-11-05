@@ -74,7 +74,7 @@ pub(super) fn install_zip(zip_path: &std::path::Path, a: &Asset, digest: &str) -
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| Error::BadArchive(e.to_string()))?;
         // Only the binary is wanted, and never under a path the archive chooses.
-        let name = entry.name().rsplit(['/', '\\']).next().unwrap_or("").to_string();
+        let name = entry.name().map_err(|e| Error::BadArchive(e.to_string()))?.rsplit(['/', '\\']).next().unwrap_or("").to_string();
         if name != a.bin || entry.is_dir() {
             continue;
         }

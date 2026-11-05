@@ -33,13 +33,23 @@ impl App {
                 self.view.load_html(&preview::page_html(self.ws.settings.preview_remote_images));
             }
             self.view.show(true);
-            let half = self.frame.get_size().width / 2;
-            self.splitter.split_vertically(&self.editor_pane, &self.view, half);
+            self.split_at_kept_sash();
             self.preview.key = None;
         } else {
+            self.keep_preview_share();
             self.splitter.unsplit(Some(&self.view));
             self.view.show(false);
         }
+    }
+
+    fn keep_preview_share(&mut self) {
+        let (sash, width) = (self.splitter.sash_position(), self.splitter.get_size().width);
+        self.preview.keep_share(sash, width);
+    }
+
+    fn split_at_kept_sash(&self) {
+        let sash = self.preview.sash(self.splitter.get_size().width);
+        self.splitter.split_vertically(&self.editor_pane, &self.view, sash);
     }
 
     /// Let the preview fill the window (the editor is hidden) or go back beside the editor.
@@ -49,11 +59,11 @@ impl App {
         }
         self.preview.maximized = on;
         if on {
+            self.keep_preview_share();
             self.splitter.unsplit(Some(&self.editor_pane));
         } else {
             self.editor_pane.show(true);
-            let half = self.frame.get_size().width / 2;
-            self.splitter.split_vertically(&self.editor_pane, &self.view, half);
+            self.split_at_kept_sash();
         }
         self.view.eval(&format!("window.np.setMax({on})"));
     }

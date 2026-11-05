@@ -60,3 +60,4 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - The Recycle Bin keeps going through PowerShell with the path as data, and now runs without a console window.
 - The release ships Microsoft's WebView2Loader.dll beside the exe. `Scintilla.dll`, left by older builds, is deleted by the installer and the updater: the exe has Scintilla built in.
 - The clean-start check in `package.ps1` runs only on a build server: run locally it would open a window.
+- The preview divider's position is one share for all tabs, kept while the program runs and not saved: a tab has no width of its own, and moving it in one tab moves it in the next.

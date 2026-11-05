@@ -36,6 +36,23 @@ pub struct PreviewState {
     pub applied: Option<usize>,
     /// (document, revision, size) last rendered, to skip identical refreshes.
     pub key: Option<(isize, usize, u64)>,
+    /// Where the user left the divider, in thousandths of the width. Taking the pane away forgets the position, and a
+    /// share still fits when the window has changed size by the time it comes back.
+    pub share: Option<i32>,
+}
+
+impl PreviewState {
+    /// Note where the divider is before the pane goes.
+    pub fn keep_share(&mut self, sash: i32, width: i32) {
+        if width > 0 && sash > 0 {
+            self.share = Some(sash * 1000 / width);
+        }
+    }
+
+    /// Where the divider goes in a `width` wide splitter: where it was left, or the middle at first.
+    pub fn sash(&self, width: i32) -> i32 {
+        self.share.map_or(width / 2, |share| width * share / 1000)
+    }
 }
 
 /// Log Follow and the HTTP scratchpad, which both feed the preview pane.
@@ -73,4 +90,21 @@ pub struct FindInFilesJob {
     pub dir: std::path::PathBuf,
     pub progress: std::sync::Arc<notepp_core::search::SearchProgress>,
     pub outcome: std::sync::Arc<std::sync::Mutex<Option<FindInFilesOutcome>>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_preview_divider_comes_back_where_it_was_left() {
+        let mut p = PreviewState::default();
+        assert_eq!(p.sash(1000), 500, "the middle until the user moves it");
+        p.keep_share(300, 1000);
+        assert_eq!(p.sash(1000), 300);
+        assert_eq!(p.sash(2000), 600, "the same share of a window that has grown meanwhile");
+        p.keep_share(0, 1000);
+        p.keep_share(400, 0);
+        assert_eq!(p.sash(1000), 300, "a pane that was not laid out says nothing");
+    }
 }

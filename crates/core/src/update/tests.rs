@@ -124,6 +124,23 @@ fn extracts_flat_and_wrapped_archives_and_refuses_bad_ones() {
 }
 
 #[test]
+fn a_symbolic_link_in_an_archive_is_only_a_small_file_afterwards() {
+    let base = std::env::temp_dir().join(format!("notepp_upd_link_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let path = base.join("link.zip");
+    let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    w.add_symlink("escape", "../../outside", zip::write::SimpleFileOptions::default()).unwrap();
+    w.start_file("notepp.exe", zip::write::SimpleFileOptions::default()).unwrap();
+    w.write_all(b"MZ").unwrap();
+    w.finish().unwrap();
+    let root = extract(&path, &base.join("out")).unwrap();
+    let meta = std::fs::symlink_metadata(root.join("escape")).unwrap();
+    assert!(meta.is_file() && !meta.file_type().is_symlink(), "nothing points outside the folder");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn the_apply_script_waits_copies_restarts_and_cleans_up() {
     let s = apply_script(Path::new("C:\\u\\0.2.0"), Path::new("C:\\Apps\\Note PP"), Path::new("C:\\u\\update.log"), &[]);
     assert!(s.contains("notepp.exe") && s.contains("GEQ 120"), "gives up after two minutes");

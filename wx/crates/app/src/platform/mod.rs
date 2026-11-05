@@ -19,6 +19,12 @@ pub trait Platform: Sync {
     /// Tighten how the process finds libraries. First thing in `main`, before anything loads one.
     fn harden_library_search(&self) {}
 
+    /// Is any of this rectangle on a monitor that is there now?
+    fn on_screen(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
+        let _ = (x, y, w, h);
+        true
+    }
+
     /// Show `path` selected in the system file manager.
     fn reveal_in_file_manager(&self, path: &Path);
     /// Open a terminal, in `dir` when given.

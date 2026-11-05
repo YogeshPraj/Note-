@@ -206,4 +206,5 @@ fn margins_follow_the_display_scale() {
 }
 
 mod dock;
+mod floats;
 mod image;

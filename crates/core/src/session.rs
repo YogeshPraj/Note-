@@ -56,6 +56,24 @@ pub struct SessionDock {
     pub share: u32,
 }
 
+/// Where a floating window is on the screen.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FloatRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+/// A floating window as saved: its tab's place in `Session::tabs` and where it was.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionFloat {
+    pub tab: usize,
+    pub rect: FloatRect,
+}
+
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct Session {
     pub tabs: Vec<SessionTab>,
@@ -86,6 +104,9 @@ pub struct Session {
     /// The tab docked beside the main editor.
     #[serde(default)]
     pub dock: Option<SessionDock>,
+    /// The tabs in floating windows.
+    #[serde(default)]
+    pub floats: Vec<SessionFloat>,
 }
 
 fn yes() -> bool {
@@ -188,6 +209,7 @@ impl Session {
             date_format: ex.date_format,
             kept,
             dock: ex.dock,
+            floats: ex.floats,
         })
     }
 
@@ -227,6 +249,7 @@ impl Session {
             symbols: self.symbols,
             date_format: self.date_format.clone(),
             dock: self.dock,
+            floats: self.floats.clone(),
         };
         let root = serde_json::json!({ "tabs": tabs, "native": extras });
         // Write-then-rename so a crash mid-write can't leave a truncated session.

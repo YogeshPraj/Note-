@@ -48,6 +48,7 @@ pub(super) fn wire_timers(app: &Shared, frame: Frame) {
     frame.on_close(move |e| {
         if let Ok(mut app) = a.try_borrow_mut() {
             app.save_session();
+            app.close_float_windows();
         }
         e.skip(true);
     });

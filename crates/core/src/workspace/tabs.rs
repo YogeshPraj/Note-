@@ -10,7 +10,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn move_tab_to(&mut self, from: usize, to: usize) {
-        if from >= self.tabs.len() || to >= self.tabs.len() {
+        if from >= self.main_count() || to >= self.main_count() {
             return;
         }
         // A tab stays inside its own group: pinned tabs left, the others right.
@@ -27,7 +27,7 @@ impl<S: Send> Workspace<S> {
 
     /// Pin or unpin tab `i`: a pinned tab moves to the end of the pinned group, an unpinned one to its start.
     pub fn toggle_pin(&mut self, i: usize) {
-        if i >= self.tabs.len() {
+        if i >= self.main_count() {
             return;
         }
         let now = !self.tabs[i].pinned;
@@ -50,7 +50,7 @@ impl<S: Send> Workspace<S> {
     /// Move the active tab one place (negative = left), keeping it active.
     pub fn move_tab(&mut self, delta: isize) -> bool {
         let to = crate::num::to_isize(self.active) + delta;
-        if to < 0 || crate::num::to_usize(to) >= self.tabs.len() {
+        if self.in_float.is_some() || to < 0 || crate::num::to_usize(to) >= self.main_count() {
             return false;
         }
         // A tab stays inside its own group (pinned tabs left, the others right), as with drag and drop.
@@ -66,7 +66,7 @@ impl<S: Send> Workspace<S> {
     /// Point every view at `doc`.
     pub(super) fn set_doc(&self, doc: isize) {
         self.send(sci::SCI_SETDOCPOINTER, 0, doc);
-        if let Some(m) = &self.mini {
+        if let (Some(m), None) = (&self.mini, self.in_float) {
             m.send(sci::SCI_SETDOCPOINTER, 0, doc);
         }
     }
@@ -76,11 +76,10 @@ impl<S: Send> Workspace<S> {
         if t.kind != TabKind::Text {
             return t.dirty || t.forced_dirty;
         }
-        let in_second = self.second.as_ref().filter(|_| self.other_index() == Some(i));
         t.forced_dirty
-            || match in_second {
+            || match self.side_view_of(i) {
                 _ if i == self.active => self.send(sci::SCI_GETMODIFY, 0, 0) != 0,
-                Some(s) => s.view.send(sci::SCI_GETMODIFY, 0, 0) != 0,
+                Some(v) => v.send(sci::SCI_GETMODIFY, 0, 0) != 0,
                 None => t.dirty,
             }
     }
@@ -118,7 +117,7 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn activate(&mut self, i: usize) {
-        if i >= self.tabs.len() || self.route_to_pane(i) || i == self.active {
+        if i >= self.tabs.len() || self.route_to_float(i) || self.route_to_pane(i) || i == self.active {
             return;
         }
         self.remember_view();
@@ -130,8 +129,8 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn next_tab(&mut self, delta: isize) {
-        let n = crate::num::to_isize(self.tabs.len());
-        if n > 1 {
+        let n = crate::num::to_isize(self.main_count());
+        if n > 1 && self.in_float.is_none() {
             self.activate((crate::num::to_isize(self.active) + delta).rem_euclid(n) as usize);
         }
     }
@@ -266,17 +265,26 @@ impl<S: Send> Workspace<S> {
 
     /// Reorder the tabs by `field`; the active tab stays active.
     pub fn sort_tabs(&mut self, field: SortField, descending: bool) {
-        let order = sort_order(&self.tab_keys(), field, descending);
+        let mut keys = self.tab_keys();
+        keys.truncate(self.main_count());
+        let order = sort_order(&keys, field, descending);
         let active_id = self.tabs[self.active].id;
+        let floating = self.tabs.split_off(self.main_count());
         let mut slots: Vec<Option<Tab>> = std::mem::take(&mut self.tabs).into_iter().map(Some).collect();
         self.tabs = order.iter().filter_map(|&i| slots[i].take()).collect();
+        self.tabs.extend(floating);
         self.active = self.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
     }
 
     pub fn window_title(&self) -> String {
-        let t = &self.tabs[self.active];
+        self.title_of(self.main_index())
+    }
+
+    /// The title of the window showing tab `i`.
+    pub fn title_of(&self, i: usize) -> String {
+        let t = &self.tabs[i];
         let name = t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.display().to_string());
-        format!("{}{} - Note++", if self.is_dirty(self.active) { "* " } else { "" }, name)
+        format!("{}{} - Note++", if self.is_dirty(i) { "* " } else { "" }, name)
     }
 
     pub fn status(&self) -> Status {

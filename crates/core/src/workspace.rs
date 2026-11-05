@@ -17,7 +17,7 @@ use super::mdformat;
 use super::preview;
 use super::sci::{self, Send, Theme};
 use super::search::{self, Opts};
-use super::session::{DockSide, Session, SessionDock, SessionTab};
+use super::session::{DockSide, Session, SessionDock, SessionFloat, SessionTab};
 use super::settings::{self, Settings};
 use super::textools;
 use super::view;
@@ -29,6 +29,7 @@ mod dock;
 mod documents;
 mod editing;
 mod file_io;
+mod floats;
 mod session_ops;
 mod tabs;
 mod view_ops;
@@ -60,6 +61,13 @@ pub struct Workspace<S: Send> {
     probe: Option<(S, isize)>,
     /// The editor view that is not current (see `dock`).
     second: Option<dock::Second<S>>,
+    /// The floating windows' views.
+    floats: Vec<floats::Float<S>>,
+    /// While the user is in a floating window: the tab the main window shows.
+    in_float: Option<u64>,
+    /// The floating tab asked for by something other than the keyboard: its window comes forward.
+    raise: Option<u64>,
+    saved_floats: Vec<SessionFloat>,
     dock: Option<dock::Docked>,
     /// How much of the shared space the docked view has, in thousandths.
     dock_share: u32,
@@ -115,6 +123,10 @@ impl<S: Send> Workspace<S> {
             mini: None,
             probe: None,
             second: None,
+            floats: Vec::new(),
+            in_float: None,
+            raise: None,
+            saved_floats: Vec::new(),
             dock: None,
             dock_share: 500,
             saved_dock: None,

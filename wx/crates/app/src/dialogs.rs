@@ -205,7 +205,7 @@ fn mapper_click(f: &Form, id: usize) {
 }
 
 /// wxWidgets key code -> Windows virtual-key code (what the shortcut table stores).
-fn vk_of(code: i32) -> Option<u16> {
+pub(crate) fn vk_of(code: i32) -> Option<u16> {
     Some(match code {
         65..=90 | 48..=57 | 32 => crate::platform::wx::to_u16(code),
         340..=363 => 0x70 + crate::platform::wx::to_u16(code - 340), // F1..F24

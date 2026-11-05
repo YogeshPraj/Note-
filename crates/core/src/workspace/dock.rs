@@ -52,6 +52,9 @@ impl<S: Send> Workspace<S> {
 
     /// The index of the tab in the main view.
     pub fn main_index(&self) -> usize {
+        if let Some(home) = self.in_float {
+            return self.index_of(home).unwrap_or(0);
+        }
         if self.in_dock() { self.other_index().unwrap_or(self.active) } else { self.active }
     }
 
@@ -65,19 +68,22 @@ impl<S: Send> Workspace<S> {
     /// since that goes back among the others).
     pub fn can_dock(&self, i: usize) -> bool {
         let text = |t: &Tab| t.kind == TabKind::Text;
-        self.second.is_some() && self.tabs.get(i).is_some_and(text) && self.tabs.iter().enumerate().any(|(j, t)| j != i && text(t))
+        let strip = &self.tabs[..self.main_count()];
+        self.second.is_some() && strip.get(i).is_some_and(text) && strip.iter().enumerate().any(|(j, t)| j != i && text(t))
     }
 
     /// The tab nearest `i` for the main view to show instead of it: never `i` or the docked tab.
     pub(super) fn neighbour_of(&self, i: usize, text_only: bool) -> Option<usize> {
         let docked = self.docked_index();
         let fits = |j: &usize| *j != i && Some(*j) != docked && (!text_only || self.tabs[*j].kind == TabKind::Text);
-        (i + 1..self.tabs.len()).find(|j| fits(j)).or_else(|| (0..i).rev().find(|j| fits(j)))
+        let strip = self.main_count();
+        (i + 1..strip).find(|j| fits(j)).or_else(|| (0..i.min(strip)).rev().find(|j| fits(j)))
     }
 
     /// Dock tab `i` on `side`, or move it there if it is docked already. Whatever was docked goes back to the strip, and
     /// a tab the main view was showing gives way to its neighbour. False if it cannot be docked.
     pub fn dock_tab(&mut self, i: usize, side: DockSide) -> bool {
+        self.leave_float();
         if self.docked_index() == Some(i) {
             if let Some(d) = &mut self.dock {
                 d.side = side;
@@ -118,6 +124,7 @@ impl<S: Send> Workspace<S> {
 
     /// Be in the view the user put the keyboard in (`dock`: the docked one).
     pub fn focus_pane(&mut self, dock: bool) {
+        self.leave_float();
         if self.dock.is_some() && self.in_dock() != dock {
             self.swap_panes();
         }

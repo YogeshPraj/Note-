@@ -5,6 +5,7 @@ use super::*;
 impl<S: Send> Workspace<S> {
     /// Create a tab holding `text`. The tab is clean (at the save point).
     pub(super) fn open_doc(&mut self, title: String, path: Option<PathBuf>, text: &str, enc: Enc, eol: Eol, lang: &'static str) -> usize {
+        self.leave_float();
         self.leave_dock();
         self.remember_view();
         let doc = self.send(sci::SCI_CREATEDOCUMENT, 0, 0);
@@ -17,29 +18,32 @@ impl<S: Send> Workspace<S> {
         let id = self.take_id();
         let lang_label = lang::label_for(lang, path.as_deref());
         let disk = path.as_deref().and_then(stamp_of);
-        self.tabs.push(Tab {
-            id,
-            kind: TabKind::Text,
-            title,
-            path,
-            doc,
-            content: String::new(),
-            dirty: false,
-            forced_dirty: false,
-            enc,
-            eol,
-            lang,
-            lang_label,
-            encrypted: false,
-            pinned: false,
-            color: None,
-            caret: 0,
-            anchor: None,
-            x_offset: 0,
-            top: 0,
-            disk,
-        });
-        self.active = self.tabs.len() - 1;
+        self.tabs.insert(
+            self.main_count(),
+            Tab {
+                id,
+                kind: TabKind::Text,
+                title,
+                path,
+                doc,
+                content: String::new(),
+                dirty: false,
+                forced_dirty: false,
+                enc,
+                eol,
+                lang,
+                lang_label,
+                encrypted: false,
+                pinned: false,
+                color: None,
+                caret: 0,
+                anchor: None,
+                x_offset: 0,
+                top: 0,
+                disk,
+            },
+        );
+        self.active = self.main_count() - 1;
         self.apply_view();
         self.active
     }
@@ -61,33 +65,37 @@ impl<S: Send> Workspace<S> {
     }
 
     fn open_page(&mut self, kind: TabKind, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
+        self.leave_float();
         self.leave_dock();
         self.remember_view();
         let id = self.take_id();
         let disk = path.as_deref().and_then(stamp_of);
-        self.tabs.push(Tab {
-            id,
-            kind,
-            title,
-            path,
-            doc: 0,
-            content,
-            dirty,
-            forced_dirty: false,
-            enc: Enc::Utf8,
-            eol: Eol::Lf,
-            lang: "null",
-            lang_label: "Normal text",
-            encrypted: false,
-            pinned: false,
-            color: None,
-            caret: 0,
-            anchor: None,
-            x_offset: 0,
-            top: 0,
-            disk,
-        });
-        self.active = self.tabs.len() - 1;
+        self.tabs.insert(
+            self.main_count(),
+            Tab {
+                id,
+                kind,
+                title,
+                path,
+                doc: 0,
+                content,
+                dirty,
+                forced_dirty: false,
+                enc: Enc::Utf8,
+                eol: Eol::Lf,
+                lang: "null",
+                lang_label: "Normal text",
+                encrypted: false,
+                pinned: false,
+                color: None,
+                caret: 0,
+                anchor: None,
+                x_offset: 0,
+                top: 0,
+                disk,
+            },
+        );
+        self.active = self.main_count() - 1;
         self.active
     }
 
@@ -273,10 +281,11 @@ impl<S: Send> Workspace<S> {
 
     /// Close every tab selected by `op`, asking about unsaved ones. False if cancelled.
     pub fn close_many(&mut self, ui: &dyn Ui, op: CloseOp) -> bool {
-        let dirty: Vec<bool> = (0..self.tabs.len()).map(|i| self.is_dirty(i)).collect();
+        // A floating window is the user's to close: these commands are about the strip.
+        let dirty: Vec<bool> = (0..self.main_count()).map(|i| self.is_dirty(i)).collect();
         // Tab ids stay stable while indices shift as tabs go away.
         // Pinned tabs are left alone by every "close many" command.
-        let ids: Vec<u64> = close_targets(op, self.active, &dirty).into_iter().filter(|&i| !self.tabs[i].pinned).map(|i| self.tabs[i].id).collect();
+        let ids: Vec<u64> = close_targets(op, self.main_index(), &dirty).into_iter().filter(|&i| !self.tabs[i].pinned).map(|i| self.tabs[i].id).collect();
         for id in ids {
             let Some(i) = self.tabs.iter().position(|t| t.id == id) else { continue };
             if !self.close(ui, i) {
@@ -288,8 +297,11 @@ impl<S: Send> Workspace<S> {
 
     /// Drop tab `i`, showing a neighbour (or a fresh tab if it was the last one).
     pub(super) fn remove_tab(&mut self, i: usize, remember: bool) {
+        if self.is_floating(i) {
+            return self.remove_floating(i, remember);
+        }
         // Closing the docked tab, or the only tab beside it, ends the dock.
-        if self.docked_index().is_some_and(|d| d == i || self.tabs.len() == 2) {
+        if self.docked_index().is_some_and(|d| d == i || self.main_count() == 2) {
             self.undock();
         }
         self.activate(i);
@@ -297,7 +309,7 @@ impl<S: Send> Workspace<S> {
         if remember && let Some(p) = self.tabs[i].path.clone() {
             push_recent(&mut self.closed, &p, MAX_CLOSED);
         }
-        if self.tabs.len() == 1 {
+        if self.main_count() == 1 {
             self.new_tab();
             self.tabs.remove(0);
             self.active = 0;

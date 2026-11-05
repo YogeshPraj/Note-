@@ -61,3 +61,8 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - The release ships Microsoft's WebView2Loader.dll beside the exe. `Scintilla.dll`, left by older builds, is deleted by the installer and the updater: the exe has Scintilla built in.
 - The clean-start check in `package.ps1` runs only on a build server: run locally it would open a window.
 - The preview divider's position is one share for all tabs, kept while the program runs and not saved: a tab has no width of its own, and moving it in one tab moves it in the next.
+- Floating tabs: only text tabs float, and a text tab always stays in the strip, as for docking. A floating tab loses its pin, since it comes back last and pinned tabs come first.
+- Close All and the other "close many" commands are about the strip: a floating window is closed by the user, one at a time.
+- Ctrl+Tab does nothing in a floating window: the other tabs are in the main window.
+- The tab menu's old Undock is now Dock Back, for docked and floating tabs alike; Undock now means "make it a window".
+- Floating windows have no parent window, so that they minimise and appear on the taskbar on their own.

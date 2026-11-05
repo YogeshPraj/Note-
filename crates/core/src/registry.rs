@@ -17,11 +17,11 @@ use crate::commands::{
     ID_CLEAR_RO, ID_CLIP_HISTORY, ID_CLOSE, ID_CLOSE_ALL, ID_CLOSE_LEFT, ID_CLOSE_OTHERS, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_CMT_BLOCK, ID_CMT_LINE,
     ID_COLUMN_EDITOR, ID_COLUMN_MODE, ID_COMMENT, ID_CONVERT_BASE, ID_COPY, ID_CP_ALLNAMES, ID_CP_ALLPATHS, ID_CP_DIR, ID_CP_FULLPATH, ID_CP_NAME, ID_CUT,
     ID_DECRYPT, ID_DELETE, ID_DISTRACTION, ID_DOC_LIST, ID_DOCK_BASE, ID_EDIT_CONTEXT, ID_ENC_LOCK, ID_ENC_SETTINGS, ID_ENCODE_BASE, ID_ENCRYPT,
-    ID_ENGINE_BASE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_EXPORT_THEME, ID_FIF, ID_FIND, ID_FIND_CHARS, ID_FINDNEXT, ID_FINDPREV, ID_FOCUS_OTHER,
-    ID_FOLD_ALL, ID_FOLD_CUR, ID_FULLSCREEN, ID_FUNC_LIST, ID_GOTO, ID_HASH_BASE, ID_HIDE_LINES, ID_HTTP_SEND, ID_IMPORT_THEME, ID_INCR, ID_INDENT_DEC,
-    ID_INDENT_INC, ID_INS_DATE_CUSTOM, ID_INS_DATE_LONG, ID_INS_DATE_SHORT, ID_JSON_MIN, ID_JSON_PRETTY, ID_L_COPY, ID_L_CUT, ID_L_DEDUP, ID_L_DEL, ID_L_DOWN,
-    ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC, ID_L_SORT_ASC,
-    ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC,
+    ID_ENGINE_BASE, ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_EXPORT_THEME, ID_FIF, ID_FIND, ID_FIND_CHARS, ID_FINDNEXT, ID_FINDPREV, ID_FLOAT_TAB,
+    ID_FOCUS_OTHER, ID_FOLD_ALL, ID_FOLD_CUR, ID_FULLSCREEN, ID_FUNC_LIST, ID_GOTO, ID_HASH_BASE, ID_HIDE_LINES, ID_HTTP_SEND, ID_IMPORT_THEME, ID_INCR,
+    ID_INDENT_DEC, ID_INDENT_INC, ID_INS_DATE_CUSTOM, ID_INS_DATE_LONG, ID_INS_DATE_SHORT, ID_JSON_MIN, ID_JSON_PRETTY, ID_L_COPY, ID_L_CUT, ID_L_DEDUP,
+    ID_L_DEL, ID_L_DOWN, ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC,
+    ID_L_SORT_ASC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC,
     ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SPLIT, ID_L_TRANSPOSE, ID_L_TRIM, ID_L_UP, ID_LANG_BASE, ID_LOG_FOLLOW, ID_LTR, ID_MARK, ID_MD_BOLD,
     ID_MD_BULLET, ID_MD_CODE, ID_MD_CODEBLOCK, ID_MD_H1, ID_MD_H2, ID_MD_H3, ID_MD_H4, ID_MD_H5, ID_MD_H6, ID_MD_IMAGE, ID_MD_ITALIC, ID_MD_LINK,
     ID_MD_NUMBERED, ID_MD_QUOTE, ID_MD_RULE, ID_MD_STRIKE, ID_MD_TABLE, ID_MD_TASK, ID_MD_TOOLBAR, ID_MINIMAP, ID_MONITOR, ID_MOVE_NEW_INSTANCE,
@@ -48,8 +48,10 @@ pub struct CommandState {
     pub has_path: bool,
     /// The active tab is a whiteboard or a picture, so the editor's text is not what the user sees (see [`needs_text`]).
     pub whiteboard: bool,
-    /// A tab is docked beside the main editor.
+    /// A tab is docked beside the main editor, or the user is in a floating window: Dock Back has something to do.
     pub docked: bool,
+    /// The active tab can become a floating window.
+    pub can_float: bool,
 }
 
 impl CommandState {
@@ -61,7 +63,8 @@ impl CommandState {
             can_redo: sci.send(sci::SCI_CANREDO, 0, 0) != 0,
             has_path: ws.tabs.get(ws.active).is_some_and(|t| t.path.is_some()),
             whiteboard: ws.is_page(),
-            docked: ws.dock_side().is_some(),
+            docked: ws.dock_side().is_some() || ws.current_float().is_some(),
+            can_float: ws.can_float(ws.active),
         }
     }
 }
@@ -124,6 +127,10 @@ fn can_redo(s: CommandState) -> bool {
 }
 fn docked(s: CommandState) -> bool {
     s.docked
+}
+
+fn can_float(s: CommandState) -> bool {
+    s.can_float
 }
 
 fn has_path(s: CommandState) -> bool {

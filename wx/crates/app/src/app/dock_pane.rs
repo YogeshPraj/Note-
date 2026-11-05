@@ -72,7 +72,7 @@ fn dock_first(side: DockSide) -> bool {
 impl App {
     /// The editor view the user is in.
     pub(crate) fn stc(&self) -> StyledTextCtrl {
-        if self.ws.in_dock() { self.dock_stc } else { self.main_stc }
+        self.float_stc().unwrap_or(if self.ws.in_dock() { self.dock_stc } else { self.main_stc })
     }
 
     /// The length the splitter divides for a dock on `side`.
@@ -155,7 +155,7 @@ fn pane_focused(app: &Shared, frame: Frame, dock: bool) {
             }
         });
     };
-    if a.ws.dock_side().is_some() && a.ws.in_dock() != dock {
+    if a.ws.current_float().is_some() || (a.ws.dock_side().is_some() && a.ws.in_dock() != dock) {
         a.ws.focus_pane(dock);
         a.refresh();
     }
@@ -198,7 +198,10 @@ impl CommandHandler<App> for DockCommands {
 
     fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
-            c::ID_UNDOCK => app.ws.undock(),
+            c::ID_UNDOCK => match app.ws.current_float() {
+                Some(tab) => app.dock_back_window(tab),
+                None => app.ws.undock(),
+            },
             c::ID_FOCUS_OTHER => app.ws.focus_other_pane(),
             id if (c::ID_DOCK_BASE..c::ID_DOCK_BASE + DockSide::ALL.len()).contains(&id) => {
                 let i = app.ws.active;

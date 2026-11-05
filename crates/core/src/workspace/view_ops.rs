@@ -19,8 +19,8 @@ impl<S: Send> Workspace<S> {
     pub fn set_margins_visible(&self, on: bool) {
         for (margin, width) in self.margin_widths().into_iter().enumerate() {
             self.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
-            if let Some(s) = &self.second {
-                s.view.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
+            for v in self.side_views() {
+                v.send(sci::SCI_SETMARGINWIDTHN, margin, if on { width } else { 0 });
             }
         }
     }
@@ -39,8 +39,8 @@ impl<S: Send> Workspace<S> {
     pub fn set_symbols(&mut self, v: view::Symbols) {
         self.symbols = v;
         view::apply_symbols(&self.sci, &self.symbols);
-        if let Some(s) = &self.second {
-            view::apply_symbols(&s.view, &self.symbols);
+        for v in self.side_views() {
+            view::apply_symbols(v, &self.symbols);
         }
     }
 
@@ -105,9 +105,9 @@ impl<S: Send> Workspace<S> {
             self.style_view(m, true);
         }
         sci::set_wrap(&self.sci, self.wrap);
-        if let Some(s) = &self.second {
-            self.style_view(&s.view, false);
-            sci::set_wrap(&s.view, self.wrap);
+        for v in self.side_views() {
+            self.style_view(v, false);
+            sci::set_wrap(v, self.wrap);
         }
         if !self.tabs.is_empty() {
             self.apply_palettes();
@@ -116,7 +116,7 @@ impl<S: Send> Workspace<S> {
 
     /// Keep the minimap scrolled in proportion to the main view.
     pub fn sync_minimap(&self) {
-        let Some(m) = &self.mini else { return };
+        let (Some(m), None) = (&self.mini, self.in_float) else { return };
         let total = sci::line_count(&self.sci).max(1);
         let main_first = self.send(sci::SCI_GETFIRSTVISIBLELINE, 0, 0).max(0);
         let main_vis = self.send(sci::SCI_LINESONSCREEN, 0, 0).max(1);
@@ -211,11 +211,14 @@ impl<S: Send> Workspace<S> {
     pub(super) fn apply_palettes(&self) {
         let t = &self.tabs[self.active];
         lang::apply_palette(&self.sci, t.lang, &self.theme);
-        if let Some(m) = &self.mini {
+        if let (Some(m), None) = (&self.mini, self.in_float) {
             lang::apply_palette(m, t.lang, &self.theme);
         }
         if let (Some(s), Some(i)) = (&self.second, self.other_index()) {
             lang::apply_palette(&s.view, self.tabs[i].lang, &self.theme);
+        }
+        for (v, i) in self.float_views() {
+            lang::apply_palette(v, self.tabs[i].lang, &self.theme);
         }
     }
 
@@ -285,8 +288,8 @@ impl<S: Send> Workspace<S> {
     pub fn set_wrap(&mut self, on: bool) {
         self.wrap = on;
         sci::set_wrap(&self.sci, on);
-        if let Some(s) = &self.second {
-            sci::set_wrap(&s.view, on);
+        for v in self.side_views() {
+            sci::set_wrap(v, on);
         }
     }
 }

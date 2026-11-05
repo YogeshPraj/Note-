@@ -88,6 +88,17 @@ Message boxes and the system pickers (files, folder, one of a list, colour, font
 A dialog that needs state between its callbacks keeps it in its form (`Form::set_state`), not in a static; the few
 deliberate globals are listed in `docs/audit.md`.
 
+## Floating tabs
+
+A text tab can leave the strip for a window of its own with its own Scintilla view (`workspace/floats.rs`, `app/float_pane.rs`),
+any number of them. Floating tabs stay in `Workspace::tabs`, always at the end: the strip draws the first `main_count()`, so its
+indices are still `tabs` indices and Save All, the session and closing see every tab without knowing. As with the dock, `sci` and
+`active` mean where the user is: going into a window swaps its view into `sci`, leaves the main view in the window's slot, and
+`in_float` keeps the tab the main window shows (`main_index()`). The windows have no parent, so they minimise on their own, and no
+menu bar, so `wire_keys` turns keys into commands through `KeyMap`. `sync_floats` (from `refresh`) closes windows whose tab has
+gone. A window is only ever destroyed after the workspace has let go of its view: the close event is vetoed, and `sync_floats`
+does it.
+
 ## Docked tab
 
 One tab can sit in a second Scintilla view beside the main one, both editable (`workspace/dock.rs`, `app/dock_pane.rs`).

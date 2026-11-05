@@ -172,6 +172,7 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
         return;
     }
     match id {
+        notepp_core::commands::ID_FLOAT_TAB => return float_pane::undock(a),
         notepp_core::commands::ID_PREFS => return crate::settings_window::open(a, "general"),
         notepp_core::commands::ID_STYLE_CFG => return crate::settings_window::open(a, "colours"),
         notepp_core::commands::ID_SHORTCUTS => return crate::settings_window::open(a, "shortcuts"),

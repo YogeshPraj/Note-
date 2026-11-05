@@ -6,11 +6,13 @@ impl<S: Send> Workspace<S> {
     pub fn snapshot(&mut self) -> Session {
         self.remember_view();
         self.with_docked(Self::remember_view);
-        let cur = self.active;
+        self.remember_floats();
+        let cur = self.main_index();
         let docked = self.docked_index();
         let mut tabs = Vec::new();
         let mut active = 0;
         let mut dock = None;
+        let mut floats = Vec::new();
         for i in 0..self.tabs.len() {
             let Some(tab) = self.snapshot_tab(i) else { continue };
             if i == cur {
@@ -18,6 +20,11 @@ impl<S: Send> Workspace<S> {
             }
             if Some(i) == docked {
                 dock = self.dock_side().map(|side| SessionDock { tab: tabs.len(), side, share: self.dock_share });
+            }
+            if self.is_floating(i)
+                && let Some(rect) = self.float_rect(self.tabs[i].id)
+            {
+                floats.push(SessionFloat { tab: tabs.len(), rect });
             }
             tabs.push(tab);
         }
@@ -37,6 +44,7 @@ impl<S: Send> Workspace<S> {
             date_format: self.date_format.clone(),
             kept: self.kept.clone(),
             dock,
+            floats,
         }
     }
 
@@ -97,6 +105,7 @@ impl<S: Send> Workspace<S> {
         }
         self.kept.clone_from(&s.kept);
         self.saved_dock = s.dock;
+        self.saved_floats.clone_from(&s.floats);
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         if s.dark {

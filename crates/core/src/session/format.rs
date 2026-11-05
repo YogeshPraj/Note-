@@ -140,6 +140,8 @@ pub(super) struct Extras {
     pub(super) date_format: String,
     #[serde(default)]
     pub(super) dock: Option<SessionDock>,
+    #[serde(default)]
+    pub(super) floats: Vec<super::SessionFloat>,
 }
 
 /// Before this app has saved anything, take the look from the settings file.
@@ -157,6 +159,7 @@ pub(super) fn extras_from_settings() -> Extras {
         symbols: crate::view::Symbols::default(),
         date_format: String::new(),
         dock: None,
+        floats: Vec::new(),
     }
 }
 

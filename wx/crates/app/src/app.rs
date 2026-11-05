@@ -63,6 +63,8 @@ pub struct App {
     main_stc: StyledTextCtrl,
     dock_stc: StyledTextCtrl,
     dock_panes: DockPanes,
+    /// The tabs that are windows of their own.
+    float_windows: Vec<float_pane::FloatWindow>,
     pub(crate) view: WebPane,
     pub(crate) chrome: Chrome,
     pub(crate) menubar: MenuBar,
@@ -107,6 +109,7 @@ static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0
 mod areas;
 pub(crate) use areas::AreaCommands;
 mod dock_pane;
+mod float_pane;
 pub(crate) use dock_pane::{DockCommands, DockPanes};
 mod notes;
 pub(crate) use notes::*;
@@ -221,6 +224,7 @@ impl App {
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.
     pub fn refresh(&mut self) {
         self.sync_dock();
+        self.sync_floats();
         if !self.ws.is_page() {
             self.ws.update_smart();
             self.ws.auto_detect_language();
@@ -270,8 +274,10 @@ impl App {
     }
 
     fn sync_tabs(&mut self) {
-        let infos = self.ws.tab_infos();
-        self.chrome.set_tabs(infos, self.ws.active);
+        // Floating tabs come last, and the strip stops before them.
+        let mut infos = self.ws.tab_infos();
+        infos.truncate(self.ws.main_count());
+        self.chrome.set_tabs(infos, self.ws.main_index());
     }
 
     /// The File menu lists recent files and offers "Restore Recent Closed File": rebuild it when they change.
@@ -302,6 +308,7 @@ impl App {
         if !session::standalone() {
             let ticket = session::ticket();
             self.keep_dock_share();
+            self.keep_float_rects();
             let _ = self.ws.snapshot().save_in_order(&session::session_path(), ticket);
         }
     }

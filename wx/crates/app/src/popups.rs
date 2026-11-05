@@ -113,12 +113,14 @@ struct TabFacts {
     pinned: bool,
     color: Option<(u8, u8, u8)>,
     can_dock: bool,
+    can_float: bool,
     docked: bool,
 }
 
 /// The right-click menu of a tab.
 fn dock_spec(f: &TabFacts) -> MenuSpec {
-    ["Left", "Right", "Top", "Bottom"].iter().enumerate().fold(MenuSpec::new(), |m, (i, side)| m.item_if(c::ID_DOCK_BASE + i, side, f.can_dock))
+    let sides = ["Left", "Right", "Top", "Bottom"].iter().enumerate().fold(MenuSpec::new(), |m, (i, side)| m.item_if(c::ID_DOCK_BASE + i, side, f.can_dock));
+    sides.sep().item_if(c::ID_FLOAT_TAB, "Undock", f.can_float)
 }
 
 fn tab_spec(f: &TabFacts) -> MenuSpec {
@@ -142,7 +144,7 @@ fn tab_spec(f: &TabFacts) -> MenuSpec {
         .sep()
         .sub("Tab Colour", colours)
         .sub("Dock", dock_spec(f))
-        .item_if(c::ID_UNDOCK, "Undock", f.docked)
+        .item_if(c::ID_UNDOCK, "Dock Back", f.docked)
         .sep()
         .item_if(c::ID_CP_FULLPATH, "Copy Full Path", f.has_path)
         .item_if(c::ID_OPEN_FOLDER_EXPLORER, "Open Containing Folder", f.has_path)
@@ -157,8 +159,19 @@ pub fn tab_menu(app: &Shared, at: Point) {
     let (frame, facts) = {
         let Ok(a) = app.try_borrow() else { return };
         let t = &a.ws.tabs[a.ws.active];
-        let (can_dock, docked) = (a.ws.can_dock(a.ws.active), a.ws.docked_index() == Some(a.ws.active));
-        (a.frame, TabFacts { has_path: t.path.is_some(), is_text: t.kind == TabKind::Text, pinned: t.pinned, color: t.color, can_dock, docked })
+        let (can_dock, docked) = (a.ws.can_dock(a.ws.active), a.ws.docked_index() == Some(a.ws.active) || a.ws.current_float().is_some());
+        (
+            a.frame,
+            TabFacts {
+                has_path: t.path.is_some(),
+                is_text: t.kind == TabKind::Text,
+                pinned: t.pinned,
+                color: t.color,
+                can_dock,
+                can_float: a.ws.can_float(a.ws.active),
+                docked,
+            },
+        )
     };
     show(app, &frame, tab_spec(&facts), at);
 }
@@ -237,7 +250,7 @@ mod tests {
     use crate::menu_spec::Entry;
 
     fn facts() -> TabFacts {
-        TabFacts { has_path: false, is_text: true, pinned: false, color: None, can_dock: false, docked: false }
+        TabFacts { has_path: false, is_text: true, pinned: false, color: None, can_dock: false, can_float: false, docked: false }
     }
 
     fn enabled(m: &MenuSpec, id: usize) -> Option<bool> {

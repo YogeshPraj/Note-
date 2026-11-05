@@ -131,7 +131,7 @@ pub(super) fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 4], settings: S
 }
 
 /// Files dropped on the window or the editor open as tabs; folders become the workspace.
-pub(super) fn attach_drop_targets(app: &Shared, frame: Frame, views: [StyledTextCtrl; 2]) {
+pub(super) fn attach_drop_targets<const N: usize>(app: &Shared, frame: Frame, views: [StyledTextCtrl; N]) {
     let drop = |a: Shared| {
         move |files: Vec<String>, _: i32, _: i32| {
             let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
@@ -217,6 +217,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     frame.layout();
     stc.set_focus();
     app.borrow_mut().restore_dock();
+    float_pane::restore(app);
 }
 
 /// The main window, sized for the display (the display scale is taken first: everything after is laid out with it).
@@ -291,6 +292,7 @@ pub fn start(files: &[PathBuf]) {
         chrome,
         postit: false,
         menu_took_focus: std::cell::Cell::new(false),
+        float_windows: Vec::new(),
         distraction: false,
         chrome_vis: [true; 4],
         menubar,

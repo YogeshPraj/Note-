@@ -10,7 +10,7 @@ use crate::imageedit::{self as ime, Message};
 pub(super) fn page(parent: &Panel) -> WebPane {
     let page = WebPane::new(parent);
     no_border(&page);
-    page.load_html(ime::page_html());
+    page.load_html(&ime::page_html());
     page
 }
 
@@ -61,6 +61,7 @@ impl App {
             }
             Message::State { edited, content } => self.picture_changed(tab, edited, content),
             Message::Flushed => done = self.take_waiting(tab),
+            Message::AgentDone(done) => self.mcp_board_done(done),
             Message::Focus => self.go_to_page(tab),
             Message::Save => {
                 self.go_to_page(tab);

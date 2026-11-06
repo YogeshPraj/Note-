@@ -74,6 +74,7 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
 </div>
 <div id="status">No picture</div>
 <script>
+/*image-agent*/
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var post = function (m) { window.ipc.postMessage(m); };
@@ -547,6 +548,97 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
   });
 
   /* ---- what the app sends ---- */
+  /* ---- an AI agent's requests: each change is one undo step, and the picture goes to the app before the answer does ---- */
+  var nextId = 0, agentLoading = false, agentWaiting = [];
+  var AGENT_IMAGE = 1600;
+  function agentReply(id, fields) { post('agent-done:' + JSON.stringify(Object.assign({ id: id }, fields))); }
+  function named(o) { if (!o.id) { nextId += 1; o.id = 'p' + nextId; } return o; }
+  function objectNamed(id) {
+    var o = objects.filter(function (q) { return q.id === id; })[0];
+    if (!o) throw new Error('No annotation has the id "' + id + '". Call read_picture.');
+    return o;
+  }
+  function needPicture() { if (!loaded) throw new Error('This picture has nothing in it yet.'); }
+  // A change has been made: show it, and answer once the app has it.
+  function agentChanged(id, result) {
+    sel = null; redraw(); drawOverlay(); showProps(); buttons(); status();
+    emitNow(true, function () { agentReply(id, { result: result }); });
+  }
+  function agentEdit(action, a) {
+    var s = imageAgent;
+    if (action === 'crop') { crop = s.cropBox(a, pic.width, pic.height); applyCrop(); return; }
+    if (action === 'resize') {
+      var to = s.size(a);
+      transform(to.w, to.h, function (g, src) { g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, to.w, to.h); });
+      return;
+    }
+    var button = { rotate_left: 'rotl', rotate_right: 'rotr', flip_horizontal: 'fliph', flip_vertical: 'flipv' }[action];
+    if (!button) throw new Error('"action" must be rotate_left, rotate_right, flip_horizontal, flip_vertical, crop or resize.');
+    doAction(button);
+  }
+  function agentPicture(id) {
+    var fit = imageAgent.fitted(pic.width, pic.height, AGENT_IMAGE), c = document.createElement('canvas');
+    c.width = fit.w; c.height = fit.h; c.getContext('2d').drawImage(pic, 0, 0, fit.w, fit.h);
+    c.toBlob(function (b) { toBase64(b, function (s) { agentReply(id, { result: { image_png: s } }); }); }, 'image/png');
+  }
+  var AGENT = {
+    read_picture: function (id) {
+      needPicture();
+      agentReply(id, { result: { width: pic.width, height: pic.height, annotations: objects.map(function (o) { return imageAgent.describe(named(o)); }) } });
+    },
+    picture_image: function (id) { needPicture(); agentPicture(id); },
+    sync: function (id) {
+      if (!loaded) throw new Error('This picture has nothing in it yet.');
+      commitText();
+      emitNow(stateTimer !== 0, function () { agentReply(id, { result: {} }); });
+    },
+    new_picture: function (id, a) {
+      var s = imageAgent.size(a), g, bg = a.background === undefined || a.background === null ? '#ffffff' : a.background;
+      if (typeof bg !== 'string' || !/^#[0-9a-f]{3,8}$/i.test(bg)) throw new Error('"background" must be a colour like #ffffff.');
+      base = document.createElement('canvas'); base.width = s.w; base.height = s.h;
+      g = base.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, s.w, s.h);
+      setSize(s.w, s.h); showLoaded();
+      agentChanged(id, { width: s.w, height: s.h });
+    },
+    add_annotations: function (id, a) {
+      needPicture();
+      var steps = objects.filter(function (q) { return q.t === 'step'; }).length, made = imageAgent.toObjects(a.items, style, steps);
+      commitText(); cancelCrop(); pushUndo();
+      made.forEach(function (o) { objects.push(named(o)); });
+      agentChanged(id, { annotations: made.map(function (o) { return { id: o.id, type: imageAgent.describe(o).type }; }) });
+    },
+    update_annotation: function (id, a) {
+      needPicture(); commitText();
+      var o = objectNamed(a.id), trial = JSON.parse(JSON.stringify(o));
+      imageAgent.patch(trial, a);
+      pushUndo();
+      imageAgent.patch(objectNamed(a.id), a);
+      agentChanged(id, { id: a.id });
+    },
+    delete_annotations: function (id, a) {
+      needPicture(); commitText();
+      if (!Array.isArray(a.ids) || !a.ids.length) throw new Error('"ids" must list at least one annotation.');
+      var gone = a.ids.map(objectNamed);
+      pushUndo();
+      var ids = gone.map(function (q) { return q.id; });
+      objects = objects.filter(function (q) { return ids.indexOf(q.id) < 0; });
+      agentChanged(id, { deleted: ids.length });
+    },
+    edit_picture: function (id, a) {
+      needPicture();
+      agentEdit(a.action, a);
+      agentChanged(id, { width: pic.width, height: pic.height });
+    }
+  };
+  function agentRun(id, op) {
+    try {
+      var run = AGENT[op && op.tool];
+      if (!run) throw new Error('Unknown request.');
+      run(id, (op && op.args) || {});
+    } catch (e) { agentReply(id, { error: e.message }); }
+  }
+  function agentLoaded() { agentLoading = false; agentWaiting.splice(0).forEach(function (w) { agentRun(w.id, w.op); }); }
+
   function showLoaded() { loaded = true; photo = { x: 0, y: 0, w: base.width, h: base.height }; undoStack = []; redoStack = []; objects = []; sel = null; cancelCrop(); editing = null; tb.style.display = 'none'; redraw(); fitZoom(); buttons(); layout(); }
   window.np = {
     load: function (mime, b64) {
@@ -555,8 +647,10 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
         base = document.createElement('canvas'); base.width = img.naturalWidth; base.height = img.naturalHeight; base.getContext('2d').drawImage(img, 0, 0);
         setSize(base.width, base.height); showLoaded();
         if (mime !== 'image/png') emitNow(false);        // from now on the app holds a PNG
+        agentLoaded();
       };
-      img.onerror = function () { $('status').textContent = 'This picture could not be read'; };
+      img.onerror = function () { $('status').textContent = 'This picture could not be read'; agentLoaded(); };
+      agentLoading = true;
       img.src = 'data:' + mime + ';base64,' + b64;
     },
     loadPixels: function (w, h, b64) {
@@ -565,6 +659,8 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
       base = document.createElement('canvas'); base.width = w; base.height = h; base.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0);
       setSize(w, h); showLoaded(); emitNow(false);
     },
+    // An agent's request. A picture still loading is finished first, so the request is about the right picture.
+    agent: function (id, op) { if (agentLoading) agentWaiting.push({ id: id, op: op }); else agentRun(id, op); },
     setTheme: function (d) { document.body.classList.toggle('dark', d); },
     // The app is moving this picture to another page: everything pending goes first, and 'flushed' says when it has.
     flush: function () {

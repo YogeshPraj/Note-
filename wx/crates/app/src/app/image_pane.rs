@@ -19,6 +19,7 @@ impl App {
             }
             // Beside a dock or a floating window, the click brings the user back to the main window.
             Message::Focus => self.ws.focus_pane(false),
+            Message::AgentDone(done) => self.mcp_board_done(done),
             Message::Flushed | Message::CopyImage(_) | Message::Tab(_) | Message::Menu(_) => {}
         }
         self.refresh();
@@ -65,7 +66,7 @@ impl App {
             if img {
                 self.img.shown = None;
                 if !self.imgv.is_loaded() {
-                    self.imgv.load_html(ime::page_html());
+                    self.imgv.load_html(&ime::page_html());
                 }
             }
         }

@@ -23,7 +23,7 @@ impl<S: Send> Workspace<S> {
             // Commands are handled in the window: it calls `agent_command` and runs what that allows.
             "new_whiteboard" => Ok(self.agent_new_board()),
             "run_command" => Err(Error::Agent("Only the window can run commands.".into())),
-            _ if crate::mcp::tools::is_board(tool) => Err(Error::Agent("Only a whiteboard page can do this.".into())),
+            _ if crate::mcp::page_tools::kind_of(tool).is_some() => Err(Error::Agent("Only a page can do this.".into())),
             _ => Err(Error::Agent(format!("There is no tool \"{tool}\"."))),
         }
     }
@@ -117,6 +117,8 @@ impl<S: Send> Workspace<S> {
             return Ok(None);
         };
         let asked = PathBuf::from(asked);
+        // A picture is always saved as a PNG.
+        let asked = if t.kind == TabKind::Image { crate::image::png_path(&asked) } else { asked };
         let profile = crate::session::config_dir();
         let target = self.agent_reach(&profile).check(&asked)?;
         if target.exists() && !t.path.as_deref().is_some_and(|own| same_path(own, &target)) {
@@ -127,9 +129,9 @@ impl<S: Send> Workspace<S> {
 
     fn agent_save(&mut self, args: Args<'_>) -> Result<Value, Error> {
         let named = self.agent_tab(args)?;
-        // A whiteboard's content is its latest scene by now: the page has just handed it over.
-        let board = self.tabs[named].kind == TabKind::Whiteboard && !self.tabs[named].encrypted;
-        let i = if board { named } else { self.agent_text_tab(args)? };
+        // A page's content is its latest state by now: the page has just handed it over.
+        let page = self.tabs[named].kind != TabKind::Text && !self.tabs[named].encrypted;
+        let i = if page { named } else { self.agent_text_tab(args)? };
         let target = self.agent_save_target(i, args)?;
         let (id, keep) = (self.tabs[i].id, self.tabs[self.active].id);
         let ui = Headless::default();

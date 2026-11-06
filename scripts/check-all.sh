@@ -19,6 +19,7 @@ for ws in . wx; do
   step "test ($ws)";   (cd "$ws" && cargo test) || fail=1
 done
 step "whiteboard"; (cd whiteboard && node --test tree/model.test.js agent/shapes.test.js) || fail=1
+step "picture agent"; node --test assets/imageagent.test.js || fail=1
 step "architecture"; bash scripts/check-architecture.sh || fail=1
 
 [ "$fail" -eq 0 ] && echo "ALL CHECKS PASSED" || echo "SOME CHECKS FAILED"

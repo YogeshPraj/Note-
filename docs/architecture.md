@@ -162,6 +162,11 @@ converter makes the shapes, so text is measured and labels held as on drawn ones
 leaves it where it was put: `route` works out the path, and again when a shape moves. A request is sent from the main loop:
 running a script waits in a message loop of its own, and a quick reply arriving then finds the app borrowed and is lost.
 
+Pictures go the same way, through `window.np.agent`, as an annotation is only in the page until the picture is saved. `assets/imageagent.js`
+has no DOM in it (`node --test`) and is put into `imageeditor.html` when the page is built; the rest is at the end of that page's script.
+A change is sent to the app (`state:`) before the answer (`agent-done:`), so a tool that says it is done has handed the picture over.
+The tools that pages carry out are in `mcp::page_tools`.
+
 The token is in a file of its own in the profile (`mcp-token`), not in `settings.json`, which may be shared or backed up. Agents reach
 only tabs and the workspace folder, never the profile; network paths are refused before the disk is touched, since looking at one
 sends the user's credentials to its host.

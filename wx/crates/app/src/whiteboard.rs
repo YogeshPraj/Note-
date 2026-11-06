@@ -83,6 +83,16 @@ pub fn page_url() -> Option<String> {
     Some(format!("file:///{p}"))
 }
 
+/// A page's answer to an agent's request, from its fields.
+pub fn agent_done(v: &serde_json::Value) -> Option<AgentDone> {
+    Some(AgentDone {
+        id: v.get("id")?.as_u64()?,
+        result: v.get("result").cloned().unwrap_or_default(),
+        error: v.get("error").and_then(|e| e.as_str()).map(str::to_string),
+        scene: v.get("scene").and_then(|s| s.as_str()).map(str::to_string),
+    })
+}
+
 pub fn parse(msg: &str) -> Option<Event> {
     let v: serde_json::Value = serde_json::from_str(msg).ok()?;
     let content = || v.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
@@ -92,12 +102,7 @@ pub fn parse(msg: &str) -> Option<Event> {
         "wb-data" => Event::Data(content()),
         "wb-save-request" => Event::SaveRequest,
         "wb-focus" => Event::Focus,
-        "wb-agent-done" => Event::AgentDone(AgentDone {
-            id: v.get("id")?.as_u64()?,
-            result: v.get("result").cloned().unwrap_or_default(),
-            error: v.get("error").and_then(|e| e.as_str()).map(str::to_string),
-            scene: v.get("scene").and_then(|s| s.as_str()).map(str::to_string),
-        }),
+        "wb-agent-done" => Event::AgentDone(agent_done(&v)?),
         "wb-menu" => Event::Menu(v.get("key").and_then(|k| k.as_str()).unwrap_or("").to_string()),
         "wb-tab" => Event::Tab(if v.get("delta").and_then(serde_json::Value::as_i64) == Some(-1) { -1 } else { 1 }),
         _ => return None,

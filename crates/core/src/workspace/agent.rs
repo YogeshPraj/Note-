@@ -61,7 +61,7 @@ impl Ui for Headless {
     }
 }
 
-fn kind_name(kind: TabKind) -> &'static str {
+pub(super) fn kind_name(kind: TabKind) -> &'static str {
     match kind {
         TabKind::Text => "text",
         TabKind::Whiteboard => "whiteboard",

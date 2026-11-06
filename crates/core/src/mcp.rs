@@ -8,6 +8,7 @@ pub mod access;
 pub mod args;
 pub mod commands;
 pub mod http;
+pub mod page_tools;
 pub mod protocol;
 pub mod server;
 pub mod text;

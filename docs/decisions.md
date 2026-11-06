@@ -90,3 +90,8 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - MCP: a tree reads as one item with its nodes, however many shapes draw it. An agent changes a tree by giving back all of it (`set_tree`).
 - MCP: an arrow between shapes is a straight line. Moving a shape redraws its arrows straight, including one the user had bent.
 - MCP: agents have no Undo on a whiteboard: Excalidraw does not offer one to a program. The user's Ctrl+Z takes back each agent step.
+- MCP: a picture's annotations stay objects an agent can read and change, as they are for the user, until a rotate, flip, crop or resize makes them part of the picture.
+- MCP: an agent's `hide` uses blocks in proportion to the area, as a fixed size left small things recognisable. Its description tells agents to cover something with a filled rectangle to remove it for good: pixelation is not redaction.
+- MCP: the picture an agent sees is at most 1600 pixels on its longest side, enough to read and small enough to send. Rotating, cropping and saving work on the full picture.
+- MCP: pictures are saved as PNG whatever name is given, as they are for the user.
+- MCP: `imageagent.js` is a file of its own so that it can be tested without a browser, at the cost of one marker in `imageeditor.html`.

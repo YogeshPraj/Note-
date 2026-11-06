@@ -7,9 +7,11 @@
 use crate::widgets::web_pane::WebPane;
 
 const PAGE: &str = include_str!("../../../../assets/imageeditor.html");
+/// What the page does for an AI agent, in a file of its own so that it can be tested without a browser.
+const AGENT: &str = include_str!("../../../../assets/imageagent.js");
 
-pub fn page_html() -> &'static str {
-    PAGE
+pub fn page_html() -> String {
+    PAGE.replacen("/*image-agent*/", AGENT, 1)
 }
 
 /// Show a picture given as base64 file bytes.
@@ -21,6 +23,11 @@ pub fn load(pane: &WebPane, content: &str) {
 /// Show a picture given as base64 RGBA pixels (a bitmap from the clipboard).
 pub fn load_pixels(pane: &WebPane, width: u32, height: u32, rgba_base64: &str) {
     pane.call_big("window.np.loadPixels", &format!("{width},{height},"), rgba_base64);
+}
+
+/// Hand the page an agent's request. It is parsed in the page, so that nothing in it can be taken for script.
+pub fn agent(pane: &WebPane, id: u64, op: &serde_json::Value) {
+    pane.eval(&format!("window.np.agent({id},JSON.parse({}))", crate::widgets::web_pane::script::js_string(&op.to_string())));
 }
 
 /// Ask the page for what is pending. It answers [`Message::Flushed`] after the last [`Message::State`].
@@ -50,6 +57,7 @@ pub enum Message {
     CopyImage(String),
     Tab(i32),
     Menu(String),
+    AgentDone(crate::whiteboard::AgentDone),
 }
 
 pub fn parse(msg: &str) -> Option<Message> {
@@ -62,6 +70,7 @@ pub fn parse(msg: &str) -> Option<Message> {
         "tab:prev" => Message::Tab(-1),
         m if m.starts_with("menu:") => Message::Menu(m[5..].to_string()),
         m if m.starts_with("copy-image:") => Message::CopyImage(m.to_string()),
+        m if m.starts_with("agent-done:") => Message::AgentDone(crate::whiteboard::agent_done(&serde_json::from_str(&m[11..]).ok()?)?),
         m => {
             let rest = m.strip_prefix("state:")?;
             let (flag, content) = rest.split_once(':')?;
@@ -84,6 +93,9 @@ mod tests {
         assert_eq!(parse("state:1:AAAA"), Some(Message::State { edited: true, content: "AAAA".into() }));
         assert_eq!(parse("state:0:QQ=="), Some(Message::State { edited: false, content: "QQ==".into() }));
         assert_eq!(parse("copy-image:1:1:AAAAAA=="), Some(Message::CopyImage("copy-image:1:1:AAAAAA==".into())));
+        let done = parse(r#"agent-done:{"id":7,"result":{"width":2}}"#);
+        assert!(matches!(done, Some(Message::AgentDone(d)) if d.id == 7 && d.result["width"] == 2 && d.error.is_none()));
+        assert_eq!(parse("agent-done:not json"), None);
         assert_eq!(parse("state:oops"), None);
         assert_eq!(parse("something else"), None);
     }

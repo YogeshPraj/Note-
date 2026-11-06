@@ -1,10 +1,10 @@
-//! Agent calls that a whiteboard's page carries out. A call waits here until the page holding its tab is ready, goes to the
+//! Agent calls that a whiteboard's or picture's page carries out. A call waits here until the page holding its tab is ready, goes to the
 //! page, and is answered when the page replies. Nothing waits on the UI thread meanwhile.
 
 use notepp_core::error::Error;
 use notepp_core::mcp::access::Level;
 use notepp_core::mcp::server::Job;
-use notepp_core::workspace::BoardRequest;
+use notepp_core::workspace::{BoardRequest, TabKind};
 
 use super::*;
 
@@ -30,8 +30,12 @@ impl App {
         if let Some((page, _)) = self.page_of(tab) {
             return page.is_ready().then_some(page);
         }
-        let main = self.ws.main_is_whiteboard() && self.ws.tabs[self.ws.main_index()].id == tab;
-        (main && self.wb.shown == Some(tab) && self.wbv.is_ready()).then(|| self.wbv.clone())
+        let shown = self.ws.tabs.get(self.ws.main_index()).filter(|t| t.id == tab)?;
+        match shown.kind {
+            TabKind::Whiteboard => (self.wb.shown == Some(tab) && self.wbv.is_ready()).then(|| self.wbv.clone()),
+            TabKind::Image => (self.img.shown == Some(tab) && self.imgv.is_ready()).then(|| self.imgv.clone()),
+            TabKind::Text => None,
+        }
     }
 
     /// Send what is waiting for a page, and let go of calls nobody is waiting for any more.
@@ -39,7 +43,7 @@ impl App {
         let parked = std::mem::take(&mut self.mcp.parked);
         for mut call in parked {
             if call.job.expired() {
-                call.job.finish(Err(Error::Agent("The whiteboard did not answer in time.".into())));
+                call.job.finish(Err(Error::Agent("The page did not answer in time.".into())));
                 continue;
             }
             if !call.sent
@@ -48,7 +52,14 @@ impl App {
                 // From the main loop: running a script waits in a message loop of its own, and a quick answer would arrive
                 // while the app is borrowed here, and be lost.
                 let (id, op) = (call.id, call.request.op.clone());
-                crate::widgets::defer::later(&self.frame, move || wbm::agent(&page, id, &op));
+                let picture = self.ws.tabs.iter().any(|t| t.id == call.request.tab && t.kind == TabKind::Image);
+                crate::widgets::defer::later(&self.frame, move || {
+                    if picture {
+                        crate::imageedit::agent(&page, id, &op);
+                    } else {
+                        wbm::agent(&page, id, &op);
+                    }
+                });
                 call.sent = true;
             }
             self.mcp.parked.push(call);
@@ -65,6 +76,8 @@ impl App {
         let result = match done.error {
             Some(message) => Err(Error::Agent(message)),
             None if call.request.save_after => self.ws.agent_call(call.level, "save_document", &call.job.args),
+            // Only the app knows the tab of a picture it has just made.
+            None if call.job.tool == "new_picture" => Ok(serde_json::json!({ "tab": call.request.tab, "picture": done.result })),
             None => Ok(done.result),
         };
         call.job.finish(result);

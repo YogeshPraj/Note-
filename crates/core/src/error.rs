@@ -69,6 +69,8 @@ pub enum Error {
     MissingField(String),
     #[error("No vault item matches \"{0}\"")]
     NoMatchingItem(String),
+    #[error("{0}")]
+    Agent(String),
     #[error("Title is required")]
     TitleRequired,
     #[error("bw generate returned nothing")]

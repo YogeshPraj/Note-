@@ -3,6 +3,7 @@
 //! Every change applies at once and is saved. Editors that are too big for a row (colours, shortcuts, the
 //! right-click menu) sit inside their page ([custom]); the encryption actions are buttons that rebuild the page.
 
+mod agents;
 mod custom;
 
 use std::rc::Rc;
@@ -22,6 +23,8 @@ pub struct Env {
     /// What the Security page says about encryption, and whether the vault is unlocked.
     pub encryption: String,
     pub unlocked: bool,
+    /// What the AI Agents page says about the server.
+    pub mcp_status: String,
     /// The application the embedded editors act on (none in tests).
     pub app: Option<Shared>,
 }
@@ -77,7 +80,7 @@ fn button(key: &'static str, title: &str, desc: &str, label: &str) -> Row {
 /// The pages, filled from the current settings.
 pub fn pages(env: &Env) -> Vec<Page> {
     let s = &env.settings;
-    vec![general(s), editor(s), appearance(env), colours(env), shortcuts(env), context_menu(env), security(env)]
+    vec![general(s), editor(s), appearance(env), colours(env), shortcuts(env), context_menu(env), security(env), agents::page(env)]
 }
 
 fn general(s: &Settings) -> Page {
@@ -215,7 +218,7 @@ pub fn apply_value(s: &mut Settings, key: &str, v: &Value) -> bool {
         ("fold", Value::Bool(b)) => s.fold_margin = *b,
         ("bookmark", Value::Bool(b)) => s.bookmark_margin = *b,
         ("lock", Value::Int(n)) => s.passwords_auto_lock_min = u32::try_from(*n).unwrap_or(0),
-        _ => return false,
+        _ => return agents::apply_value(s, key, v),
     }
     true
 }
@@ -232,6 +235,7 @@ pub fn open(app: &Shared, page: &str) {
             dark: a.ws.theme.dark,
             encryption: crate::encdialogs::status_text(&a.ws.vault),
             unlocked: a.ws.vault.unlocked(),
+            mcp_status: a.mcp_status(),
             app: Some(for_pages.clone()),
         })
     });
@@ -269,6 +273,15 @@ fn changed(app: &Shared, key: &str, v: &Value) -> bool {
     }
     match (key, v) {
         ("font", Value::Pressed) => a.choose_font(),
+        ("mcp_copy" | "mcp_token", Value::Pressed) => {
+            if key == "mcp_copy" {
+                a.mcp_copy_setup();
+            } else {
+                a.mcp_new_token();
+            }
+            a.refresh();
+            return true;
+        }
         ("colours_reset", Value::Pressed) => {
             crate::handlers::AppearanceCommands::apply_style(&mut a, &crate::settings_ui::StyleEdit { reset: true, entered: Vec::new() });
             return true;
@@ -289,6 +302,8 @@ fn changed(app: &Shared, key: &str, v: &Value) -> bool {
                 crate::settings_ui::apply_settings(&mut a, s);
                 a.sync_chrome();
                 a.refresh();
+                // The page says whether the server is running.
+                return key == "mcp_on";
             }
         }
     }
@@ -313,7 +328,7 @@ mod tests {
     use super::*;
 
     fn env(dark: bool) -> Env {
-        Env { settings: Settings::default(), theme: Theme::light(), dark, encryption: String::new(), unlocked: false, app: None }
+        Env { settings: Settings::default(), theme: Theme::light(), dark, encryption: String::new(), unlocked: false, mcp_status: String::new(), app: None }
     }
 
     #[test]
@@ -341,7 +356,7 @@ mod tests {
 
     #[test]
     fn every_row_key_is_handled_or_a_known_action() {
-        let actions = ["font", "theme", "enc_setup", "enc_lock", "enc_password", "enc_recovery", "enc_import"];
+        let actions = ["font", "theme", "enc_setup", "enc_lock", "enc_password", "enc_recovery", "enc_import", "mcp_copy", "mcp_token"];
         for page in pages(&env(false)) {
             for row in page.rows.iter().filter(|r| !matches!(r.control, Control::Heading | Control::Custom(_))) {
                 let mut s = Settings::default();

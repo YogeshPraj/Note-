@@ -279,7 +279,7 @@ pub fn find<S: Send>(s: &S, o: &Opts, forward: bool) -> Found {
     }
 }
 
-fn replace_range<S: Send>(s: &S, a: usize, b: usize, with: &str) {
+pub(crate) fn replace_range<S: Send>(s: &S, a: usize, b: usize, with: &str) {
     s.send(sci::SCI_SETTARGETSTART, a, 0);
     s.send(sci::SCI_SETTARGETEND, b, 0);
     s.send(sci::SCI_REPLACETARGET, with.len(), with.as_ptr() as isize);

@@ -25,6 +25,8 @@ use std::path::{Path, PathBuf};
 
 mod types;
 pub use self::types::*;
+mod agent;
+mod agent_edit;
 mod dock;
 mod documents;
 mod editing;

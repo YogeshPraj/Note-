@@ -218,6 +218,7 @@ fn focus_shown_tab(app: &Shared) {
 pub(super) fn wire(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view: &WebPane) {
     wire_events(app, frame, stc, view);
     super::timers::wire_timers(app, frame);
+    super::mcp::wire_mcp(app, frame);
 }
 
 #[allow(clippy::too_many_lines, reason = "wires each window event to its action, one block per event")]

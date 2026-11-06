@@ -205,6 +205,7 @@ fn margins_follow_the_display_scale() {
     assert_eq!(ws.margin_widths(), at_100, "a scale under 100% is not a display scale");
 }
 
+mod agent;
 mod dock;
 mod floats;
 mod image;

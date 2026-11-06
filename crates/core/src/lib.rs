@@ -22,6 +22,7 @@ pub mod keymap;
 pub mod lang;
 pub mod lexer;
 pub mod logfollow;
+pub mod mcp;
 pub mod mdformat;
 pub mod menu_provider;
 pub mod num;

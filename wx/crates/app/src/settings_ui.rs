@@ -10,6 +10,7 @@ pub fn apply_settings(app: &mut crate::app::App, s: Settings) {
     notepp_core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
     app.ws.set_settings(s);
     app.ws.set_margins_visible(!app.distraction);
+    app.mcp_sync();
     if let Err(e) = app.ws.settings.save() {
         app.flash = Some(format!("Settings could not be saved: {e}"));
     }

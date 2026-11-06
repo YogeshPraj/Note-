@@ -55,6 +55,8 @@ pub struct App {
     pub(crate) mdbar: crate::widgets::dock::Dock,
     pub(crate) upd: crate::updates::State,
     pub(crate) upd_plan: crate::updates::Plan,
+    /// The MCP server, when the user has turned it on.
+    pub(crate) mcp: mcp::McpState,
     /// The Incremental Search window, once it has been opened.
     pub(crate) incr: Option<crate::incr::Search>,
     menu_bar: isize,
@@ -114,6 +116,7 @@ mod float_board;
 mod float_keys;
 mod float_pane;
 mod float_picture;
+mod mcp;
 pub(crate) use dock_pane::{DockCommands, DockPanes};
 mod notes;
 pub(crate) use notes::*;

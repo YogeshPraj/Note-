@@ -230,3 +230,16 @@ The release key: `examples/update_key.rs` makes it. The private half is the `UPD
 ## Open: crash on closing, worked around (2026-11-05)
 
 Closing the main window crashed twice in about 30 hidden-desktop runs, in the main process, a call through a null pointer, after sessions that used whiteboard pages. It would not come back under gdb or in repeated runs of the same sequence, so the cause is not known; a shutdown race with a web page is a guess. Since 2.0.9 the program calls `process::exit` once the session is written (`app/timers.rs`), so that teardown does not run. That hides the crash, it does not explain it: if a crash is reported while a window or page is closing with the program still running, look here first.
+
+## MCP server: what it exposes (2026-11-06)
+
+A listening socket is new attack surface, so what stands in the way is written down here. Off by default, and bound to 127.0.0.1 only.
+A web page is the main threat: it can send requests to localhost. Any request with an `Origin` is refused, and `Host` must be local, which
+stops DNS rebinding. Every request needs a 256-bit token, compared in constant time, kept in its own file, on Unix readable by the owner
+only. Sizes (16 KiB of headers, 32 MiB of body), time (10 seconds per request) and connections (16) are limited, and all of it is tested
+on a real socket and against the running app.
+
+Not covered, and known: a program already running as the user can read the token file, as it can read anything else of theirs. A program
+that takes the port first, while Note++ is off, would receive the token from an agent configured to connect. Both need code already
+running on the machine. Until Stage 5 there is no approval of new clients, no activity log, and no way to stop a client except turning
+the server off or making a new token.

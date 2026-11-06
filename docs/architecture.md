@@ -128,6 +128,29 @@ A docked whiteboard or picture has its own page (`app/dock_board.rs`, one of eac
 nothing is swapped, so `active` alone says which side the user is on. The toolkit hears nothing of a click in a page, so the page
 reports it (`wb-focus`, `focus`).
 
+## MCP server
+
+An AI agent works in the running app through MCP instead of sending it keystrokes. The server is part of `notepp.exe` and is off
+until the user turns it on under *Settings > AI Agents*. It listens on 127.0.0.1, on a fixed port the user can change, and speaks
+Streamable HTTP with plain JSON replies; there are no event streams, and GET answers 405, which the protocol allows.
+
+- `core::mcp`: `http` (one request, one reply, and the `gate`: any `Origin` is refused, `Host` must be local, the token must match),
+  `protocol` (JSON-RPC), `tools` (the table: name, description, input, level), `server` (the listener and the `Queue`), `access`
+  (levels, the token, which paths can be reached), `text` (line and match work with no editor in it).
+- `Workspace::agent_call` (`workspace/agent.rs`, `agent_edit.rs`) carries out a tool. It reaches tabs through `with_doc`, so the
+  user is not moved off the tab in front; a tab that is not in a view gets its modified mark set by hand, as the hidden view tells
+  nobody. Each change is one undo step. `Headless` stands in for `Ui`: nothing an agent does can open a dialog, and what would
+  have been a question is a refusal.
+- `app/mcp.rs` joins them. Connection threads never touch a document: a tool call waits on the `Queue`, and a 50 ms timer, which
+  runs only while the server is on, carries it out on the UI thread. When a dialog holds the app the call waits, up to 15 seconds;
+  a call nobody is waiting for any more is dropped rather than run, so an edit reported as failed cannot happen later.
+
+To add a tool: a row in `mcp::tools::TOOLS` and a handler in `agent_call`. A test fails if a row has no handler.
+
+The token is in a file of its own in the profile (`mcp-token`), not in `settings.json`, which may be shared or backed up. Agents reach
+only tabs and the workspace folder, never the profile; network paths are refused before the disk is touched, since looking at one
+sends the user's credentials to its host.
+
 ## Threading
 
 wxWidgets is single-threaded: all UI is on the main thread. Work that can take long runs on a worker thread and hands

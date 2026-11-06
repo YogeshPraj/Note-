@@ -283,6 +283,7 @@ pub fn start(files: &[PathBuf]) {
         mdbar,
         upd: crate::updates::State::default(),
         upd_plan: crate::updates::Plan::default(),
+        mcp: mcp::McpState::default(),
         incr: None,
         mini,
         main_stc: stc,

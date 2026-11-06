@@ -43,6 +43,11 @@ pub struct Settings {
     pub auto_update: bool,
     /// Lock the Bitwarden vault after this many idle minutes; 0 = never.
     pub passwords_auto_lock_min: u32,
+    /// Run the MCP server, so AI agents can work in Note++. Off until the user turns it on.
+    pub mcp_enabled: bool,
+    pub mcp_port: u16,
+    /// What agents may do (`mcp::access::Level`). Text, so an unknown value means the lowest level, not unreadable settings.
+    pub mcp_level: String,
 }
 
 impl Default for Settings {
@@ -70,6 +75,9 @@ impl Default for Settings {
             shortcuts: BTreeMap::new(),
             passwords_auto_lock_min: 15,
             auto_update: true,
+            mcp_enabled: false,
+            mcp_port: crate::mcp::DEFAULT_PORT,
+            mcp_level: "read".into(),
         }
     }
 }
@@ -111,6 +119,7 @@ impl Settings {
         self.tab_width = self.tab_width.clamp(1, 16);
         self.edge_column = self.edge_column.clamp(0, 500);
         self.passwords_auto_lock_min = self.passwords_auto_lock_min.min(1440);
+        self.mcp_port = self.mcp_port.max(1024);
         if self.font.trim().is_empty() {
             self.font = Settings::default().font;
         }
@@ -374,5 +383,7 @@ mod tests {
         let back: Settings = serde_json::from_str("{\"tab_width\": 2}").unwrap();
         assert_eq!(back.tab_width, 2);
         assert!(back.line_numbers);
+        assert!(!back.mcp_enabled, "agents stay out until the user lets them in");
+        assert_eq!(back.mcp_level, "read");
     }
 }

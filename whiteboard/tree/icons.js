@@ -25,9 +25,21 @@ export const ICONS = [
 ];
 
 const INK = '#1e1e1e';
-export const fileId = (name) => `notepp-tree-${name}`;
+/** Excalidraw's own stroke colours, so that a tree matches what is drawn around it. */
+export const COLORS = [
+  ['Red', '#e03131'], ['Green', '#2f9e44'], ['Blue', '#1971c2'], ['Orange', '#f08c00'], ['Purple', '#9c36b5'], ['Teal', '#0c8599'], ['Gray', '#868e96'],
+];
 
-const dataUrl = (svg) => `data:image/svg+xml;base64,${btoa(svg.replaceAll('currentColor', INK))}`;
+/** An icon in a colour is a file of its own: Excalidraw draws an image as it is. */
+export const fileId = (name, color) => `notepp-tree-${name}${color ? `-${color.slice(1)}` : ''}`;
 
-/** The icons as Excalidraw files. Created once, with a fixed date: the same file in every scene. */
-export const iconFiles = () => ICONS.map(([name, , svg]) => ({ id: fileId(name), dataURL: dataUrl(svg), mimeType: 'image/svg+xml', created: 1, lastRetrieved: 1 }));
+const dataUrl = (svg, color) => `data:image/svg+xml;base64,${btoa(svg.replaceAll('currentColor', color || INK))}`;
+
+/** One icon as an Excalidraw file, with a fixed date: the same file in every scene. */
+export function iconFile(name, color) {
+  const svg = ICONS.find(([n]) => n === name)?.[2] || '';
+  return { id: fileId(name, color), dataURL: dataUrl(svg, color), mimeType: 'image/svg+xml', created: 1, lastRetrieved: 1 };
+}
+
+/** Every icon in the plain ink. */
+export const iconFiles = () => ICONS.map(([name]) => iconFile(name));

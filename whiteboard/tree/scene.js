@@ -8,7 +8,7 @@
 
 import { CaptureUpdateAction, convertToExcalidrawElements, viewportCoordsToSceneCoords } from '@excalidraw/excalidraw';
 
-import { fileId, iconFiles } from './icons.js';
+import { fileId, iconFile, iconFiles } from './icons.js';
 import { clone, shapes } from './model.js';
 
 const INK = '#1e1e1e';
@@ -32,8 +32,8 @@ function describe(s, group) {
     case 'line': return { ...plain, ...common, ...extent, type: 'line', points: s.points, strokeStyle: 'dotted' };
     case 'box': return { ...plain, ...common, type: 'rectangle', width: FOLD_SIZE, height: FOLD_SIZE, backgroundColor: PAPER };
     case 'bar': return { ...plain, ...common, ...extent, type: 'line', points: s.points, strokeColor: INK };
-    case 'icon': return { ...plain, ...common, type: 'image', width: 16, height: 16, fileId: fileId(s.icon), status: 'saved', strokeColor: 'transparent' };
-    default: return { ...common, type: 'text', text: s.text, fontSize: 14, fontFamily: 2, strokeColor: INK, roughness: 0, opacity: 100 };
+    case 'icon': return { ...plain, ...common, type: 'image', width: 16, height: 16, fileId: fileId(s.icon, s.color), status: 'saved', strokeColor: 'transparent' };
+    default: return { ...common, type: 'text', text: s.text, fontSize: 14, fontFamily: 2, strokeColor: s.color || INK, roughness: 0, opacity: 100 };
   }
 }
 
@@ -57,6 +57,9 @@ export function redraw(api, group, model) {
   const old = partsOf(api, group);
   const frame = frameIn(old);
   if (!frame) return;
+  // Coloured icons are made when they are first needed.
+  const coloured = shapes(model, 0, 0).filter((s) => s.kind === 'icon' && s.color);
+  if (coloured.length) api.addFiles(coloured.map((s) => iconFile(s.icon, s.color)));
   const byKey = new Map(old.map((e) => [e.customData.key, e]));
   const made = makeShapes(model, frame.x, frame.y, group).map((e) => {
     const was = byKey.get(e.customData.key);

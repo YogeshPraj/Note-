@@ -1,7 +1,7 @@
 // The tree on the whiteboard, as data: nodes, what can be done to them, and where each row goes. No Excalidraw and no DOM
 // in here, so it can be tested with `node --test`. `scene.js` turns it into shapes.
 //
-// A node is { id, title, icon, open, children }. The whole tree is kept in the frame's customData, so it is saved in the
+// A node is { id, title, icon, open, children }, with a `color` once one has been chosen. The whole tree is kept in the frame's customData, so it is saved in the
 // .excalidraw file, undo brings it back with the shapes, and a copied tree carries its own.
 
 export const ROW = 22;
@@ -125,6 +125,15 @@ export function setIcon(tree, id, icon) {
   return true;
 }
 
+/** Colour a node's text and icon. `null` goes back to the plain ink. */
+export function setColor(tree, id, color) {
+  const at = find(tree, id);
+  if (!at) return false;
+  if (color) at.node.color = color;
+  else delete at.node.color;
+  return true;
+}
+
 /** The rows to draw, top to bottom: folded branches have none. `x` and `y` are the left and middle of the row. */
 export function rows(tree, x = 0, y = 0) {
   const out = [];
@@ -159,8 +168,8 @@ export function shapes(tree, x, y) {
       const hasBox = r.node.children.length > 0;
       out.push({ key: `line:${id}`, role: 'line', kind: 'line', x: p.x, y: p.y + 5, points: [[0, 0], [0, r.y - p.y - 5], [r.x - p.x - (hasBox ? 5 : -7), r.y - p.y - 5]] });
     }
-    out.push({ key: `icon:${id}`, role: 'row', node: id, kind: 'icon', x: r.x + 9, y: r.y - 8, icon: r.node.icon });
-    out.push({ key: `text:${id}`, role: 'row', node: id, kind: 'text', x: r.x + TITLE_AT, y: r.y - FONT * 0.62, text: r.node.title });
+    out.push({ key: `icon:${id}`, role: 'row', node: id, kind: 'icon', x: r.x + 9, y: r.y - 8, icon: r.node.icon, color: r.node.color });
+    out.push({ key: `text:${id}`, role: 'row', node: id, kind: 'text', x: r.x + TITLE_AT, y: r.y - FONT * 0.62, text: r.node.title, color: r.node.color });
     if (r.node.children.length) {
       out.push({ key: `box:${id}`, role: 'fold', node: id, kind: 'box', x: r.x - 5, y: r.y - 5 });
       out.push({ key: `minus:${id}`, role: 'mark', kind: 'bar', x: r.x - 3, y: r.y, points: [[0, 0], [6, 0]] });

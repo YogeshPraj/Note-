@@ -137,6 +137,20 @@ test('only the box of a fold can be clicked, and lines are as long as they are d
   assert.equal(parts.filter((s) => s.kind === 'bar').every((s) => s.role === 'mark'), true);
 });
 
+test('a colour reaches the row and its icon, and can be taken away', () => {
+  const t = sample();
+  const n = titled(t, 'Tools');
+  const parts = () => m.shapes(t, 0, 0).filter((s) => s.node === n.id && (s.kind === 'text' || s.kind === 'icon'));
+  assert.equal(m.setColor(t, n.id, '#e03131'), true);
+  assert.equal(parts().every((s) => s.color === '#e03131'), true);
+  assert.equal(parts().length, 2);
+  assert.equal(m.clone(t).children[1].color, '#e03131', 'it is saved with the tree');
+  m.setColor(t, n.id, null);
+  assert.equal(parts().every((s) => s.color === undefined), true);
+  assert.equal(titled(t, 'KA Answers').color, undefined, 'a child keeps its own');
+  assert.equal(m.setColor(t, 'nobody', '#e03131'), false);
+});
+
 test('a tree survives being saved', () => {
   const t = sample();
   assert.deepEqual(m.clone(t), t);

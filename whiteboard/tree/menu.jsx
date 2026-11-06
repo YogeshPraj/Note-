@@ -2,8 +2,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 
-import { ICONS } from './icons.js';
-import { addChild, addSibling, canMove, find, move, remove, rename, setIcon } from './model.js';
+import { COLORS, ICONS } from './icons.js';
+import { addChild, addSibling, canMove, find, move, remove, rename, setColor, setIcon } from './model.js';
 import { modelOf, redraw } from './scene.js';
 
 // This sits outside the Excalidraw component, so none of its colour variables reach here.
@@ -59,6 +59,18 @@ function Icons({ onPick, c }) {
   );
 }
 
+function Colours({ onPick, c, current }) {
+  const swatch = (selected) => ({ width: 26, height: 26, padding: 0, borderRadius: 6, cursor: 'pointer', border: selected ? `2px solid ${c.ink}` : `1px solid ${c.line}` });
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, justifyItems: 'center', padding: 2 }}>
+      <button type="button" title="Default" aria-label="Default" onClick={() => onPick(null)} style={{ ...swatch(!current), background: 'transparent', color: c.ink, fontSize: 12 }}>A</button>
+      {COLORS.map(([label, hex]) => (
+        <button key={hex} type="button" title={label} aria-label={label} onClick={() => onPick(hex)} style={{ ...swatch(current === hex), background: hex }} />
+      ))}
+    </div>
+  );
+}
+
 /** `at` is { group, node, x, y, view }: `view` opens it on 'rename' instead of the list. */
 export function TreeMenu({ api, at, theme, onClose }) {
   const c = COLOURS[theme] || COLOURS.light;
@@ -92,17 +104,19 @@ export function TreeMenu({ api, at, theme, onClose }) {
   };
   const added = (n) => { if (n) { setNode(n.id); setView('rename'); } };
   const left = Math.min(at.x, window.innerWidth - 206);
-  const top = Math.min(at.y, window.innerHeight - (view === 'icons' ? 230 : 190));
+  const top = Math.min(at.y, window.innerHeight - (view === 'icons' ? 230 : 240));
 
   return (
     <div ref={me} style={{ ...panel(c), left, top }} role="menu" aria-label="Tree node">
       {view === 'rename' && <Rename key={node} c={c} title={place.node.title} onSave={(text) => apply((t) => rename(t, node, text))} />}
       {view === 'icons' && <Icons c={c} onPick={(name) => apply((t) => setIcon(t, node, name))} />}
+      {view === 'colours' && <Colours c={c} current={place.node.color} onPick={(hex) => apply((t) => setColor(t, node, hex))} />}
       {view === 'list' && (
         <>
           <Item c={c} label="Add child" onClick={() => apply((t) => addChild(t, node), added)} />
           <Item c={c} label="Add sibling" off={!place.parent} onClick={() => apply((t) => addSibling(t, node), added)} />
           <Item c={c} label="Change icon" onClick={() => setView('icons')} />
+          <Item c={c} label="Change colour" onClick={() => setView('colours')} />
           <Item c={c} label="Rename" onClick={() => setView('rename')} />
           <Item c={c} label="Move up" off={!canMove(tree, node, -1)} onClick={() => apply((t) => move(t, node, -1))} />
           <Item c={c} label="Move down" off={!canMove(tree, node, 1)} onClick={() => apply((t) => move(t, node, 1))} />

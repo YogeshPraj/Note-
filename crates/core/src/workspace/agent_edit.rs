@@ -21,7 +21,9 @@ impl<S: Send> Workspace<S> {
             "save_document" => self.agent_save(args),
             "select_lines" => self.agent_select(args),
             // Commands are handled in the window: it calls `agent_command` and runs what that allows.
+            "new_whiteboard" => Ok(self.agent_new_board()),
             "run_command" => Err(Error::Agent("Only the window can run commands.".into())),
+            _ if crate::mcp::tools::is_board(tool) => Err(Error::Agent("Only a whiteboard page can do this.".into())),
             _ => Err(Error::Agent(format!("There is no tool \"{tool}\"."))),
         }
     }
@@ -103,7 +105,7 @@ impl<S: Send> Workspace<S> {
 
     /// Where a save goes: the tab's own file, or a new file the agent names. Writing over another file would destroy it,
     /// and a file changed on disk since it was read would lose the other program's work, so both are refused.
-    fn agent_save_target(&self, i: usize, args: Args<'_>) -> Result<Option<PathBuf>, Error> {
+    pub(super) fn agent_save_target(&self, i: usize, args: Args<'_>) -> Result<Option<PathBuf>, Error> {
         let t = &self.tabs[i];
         let Some(asked) = args.opt_text("path")? else {
             let Some(path) = &t.path else {
@@ -124,7 +126,10 @@ impl<S: Send> Workspace<S> {
     }
 
     fn agent_save(&mut self, args: Args<'_>) -> Result<Value, Error> {
-        let i = self.agent_text_tab(args)?;
+        let named = self.agent_tab(args)?;
+        // A whiteboard's content is its latest scene by now: the page has just handed it over.
+        let board = self.tabs[named].kind == TabKind::Whiteboard && !self.tabs[named].encrypted;
+        let i = if board { named } else { self.agent_text_tab(args)? };
         let target = self.agent_save_target(i, args)?;
         let (id, keep) = (self.tabs[i].id, self.tabs[self.active].id);
         let ui = Headless::default();

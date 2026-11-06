@@ -26,6 +26,8 @@ use std::path::{Path, PathBuf};
 mod types;
 pub use self::types::*;
 mod agent;
+mod agent_board;
+pub use self::agent_board::BoardRequest;
 mod agent_commands;
 mod agent_edit;
 mod dock;

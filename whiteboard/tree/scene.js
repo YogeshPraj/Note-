@@ -9,7 +9,7 @@
 import { CaptureUpdateAction, convertToExcalidrawElements, viewportCoordsToSceneCoords } from '@excalidraw/excalidraw';
 
 import { fileId, iconFile, iconFiles } from './icons.js';
-import { clone, shapes } from './model.js';
+import { clone, newId, shapes } from './model.js';
 
 const INK = '#1e1e1e';
 const LINE = '#888780';
@@ -52,14 +52,28 @@ const frameIn = (parts) => parts.find((e) => e.customData.role === 'frame' && !e
 
 const bump = (e) => ({ version: e.version + 1, versionNonce: Math.floor(Math.random() * 2 ** 31) });
 
+/** Coloured icons are made when they are first needed. */
+function addColouredIcons(api, model) {
+  const coloured = shapes(model, 0, 0).filter((s) => s.kind === 'icon' && s.color);
+  if (coloured.length) api.addFiles(coloured.map((s) => iconFile(s.icon, s.color)));
+}
+
+/** Put a new tree on the scene at (x, y), as one undoable step. Returns its group. */
+export function insert(api, model, x, y) {
+  const group = newId();
+  addColouredIcons(api, model);
+  const made = makeShapes(model, x, y, group);
+  api.updateScene({ elements: [...api.getSceneElementsIncludingDeleted(), ...made], captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+  api.scrollToContent(made, { animate: false });
+  return group;
+}
+
 /** Draw `model` over the tree of `group`, as one undoable step. */
 export function redraw(api, group, model) {
   const old = partsOf(api, group);
   const frame = frameIn(old);
   if (!frame) return;
-  // Coloured icons are made when they are first needed.
-  const coloured = shapes(model, 0, 0).filter((s) => s.kind === 'icon' && s.color);
-  if (coloured.length) api.addFiles(coloured.map((s) => iconFile(s.icon, s.color)));
+  addColouredIcons(api, model);
   const byKey = new Map(old.map((e) => [e.customData.key, e]));
   const made = makeShapes(model, frame.x, frame.y, group).map((e) => {
     const was = byKey.get(e.customData.key);

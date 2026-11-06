@@ -12,7 +12,7 @@ use crate::widgets::web_pane::{WebPane, script};
 pub const BRIDGE: &str = r"
 window.addEventListener('message', function (e) {
   var d = e.data;
-  if (d && typeof d === 'object' && (d.type === 'wb-ready' || d.type === 'wb-state' || d.type === 'wb-data' || d.type === 'wb-save-request')) {
+  if (d && typeof d === 'object' && (d.type === 'wb-ready' || d.type === 'wb-state' || d.type === 'wb-data' || d.type === 'wb-save-request' || d.type === 'wb-agent-done')) {
     window.ipc.postMessage(JSON.stringify(d));
   }
 });
@@ -35,6 +35,16 @@ window.addEventListener('keydown', function (e) {
 }, true);
 ";
 
+/// A page's answer to an agent's request.
+#[derive(Debug, PartialEq)]
+pub struct AgentDone {
+    pub id: u64,
+    pub result: serde_json::Value,
+    pub error: Option<String>,
+    /// The scene as it is now.
+    pub scene: Option<String>,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Event {
     Ready,
@@ -47,6 +57,7 @@ pub enum Event {
     Tab(i32),
     /// Alt+letter pressed inside the page: the letter, or empty for F10.
     Menu(String),
+    AgentDone(AgentDone),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -81,6 +92,12 @@ pub fn parse(msg: &str) -> Option<Event> {
         "wb-data" => Event::Data(content()),
         "wb-save-request" => Event::SaveRequest,
         "wb-focus" => Event::Focus,
+        "wb-agent-done" => Event::AgentDone(AgentDone {
+            id: v.get("id")?.as_u64()?,
+            result: v.get("result").cloned().unwrap_or_default(),
+            error: v.get("error").and_then(|e| e.as_str()).map(str::to_string),
+            scene: v.get("scene").and_then(|s| s.as_str()).map(str::to_string),
+        }),
         "wb-menu" => Event::Menu(v.get("key").and_then(|k| k.as_str()).unwrap_or("").to_string()),
         "wb-tab" => Event::Tab(if v.get("delta").and_then(serde_json::Value::as_i64) == Some(-1) { -1 } else { 1 }),
         _ => return None,
@@ -89,6 +106,11 @@ pub fn parse(msg: &str) -> Option<Event> {
 
 pub fn load(pane: &WebPane, scene: &str) {
     pane.eval(&format!("window.postMessage({{type:'wb-load',content:{}}},'*')", script::js_string(scene)));
+}
+
+/// Hand the page an agent's request. It is parsed in the page, so that nothing in it can be taken for script.
+pub fn agent(pane: &WebPane, id: u64, op: &serde_json::Value) {
+    pane.eval(&format!("window.postMessage({{type:'wb-agent',id:{id},op:JSON.parse({})}},'*')", script::js_string(&op.to_string())));
 }
 
 pub fn set_theme(pane: &WebPane, dark: bool) {

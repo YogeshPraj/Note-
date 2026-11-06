@@ -15,7 +15,7 @@ const INVALID_PARAMS: i32 = -32602;
 pub const PARSE_ERROR: i32 = -32700;
 
 const INSTRUCTIONS: &str = "Note++ is a text editor the user has open. These tools work on its tabs, and the user sees every change. \
-Call list_tabs first; list_commands gives the editor's own commands, for run_command. Tabs are named by the id it gives; ids stay the same while a tab is open. Whiteboards and pictures are listed but cannot be read yet, and encrypted documents are refused.";
+Call list_tabs first; list_commands gives the editor's own commands, for run_command. Tabs are named by the id it gives; ids stay the same while a tab is open. Whiteboards have tools of their own: read_whiteboard, add_shapes, add_tree and whiteboard_image, which shows the result. Pictures are listed but cannot be read yet, and encrypted documents are refused.";
 
 /// A JSON-RPC error reply.
 pub fn error_reply(id: &Value, code: i32, message: &str) -> Value {
@@ -55,6 +55,10 @@ fn tool_call(id: &Value, msg: &Value, run: &dyn Fn(&str, &Value) -> Result<Value
         id,
         &match run(name, args) {
             Ok(Value::String(text)) => content(&text, false),
+            Ok(value) if value.get("image_png").is_some() => json!({
+                "content": [{ "type": "image", "data": value["image_png"], "mimeType": "image/png" }],
+                "isError": false,
+            }),
             Ok(value) => content(&value.to_string(), false),
             // A tool that fails is an answer the agent can act on, not a protocol error.
             Err(e) => content(&e.to_string(), true),
@@ -135,6 +139,14 @@ mod tests {
         assert_eq!((good["result"]["content"][0]["text"].as_str(), &good["result"]["isError"]), (Some("{\"ok\":1}"), &json!(false)));
         let bad = answer(&msg("read_document"), &run).unwrap();
         assert_eq!((bad["result"]["content"][0]["text"].as_str(), &bad["result"]["isError"]), (Some("no"), &json!(true)));
+    }
+
+    #[test]
+    fn a_picture_is_an_image_answer() {
+        let run = |_: &str, _: &Value| -> Result<Value, Error> { Ok(json!({ "image_png": "QUJD" })) };
+        let r = answer(&json!({ "id": 1, "method": "tools/call", "params": { "name": "whiteboard_image" } }), &run).unwrap();
+        let item = &r["result"]["content"][0];
+        assert_eq!((item["type"].as_str(), item["data"].as_str(), item["mimeType"].as_str()), (Some("image"), Some("QUJD"), Some("image/png")));
     }
 
     #[test]

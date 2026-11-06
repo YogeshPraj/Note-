@@ -19,6 +19,10 @@ pub(crate) struct McpState {
     timer: Option<Timer<Frame>>,
     /// Why the server is not running although it should be.
     problem: Option<String>,
+    /// Calls that wait for a whiteboard's page.
+    pub(super) parked: Vec<super::mcp_board::Parked>,
+    /// The last request number given to a page.
+    pub(super) next_op: u64,
 }
 
 /// The server's clock, then the server itself if the settings say so.
@@ -51,6 +55,7 @@ impl App {
         }
         // Dropping it frees the port first, and tells any waiting call that it stopped.
         self.mcp.server = None;
+        self.mcp.parked.clear();
         self.mcp.problem = None;
         if let Some(port) = want {
             match start(port, self.mcp.queue.clone()) {
@@ -81,6 +86,18 @@ impl App {
             if let Some(tool) = tools::find(&job.tool).filter(|t| t.level > Level::Read) {
                 self.flash = Some(format!("AI agent: {}", tool.title));
             }
+            match self.ws.agent_board(level, &job.tool, &job.args) {
+                Ok(Some(request)) => {
+                    self.mcp_park(level, job, request);
+                    ran = true;
+                    continue;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    job.finish(Err(e));
+                    continue;
+                }
+            }
             let result = if job.tool == "run_command" { self.mcp_command(level, &job.args) } else { self.ws.agent_call(level, &job.tool, &job.args) };
             job.finish(result);
             ran = true;
@@ -88,6 +105,7 @@ impl App {
         if ran {
             self.refresh();
         }
+        self.mcp_pump();
     }
 
     /// Run a registry command an agent named, through the same path a menu takes, and pass on what it reported.

@@ -166,6 +166,35 @@ fn a_tab_that_does_not_exist_is_said() {
 }
 
 #[test]
+fn a_whiteboard_call_is_checked_and_brings_the_board_to_the_front() {
+    let mut ws = workspace();
+    let text = ws.tabs[0].id;
+    ws.new_whiteboard();
+    let board = ws.tabs[1].id;
+    ws.activate(0);
+    assert_eq!(ws.agent_board(Level::Read, "list_tabs", &json!({})).unwrap(), None, "not for a page");
+    assert!(failure(ws.agent_board(Level::Read, "add_shapes", &json!({ "tab": board })).map(|_| json!(0))).contains("Edit"));
+    assert!(failure(ws.agent_board(Level::Edit, "add_shapes", &json!({ "tab": text })).map(|_| json!(0))).contains("not a whiteboard"));
+    assert_eq!(ws.active, 0, "a refused call moves nobody");
+    let request = ws.agent_board(Level::Edit, "add_shapes", &json!({ "tab": board, "shapes": [] })).unwrap().unwrap();
+    assert_eq!((request.tab, request.op["tool"].as_str(), request.save_after), (board, Some("add_shapes"), false));
+    assert_eq!(ws.active, 1);
+    ws.tabs[1].encrypted = true;
+    assert!(failure(ws.agent_board(Level::Edit, "read_whiteboard", &json!({})).map(|_| json!(0))).contains("encrypted"));
+}
+
+#[test]
+fn saving_a_whiteboard_asks_the_page_for_its_scene_first() {
+    let mut ws = workspace();
+    ws.new_whiteboard();
+    assert!(failure(ws.agent_board(Level::Edit, "save_document", &json!({})).map(|_| json!(0))).contains("no file yet"));
+    ws.tabs[1].path = Some(std::env::temp_dir().join("notepp-agent-no-such-board.excalidraw"));
+    let request = ws.agent_board(Level::Edit, "save_document", &json!({})).unwrap().unwrap();
+    assert_eq!((request.op["tool"].as_str(), request.save_after), (Some("sync"), true));
+    assert_eq!(ws.agent_board(Level::Edit, "save_document", &json!({ "tab": ws.tabs[0].id })).unwrap(), None, "text saves here");
+}
+
+#[test]
 fn whiteboards_and_encrypted_documents_are_refused() {
     let mut ws = workspace();
     let plain = ws.tabs[0].id;

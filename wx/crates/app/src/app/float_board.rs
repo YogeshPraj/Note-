@@ -87,6 +87,7 @@ impl App {
                 }
             }
             wbm::Event::State(s) => self.scene_changed(tab, s),
+            wbm::Event::AgentDone(done) => self.mcp_board_done(done),
             wbm::Event::Data(s) => {
                 self.scene_changed(tab, s);
                 done = self.take_waiting(tab);

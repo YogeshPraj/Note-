@@ -22,6 +22,7 @@ impl App {
             }
             // Beside a dock or a floating window, the click brings the user back to the main window.
             wbm::Event::Focus => self.ws.focus_pane(false),
+            wbm::Event::AgentDone(done) => self.mcp_board_done(done),
             wbm::Event::Tab(_) | wbm::Event::Menu(_) => {} // handled before this, with nothing borrowed
         }
         self.refresh();

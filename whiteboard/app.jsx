@@ -7,6 +7,8 @@
 //   iframe → parent : wb-ready, wb-state {content}, wb-data {content},
 //                     wb-save-request
 //
+// An AI agent's requests go the same way: wb-agent {id, op} in, wb-agent-done {id, result or error, scene} out.
+//
 // File format envelope (always sent to / received from parent):
 //   { __wb__: true, version: 2, source: 'excalidraw',
 //     elements: [...],            // Excalidraw scene elements
@@ -22,6 +24,7 @@ import { createRoot } from 'react-dom/client';
 import { Excalidraw, serializeAsJSON, FONT_FAMILY } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
+import { runOp } from './agent/page.js';
 import { LIBRARY_IDS, libraryItems } from './tree/library.js';
 import { TreeMenu } from './tree/menu.jsx';
 import { toggle } from './tree/model.js';
@@ -342,6 +345,18 @@ function App() {
           type: 'wb-data',
           content: buildEnvelope(els, app, files),
         }, '*');
+        return;
+      }
+
+      if (m.type === 'wb-agent') {
+        if (!api) return;
+        const reply = (fields) => window.parent?.postMessage({
+          type: 'wb-agent-done',
+          id: m.id,
+          scene: buildEnvelope(api.getSceneElements(), api.getAppState(), api.getFiles()),
+          ...fields,
+        }, '*');
+        runOp(api, m.op).then((result) => reply({ result }), (e) => reply({ error: e.message }));
         return;
       }
 

@@ -84,3 +84,9 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - MCP: Edit runs the commands that change text, plus selection and bookmarks. Full adds the view, the window, tab order, pinning, a new whiteboard, and closing unchanged tabs.
 - MCP: copying is out along with pasting, so that an agent never overwrites the user's clipboard. It can read documents directly.
 - MCP: the families (languages, encodings) and docking and floating are not available to agents yet: families need an argument, and docking whiteboards is asynchronous.
+- MCP: a whiteboard comes to the front for any agent call, also for reading, as a page only holds the tab it shows and a hidden tab's text could miss the last strokes.
+- MCP: agents draw through Excalidraw's own converter in the page, not by writing the file: text is measured, and the result is what a drawn shape is.
+- MCP: `whiteboard_image` exists so that an agent can check its drawing. Coordinates alone do not show overlaps.
+- MCP: a tree reads as one item with its nodes, however many shapes draw it. An agent changes a tree by giving back all of it (`set_tree`).
+- MCP: an arrow between shapes is a straight line. Moving a shape redraws its arrows straight, including one the user had bent.
+- MCP: agents have no Undo on a whiteboard: Excalidraw does not offer one to a program. The user's Ctrl+Z takes back each agent step.

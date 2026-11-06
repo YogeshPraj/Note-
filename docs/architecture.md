@@ -154,6 +154,14 @@ it says which level it needs. `Workspace::agent_command` decides whether a comma
 stop the window until the user answers. Commands that `run_command` in `wiring.rs` handles by itself never reach `execute`, so they
 cannot be listed: that rules out docking, floating, and the panels that open windows.
 
+Whiteboards work differently, as their latest strokes are only in the page. `Workspace::agent_board` checks the call and brings the
+tab to the front, since a page only holds the tab it shows. `app/mcp_board.rs` keeps the call until that page is ready, sends it
+(`wb-agent`), and answers when the page replies (`wb-agent-done`, which also brings the scene, so saving has the latest). The page
+side is `whiteboard/agent/`: `shapes.js` has no Excalidraw in it (`node --test`), and `page.js` carries the calls out. Excalidraw's
+converter makes the shapes, so text is measured and labels held as on drawn ones, but it only records that an arrow is joined and
+leaves it where it was put: `route` works out the path, and again when a shape moves. A request is sent from the main loop:
+running a script waits in a message loop of its own, and a quick reply arriving then finds the app borrowed and is lost.
+
 The token is in a file of its own in the profile (`mcp-token`), not in `settings.json`, which may be shared or backed up. Agents reach
 only tabs and the workspace folder, never the profile; network paths are refused before the disk is touched, since looking at one
 sends the user's credentials to its host.

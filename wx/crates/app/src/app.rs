@@ -117,6 +117,7 @@ mod float_keys;
 mod float_pane;
 mod float_picture;
 mod mcp;
+mod mcp_board;
 pub(crate) use dock_pane::{DockCommands, DockPanes};
 mod notes;
 pub(crate) use notes::*;

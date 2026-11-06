@@ -243,6 +243,9 @@ Commands agents can run are an allow list (`mcp::commands`). Nothing on it reads
 network, deletes or moves files, touches passwords or encryption, prints or ends the program. A test names the commands that must
 never be on it.
 
+On a whiteboard an agent's request reaches the page as data: it is parsed there with `JSON.parse`, never put in a script as code, and
+colours are checked against a pattern, since they end up in the drawing.
+
 Not covered, and known: a program already running as the user can read the token file, as it can read anything else of theirs. A program
 that takes the port first, while Note++ is off, would receive the token from an agent configured to connect. Both need code already
 running on the machine. Until Stage 5 there is no approval of new clients, no activity log, and no way to stop a client except turning

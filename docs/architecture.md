@@ -103,6 +103,19 @@ shows text: the main window goes by `main_is_page()`, and commands by `is_page()
 Dock Back and closing ask for the scene first (`wb-get-data`) and act when it arrives. Scenes are applied to a tab by id, never
 to the active tab, since the page sending one need not be where the keyboard is.
 
+## Whiteboard page
+
+The Excalidraw page is built from `whiteboard/` by `old-src/build-whiteboard.js` (its packages are still in `old-src`). A tree on the
+whiteboard (`whiteboard/tree/`) is real Excalidraw shapes in one group, with the tree itself in the frame's `customData`:
+`model.js` is the data and has no toolkit in it (`node --test`), `scene.js` draws it and watches the mouse, `menu.jsx` is the
+right-click menu, `library.js` the built-in Tree and Agent items, which are never saved with the user's library.
+
+Shapes are found by the `key` in their `customData` inside the group, never by id: copying a tree or dragging it from the library
+gives every shape a new id. For undo, a redraw keeps each shape's id with a higher version and a new nonce, marks what goes as
+deleted rather than dropping it, and passes `CaptureUpdateAction.IMMEDIATELY`. A click kept from Excalidraw, and the menu closing,
+must give the canvas the keyboard back, or Ctrl+Z never reaches it. A line must be given its width and height: left alone it
+draws correctly but measures 100 wide.
+
 ## Docked tab
 
 One tab can sit in a second Scintilla view beside the main one, both editable (`workspace/dock.rs`, `app/dock_pane.rs`).

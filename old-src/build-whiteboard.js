@@ -11,7 +11,7 @@ const fs      = require('fs');
 const path    = require('path');
 
 const ROOT = __dirname;
-const ENTRY  = path.join(ROOT, 'src', 'whiteboard-app.jsx');
+const ENTRY  = path.join(ROOT, '..', 'whiteboard', 'app.jsx');
 const OUTDIR = path.join(ROOT, 'src');
 
 const FONT_SRC = path.join(ROOT, 'node_modules', '@excalidraw', 'excalidraw', 'dist', 'prod', 'fonts');
@@ -38,6 +38,7 @@ copyDirRecursive(FONT_SRC, FONT_DST);
 // ─── 2. Bundle the React app ─────────────────────────────────────────────────
 const buildOptions = {
   entryPoints: [ENTRY],
+  nodePaths: [path.join(ROOT, 'node_modules')],
   bundle: true,
   outdir: OUTDIR,
   entryNames: 'whiteboard.bundle',

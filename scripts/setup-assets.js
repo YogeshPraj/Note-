@@ -3,7 +3,7 @@
 //   assets/mermaid.min.js                       Mermaid, for diagram previews
 //   assets/whiteboard/whiteboard.bundle.{js,css} the Excalidraw whiteboard
 //   assets/whiteboard/excalidraw-fonts/          its fonts
-// They are built from old-src/ (exact versions and hashes in its package-lock.json).
+// They are built from whiteboard/ and old-src/ (exact versions and hashes in its package-lock.json).
 // Safe to re-run. Needs Node.js 18+.
 //
 //   node scripts/setup-assets.js

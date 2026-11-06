@@ -175,7 +175,7 @@ If you find a vulnerability, please open a private security advisory on GitHub r
 
 ## License
 
-MIT. Scintilla and Lexilla are by Neil Hodgson and are used under the HPND license. The preview also bundles [highlight.js](https://highlightjs.org/) (BSD-3-Clause), [KaTeX](https://katex.org/) (MIT), [Mermaid](https://mermaid.js.org/) (MIT) and [JSON Editor](https://github.com/josdejong/jsoneditor) (Apache-2.0).
+MIT. Scintilla and Lexilla are by Neil Hodgson and are used under the HPND license. The whiteboard's tree icons are [Tabler Icons](https://tabler.io/icons) (MIT, `whiteboard/tree/LICENSE-tabler-icons`). The preview also bundles [highlight.js](https://highlightjs.org/) (BSD-3-Clause), [KaTeX](https://katex.org/) (MIT), [Mermaid](https://mermaid.js.org/) (MIT) and [JSON Editor](https://github.com/josdejong/jsoneditor) (Apache-2.0).
 
 ---
 

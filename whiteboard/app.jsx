@@ -22,6 +22,11 @@ import { createRoot } from 'react-dom/client';
 import { Excalidraw, serializeAsJSON, FONT_FAMILY } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
+import { LIBRARY_IDS, libraryItems } from './tree/library.js';
+import { TreeMenu } from './tree/menu.jsx';
+import { toggle } from './tree/model.js';
+import { addIcons, listen, modelOf, redraw } from './tree/scene.js';
+
 // Default appState used when a brand-new whiteboard is opened (no saved
 // scene, or saved scene didn't specify these). Excalidraw's stock
 // defaults are hand-drawn (Virgil font + medium roughness) which suits
@@ -69,7 +74,9 @@ function readSavedLibraryItems() {
 }
 function saveLibraryItems(items) {
   try {
-    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(items || []));
+    // The Tree and Agent items are the program's: they come back with it, and do not belong in the user's own library.
+    const own = (items || []).filter((i) => !LIBRARY_IDS.includes(i.id));
+    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(own));
   } catch (e) {
     console.warn('[wb] failed to persist library items:', e);
   }
@@ -198,6 +205,12 @@ function parseIncoming(jsonStr) {
 }
 
 // Build the envelope we send back to the parent.
+// Every page holds all the tree's icons: only those a shape uses go in the file.
+function usedFiles(elements, files) {
+  const used = new Set(elements.filter((e) => e.type === 'image' && !e.isDeleted).map((e) => e.fileId));
+  return Object.fromEntries(Object.entries(files || {}).filter(([id]) => !id.startsWith('notepp-tree-') || used.has(id)));
+}
+
 function buildEnvelope(elements, appState, files) {
   // Strip volatile/large fields from appState so the saved file stays small
   // and reproducible across sessions.
@@ -226,7 +239,7 @@ function buildEnvelope(elements, appState, files) {
     source: 'excalidraw',
     elements: elements || [],
     appState: slim,
-    files: files || {},
+    files: usedFiles(elements, files),
   });
 }
 
@@ -236,7 +249,8 @@ function App() {
   // Read the persisted library once at first render — Excalidraw consumes
   // initialData synchronously on mount, so we can't wait on async I/O.
   // localStorage is sync, so this is safe.
-  const [initialLibraryItems] = useState(() => readSavedLibraryItems());
+  const [initialLibraryItems] = useState(() => [...libraryItems(), ...readSavedLibraryItems()]);
+  const [treeMenu, setTreeMenu] = useState(null);
   // Debounce parent-state notifications: Excalidraw onChange fires *very*
   // often. We only need committed snapshots, not every pointer move.
   const stateTimer = useRef(null);
@@ -405,6 +419,26 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Trees on the canvas: folding happens at the click, the rest in the menu.
+  useEffect(() => {
+    if (!api) return undefined;
+    addIcons(api);
+    return listen(api, {
+      onFold: (group, node) => {
+        const model = modelOf(api, group);
+        if (model && toggle(model, node)) redraw(api, group, model);
+      },
+      onMenu: (group, node, x, y) => setTreeMenu({ group, node, x, y }),
+      onRename: (group, node, x, y) => setTreeMenu({ group, node, x, y, view: 'rename' }),
+    });
+  }, [api]);
+
+  const closeTreeMenu = useCallback(() => {
+    setTreeMenu(null);
+    // The menu had the keyboard: without this, Ctrl+Z does not reach the canvas.
+    document.querySelector('.excalidraw-container')?.focus();
+  }, []);
+
   const handleChange = useCallback((elements, appState, files) => {
     scheduleSendState(elements, appState, files);
   }, [scheduleSendState]);
@@ -432,6 +466,7 @@ function App() {
           },
         }}
       />
+      {treeMenu && api && <TreeMenu api={api} at={treeMenu} theme={theme} onClose={closeTreeMenu} />}
     </div>
   );
 }

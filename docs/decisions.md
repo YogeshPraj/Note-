@@ -67,3 +67,7 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - The tab menu's old Undock is now Dock Back, for docked and floating tabs alike; Undock now means "make it a window".
 - Floating windows have no parent window, so that they minimise and appear on the taskbar on their own.
 - One whiteboard page and one picture page serve the dock, each kept once made: a dock holds one tab, and a page costs a WebView2 start. They stay loaded after Dock Back.
+- The whiteboard's source moved from `old-src/src` to `whiteboard/`, as `old-src` is not to be extended; the build and its packages stay there for now.
+- Only the icons a tree uses are saved in a whiteboard file: all twenty are in every page, and a board with no tree must not grow.
+- A tree's connector lines use Excalidraw's dotted style, which is coarser than a classic tree's at this size: finer dots would mean many more shapes per row.
+- The Library shows the built-in items under Excalidraw's own heading "Excalidraw Library", which has no setting to change.

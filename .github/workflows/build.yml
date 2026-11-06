@@ -84,6 +84,9 @@ jobs:
       - name: Test (portable core)
         run: cargo test --workspace --locked
 
+      - name: Test (whiteboard tree)
+        run: node --test whiteboard/tree/model.test.js
+
       - name: Package
         run: ./scripts/package.ps1
 

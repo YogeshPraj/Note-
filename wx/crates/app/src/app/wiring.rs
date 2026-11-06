@@ -257,6 +257,12 @@ pub(super) fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view
                     crate::services::clipboard::copy_image(w, h, &rgba);
                 }
             }
+            m if m.starts_with("agent-done:") => {
+                let done = serde_json::from_str(&m[11..]).ok().and_then(|v| wbm::agent_done(&v));
+                if let (Some(done), Ok(mut app)) = (done, a.try_borrow_mut()) {
+                    app.mcp_board_done(done);
+                }
+            }
             "need-jsoneditor" => {
                 let pv = pv.clone();
                 crate::widgets::defer::later(&frame, move || preview::load_json_editor(&pv));

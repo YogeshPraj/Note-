@@ -9,11 +9,16 @@ use super::*;
 use crate::error::Error;
 use crate::mcp::access::Level;
 use crate::mcp::args::Args;
-use crate::mcp::{page_tools, tools};
+use crate::mcp::{page_tools, text, tools};
 
 /// The limits of a picture, as in `assets/imageagent.js`.
 const MAX_PICTURE_SIDE: u64 = 16_000;
 const MAX_PICTURE_AREA: u64 = 64_000_000;
+
+/// In place of a tab: the request is for the preview page, which can draw whatever the pane is showing.
+pub const PREVIEW_PAGE: u64 = 0;
+/// The longest diagram source, the limit Mermaid itself keeps to.
+const MAX_DIAGRAM: usize = 50_000;
 
 /// A request for the page showing tab `tab`.
 #[derive(Debug, PartialEq)]
@@ -61,6 +66,9 @@ impl<S: Send> Workspace<S> {
     /// Why the call cannot run, before anything has moved.
     pub fn agent_board(&mut self, level: Level, tool: &str, args: &Value) -> Result<Option<BoardRequest>, Error> {
         let a = Args(args);
+        if tool == "preview_diagram" {
+            return self.agent_diagram(a).map(Some);
+        }
         let named = self.agent_tab(a).ok().map(|i| self.tabs[i].kind).filter(|k| *k != TabKind::Text);
         let saving = tool == "save_document" && named.is_some();
         let Some(kind) = page_tools::kind_of(tool).or(named.filter(|_| saving)) else { return Ok(None) };
@@ -80,6 +88,21 @@ impl<S: Send> Workspace<S> {
         self.activate(i);
         let op = json!({ "tool": if saving { "sync" } else { tool }, "args": args });
         Ok(Some(BoardRequest { tab: self.tabs[i].id, op, save_after: saving }))
+    }
+
+    /// A diagram for the preview page to draw. Nothing moves: an agent checking a diagram is no reason to change the screen.
+    fn agent_diagram(&self, a: Args<'_>) -> Result<BoardRequest, Error> {
+        let source = if let Some(text) = a.opt_text("text")? {
+            text.to_string()
+        } else {
+            let i = self.agent_text_tab(a)?;
+            self.with_doc(self.tabs[i].doc, |s| sci::get_text(s))
+        };
+        let source = text::mermaid_source(&source).ok_or_else(|| Error::Agent("There is no diagram to draw.".into()))?;
+        if source.len() > MAX_DIAGRAM {
+            return Err(Error::Agent(format!("The diagram is too long: Mermaid takes up to {MAX_DIAGRAM} characters.")));
+        }
+        Ok(BoardRequest { tab: PREVIEW_PAGE, op: json!({ "tool": "preview_diagram", "source": source }), save_after: false })
     }
 
     pub(super) fn agent_new_board(&mut self) -> Value {

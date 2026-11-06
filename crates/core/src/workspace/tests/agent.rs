@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::cell::RefCell;
 
 #[derive(Default)]
-struct Recorder {
+pub(super) struct Recorder {
     doc: Cell<isize>,
     next: Cell<isize>,
     read_only: Cell<bool>,
@@ -34,13 +34,13 @@ impl sci::Send for Recorder {
     }
 }
 
-fn workspace() -> Workspace<Recorder> {
+pub(super) fn workspace() -> Workspace<Recorder> {
     let mut ws = Workspace::new(Recorder { next: Cell::new(100), ..Recorder::default() });
     ws.new_tab();
     ws
 }
 
-fn failure(r: Result<Value, crate::error::Error>) -> String {
+pub(super) fn failure(r: Result<Value, crate::error::Error>) -> String {
     r.unwrap_err().to_string()
 }
 
@@ -132,6 +132,49 @@ fn the_command_list_says_what_each_needs() {
 }
 
 #[test]
+fn the_user_is_asked_about_an_encrypted_tab_and_the_answer_holds() {
+    let mut ws = workspace();
+    ws.tabs[0].encrypted = true;
+    let tab = ws.tabs[0].id;
+    let read = json!({ "tab": tab });
+    assert!(failure(ws.agent_call(Level::Read, "read_document", &read)).contains("asking the user"));
+    assert_eq!(ws.agent_asking().map(|a| a.0), Some(tab));
+    assert_eq!(ws.agent_asking(), None, "asked once");
+    ws.agent_answer(tab, true);
+    assert!(ws.agent_call(Level::Read, "read_document", &read).is_ok());
+    ws.agent_forget();
+    assert!(ws.agent_call(Level::Read, "read_document", &read).is_err(), "only until the agents stop");
+    ws.agent_asking();
+    ws.agent_answer(tab, false);
+    assert!(failure(ws.agent_call(Level::Read, "read_document", &read)).contains("refused"));
+    assert_eq!(ws.agent_asking(), None, "a refusal is not asked about again");
+}
+
+#[test]
+fn the_log_names_what_a_call_was_about_and_no_text() {
+    let mut ws = workspace();
+    ws.tabs[0].title = "notes.txt".into();
+    assert_eq!(ws.agent_target("read_document", &json!({})), "notes.txt");
+    assert_eq!(ws.agent_target("write_document", &json!({ "tab": ws.tabs[0].id, "text": "secret words" })), "notes.txt");
+    assert_eq!(ws.agent_target("open_file", &json!({ "path": "C:/a.txt", "text": "secret words" })), "C:/a.txt");
+    assert_eq!(ws.agent_target("read_document", &json!({ "tab": 9999 })), "a tab now closed");
+    assert_eq!(ws.agent_target("list_tabs", &json!({})), "", "not about a tab");
+    assert_eq!(ws.agent_target("new_document", &json!({ "text": "secret words" })), "");
+    assert_eq!(ws.agent_target("preview_diagram", &json!({ "text": "graph TD" })), "", "a diagram given as text is about no tab");
+    assert_eq!(ws.agent_target("preview_diagram", &json!({})), "notes.txt");
+}
+
+#[test]
+fn a_snapshot_tab_is_read_only_and_reused() {
+    let mut ws = workspace();
+    ws.show_snapshot("AI activity", "one");
+    ws.new_tab();
+    ws.show_snapshot("AI activity", "two");
+    assert_eq!(ws.tabs.iter().filter(|t| t.title == "AI activity").count(), 1);
+    assert_eq!(ws.tabs[ws.active].title, "AI activity");
+}
+
+#[test]
 fn an_unknown_tool_is_refused() {
     let mut ws = workspace();
     assert!(ws.agent_call(Level::Edit, "delete_file", &json!({})).is_err());
@@ -163,95 +206,6 @@ fn a_tab_that_does_not_exist_is_said() {
     let mut ws = workspace();
     assert!(failure(ws.agent_call(Level::Read, "read_document", &json!({ "tab": 9999 }))).contains("9999"));
     assert!(failure(ws.agent_call(Level::Read, "switch_tab", &json!({}))).contains("required"));
-}
-
-#[test]
-fn a_whiteboard_call_is_checked_and_brings_the_board_to_the_front() {
-    let mut ws = workspace();
-    let text = ws.tabs[0].id;
-    ws.new_whiteboard();
-    let board = ws.tabs[1].id;
-    ws.activate(0);
-    assert_eq!(ws.agent_board(Level::Read, "list_tabs", &json!({})).unwrap(), None, "not for a page");
-    assert!(failure(ws.agent_board(Level::Read, "add_shapes", &json!({ "tab": board })).map(|_| json!(0))).contains("Edit"));
-    assert!(failure(ws.agent_board(Level::Edit, "add_shapes", &json!({ "tab": text })).map(|_| json!(0))).contains("not a whiteboard"));
-    assert_eq!(ws.active, 0, "a refused call moves nobody");
-    let request = ws.agent_board(Level::Edit, "add_shapes", &json!({ "tab": board, "shapes": [] })).unwrap().unwrap();
-    assert_eq!((request.tab, request.op["tool"].as_str(), request.save_after), (board, Some("add_shapes"), false));
-    assert_eq!(ws.active, 1);
-    ws.tabs[1].encrypted = true;
-    assert!(failure(ws.agent_board(Level::Edit, "read_whiteboard", &json!({})).map(|_| json!(0))).contains("encrypted"));
-}
-
-#[test]
-fn a_new_whiteboard_can_be_made_from_a_text_tab() {
-    let mut ws = workspace();
-    assert_eq!(ws.agent_board(Level::Edit, "new_whiteboard", &json!({})).unwrap(), None, "no page is needed");
-    let made = ws.agent_call(Level::Edit, "new_whiteboard", &json!({})).unwrap();
-    assert_eq!(made["tab"], ws.tabs[1].id);
-    assert_eq!(ws.tabs[1].kind, TabKind::Whiteboard);
-}
-
-#[test]
-fn every_page_tool_is_refused_on_a_text_tab_except_the_ones_that_make_a_tab() {
-    let makes_a_tab = ["new_whiteboard", "new_picture"];
-    for tool in crate::mcp::page_tools::TOOLS.iter().filter(|t| !makes_a_tab.contains(&t.name)) {
-        let mut ws = workspace();
-        assert!(ws.agent_board(Level::Full, tool.name, &json!({})).is_err(), "{}", tool.name);
-    }
-}
-
-#[test]
-fn saving_a_whiteboard_asks_the_page_for_its_scene_first() {
-    let mut ws = workspace();
-    ws.new_whiteboard();
-    assert!(failure(ws.agent_board(Level::Edit, "save_document", &json!({})).map(|_| json!(0))).contains("no file yet"));
-    ws.tabs[1].path = Some(std::env::temp_dir().join("notepp-agent-no-such-board.excalidraw"));
-    let request = ws.agent_board(Level::Edit, "save_document", &json!({})).unwrap().unwrap();
-    assert_eq!((request.op["tool"].as_str(), request.save_after), (Some("sync"), true));
-    assert_eq!(ws.agent_board(Level::Edit, "save_document", &json!({ "tab": ws.tabs[0].id })).unwrap(), None, "text saves here");
-}
-
-#[test]
-fn a_picture_call_is_checked_like_a_whiteboard_one() {
-    let mut ws = workspace();
-    let text = ws.tabs[0].id;
-    ws.new_image(String::new());
-    let picture = ws.tabs[1].id;
-    ws.activate(0);
-    assert!(failure(ws.agent_board(Level::Read, "add_annotations", &json!({ "tab": picture })).map(|_| json!(0))).contains("Edit"));
-    assert!(failure(ws.agent_board(Level::Edit, "add_annotations", &json!({ "tab": text })).map(|_| json!(0))).contains("not a picture"));
-    assert!(failure(ws.agent_board(Level::Edit, "add_shapes", &json!({ "tab": picture })).map(|_| json!(0))).contains("not a whiteboard"));
-    let read = ws.agent_board(Level::Read, "read_picture", &json!({ "tab": picture })).unwrap().unwrap();
-    assert_eq!((read.tab, read.op["tool"].as_str()), (picture, Some("read_picture")));
-    assert_eq!(ws.active, 1, "it came to the front");
-}
-
-#[test]
-fn saving_a_picture_asks_its_page_first_and_makes_a_png() {
-    let dir = std::env::temp_dir().join(format!("notepp-agent-png-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut ws = workspace();
-    ws.workspace = Some(dir.clone());
-    ws.new_image(String::new());
-    let asked = dir.join("shot.jpg");
-    let request = ws.agent_board(Level::Edit, "save_document", &json!({ "path": asked })).unwrap().unwrap();
-    assert_eq!((request.op["tool"].as_str(), request.save_after), (Some("sync"), true));
-    ws.agent_call(Level::Edit, "save_document", &json!({ "path": asked })).unwrap();
-    assert!(dir.join("shot.png").exists() && !asked.exists());
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn a_new_picture_with_a_wrong_size_leaves_no_empty_tab() {
-    let mut ws = workspace();
-    for args in [json!({ "width": 0, "height": 5 }), json!({ "width": 20000, "height": 5 }), json!({ "width": 16000, "height": 16000 }), json!({ "width": 5 })]
-    {
-        assert!(ws.agent_board(Level::Edit, "new_picture", &args).is_err(), "{args}");
-    }
-    assert_eq!(ws.tabs.len(), 1);
-    assert!(ws.agent_board(Level::Edit, "new_picture", &json!({ "width": 10, "height": 10 })).unwrap().is_some());
-    assert_eq!(ws.tabs.len(), 2);
 }
 
 #[test]

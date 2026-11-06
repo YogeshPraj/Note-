@@ -73,7 +73,7 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - The Library shows the built-in items under Excalidraw's own heading "Excalidraw Library", which has no setting to change.
 - MCP: `tools/list` gives every tool whatever the level: an agent told "ask the user to choose Edit" helps more than one that cannot know the tool exists, and the level can change while it is connected.
 - MCP: opening a file and switching tabs are allowed at Read only. They change what is on screen, not any file, and reading a file needs them.
-- MCP: until the user's approval of new clients exists (Stage 5), encrypted documents are simply refused, and with no workspace folder an agent reaches open tabs only.
+- MCP: with no workspace folder an agent reaches open tabs only.
 - MCP: new documents and opened files come to the front, as they do for the user; working on an existing tab does not move the user.
 - MCP: a save refuses a file changed on disk since it was read, and a save to a path refuses any existing file other than the tab's own. Saving a hidden tab activates it for the moment, as Save All does.
 - MCP: the copied setup is treated as a password: kept out of the clipboard history and cleared after 30 seconds.
@@ -95,3 +95,15 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - MCP: the picture an agent sees is at most 1600 pixels on its longest side, enough to read and small enough to send. Rotating, cropping and saving work on the full picture.
 - MCP: pictures are saved as PNG whatever name is given, as they are for the user.
 - MCP: `imageagent.js` is a file of its own so that it can be tested without a browser, at the cost of one marker in `imageeditor.html`.
+- MCP: approval goes by the name an agent gives, which it can make up. It catches an agent the user did not expect; it is not proof of identity, which the question's wording respects ("calls itself"). The token is the lock.
+- MCP: the approval question defaults to No, as Enter on an unexpected dialog must not let an agent in. A Yes is remembered in the settings, a No until the server stops.
+- MCP: a tool call waits up to 30 seconds for that answer on its own thread, so an agent can go straight on after a Yes. After that it is told to try again.
+- MCP: Stop turns the server off and leaves it off, as a Stop an agent could undo by reconnecting would stop nothing. It is in the Tools menu and on the status bar's AI segment.
+- MCP: an agent counts as connected for five minutes after its last call, as agents can think for minutes and HTTP does not say when one has gone.
+- MCP: the activity log is a file in the profile and is shown as a snapshot in a read-only tab, not opened as the file: the file changes as agents work, which would raise "changed by another program" again and again. Times are UTC, as core has no time zone data.
+- MCP: every call is logged, reads too: what an agent looked at is what a user wants to know afterwards.
+- MCP: a refused tool call counts as an answer in the log with its reason, so the log shows what agents tried as well as what they did.
+- MCP: `preview_diagram` is at Read only, as it changes nothing and moves nothing: it draws out of sight in the preview page, whether or not the pane is showing.
+- MCP: a tab given to `preview_diagram` is searched for its first mermaid block, or is taken whole. An agent wanting another block gives it as text.
+- MCP: a diagram for an agent is always in the light theme, so that its picture reads the same whatever the user's theme.
+- MCP: a busy port is tried again every three seconds for as long as agents are on, and the failure is said once. So if two Note++ have agents on, the second takes over when the first closes.

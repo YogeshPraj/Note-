@@ -27,6 +27,11 @@ pub fn call(pane: &WebPane, name: &str, payload: &str) {
     pane.call(&format!("window.np.{name}"), &[payload]);
 }
 
+/// Hand the page a diagram from an agent. It goes as data, never as script.
+pub fn agent(pane: &WebPane, id: u64, op: &serde_json::Value) {
+    pane.call("window.np.agentDiagram", &[&id.to_string(), op["source"].as_str().unwrap_or_default()]);
+}
+
 pub fn set_theme(pane: &WebPane, dark: bool) {
     pane.eval(&format!("window.np.setTheme({dark})"));
 }

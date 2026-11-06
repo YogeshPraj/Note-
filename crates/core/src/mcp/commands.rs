@@ -251,6 +251,8 @@ mod tests {
             ID_EXIT,
             ID_PREFS,
             ID_ABOUT,
+            ID_MCP_STOP,
+            ID_MCP_LOG,
         ];
         for id in never {
             assert_eq!(level_of(id), None, "id {id}");

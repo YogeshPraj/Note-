@@ -48,6 +48,8 @@ pub struct Settings {
     pub mcp_port: u16,
     /// What agents may do (`mcp::access::Level`). Text, so an unknown value means the lowest level, not unreadable settings.
     pub mcp_level: String,
+    /// The agents the user has allowed, by the names they give.
+    pub mcp_clients: Vec<String>,
 }
 
 impl Default for Settings {
@@ -78,6 +80,7 @@ impl Default for Settings {
             mcp_enabled: false,
             mcp_port: crate::mcp::DEFAULT_PORT,
             mcp_level: "read".into(),
+            mcp_clients: Vec::new(),
         }
     }
 }

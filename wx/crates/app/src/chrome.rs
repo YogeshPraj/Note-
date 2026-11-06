@@ -38,6 +38,7 @@ pub enum Act {
 pub const SEG_ENC: isize = 1;
 pub const SEG_EOL: isize = 2;
 pub const SEG_LANG: isize = 3;
+pub const SEG_AGENTS: isize = 4;
 
 #[derive(Default, Clone)]
 pub struct StatusText {
@@ -49,6 +50,8 @@ pub struct StatusText {
     pub lang: String,
     /// Typing replaces text (the Insert key).
     pub overtype: bool,
+    /// Which AI agents are connected, if any.
+    pub agents: Option<String>,
 }
 
 pub struct Chrome {
@@ -248,17 +251,16 @@ impl Chrome {
     }
 
     pub fn set_status(&self, t: StatusText) {
-        self.status_bar.set(
-            t.position,
-            vec![
-                Segment::text(if t.overtype { "OVR" } else { "INS" }),
-                Segment::button(t.lang, SEG_LANG),
-                Segment::button(t.eol, SEG_EOL),
-                Segment::button(t.enc, SEG_ENC),
-                Segment::text(t.length),
-                Segment::text(t.lines),
-            ],
-        );
+        let mut segments = vec![
+            Segment::text(if t.overtype { "OVR" } else { "INS" }),
+            Segment::button(t.lang, SEG_LANG),
+            Segment::button(t.eol, SEG_EOL),
+            Segment::button(t.enc, SEG_ENC),
+            Segment::text(t.length),
+            Segment::text(t.lines),
+        ];
+        segments.extend(t.agents.map(|text| Segment::button(text, SEG_AGENTS)));
+        self.status_bar.set(t.position, segments);
     }
 
     /// Tool-tips that come from the registry show the keymap's effective shortcut.

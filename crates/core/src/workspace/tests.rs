@@ -206,6 +206,7 @@ fn margins_follow_the_display_scale() {
 }
 
 mod agent;
+mod agent_pages;
 mod dock;
 mod floats;
 mod image;

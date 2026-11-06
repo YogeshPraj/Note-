@@ -89,9 +89,26 @@ pub fn exact_match(text: &str, old: &str, eol: Eol, all: bool) -> Result<(String
     Ok((wanted, found))
 }
 
+/// The Mermaid source in `text`: its first `mermaid` block, or all of it when it has none. None when there is nothing.
+pub fn mermaid_source(text: &str) -> Option<String> {
+    let mut lines = text.lines().skip_while(|l| !l.trim_start().starts_with("```mermaid"));
+    let source =
+        if lines.next().is_some() { lines.take_while(|l| !l.trim_start().starts_with("```")).collect::<Vec<_>>().join("\n") } else { text.to_string() };
+    (!source.trim().is_empty()).then_some(source)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_diagram_is_found_in_a_mermaid_file_or_a_markdown_block() {
+        assert_eq!(mermaid_source("graph TD\n A-->B\n").as_deref(), Some("graph TD\n A-->B\n"));
+        let doc = "# Title\n\n```js\nx\n```\n```mermaid\ngraph TD\n A-->B\n```\n\n```mermaid\nsecond\n```\n";
+        assert_eq!(mermaid_source(doc).as_deref(), Some("graph TD\n A-->B"));
+        assert_eq!(mermaid_source("  \n"), None);
+        assert_eq!(mermaid_source("```mermaid\n```"), None);
+    }
 
     #[test]
     fn lines_are_found_for_every_line_ending() {

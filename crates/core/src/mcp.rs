@@ -5,12 +5,14 @@
 //! [`server::Queue`], the shell runs it on the UI thread through `Workspace::agent_call`, and the worker waits for the answer.
 
 pub mod access;
+pub mod activity;
 pub mod args;
 pub mod commands;
 pub mod http;
 pub mod page_tools;
 pub mod protocol;
 pub mod server;
+pub mod sessions;
 pub mod text;
 pub mod tools;
 

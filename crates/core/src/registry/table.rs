@@ -31,6 +31,8 @@ pub static SPECS: &[CommandSpec] = &[
     row(ID_ENC_SETTINGS, "Encryption...", "Settings: Encryption...", "", ""),
     row(ID_PASSWORDS, "Passwords (Bitwarden)...", "Tools: Passwords (Bitwarden)...", "", ""),
     row(ID_PW_LOCK, "", "Tools: Lock Passwords (Bitwarden)", "", ""),
+    row(ID_MCP_LOG, "AI Activity Log", "Tools: AI Activity Log", "", ""),
+    row(ID_MCP_STOP, "Stop AI Agents", "Tools: Stop AI Agents", "", ""),
     row(ID_LOG_FOLLOW, "Log Follow (.log / .out / .err)", "View: Log Follow (.log / .out / .err)", "", ""),
     row(ID_TAB_PIN, "", "Tab: Pin / Unpin Current Tab", "", ""),
     row(ID_DOCK_BASE, "", "Tab: Dock Left", "", ""),

@@ -15,10 +15,14 @@ use serde_json::Value;
 
 use super::http::{self, Reject};
 use super::protocol;
+use super::sessions::{Sessions, Standing};
 use crate::error::Error;
 
 /// How long a tool call waits for the UI thread. A dialog the user has open holds the app that long at most.
 const WAIT: Duration = Duration::from_secs(15);
+/// How long a call waits for the user to answer about an agent. Longer than is comfortable for a person to read a question,
+/// and shorter than a client gives up.
+const APPROVAL_WAIT: Duration = Duration::from_secs(30);
 /// How long a client has to send its request, and to take the reply.
 const IO_LIMIT: Duration = Duration::from_secs(10);
 /// Connections served at once. More wait their turn: a local program must not be able to pile up threads.
@@ -27,6 +31,8 @@ const MAX_CONNECTIONS: usize = 16;
 /// One tool call on its way to the UI thread.
 #[derive(Debug)]
 pub struct Job {
+    /// The name of the agent calling.
+    pub client: String,
     pub tool: String,
     pub args: Value,
     deadline: Instant,
@@ -60,9 +66,9 @@ impl Queue {
     }
 
     /// Put a call on the queue and wait for its result.
-    fn call(&self, tool: &str, args: &Value) -> Result<Value, Error> {
+    fn call(&self, client: &str, tool: &str, args: &Value) -> Result<Value, Error> {
         let (reply, answer) = mpsc::channel();
-        self.lock().push_back(Job { tool: tool.to_string(), args: args.clone(), deadline: Instant::now() + WAIT, reply });
+        self.lock().push_back(Job { client: client.to_string(), tool: tool.to_string(), args: args.clone(), deadline: Instant::now() + WAIT, reply });
         match answer.recv_timeout(WAIT) {
             Ok(result) => result,
             Err(RecvTimeoutError::Timeout) => {
@@ -75,6 +81,24 @@ impl Queue {
     /// Answer nothing more: whoever is waiting is told the server stopped.
     fn clear(&self) {
         self.lock().clear();
+    }
+}
+
+/// The agent of session `id`, once the user lets it work. This waits on the connection's thread, so nothing else does.
+fn approved(sessions: &Sessions, id: &str) -> Result<String, Error> {
+    let until = Instant::now() + APPROVAL_WAIT;
+    loop {
+        match sessions.standing(id) {
+            Some((client, Standing::Allowed)) => return Ok(client),
+            Some((_, Standing::Refused)) => return Err(Error::Agent("The user refused this agent. Tell them, and do not try again.".into())),
+            None => return Err(Error::Agent("The agents were stopped.".into())),
+            Some((_, Standing::Waiting)) if Instant::now() >= until => {
+                return Err(Error::Agent(
+                    "The user has not answered yet: Note++ is asking them whether this agent may work. Ask them to look at Note++, then try again.".into(),
+                ));
+            }
+            Some((_, Standing::Waiting)) => std::thread::sleep(Duration::from_millis(50)),
+        }
     }
 }
 
@@ -91,8 +115,17 @@ fn reject(stream: &mut TcpStream, r: Reject) {
     http::respond(stream, r.status, &format!("{{\"error\":\"{}\"}}", r.reason));
 }
 
+/// What a connection needs from the server.
+#[derive(Clone)]
+struct Door {
+    port: u16,
+    token: Arc<str>,
+    queue: Queue,
+    sessions: Sessions,
+}
+
 /// Serve one request and close.
-fn serve(mut stream: TcpStream, port: u16, token: &str, queue: &Queue) {
+fn serve(mut stream: TcpStream, door: &Door) {
     if stream.set_read_timeout(Some(IO_LIMIT)).is_err() || stream.set_write_timeout(Some(IO_LIMIT)).is_err() {
         return;
     }
@@ -101,14 +134,29 @@ fn serve(mut stream: TcpStream, port: u16, token: &str, queue: &Queue) {
         Ok(None) => return,
         Err(r) => return reject(&mut stream, r),
     };
-    if let Err(r) = http::gate(&request, port, token) {
+    if let Err(r) = http::gate(&request, door.port, &door.token) {
         return reject(&mut stream, r);
+    }
+    let session = request.header("mcp-session-id").unwrap_or_default();
+    if request.method == "DELETE" {
+        door.sessions.end(session);
+        return http::respond(&mut stream, 200, "{}");
     }
     let Ok(message) = serde_json::from_slice::<Value>(&request.body) else {
         let reply = protocol::error_reply(&Value::Null, protocol::PARSE_ERROR, "The body is not JSON");
         return http::respond(&mut stream, 400, &reply.to_string());
     };
-    match protocol::answer(&message, &|tool, args| queue.call(tool, args)) {
+    let method = message.get("method").and_then(Value::as_str).unwrap_or_default();
+    // An unknown session tells a client to start again, which is how it comes back after Stop or a restart.
+    if method == "tools/call" && door.sessions.standing(session).is_none() {
+        return reject(&mut stream, Reject { status: 404, reason: "no such session" });
+    }
+    let run = |tool: &str, args: &Value| door.queue.call(&approved(&door.sessions, session)?, tool, args);
+    match protocol::answer(&message, &run) {
+        Some(reply) if method == "initialize" => match door.sessions.open(protocol::client_name(&message)) {
+            Ok(id) => http::respond_with(&mut stream, 200, &reply.to_string(), &format!("Mcp-Session-Id: {id}\r\n")),
+            Err(_) => reject(&mut stream, Reject { status: 503, reason: "no session" }),
+        },
         Some(reply) => http::respond(&mut stream, 200, &reply.to_string()),
         None => http::respond(&mut stream, 202, ""),
     }
@@ -116,7 +164,7 @@ fn serve(mut stream: TcpStream, port: u16, token: &str, queue: &Queue) {
 
 /// Accept one connection at a time as slots free up. Those beyond the limit wait in the system's queue: turning one away
 /// unread would reset the connection, which a client sees as a failure instead of a short wait.
-fn accept_loop(listener: &TcpListener, port: u16, token: &Arc<str>, queue: &Queue, stop: &AtomicBool) {
+fn accept_loop(listener: &TcpListener, door: &Door, stop: &AtomicBool) {
     let open = Arc::new(AtomicUsize::new(0));
     loop {
         while open.load(Ordering::SeqCst) >= MAX_CONNECTIONS && !stop.load(Ordering::SeqCst) {
@@ -129,11 +177,11 @@ fn accept_loop(listener: &TcpListener, port: u16, token: &Arc<str>, queue: &Queu
         let Ok((stream, _)) = accepted else { continue };
         open.fetch_add(1, Ordering::SeqCst);
         let slot = Slot(open.clone());
-        let (token, queue) = (token.clone(), queue.clone());
+        let door = door.clone();
         // A connection that gets no thread is simply dropped, and the slot with it.
         let _ = std::thread::Builder::new().name("mcp-connection".into()).spawn(move || {
             let _slot = slot;
-            serve(stream, port, &token, &queue);
+            serve(stream, &door);
         });
     }
 }
@@ -144,6 +192,7 @@ pub struct Server {
     port: u16,
     stop: Arc<AtomicBool>,
     queue: Queue,
+    sessions: Sessions,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -152,17 +201,18 @@ impl Server {
     ///
     /// # Errors
     /// The port cannot be had, usually because another program, or another Note++, has it.
-    pub fn start(port: u16, token: &str, queue: Queue) -> Result<Server, Error> {
+    pub fn start(port: u16, token: &str, queue: Queue, sessions: Sessions) -> Result<Server, Error> {
         let in_use = |e: std::io::Error| Error::Agent(format!("Port {port} cannot be used: {e}"));
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(in_use)?;
         let port = listener.local_addr().map_err(in_use)?.port();
         let stop = Arc::new(AtomicBool::new(false));
-        let (token, flag, jobs): (Arc<str>, _, _) = (token.into(), stop.clone(), queue.clone());
+        let door = Door { port, token: token.into(), queue: queue.clone(), sessions: sessions.clone() };
+        let flag = stop.clone();
         let thread = std::thread::Builder::new()
             .name("mcp-listener".into())
-            .spawn(move || accept_loop(&listener, port, &token, &jobs, &flag))
+            .spawn(move || accept_loop(&listener, &door, &flag))
             .map_err(|e| Error::Agent(format!("The server could not start: {e}")))?;
-        Ok(Server { port, stop, queue, thread: Some(thread) })
+        Ok(Server { port, stop, queue, sessions, thread: Some(thread) })
     }
 
     /// The port in use.
@@ -175,6 +225,7 @@ impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         self.queue.clear();
+        self.sessions.clear();
         // The listener sits in accept: a connection of our own wakes it to see the flag, and it can then be waited for, so
         // the port is free again when this returns. Without the connection it is left running rather than waited for.
         let here = SocketAddr::from((Ipv4Addr::LOCALHOST, self.port));
@@ -187,118 +238,4 @@ impl Drop for Server {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::io::{Read, Write};
-
-    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
-
-    /// Stands in for the UI thread: answers every job until told to stop.
-    fn ui_thread(queue: Queue) -> (Arc<AtomicBool>, JoinHandle<()>) {
-        let done = Arc::new(AtomicBool::new(false));
-        let flag = done.clone();
-        let thread = std::thread::spawn(move || {
-            while !flag.load(Ordering::SeqCst) {
-                match queue.pop() {
-                    Some(job) => {
-                        let tool = job.tool.clone();
-                        job.finish(Ok(json!(format!("ran {tool}"))));
-                    }
-                    None => std::thread::sleep(Duration::from_millis(1)),
-                }
-            }
-        });
-        (done, thread)
-    }
-
-    fn post(port: u16, headers: &str, body: &str) -> String {
-        let mut s = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
-        write!(s, "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{headers}Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
-        let mut reply = String::new();
-        s.read_to_string(&mut reply).unwrap();
-        reply
-    }
-
-    fn bearer() -> String {
-        format!("Authorization: Bearer {TOKEN}\r\n")
-    }
-
-    #[test]
-    fn a_tool_call_goes_through_the_queue_and_back() {
-        let queue = Queue::default();
-        let server = Server::start(0, TOKEN, queue.clone()).unwrap();
-        let (done, ui) = ui_thread(queue);
-        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "list_tabs" } }).to_string();
-        let reply = post(server.port(), &bearer(), &body);
-        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
-        assert!(reply.contains("ran list_tabs"), "{reply}");
-        done.store(true, Ordering::SeqCst);
-        ui.join().unwrap();
-    }
-
-    #[test]
-    fn more_callers_than_the_limit_all_get_their_answer() {
-        let queue = Queue::default();
-        let server = Server::start(0, TOKEN, queue.clone()).unwrap();
-        let (done, ui) = ui_thread(queue);
-        let port = server.port();
-        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "list_tabs" } }).to_string();
-        let callers: Vec<_> = (0..MAX_CONNECTIONS * 3)
-            .map(|_| {
-                let body = body.clone();
-                std::thread::spawn(move || post(port, &bearer(), &body))
-            })
-            .collect();
-        for caller in callers {
-            assert!(caller.join().unwrap().contains("ran list_tabs"));
-        }
-        done.store(true, Ordering::SeqCst);
-        ui.join().unwrap();
-    }
-
-    #[test]
-    fn the_door_holds_on_a_real_socket() {
-        let server = Server::start(0, TOKEN, Queue::default()).unwrap();
-        let port = server.port();
-        assert!(post(port, "Authorization: Bearer wrong\r\n", "{}").starts_with("HTTP/1.1 401"));
-        assert!(post(port, &format!("{}Origin: http://evil.example\r\n", bearer()), "{}").starts_with("HTTP/1.1 403"));
-        assert!(post(port, &bearer(), "not json").starts_with("HTTP/1.1 400"));
-        assert!(post(port, &bearer(), "{\"method\":\"notifications/initialized\"}").starts_with("HTTP/1.1 202"));
-    }
-
-    #[test]
-    fn stopping_frees_the_port_at_once() {
-        let server = Server::start(0, TOKEN, Queue::default()).unwrap();
-        let port = server.port();
-        drop(server);
-        let again = Server::start(port, TOKEN, Queue::default()).unwrap();
-        assert_eq!(again.port(), port);
-    }
-
-    #[test]
-    fn a_taken_port_is_an_error_not_a_panic() {
-        let first = Server::start(0, TOKEN, Queue::default()).unwrap();
-        assert!(Server::start(first.port(), TOKEN, Queue::default()).is_err());
-    }
-
-    #[test]
-    fn stopping_tells_whoever_is_waiting() {
-        let queue = Queue::default();
-        let server = Server::start(0, TOKEN, queue.clone()).unwrap();
-        let waiter = queue.clone();
-        let call = std::thread::spawn(move || waiter.call("list_tabs", &json!({})));
-        while queue.lock().is_empty() {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        drop(server);
-        assert_eq!(call.join().unwrap(), Err(Error::Agent("The server was stopped.".into())));
-    }
-
-    #[test]
-    fn a_job_nobody_waits_for_any_more_says_so() {
-        let (reply, _answer) = mpsc::channel();
-        let job = Job { tool: "x".into(), args: json!({}), deadline: Instant::now(), reply };
-        assert!(job.expired());
-    }
-}
+mod tests;

@@ -550,6 +550,9 @@
 -
 3341	Passwords (Bitwarden)...	true	None
 3342	Send HTTP Request	Ctrl+Enter (.http / .rest files)	true	None
+-
+3347	AI Activity Log	true	None
+3346	Stop AI Agents	true	None
 # &Window
 > &Sort By
   3610	Name A to Z	true	None

@@ -124,6 +124,7 @@ impl CommandBus<App> {
                 .register(StreamCommands)
                 .register(ExtraCommands)
                 .register(crate::paste_special::PasteSpecialCommands)
+                .register(crate::app::McpCommands)
                 .register(AppearanceCommands)
                 .register(HelpCommands),
         )

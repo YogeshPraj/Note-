@@ -167,6 +167,17 @@ has no DOM in it (`node --test`) and is put into `imageeditor.html` when the pag
 A change is sent to the app (`state:`) before the answer (`agent-done:`), so a tool that says it is done has handed the picture over.
 The tools that pages carry out are in `mcp::page_tools`.
 
+`preview_diagram` is the one page tool with no tab: `PREVIEW_PAGE` sends it to the preview page, which draws it out of sight and answers with a
+PNG or Mermaid's own error. Without it an agent cannot know its diagram is broken, as a mistake only shows in the pane.
+
+What keeps the user in charge is in `core::mcp::sessions`, `core::mcp::activity` and `app/mcp_safety.rs`. An agent gets a session from
+`initialize` and shows it with every tool call, which is what makes approval, "AI connected" and Stop possible on top of HTTP: an unknown
+session gets 404, and a client then starts again. The first time a name is seen the user is asked, from the main loop with nothing
+borrowed, while the call waits on its own connection thread; the window and agents already allowed go on working. Names are what agents
+say they are called, so this guards against surprises and the token is the lock. An encrypted tab is asked about the same way, per tab,
+and the answer lasts until the server stops. Stop is `ID_MCP_STOP`: the server goes off and stays off. The log (`mcp-activity.log` in the
+profile) says who, what, on which tab and how it went, and never holds a document's text.
+
 The token is in a file of its own in the profile (`mcp-token`), not in `settings.json`, which may be shared or backed up. Agents reach
 only tabs and the workspace folder, never the profile; network paths are refused before the disk is touched, since looking at one
 sends the user's credentials to its host.

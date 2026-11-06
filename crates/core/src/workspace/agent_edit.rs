@@ -22,7 +22,7 @@ impl<S: Send> Workspace<S> {
             "select_lines" => self.agent_select(args),
             // Commands are handled in the window: it calls `agent_command` and runs what that allows.
             "new_whiteboard" => Ok(self.agent_new_board()),
-            "run_command" => Err(Error::Agent("Only the window can run commands.".into())),
+            "run_command" | "preview_diagram" => Err(Error::Agent("Only the window can do this.".into())),
             _ if crate::mcp::page_tools::kind_of(tool).is_some() => Err(Error::Agent("Only a page can do this.".into())),
             _ => Err(Error::Agent(format!("There is no tool \"{tool}\"."))),
         }

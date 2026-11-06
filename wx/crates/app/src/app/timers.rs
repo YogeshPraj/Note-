@@ -26,6 +26,7 @@ pub(super) fn wire_timers(app: &Shared, frame: Frame) {
             match job {
                 Job::Stream => {
                     app.update_poll();
+                    app.mcp_retry();
                     app.check_inbox();
                     app.monitor_tick();
                     app.stream_tick();

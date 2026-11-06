@@ -241,6 +241,8 @@ pub const ID_HTTP_SEND: usize = 3342;
 pub const ID_PW_LOCK: usize = 3343;
 pub const ID_ENC_LOCK: usize = 3344;
 pub const ID_PW_TOOLBAR: usize = 3345;
+pub const ID_MCP_STOP: usize = 3346;
+pub const ID_MCP_LOG: usize = 3347;
 pub const ID_TAB_PIN: usize = 5600;
 pub const ID_TAB_COLOR_BASE: usize = 5601; // + 0..7 = the colours
 pub const ID_TAB_COLOR_NONE: usize = 5609;

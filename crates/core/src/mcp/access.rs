@@ -72,18 +72,27 @@ fn write_token(path: &Path, token: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// `N` random bytes, as text.
+///
+/// # Errors
+/// No secure random numbers.
+pub fn random_hex<const N: usize>() -> Result<String, Error> {
+    let mut raw = [0u8; N];
+    getrandom::fill(&mut raw).map_err(|e| Error::Random(e.to_string()))?;
+    let mut text = String::with_capacity(N * 2);
+    for byte in raw {
+        text.push(char::from(HEX[usize::from(byte >> 4)]));
+        text.push(char::from(HEX[usize::from(byte & 15)]));
+    }
+    Ok(text)
+}
+
 /// Make a new token and keep it, replacing any old one.
 ///
 /// # Errors
 /// No secure random numbers, or the file cannot be written.
 pub fn new_token() -> Result<String, Error> {
-    let mut raw = [0u8; 32];
-    getrandom::fill(&mut raw).map_err(|e| Error::Random(e.to_string()))?;
-    let mut token = String::with_capacity(raw.len() * 2);
-    for byte in raw {
-        token.push(char::from(HEX[usize::from(byte >> 4)]));
-        token.push(char::from(HEX[usize::from(byte & 15)]));
-    }
+    let token = random_hex::<32>()?;
     write_token(&token_path(), &token)?;
     Ok(token)
 }

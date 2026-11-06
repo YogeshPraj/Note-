@@ -192,5 +192,8 @@ pub(super) fn menu_tools() -> M {
     B::sep(tools);
     B::cmd(tools, ID_PASSWORDS);
     B::cmd(tools, ID_HTTP_SEND);
+    B::sep(tools);
+    B::cmd(tools, ID_MCP_LOG);
+    B::cmd(tools, ID_MCP_STOP);
     tools
 }

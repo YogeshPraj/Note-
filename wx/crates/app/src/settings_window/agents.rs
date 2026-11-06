@@ -25,15 +25,27 @@ pub(super) fn page(env: &Env) -> Page {
             choice(
                 "mcp_level",
                 "What agents may do",
-                "Read only: list, read, search and open. Edit: also change and save documents, each change one undo step. Full: also change the view and tabs, and close unchanged tabs. Encrypted documents, passwords and the clipboard are never available.",
+                "Read only: list, read, search and open. Edit: also change and save documents, each change one undo step. Full: also change the view and tabs, and close unchanged tabs. Passwords and the clipboard are never available, and you are asked before an agent can use an encrypted document.",
                 &levels,
                 &s.mcp_level,
             ),
             number("mcp_port", "Port", "Change it if another program uses this port.", i64::from(s.mcp_port), 1024, 65535),
             button("mcp_copy", "Agent setup", "Copies the address and token, to paste into the agent's MCP settings.", "Copy agent setup"),
             button("mcp_token", "Token", "Make a new token if the old one may have been seen. Agents then need the new setup.", "New token"),
+            button("mcp_forget", "Allowed agents", &env.mcp_trusted, "Forget allowed agents"),
+            button("mcp_log", "Activity", "What agents have done, when, and on which document.", "Show activity log"),
         ],
     )
+}
+
+/// One of this page's buttons was pressed.
+pub(super) fn pressed(a: &mut crate::app::App, key: &str) {
+    match key {
+        "mcp_copy" => a.mcp_copy_setup(),
+        "mcp_token" => a.mcp_new_token(),
+        "mcp_forget" => a.mcp_forget_trusted(),
+        _ => a.mcp_show_log(),
+    }
 }
 
 /// Apply one of this page's values. False when the key is not one of them.

@@ -248,5 +248,5 @@ colours are checked against a pattern, since they end up in the drawing.
 
 Not covered, and known: a program already running as the user can read the token file, as it can read anything else of theirs. A program
 that takes the port first, while Note++ is off, would receive the token from an agent configured to connect. Both need code already
-running on the machine. Until Stage 5 there is no approval of new clients, no activity log, and no way to stop a client except turning
-the server off or making a new token.
+running on the machine. Approval goes by the name a client gives, so it catches surprises and proves nothing: anything with the token can call itself an
+allowed agent. The activity log records what happened and is not a defence: it is an ordinary file in the profile.

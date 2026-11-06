@@ -231,6 +231,10 @@ pub fn minimap_menu(app: &Shared, at: Point) {
 
 /// A click on the encoding / line-ending / language segment of the status bar.
 pub fn status_menu(app: &Shared, seg: isize, at: Point) {
+    if seg == crate::chrome::SEG_AGENTS {
+        let Ok(frame) = app.try_borrow().map(|a| a.frame) else { return };
+        return show(app, &frame, MenuSpec::new().item(c::ID_MCP_LOG, "AI Activity Log").item(c::ID_MCP_STOP, "Stop AI Agents"), at);
+    }
     let (frame, m) = {
         let Ok(a) = app.try_borrow() else { return };
         let m = match seg {

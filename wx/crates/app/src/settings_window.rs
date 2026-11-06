@@ -5,6 +5,7 @@
 
 mod agents;
 mod custom;
+mod security;
 
 use std::rc::Rc;
 
@@ -25,6 +26,8 @@ pub struct Env {
     pub unlocked: bool,
     /// What the AI Agents page says about the server.
     pub mcp_status: String,
+    /// Which agents the user has allowed.
+    pub mcp_trusted: String,
     /// The application the embedded editors act on (none in tests).
     pub app: Option<Shared>,
 }
@@ -80,7 +83,7 @@ fn button(key: &'static str, title: &str, desc: &str, label: &str) -> Row {
 /// The pages, filled from the current settings.
 pub fn pages(env: &Env) -> Vec<Page> {
     let s = &env.settings;
-    vec![general(s), editor(s), appearance(env), colours(env), shortcuts(env), context_menu(env), security(env), agents::page(env)]
+    vec![general(s), editor(s), appearance(env), colours(env), shortcuts(env), context_menu(env), security::page(env), agents::page(env)]
 }
 
 fn general(s: &Settings) -> Page {
@@ -163,36 +166,6 @@ fn context_menu(env: &Env) -> Page {
     Page::new("context", "Context menu", 0, vec![custom::context_menu(env.app.as_ref())])
 }
 
-fn security(env: &Env) -> Page {
-    let s = &env.settings;
-    Page::new(
-        "security",
-        "Security",
-        0,
-        vec![
-            Row::new("", "Encryption", &env.encryption, Control::Heading),
-            button("enc_setup", "Profile", "Set up the password that protects encrypted files, or replace the profile.", "Set up profile..."),
-            button(
-                "enc_lock",
-                "Lock",
-                "Forget the key until the password is entered again, or enter it now.",
-                if env.unlocked { "Lock now" } else { "Unlock..." },
-            ),
-            button("enc_password", "Password", "Choose a new password. Encrypted files do not need to be touched.", "Change password..."),
-            button("enc_recovery", "Recovery key", "Create a new recovery key. The old one stops working.", "New recovery key..."),
-            button("enc_import", "Import", "Use an encryption profile saved elsewhere.", "Import profile..."),
-            Row::heading("Passwords"),
-            number(
-                "lock",
-                "Lock the vault when idle",
-                "Lock Bitwarden after this many idle minutes. 0 means never.",
-                i64::from(s.passwords_auto_lock_min),
-                0,
-                1440,
-            ),
-        ],
-    )
-}
 fn choice_key(options: &[(&str, &str)], i: usize) -> String {
     options.get(i).map_or(options[0].0, |o| o.0).to_string()
 }
@@ -236,6 +209,7 @@ pub fn open(app: &Shared, page: &str) {
             encryption: crate::encdialogs::status_text(&a.ws.vault),
             unlocked: a.ws.vault.unlocked(),
             mcp_status: a.mcp_status(),
+            mcp_trusted: a.mcp_trusted(),
             app: Some(for_pages.clone()),
         })
     });
@@ -273,12 +247,8 @@ fn changed(app: &Shared, key: &str, v: &Value) -> bool {
     }
     match (key, v) {
         ("font", Value::Pressed) => a.choose_font(),
-        ("mcp_copy" | "mcp_token", Value::Pressed) => {
-            if key == "mcp_copy" {
-                a.mcp_copy_setup();
-            } else {
-                a.mcp_new_token();
-            }
+        ("mcp_copy" | "mcp_token" | "mcp_forget" | "mcp_log", Value::Pressed) => {
+            agents::pressed(&mut a, key);
             a.refresh();
             return true;
         }
@@ -328,7 +298,16 @@ mod tests {
     use super::*;
 
     fn env(dark: bool) -> Env {
-        Env { settings: Settings::default(), theme: Theme::light(), dark, encryption: String::new(), unlocked: false, mcp_status: String::new(), app: None }
+        Env {
+            settings: Settings::default(),
+            theme: Theme::light(),
+            dark,
+            encryption: String::new(),
+            unlocked: false,
+            mcp_status: String::new(),
+            mcp_trusted: String::new(),
+            app: None,
+        }
     }
 
     #[test]
@@ -356,7 +335,8 @@ mod tests {
 
     #[test]
     fn every_row_key_is_handled_or_a_known_action() {
-        let actions = ["font", "theme", "enc_setup", "enc_lock", "enc_password", "enc_recovery", "enc_import", "mcp_copy", "mcp_token"];
+        let actions =
+            ["font", "theme", "enc_setup", "enc_lock", "enc_password", "enc_recovery", "enc_import", "mcp_copy", "mcp_token", "mcp_forget", "mcp_log"];
         for page in pages(&env(false)) {
             for row in page.rows.iter().filter(|r| !matches!(r.control, Control::Heading | Control::Custom(_))) {
                 let mut s = Settings::default();

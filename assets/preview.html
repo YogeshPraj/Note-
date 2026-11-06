@@ -242,6 +242,17 @@ body.dark .jsoneditor-poweredBy { display:none; }
   // The page has no clipboard API (it is not a secure context), so a picture goes to the app as raw RGBA pixels.
   function sendDiagramImage(node, done) {
     var svg = svgOf(node); if (!svg) return done(false);
+    diagramCanvas(svg, getComputedStyle(document.body).backgroundColor, function (cv) {
+      if (!cv) return done(false);
+      try {
+        var fr = new FileReader();
+        fr.onload = function () { post('copy-image:' + cv.width + ':' + cv.height + ':' + String(fr.result).split(',')[1]); done(true); };
+        fr.readAsDataURL(new Blob([cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data]));
+      } catch (e) { done(false); }
+    });
+  }
+  // A drawn diagram on a canvas, at most twice its size and about 4 million pixels; null when that cannot be done.
+  function diagramCanvas(svg, background, done) {
     var vb = svg.viewBox.baseVal, w = vb.width || svg.getBoundingClientRect().width, h = vb.height || svg.getBoundingClientRect().height;
     var scale = Math.min(2, Math.sqrt(4e6 / (w * h)));
     var pw = Math.max(1, Math.round(w * scale)), ph = Math.max(1, Math.round(h * scale));
@@ -252,14 +263,12 @@ body.dark .jsoneditor-poweredBy { display:none; }
     img.onload = function () {
       try {
         var cv = document.createElement('canvas'); cv.width = pw; cv.height = ph;
-        var g = cv.getContext('2d'); g.fillStyle = getComputedStyle(document.body).backgroundColor; g.fillRect(0, 0, pw, ph);
+        var g = cv.getContext('2d'); g.fillStyle = background; g.fillRect(0, 0, pw, ph);
         g.drawImage(img, 0, 0, pw, ph);
-        var fr = new FileReader();
-        fr.onload = function () { post('copy-image:' + pw + ':' + ph + ':' + String(fr.result).split(',')[1]); done(true); };
-        fr.readAsDataURL(new Blob([g.getImageData(0, 0, pw, ph).data]));
-      } catch (e) { done(false); }
+        done(cv);
+      } catch (e) { done(null); }
     };
-    img.onerror = function () { done(false); };
+    img.onerror = function () { done(null); };
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(c));
   }
   function copyDiagramImage(node, b) {
@@ -609,6 +618,28 @@ body.dark .jsoneditor-poweredBy { display:none; }
   }
 
   // A failure while drawing must show in the pane, not leave whatever was there before.
+  /* ---- an AI agent's diagram: drawn out of sight, whatever the pane is showing, in the light theme so that it can be read ---- */
+  var agentDiagrams = [];
+  // The id comes as text, as everything the app calls this page with does; the app matches it as a number.
+  function agentReply(id, fields) { post('agent-done:' + JSON.stringify(Object.assign({ id: +id }, fields))); }
+  async function drawForAgent(id, source) {
+    var name = 'agent' + id, holder = document.createElement('div');
+    holder.style.cssText = 'position:absolute;left:-100000px;top:0;width:1200px';
+    document.body.appendChild(holder);
+    function finish(fields) { holder.remove(); var junk = document.getElementById('d' + name); if (junk) junk.remove(); agentReply(id, fields); }
+    try {
+      window.mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+      var out = await window.mermaid.render(name, source);
+      holder.innerHTML = out.svg;
+      diagramCanvas(holder.querySelector('svg'), '#ffffff', function (cv) {
+        try {
+          if (!cv) return finish({ error: 'The diagram was drawn but could not be turned into a picture.' });
+          finish({ result: { image_png: cv.toDataURL('image/png').split(',')[1] } });
+        } catch (e) { finish({ error: 'The diagram was drawn but could not be turned into a picture.' }); }
+      });
+    } catch (e) { finish({ error: 'Mermaid says: ' + String((e && e.message) || e) }); }
+  }
+
   function guarded(draw) {
     try { draw(); } catch (e) { $('msg').textContent = 'Preview error: ' + ((e && e.message) || e); show('msg'); }
   }
@@ -631,7 +662,16 @@ body.dark .jsoneditor-poweredBy { display:none; }
     render: function (kind, payload) { guarded(function () { drawKind(kind, payload); }); },
     setTheme: function (d) { dark = d; document.body.classList.toggle('dark', d); },
     setMax: function (m) { $('max').classList.toggle('on', m); },
-    mermaidLoaded: function () { if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); } },
+    mermaidLoaded: function () {
+      agentDiagrams.splice(0).forEach(function (d) { drawForAgent(d.id, d.source); });
+      if (pendingMermaid) { var r = pendingMermaid; pendingMermaid = null; runMermaid(r); }
+    },
+    // An agent's request. Mermaid is only loaded on first use.
+    agentDiagram: function (id, source) {
+      if (window.mermaid) return drawForAgent(id, source);
+      agentDiagrams.push({ id: id, source: source });
+      post('need-mermaid');
+    },
     highlightLoaded: function () { if (pendingHl) { var r = pendingHl; pendingHl = null; runHighlight(r); } },
     katexLoaded: function () { if (pendingMath) { var r = pendingMath; pendingMath = null; runMath(r); } },
     logAppend: logAppend,

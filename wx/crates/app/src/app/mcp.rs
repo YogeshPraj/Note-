@@ -3,6 +3,7 @@
 use notepp_core::error::Error;
 use notepp_core::mcp::access::{self, Level};
 use notepp_core::mcp::server::{Queue, Server};
+use notepp_core::mcp::sessions::Sessions;
 use notepp_core::mcp::tools;
 
 use super::*;
@@ -10,6 +11,9 @@ use super::*;
 /// How often waiting tool calls are looked for, while the server is on. It costs nothing while it is off, and at this rate
 /// a tool call waits 25 ms on average, which an agent never notices.
 const TICK_MS: i32 = 50;
+
+/// How many half-second ticks to wait before trying a busy port again.
+const RETRY_TICKS: u32 = 6;
 
 /// The running server and what links it to the window.
 #[derive(Default)]
@@ -19,6 +23,13 @@ pub(crate) struct McpState {
     timer: Option<Timer<Frame>>,
     /// Why the server is not running although it should be.
     problem: Option<String>,
+    /// Ticks until the port is tried again.
+    retry_in: u32,
+    pub(super) sessions: Sessions,
+    /// A question is on the screen.
+    pub(super) asking: bool,
+    /// The agents the status bar shows.
+    pub(super) active: Vec<String>,
     /// Calls that wait for a whiteboard's page.
     pub(super) parked: Vec<super::mcp_board::Parked>,
     /// The last request number given to a page.
@@ -31,8 +42,13 @@ pub(super) fn wire_mcp(app: &Shared, frame: Frame) {
     let a = app.clone();
     timer.on_tick(move |_| {
         // While a dialog holds the app the calls wait, and fail after a while with a message that says why.
-        if let Ok(mut app) = a.try_borrow_mut() {
+        let question = a.try_borrow_mut().ok().and_then(|mut app| {
             app.mcp_tick();
+            app.mcp_question()
+        });
+        if let Some(question) = question {
+            let asker = a.clone();
+            crate::widgets::defer::later(&frame, move || super::mcp_safety::ask(&asker, &question));
         }
     });
     if let Ok(mut app) = app.try_borrow_mut() {
@@ -41,8 +57,8 @@ pub(super) fn wire_mcp(app: &Shared, frame: Frame) {
     }
 }
 
-fn start(port: u16, queue: Queue) -> Result<Server, Error> {
-    Server::start(port, &access::token()?, queue)
+fn start(port: u16, queue: Queue, sessions: Sessions) -> Result<Server, Error> {
+    Server::start(port, &access::token()?, queue, sessions)
 }
 
 impl App {
@@ -50,19 +66,31 @@ impl App {
     pub(crate) fn mcp_sync(&mut self) {
         let s = &self.ws.settings;
         let want = s.mcp_enabled.then_some(s.mcp_port);
+        self.mcp.sessions.set_trusted(&s.mcp_clients);
         if self.mcp.server.as_ref().map(Server::port) == want {
             return;
         }
         // Dropping it frees the port first, and tells any waiting call that it stopped.
+        let was = self.mcp.problem.take();
         self.mcp.server = None;
         self.mcp.parked.clear();
-        self.mcp.problem = None;
+        self.mcp.asking = false;
+        self.ws.agent_forget();
         if let Some(port) = want {
-            match start(port, self.mcp.queue.clone()) {
-                Ok(server) => self.mcp.server = Some(server),
+            match start(port, self.mcp.queue.clone(), self.mcp.sessions.clone()) {
+                Ok(server) => {
+                    self.mcp.server = Some(server);
+                    if was.is_some() {
+                        self.flash = Some("The MCP server is running now".into());
+                    }
+                }
                 Err(e) => {
-                    self.flash = Some(format!("The MCP server could not start. {e}"));
-                    self.mcp.problem = Some(e.to_string());
+                    let problem = e.to_string();
+                    // Said once: it is tried again every few seconds.
+                    if was.as_ref() != Some(&problem) {
+                        self.flash = Some(format!("The MCP server could not start, and will keep trying. {problem}"));
+                    }
+                    self.mcp.problem = Some(problem);
                 }
             }
         }
@@ -71,6 +99,24 @@ impl App {
                 timer.start(TICK_MS, false);
             } else {
                 timer.stop();
+            }
+        }
+        // The clock has stopped, and it is what notices agents going.
+        self.mcp_watch();
+    }
+
+    /// Try again while the port is taken: whatever holds it may let go, and then agents must not stay locked out with
+    /// the box still ticked.
+    pub(crate) fn mcp_retry(&mut self) {
+        if self.mcp.problem.is_none() {
+            return;
+        }
+        self.mcp.retry_in = self.mcp.retry_in.saturating_sub(1);
+        if self.mcp.retry_in == 0 {
+            self.mcp.retry_in = RETRY_TICKS;
+            self.mcp_sync();
+            if self.mcp.server.is_some() {
+                self.refresh();
             }
         }
     }
@@ -86,20 +132,26 @@ impl App {
             if let Some(tool) = tools::find(&job.tool).filter(|t| t.level > Level::Read) {
                 self.flash = Some(format!("AI agent: {}", tool.title));
             }
+            let target = self.ws.agent_target(&job.tool, &job.args);
             match self.ws.agent_board(level, &job.tool, &job.args) {
                 Ok(Some(request)) => {
-                    self.mcp_park(level, job, request);
+                    self.mcp_park(level, job, request, target);
                     ran = true;
                     continue;
                 }
                 Ok(None) => {}
                 Err(e) => {
+                    super::mcp_safety::log_call(&job.client, &job.tool, &target, Some(&e.to_string()));
                     job.finish(Err(e));
                     continue;
                 }
             }
             let result = if job.tool == "run_command" { self.mcp_command(level, &job.args) } else { self.ws.agent_call(level, &job.tool, &job.args) };
+            super::mcp_safety::log_call(&job.client, &job.tool, &target, result.as_ref().err().map(ToString::to_string).as_deref());
             job.finish(result);
+            ran = true;
+        }
+        if self.mcp_watch() {
             ran = true;
         }
         if ran {
@@ -127,8 +179,11 @@ impl App {
     /// What the Settings page says about the server.
     pub(crate) fn mcp_status(&self) -> String {
         match (&self.mcp.server, &self.mcp.problem) {
-            (Some(server), _) => format!("Running at http://127.0.0.1:{}/mcp. Only programs on this computer that have the token can connect.", server.port()),
-            (None, Some(problem)) => format!("Not running. {problem}"),
+            (Some(server), _) => format!(
+                "Running at http://127.0.0.1:{}/mcp. Only programs on this computer that have the token can connect, and you are asked about each new agent.",
+                server.port()
+            ),
+            (None, Some(problem)) => format!("Not running yet: it keeps trying. {problem}"),
             (None, None) => "Off. Agents cannot connect.".into(),
         }
     }

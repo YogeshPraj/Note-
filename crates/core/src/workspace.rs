@@ -27,7 +27,7 @@ mod types;
 pub use self::types::*;
 mod agent;
 mod agent_board;
-pub use self::agent_board::BoardRequest;
+pub use self::agent_board::{BoardRequest, PREVIEW_PAGE};
 mod agent_commands;
 mod agent_edit;
 mod dock;
@@ -114,6 +114,8 @@ pub struct Workspace<S: Send> {
     /// Saved tabs of kinds this app cannot show, passed through the session untouched (see `Session::kept`).
     kept: Vec<serde_json::Value>,
     next_id: u64,
+    /// What the user has said about agents and encrypted tabs.
+    agent_grants: agent::Grants,
     /// The display scale in percent (100 = 100%): margin widths are given at 100% and scaled by it.
     ui_percent: isize,
 }
@@ -156,6 +158,7 @@ impl<S: Send> Workspace<S> {
             parked: Vec::new(),
             kept: Vec::new(),
             next_id: 1,
+            agent_grants: agent::Grants::default(),
             ui_percent: 100,
         };
         ws.style_view(&ws.sci, false);

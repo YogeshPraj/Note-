@@ -146,6 +146,14 @@ pub const TOOLS: &[Tool] = &[
         required: &[],
     },
     Tool {
+        name: "preview_diagram",
+        title: "See a Mermaid diagram",
+        description: "Draws Mermaid source and gives it as a PNG, or Mermaid's own error if the source is wrong. Give text, or a tab: a Mermaid file, or a Markdown document's first mermaid block. Nothing changes in Note++. Use it to check a diagram: a mistake does not show anywhere else.",
+        level: Level::Read,
+        properties: || json!({ "text": { "type": "string", "description": "Mermaid source." }, "tab": tab() }),
+        required: &[],
+    },
+    Tool {
         name: "list_commands",
         title: "List commands",
         description: "Lists the Note++ commands run_command can run, and the level each needs.",

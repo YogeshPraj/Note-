@@ -119,14 +119,20 @@ pub fn gate(req: &Request, port: u16, token: &str) -> Result<(), Reject> {
     if req.path != "/mcp" {
         return Err(Reject { status: 404, reason: "not found" });
     }
-    if req.method != "POST" {
+    if req.method != "POST" && req.method != "DELETE" {
         return Err(Reject { status: 405, reason: "use POST" });
     }
     Ok(())
 }
 
-/// Write a reply and close. A failure to write means the other side has gone, which is nobody's concern here.
+/// Write a reply and close.
 pub fn respond(w: &mut impl Write, status: u16, body: &str) {
+    respond_with(w, status, body, "");
+}
+
+/// Write a reply with `more` among its headers (each ending in a line break), and close. A failure to write means the other
+/// side has gone, which is nobody's concern here.
+pub fn respond_with(w: &mut impl Write, status: u16, body: &str, more: &str) {
     let name = match status {
         200 => "OK",
         202 => "Accepted",
@@ -145,7 +151,8 @@ pub fn respond(w: &mut impl Write, status: u16, body: &str) {
         405 => "Allow: POST\r\n",
         _ => "",
     };
-    let head = format!("HTTP/1.1 {status} {name}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n", body.len());
+    let head =
+        format!("HTTP/1.1 {status} {name}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}{more}Connection: close\r\n\r\n", body.len());
     let _ = w.write_all(head.as_bytes()).and_then(|()| w.write_all(body.as_bytes())).and_then(|()| w.flush());
 }
 
@@ -222,5 +229,8 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(text.contains("Content-Length: 2\r\n") && text.contains("Connection: close\r\n") && text.ends_with("\r\n\r\n{}"));
+        let mut with = Vec::new();
+        respond_with(&mut with, 200, "", "Mcp-Session-Id: abc\r\n");
+        assert!(String::from_utf8(with).unwrap().contains("Mcp-Session-Id: abc\r\n"));
     }
 }

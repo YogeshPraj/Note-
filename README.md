@@ -72,7 +72,7 @@ All files are on the [latest release page](https://github.com/YogeshPraj/Note-/r
 - **Whiteboard**: a hand-drawn canvas (Excalidraw) in its own tab; saved as JSON.
 - **Encrypted pad**: per-file AES-256-GCM encryption with a password and a recovery key.
 - **HTTP scratchpad**: write requests in a `.http` file and send them with `Ctrl+Enter`.
-- **AI agents (MCP)**: turn on *Settings > AI Agents* and an agent such as Claude Code connects to the running Note++ to list, read, search, edit and save your documents and run Note++'s own text commands, draw on a whiteboard (shapes, joined arrows, Agent trees), annotate and edit pictures, and look at the result, each change one undo step. Off by default, Read only until you choose more, on this computer only, with a token. Encrypted documents, passwords and the clipboard stay out of reach.
+- **AI agents (MCP)**: turn on *Settings > AI Agents* and an agent such as Claude Code connects to the running Note++ to list, read, search, edit and save your documents and run Note++'s own text commands, draw on a whiteboard (shapes, joined arrows, Agent trees), annotate and edit pictures, check Mermaid diagrams, and look at the result, each change one undo step. Off by default, Read only until you choose more, on this computer only, with a token. You are asked before a new agent can work and before one can use an encrypted document; the status bar shows who is connected, with Stop and an activity log. Passwords and the clipboard stay out of reach.
 - **Passwords**: insert secrets from your Bitwarden vault (through the official Bitwarden CLI) without copying them to the clipboard.
 - Text tools: hashes (MD5, SHA-1, SHA-256, ...), Base64, case conversion, sort, line operations.
 

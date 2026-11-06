@@ -21,6 +21,15 @@ const MAX_OPEN: u64 = 64 * 1024 * 1024;
 const MAX_HITS: usize = 200;
 const MAX_HIT_LINE: usize = 300;
 
+/// What the user has said about encrypted tabs and agents, for as long as the agents run.
+#[derive(Debug, Default)]
+pub(super) struct Grants {
+    allowed: Vec<u64>,
+    refused: Vec<u64>,
+    /// The tab to ask the user about.
+    asking: std::cell::Cell<Option<u64>>,
+}
+
 /// In place of the dialogs while an agent is working: every question is answered no, and an error is kept to pass on.
 #[derive(Debug, Default)]
 pub(super) struct Headless {
@@ -106,10 +115,51 @@ impl<S: Send> Workspace<S> {
         if t.kind != TabKind::Text {
             return Err(Error::Agent(format!("\"{}\" is a {}, and agents can only work on text for now.", t.title, kind_name(t.kind))));
         }
-        if t.encrypted {
-            return Err(Error::Agent(format!("\"{}\" is encrypted, and agents cannot use encrypted documents.", t.title)));
+        if t.encrypted && !self.agent_grants.allowed.contains(&t.id) {
+            if self.agent_grants.refused.contains(&t.id) {
+                return Err(Error::Agent(format!("The user refused agents the encrypted document \"{}\". Do not ask again.", t.title)));
+            }
+            self.agent_grants.asking.set(Some(t.id));
+            return Err(Error::Agent(format!(
+                "\"{}\" is encrypted, so Note++ is asking the user whether agents may use it. Try again once they have answered.",
+                t.title
+            )));
         }
         Ok(i)
+    }
+
+    /// The encrypted tab an agent is waiting for, to ask the user about.
+    pub fn agent_asking(&self) -> Option<(u64, String)> {
+        let id = self.agent_grants.asking.take()?;
+        self.tabs.iter().find(|t| t.id == id).map(|t| (id, t.title.clone()))
+    }
+
+    /// The user's answer about an encrypted tab.
+    pub fn agent_answer(&mut self, tab: u64, allow: bool) {
+        let list = if allow { &mut self.agent_grants.allowed } else { &mut self.agent_grants.refused };
+        list.push(tab);
+    }
+
+    /// Forget those answers: the agents have stopped.
+    pub fn agent_forget(&mut self) {
+        self.agent_grants = Grants::default();
+    }
+
+    /// What a tool call is about, for the activity log: a tab's title or a path, never a document's text. Nothing for a
+    /// tool that is not about a tab.
+    pub fn agent_target(&self, tool: &str, args: &Value) -> String {
+        let a = Args(args);
+        if let Ok(Some(path)) = a.opt_text("path") {
+            return path.to_string();
+        }
+        let about_a_tab = tools::find(tool).is_some_and(|t| (t.properties)().get("tab").is_some());
+        if !about_a_tab || (tool == "preview_diagram" && args.get("text").is_some()) {
+            return String::new();
+        }
+        match a.number("tab") {
+            Ok(Some(_)) => self.agent_tab(a).map_or_else(|_| "a tab now closed".to_string(), |i| self.tabs[i].title.clone()),
+            _ => self.tabs.get(self.active).map_or_else(String::new, |t| t.title.clone()),
+        }
     }
 
     /// What an agent may reach on disk.
@@ -191,7 +241,7 @@ impl<S: Send> Workspace<S> {
         self.open_path(&ui, &path);
         match self.tabs.iter().find(|t| t.path.as_deref().is_some_and(|p| same_path(p, &path))) {
             Some(t) => Ok(json!({ "tab": t.id, "title": t.title, "kind": kind_name(t.kind) })),
-            None => Err(ui.failure("The file was not opened. It may be encrypted, and agents cannot use encrypted documents.")),
+            None => Err(ui.failure("The file was not opened. If it is encrypted, the user has to open it.")),
         }
     }
 

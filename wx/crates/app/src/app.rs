@@ -118,7 +118,9 @@ mod float_pane;
 mod float_picture;
 mod mcp;
 mod mcp_board;
+mod mcp_safety;
 pub(crate) use dock_pane::{DockCommands, DockPanes};
+pub(crate) use mcp_safety::McpCommands;
 mod notes;
 pub(crate) use notes::*;
 /// With `NPP_TRACE`=<file>, append "<id> <how it was handled>" for every command (used by the test sweep).
@@ -251,6 +253,7 @@ impl App {
             eol: s.eol.clone(),
             lang: s.lang.clone(),
             overtype: self.ws.overtype(),
+            agents: self.mcp_label(),
         });
         let th = &self.ws.theme;
         let base = if th.dark { crate::widgets::theme::Theme::dark() } else { crate::widgets::theme::Theme::light() };

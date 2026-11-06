@@ -4,7 +4,7 @@
 use notepp_core::error::Error;
 use notepp_core::mcp::access::Level;
 use notepp_core::mcp::server::Job;
-use notepp_core::workspace::{BoardRequest, TabKind};
+use notepp_core::workspace::{BoardRequest, PREVIEW_PAGE, TabKind};
 
 use super::*;
 
@@ -14,19 +14,27 @@ pub(super) struct Parked {
     level: Level,
     request: BoardRequest,
     job: Job,
+    /// What the activity log says it was about.
+    target: String,
     sent: bool,
 }
 
 impl App {
     /// Take on a call for a page.
-    pub(super) fn mcp_park(&mut self, level: Level, job: Job, request: BoardRequest) {
+    pub(super) fn mcp_park(&mut self, level: Level, job: Job, request: BoardRequest, target: String) {
         self.mcp.next_op += 1;
         let id = self.mcp.next_op;
-        self.mcp.parked.push(Parked { id, level, request, job, sent: false });
+        self.mcp.parked.push(Parked { id, level, request, job, target, sent: false });
     }
 
     /// The page holding tab `tab`, once it has the tab's scene.
     fn board_page(&self, tab: u64) -> Option<WebPane> {
+        if tab == PREVIEW_PAGE {
+            if !self.view.is_loaded() {
+                self.view.load_html(&preview::page_html(self.ws.settings.preview_remote_images));
+            }
+            return self.view.is_ready().then(|| self.view.clone());
+        }
         if let Some((page, _)) = self.page_of(tab) {
             return page.is_ready().then_some(page);
         }
@@ -52,9 +60,12 @@ impl App {
                 // From the main loop: running a script waits in a message loop of its own, and a quick answer would arrive
                 // while the app is borrowed here, and be lost.
                 let (id, op) = (call.id, call.request.op.clone());
-                let picture = self.ws.tabs.iter().any(|t| t.id == call.request.tab && t.kind == TabKind::Image);
+                let tab = call.request.tab;
+                let picture = self.ws.tabs.iter().any(|t| t.id == tab && t.kind == TabKind::Image);
                 crate::widgets::defer::later(&self.frame, move || {
-                    if picture {
+                    if tab == PREVIEW_PAGE {
+                        preview::agent(&page, id, &op);
+                    } else if picture {
                         crate::imageedit::agent(&page, id, &op);
                     } else {
                         wbm::agent(&page, id, &op);
@@ -80,6 +91,7 @@ impl App {
             None if call.job.tool == "new_picture" => Ok(serde_json::json!({ "tab": call.request.tab, "picture": done.result })),
             None => Ok(done.result),
         };
+        super::mcp_safety::log_call(&call.job.client, &call.job.tool, &call.target, result.as_ref().err().map(ToString::to_string).as_deref());
         call.job.finish(result);
     }
 }

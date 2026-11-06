@@ -53,6 +53,21 @@ impl<S: Send> Workspace<S> {
         self.open_page(TabKind::Whiteboard, title, path, content, dirty)
     }
 
+    /// Show `text` in a read-only tab called `title` that is not a file, using the one already there.
+    pub fn show_snapshot(&mut self, title: &str, text: &str) {
+        match self.tabs.iter().position(|t| t.kind == TabKind::Text && t.path.is_none() && t.title == title) {
+            Some(i) => self.activate(i),
+            None => {
+                self.open_doc(title.to_string(), None, "", Enc::from_key("utf8"), Eol::platform_default(), "null");
+            }
+        }
+        self.set_read_only(false);
+        sci::set_text(&self.sci, text);
+        self.send(sci::SCI_SETSAVEPOINT, 0, 0);
+        self.send(sci::SCI_EMPTYUNDOBUFFER, 0, 0);
+        self.set_read_only(true);
+    }
+
     /// Add a picture tab holding the file's bytes as base64 `content`.
     pub fn open_image(&mut self, title: String, path: Option<PathBuf>, content: String, dirty: bool) -> usize {
         self.open_page(TabKind::Image, title, path, content, dirty)

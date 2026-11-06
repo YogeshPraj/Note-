@@ -239,6 +239,10 @@ stops DNS rebinding. Every request needs a 256-bit token, compared in constant t
 only. Sizes (16 KiB of headers, 32 MiB of body), time (10 seconds per request) and connections (16) are limited, and all of it is tested
 on a real socket and against the running app.
 
+Commands agents can run are an allow list (`mcp::commands`). Nothing on it reads or fills the clipboard, starts a program, reaches the
+network, deletes or moves files, touches passwords or encryption, prints or ends the program. A test names the commands that must
+never be on it.
+
 Not covered, and known: a program already running as the user can read the token file, as it can read anything else of theirs. A program
 that takes the port first, while Note++ is off, would receive the token from an agent configured to connect. Both need code already
 running on the machine. Until Stage 5 there is no approval of new clients, no activity log, and no way to stop a client except turning

@@ -147,6 +147,13 @@ Streamable HTTP with plain JSON replies; there are no event streams, and GET ans
 
 To add a tool: a row in `mcp::tools::TOOLS` and a handler in `agent_call`. A test fails if a row has no handler.
 
+Agents also run the editor's own commands by their palette names (`run_command`, `list_commands`). `mcp::commands` is an allow list,
+so a command added to the registry stays out of reach until someone has looked at it: being on the list means it opens no dialog, and
+it says which level it needs. `Workspace::agent_command` decides whether a command may run and the window runs it through
+`command::execute`, as a menu would. To add one: put its id in the list, and run it in the real app first, as a dialog there would
+stop the window until the user answers. Commands that `run_command` in `wiring.rs` handles by itself never reach `execute`, so they
+cannot be listed: that rules out docking, floating, and the panels that open windows.
+
 The token is in a file of its own in the profile (`mcp-token`), not in `settings.json`, which may be shared or backed up. Agents reach
 only tabs and the workspace folder, never the profile; network paths are refused before the disk is touched, since looking at one
 sends the user's credentials to its host.

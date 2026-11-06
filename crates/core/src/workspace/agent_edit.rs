@@ -19,6 +19,9 @@ impl<S: Send> Workspace<S> {
             "write_document" => self.agent_write(args),
             "replace_all" => self.agent_replace_all(args),
             "save_document" => self.agent_save(args),
+            "select_lines" => self.agent_select(args),
+            // Commands are handled in the window: it calls `agent_command` and runs what that allows.
+            "run_command" => Err(Error::Agent("Only the window can run commands.".into())),
             _ => Err(Error::Agent(format!("There is no tool \"{tool}\"."))),
         }
     }

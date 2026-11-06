@@ -73,10 +73,14 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - The Library shows the built-in items under Excalidraw's own heading "Excalidraw Library", which has no setting to change.
 - MCP: `tools/list` gives every tool whatever the level: an agent told "ask the user to choose Edit" helps more than one that cannot know the tool exists, and the level can change while it is connected.
 - MCP: opening a file and switching tabs are allowed at Read only. They change what is on screen, not any file, and reading a file needs them.
-- MCP: Settings offers Read only and Edit. Full comes with the commands it would allow (Stage 2), so that no option does nothing.
 - MCP: until the user's approval of new clients exists (Stage 5), encrypted documents are simply refused, and with no workspace folder an agent reaches open tabs only.
 - MCP: new documents and opened files come to the front, as they do for the user; working on an existing tab does not move the user.
 - MCP: a save refuses a file changed on disk since it was read, and a save to a path refuses any existing file other than the tab's own. Saving a hidden tab activates it for the moment, as Save All does.
 - MCP: the copied setup is treated as a password: kept out of the clipboard history and cleared after 30 seconds.
 - MCP: the default port is 47811, away from the usual development ports. If something else has it, Settings says so and the port can be changed.
 - MCP: connections over the limit of 16 wait in the system's queue. Turning one away unread resets it on Windows, which a client takes for a failure.
+- MCP: the commands agents can run are an allow list, not the deny list first agreed: the result today is the same, but a command added later stays out until someone has looked at it, instead of being open by default.
+- MCP: commands are named by their palette text, which is already unique and is what the user sees. Commands with no palette text cannot be run.
+- MCP: Edit runs the commands that change text, plus selection and bookmarks. Full adds the view, the window, tab order, pinning, a new whiteboard, and closing unchanged tabs.
+- MCP: copying is out along with pasting, so that an agent never overwrites the user's clipboard. It can read documents directly.
+- MCP: the families (languages, encodings) and docking and floating are not available to agents yet: families need an argument, and docking whiteboards is asynchronous.

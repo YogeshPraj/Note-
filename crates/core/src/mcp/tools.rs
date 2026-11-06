@@ -143,6 +143,36 @@ pub const TOOLS: &[Tool] = &[
         properties: || json!({ "tab": tab(), "path": { "type": "string", "description": "Full path, for a tab with no file." } }),
         required: &[],
     },
+    Tool {
+        name: "list_commands",
+        title: "List commands",
+        description: "Lists the Note++ commands run_command can run, and the level each needs.",
+        level: Level::Read,
+        properties: || json!({}),
+        required: &[],
+    },
+    Tool {
+        name: "select_lines",
+        title: "Select lines",
+        description: "Brings a tab to the front and selects whole lines. Commands such as sorting or changing case work on the selection.",
+        level: Level::Edit,
+        properties: || {
+            json!({
+                "tab": tab(),
+                "start_line": { "type": "integer", "description": "First line, from 1." },
+                "end_line": { "type": "integer", "description": "Last line. Only the first line when left out." },
+            })
+        },
+        required: &["start_line"],
+    },
+    Tool {
+        name: "run_command",
+        title: "Run a command",
+        description: "Runs a Note++ command by the name list_commands gives, on the active tab or the tab named, which comes to the front. A text command is one undo step.",
+        level: Level::Edit,
+        properties: || json!({ "command": { "type": "string", "description": "A name from list_commands." }, "tab": tab() }),
+        required: &["command"],
+    },
 ];
 
 /// The tool called `name`.
@@ -192,7 +222,7 @@ mod tests {
 
     #[test]
     fn nothing_that_changes_a_document_is_read_level() {
-        let changing = ["new_document", "edit_text", "insert_text", "write_document", "replace_all", "save_document"];
+        let changing = ["new_document", "edit_text", "insert_text", "write_document", "replace_all", "save_document", "run_command", "select_lines"];
         for name in changing {
             assert_eq!(find(name).map(|t| t.level), Some(Level::Edit), "{name}");
         }

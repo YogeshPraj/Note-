@@ -69,6 +69,69 @@ fn read_only_lets_agents_read_and_nothing_else() {
 }
 
 #[test]
+fn commands_follow_the_level_and_forbidden_ones_stay_forbidden() {
+    let mut ws = workspace();
+    let sort = json!({ "command": "Edit: Sort Lines Ascending" });
+    let wrap = json!({ "command": "View: Toggle Word Wrap" });
+    assert!(failure(ws.agent_command(Level::Read, &sort).map(|i| json!(i))).contains("Edit"));
+    assert_eq!(ws.agent_command(Level::Edit, &sort).unwrap(), crate::commands::ID_L_SORT_ASC);
+    assert!(failure(ws.agent_command(Level::Edit, &wrap).map(|i| json!(i))).contains("Full"));
+    assert_eq!(ws.agent_command(Level::Full, &wrap).unwrap(), crate::commands::ID_WRAP);
+    for name in ["Edit: Paste", "File: Move to Recycle Bin", "Tools: Passwords (Bitwarden)...", "No such command"] {
+        assert!(failure(ws.agent_command(Level::Full, &json!({ "command": name })).map(|i| json!(i))).contains("cannot run"), "{name}");
+    }
+}
+
+#[test]
+fn a_text_command_needs_a_tab_an_agent_may_change() {
+    let mut ws = workspace();
+    let plain = ws.tabs[0].id;
+    let sort = |tab: u64| json!({ "command": "Edit: Sort Lines Ascending", "tab": tab });
+    ws.new_whiteboard();
+    let board = ws.tabs[1].id;
+    assert!(failure(ws.agent_command(Level::Full, &sort(board)).map(|i| json!(i))).contains("whiteboard"));
+    ws.tabs[0].encrypted = true;
+    assert!(failure(ws.agent_command(Level::Full, &sort(plain)).map(|i| json!(i))).contains("encrypted"));
+    assert_eq!(ws.active, 1, "a refused command moves nobody");
+    ws.tabs[0].encrypted = false;
+    ws.sci.read_only.set(true);
+    assert!(failure(ws.agent_command(Level::Full, &sort(plain)).map(|i| json!(i))).contains("read-only"));
+    ws.sci.read_only.set(false);
+    assert!(ws.agent_command(Level::Full, &sort(plain)).is_ok());
+    assert_eq!(ws.active, 0, "the tab it named comes to the front");
+}
+
+#[test]
+fn a_modified_tab_is_not_closed_by_an_agent() {
+    let mut ws = workspace();
+    ws.tabs[0].forced_dirty = true;
+    assert!(failure(ws.agent_command(Level::Full, &json!({ "command": "File: Close" })).map(|i| json!(i))).contains("unsaved"));
+    ws.tabs[0].forced_dirty = false;
+    assert!(ws.agent_command(Level::Full, &json!({ "command": "File: Close" })).is_ok());
+}
+
+#[test]
+fn a_text_command_is_one_undo_step_and_undo_is_not_wrapped() {
+    let ws = workspace();
+    ws.sci.calls.borrow_mut().clear();
+    ws.agent_undo_group(crate::commands::ID_L_SORT_ASC, true);
+    ws.agent_undo_group(crate::commands::ID_L_SORT_ASC, false);
+    ws.agent_undo_group(crate::commands::ID_UNDO, true);
+    ws.agent_undo_group(crate::commands::ID_UNDO, false);
+    assert_eq!((count(&ws, sci::SCI_BEGINUNDOACTION), count(&ws, sci::SCI_ENDUNDOACTION)), (1, 1));
+}
+
+#[test]
+fn the_command_list_says_what_each_needs() {
+    let mut ws = workspace();
+    let listed = ws.agent_call(Level::Read, "list_commands", &json!({})).unwrap();
+    let rows = listed["commands"].as_array().unwrap();
+    assert_eq!(rows.len(), crate::mcp::commands::allowed().count());
+    assert!(rows.iter().any(|r| r["name"] == "Edit: Undo" && r["needs"] == "edit"));
+    assert!(!rows.iter().any(|r| r["name"] == "Edit: Paste"));
+}
+
+#[test]
 fn an_unknown_tool_is_refused() {
     let mut ws = workspace();
     assert!(ws.agent_call(Level::Edit, "delete_file", &json!({})).is_err());

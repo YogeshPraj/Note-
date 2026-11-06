@@ -25,7 +25,7 @@ pub(super) fn page(env: &Env) -> Page {
             choice(
                 "mcp_level",
                 "What agents may do",
-                "Read only: list, read, search and open. Edit: also change and save documents, each change one undo step. Encrypted documents and passwords are never available.",
+                "Read only: list, read, search and open. Edit: also change and save documents, each change one undo step. Full: also change the view and tabs, and close unchanged tabs. Encrypted documents, passwords and the clipboard are never available.",
                 &levels,
                 &s.mcp_level,
             ),

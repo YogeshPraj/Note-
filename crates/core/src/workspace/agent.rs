@@ -77,7 +77,7 @@ impl<S: Send> Workspace<S> {
     pub fn agent_call(&mut self, level: Level, tool: &str, args: &Value) -> Result<Value, Error> {
         let spec = tools::find(tool).ok_or_else(|| Error::Agent(format!("There is no tool \"{tool}\".")))?;
         if spec.level > level {
-            return Err(Error::Agent(format!("Note++ only lets agents read. Ask the user to choose Edit under Settings > AI Agents to use {tool}.")));
+            return Err(agent_commands::needs_more(tool, spec.level));
         }
         let args = Args(args);
         match tool {
@@ -86,6 +86,7 @@ impl<S: Send> Workspace<S> {
             "find_text" => self.agent_find(args),
             "open_file" => self.agent_open(args),
             "switch_tab" => self.agent_switch(args),
+            "list_commands" => Ok(crate::mcp::commands::listing()),
             _ => self.agent_change(tool, args),
         }
     }

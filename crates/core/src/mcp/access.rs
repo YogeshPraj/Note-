@@ -12,23 +12,30 @@ use crate::session::config_dir;
 pub enum Level {
     /// List, read, search, open and switch tabs. No document or file changes.
     Read,
-    /// Also change documents and save them.
+    /// Also change documents and save them, and run the commands that work on text.
     Edit,
+    /// Also run the commands that change the window and its tabs, and close unchanged tabs.
+    Full,
 }
 
 impl Level {
     /// The levels in the order Settings shows them.
-    pub const ALL: [Level; 2] = [Level::Read, Level::Edit];
+    pub const ALL: [Level; 3] = [Level::Read, Level::Edit, Level::Full];
 
     /// The key kept in the settings. Anything unknown means the lowest level.
     pub fn from_key(key: &str) -> Level {
-        if key == "edit" { Level::Edit } else { Level::Read }
+        match key {
+            "edit" => Level::Edit,
+            "full" => Level::Full,
+            _ => Level::Read,
+        }
     }
 
     pub fn key(self) -> &'static str {
         match self {
             Level::Read => "read",
             Level::Edit => "edit",
+            Level::Full => "full",
         }
     }
 
@@ -36,6 +43,7 @@ impl Level {
         match self {
             Level::Read => "Read only",
             Level::Edit => "Edit",
+            Level::Full => "Full",
         }
     }
 }
@@ -168,7 +176,7 @@ mod tests {
             assert_eq!(Level::from_key(level.key()), level);
         }
         assert_eq!(Level::from_key("everything"), Level::Read);
-        assert!(Level::Edit > Level::Read);
+        assert!(Level::Full > Level::Edit && Level::Edit > Level::Read);
     }
 
     #[test]

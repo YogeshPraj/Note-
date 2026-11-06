@@ -1,5 +1,6 @@
 //! The MCP server in the window: starting and stopping it with the settings, and running its tool calls on the UI thread.
 
+use notepp_core::error::Error;
 use notepp_core::mcp::access::{self, Level};
 use notepp_core::mcp::server::{Queue, Server};
 use notepp_core::mcp::tools;
@@ -36,7 +37,7 @@ pub(super) fn wire_mcp(app: &Shared, frame: Frame) {
     }
 }
 
-fn start(port: u16, queue: Queue) -> Result<Server, notepp_core::error::Error> {
+fn start(port: u16, queue: Queue) -> Result<Server, Error> {
     Server::start(port, &access::token()?, queue)
 }
 
@@ -80,12 +81,28 @@ impl App {
             if let Some(tool) = tools::find(&job.tool).filter(|t| t.level > Level::Read) {
                 self.flash = Some(format!("AI agent: {}", tool.title));
             }
-            let result = self.ws.agent_call(level, &job.tool, &job.args);
+            let result = if job.tool == "run_command" { self.mcp_command(level, &job.args) } else { self.ws.agent_call(level, &job.tool, &job.args) };
             job.finish(result);
             ran = true;
         }
         if ran {
             self.refresh();
+        }
+    }
+
+    /// Run a registry command an agent named, through the same path a menu takes, and pass on what it reported.
+    fn mcp_command(&mut self, level: Level, args: &serde_json::Value) -> Result<serde_json::Value, Error> {
+        let id = self.ws.agent_command(level, args)?;
+        self.flash = None;
+        self.ws.agent_undo_group(id, true);
+        let ran = crate::command::execute(self, id);
+        self.ws.agent_undo_group(id, false);
+        let said = self.flash.take();
+        let name = notepp_core::registry::spec(id).map_or("", |s| s.palette);
+        self.flash = Some(format!("AI agent: {name}"));
+        match ran {
+            Ok(()) => Ok(serde_json::json!({ "command": name, "message": said })),
+            Err(e) => Err(Error::Agent(e.to_string())),
         }
     }
 

@@ -15,7 +15,7 @@ const INVALID_PARAMS: i32 = -32602;
 pub const PARSE_ERROR: i32 = -32700;
 
 const INSTRUCTIONS: &str = "Note++ is a text editor the user has open. These tools work on its tabs, and the user sees every change. \
-Call list_tabs first. Tabs are named by the id it gives; ids stay the same while a tab is open. Whiteboards and pictures are listed but cannot be read yet, and encrypted documents are refused.";
+Call list_tabs first; list_commands gives the editor's own commands, for run_command. Tabs are named by the id it gives; ids stay the same while a tab is open. Whiteboards and pictures are listed but cannot be read yet, and encrypted documents are refused.";
 
 /// A JSON-RPC error reply.
 pub fn error_reply(id: &Value, code: i32, message: &str) -> Value {

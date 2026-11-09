@@ -15,9 +15,10 @@ use wxdragon::prelude::*;
 
 use crate::widgets::menu_bar::{MenuBar, MenuEvent};
 use crate::widgets::paint::Rgb;
-use crate::widgets::status_bar::{Segment, StatusBar, StatusEvent};
+use crate::widgets::status_bar::{Segment, StatusBar as Bar, StatusEvent};
 use crate::widgets::tab_strip::{TabEvent, TabStrip};
 use crate::widgets::tool_bar::{Item, Pill, ToolBar, ToolEvent};
+use notepp_core::status_bar::{StatusAction, StatusBar};
 
 /// What the user did in the chrome.
 #[derive(Clone, Copy, Debug)]
@@ -35,23 +36,16 @@ pub enum Act {
     Menu(usize),
 }
 
-pub const SEG_ENC: isize = 1;
-pub const SEG_EOL: isize = 2;
-pub const SEG_LANG: isize = 3;
-pub const SEG_AGENTS: isize = 4;
+/// The status bar's clickable segments are told apart by an id; what each means is `core::status_bar::StatusAction`.
+const STATUS_ACTIONS: [StatusAction; 4] = [StatusAction::Encoding, StatusAction::LineEnding, StatusAction::Language, StatusAction::Agents];
 
-#[derive(Default, Clone)]
-pub struct StatusText {
-    pub position: String,
-    pub lines: String,
-    pub length: String,
-    pub enc: String,
-    pub eol: String,
-    pub lang: String,
-    /// Typing replaces text (the Insert key).
-    pub overtype: bool,
-    /// Which AI agents are connected, if any.
-    pub agents: Option<String>,
+fn segment_id(action: StatusAction) -> isize {
+    STATUS_ACTIONS.iter().position(|a| *a == action).map_or(0, |i| crate::platform::wx::to_isize(i + 1))
+}
+
+/// What a click on segment `id` means.
+pub fn status_action(id: isize) -> Option<StatusAction> {
+    STATUS_ACTIONS.get(crate::platform::wx::to_usize(id).checked_sub(1)?).copied()
 }
 
 pub struct Chrome {
@@ -62,7 +56,7 @@ pub struct Chrome {
     menu_bar: MenuBar,
     tool_bar: ToolBar,
     strip: TabStrip,
-    status_bar: StatusBar,
+    status_bar: Bar,
 }
 /// A toolbar button: its command and icon; the tool-tip is the registry's (name and shortcut) unless one is given.
 macro_rules! btn {
@@ -149,7 +143,7 @@ impl Chrome {
         let tool_bar = ToolBar::new(parent, toolbar_items());
         let strip = TabStrip::new(parent);
         strip.set_font(crate::widgets::theme::current().ui_font());
-        let status_bar = StatusBar::new(parent);
+        let status_bar = Bar::new(parent);
         let chrome =
             Chrome { menu: menu_bar.panel(), tools: tool_bar.panel(), tabs: strip.panel(), status: status_bar.panel(), menu_bar, tool_bar, strip, status_bar };
         // Clicking the bars must not take the focus from the editor: typing carries on where it was.
@@ -250,17 +244,17 @@ impl Chrome {
         );
     }
 
-    pub fn set_status(&self, t: StatusText) {
-        let mut segments = vec![
-            Segment::text(if t.overtype { "OVR" } else { "INS" }),
-            Segment::button(t.lang, SEG_LANG),
-            Segment::button(t.eol, SEG_EOL),
-            Segment::button(t.enc, SEG_ENC),
-            Segment::text(t.length),
-            Segment::text(t.lines),
-        ];
-        segments.extend(t.agents.map(|text| Segment::button(text, SEG_AGENTS)));
-        self.status_bar.set(t.position, segments);
+    /// Draw the bar `core` laid out.
+    pub fn set_status(&self, bar: StatusBar) {
+        let segments = bar
+            .segments
+            .into_iter()
+            .map(|s| match s.action {
+                Some(action) => Segment::button(s.text, segment_id(action)),
+                None => Segment::text(s.text),
+            })
+            .collect();
+        self.status_bar.set(bar.left, segments);
     }
 
     /// Tool-tips that come from the registry show the keymap's effective shortcut.

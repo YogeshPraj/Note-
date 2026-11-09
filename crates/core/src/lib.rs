@@ -37,6 +37,7 @@ pub mod secret;
 pub mod session;
 pub mod settings;
 pub mod shortcuts;
+pub mod status_bar;
 pub mod tables;
 pub mod textools;
 pub mod update;

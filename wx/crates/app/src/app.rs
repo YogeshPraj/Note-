@@ -18,7 +18,7 @@ use notepp_core::workspace::Workspace;
 use wxdragon::event::WebViewEvents;
 use wxdragon::prelude::*;
 
-use crate::chrome::{Act, Chrome, StatusText};
+use crate::chrome::{Act, Chrome};
 use crate::command::CommandBus;
 use crate::findpanel::{self, Cmd, Mode};
 use crate::menus::{self, Menus};
@@ -243,18 +243,8 @@ impl App {
             self.ws.sync_minimap();
         }
         self.sync_tabs();
-        let s = self.ws.status();
-        let position = self.flash.take().unwrap_or_else(|| s.position.clone());
-        self.chrome.set_status(StatusText {
-            position,
-            lines: s.lines.clone(),
-            length: s.length.clone(),
-            enc: s.enc.clone(),
-            eol: s.eol.clone(),
-            lang: s.lang.clone(),
-            overtype: self.ws.overtype(),
-            agents: self.mcp_label(),
-        });
+        let bar = notepp_core::status_bar::layout(&self.ws.status(), self.flash.take(), self.ws.overtype(), self.mcp_label());
+        self.chrome.set_status(bar);
         let th = &self.ws.theme;
         let base = if th.dark { crate::widgets::theme::Theme::dark() } else { crate::widgets::theme::Theme::light() };
         crate::widgets::theme::set(base.with_editor(th.bg, th.fg));

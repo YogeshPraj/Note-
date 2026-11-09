@@ -231,17 +231,19 @@ pub fn minimap_menu(app: &Shared, at: Point) {
 
 /// A click on the encoding / line-ending / language segment of the status bar.
 pub fn status_menu(app: &Shared, seg: isize, at: Point) {
-    if seg == crate::chrome::SEG_AGENTS {
+    use notepp_core::status_bar::StatusAction;
+    let Some(action) = crate::chrome::status_action(seg) else { return };
+    if action == StatusAction::Agents {
         let Ok(frame) = app.try_borrow().map(|a| a.frame) else { return };
         return show(app, &frame, MenuSpec::new().item(c::ID_MCP_LOG, "AI Activity Log").item(c::ID_MCP_STOP, "Stop AI Agents"), at);
     }
     let (frame, m) = {
         let Ok(a) = app.try_borrow() else { return };
-        let m = match seg {
-            crate::chrome::SEG_ENC => a.menus.enc,
-            crate::chrome::SEG_EOL => a.menus.eol,
-            crate::chrome::SEG_LANG => a.menus.lang,
-            _ => return,
+        let m = match action {
+            StatusAction::Encoding => a.menus.enc,
+            StatusAction::LineEnding => a.menus.eol,
+            StatusAction::Language => a.menus.lang,
+            StatusAction::Agents => return,
         };
         (a.frame, m)
     };

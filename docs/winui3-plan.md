@@ -33,6 +33,27 @@ tests; each shell only draws that data with its own toolkit and sends clicks and
 Already data in `core` today: `CommandSpec` and the registry, `MenuSpec`, the settings `Page`/`Row`/`Control`, `TabInfo`,
 `StatusText`, the workspace's docking and floating rules, `placement` (window placement).
 
+### Rule: WinUI controls as Microsoft provides them
+
+On Windows the shell uses WinUI 3's controls with their own look and default Fluent styling: no restyled templates, no custom-drawn
+controls, and none of Note++'s colour themes on WinUI parts (the window follows Windows' light, dark and accent colours; the editor's
+colour themes still apply inside Scintilla). Agreed with the owner, 2026-11-09.
+
+Allowed, as that is using controls: setting their normal properties (text, icon, enabled, selection); putting standard controls inside
+each other; and arranging standard controls for what WinUI has no single control for (the status bar as text and buttons in a row,
+docking as panes with a splitter, tear-out as a new window holding a `TabView`).
+
+What changes on Windows because of the rule:
+
+| Today | Under the rule |
+|---|---|
+| Coloured tab marks | `TabView` has no colour property: a coloured icon, or dropped |
+| Badges on tabs (`wb`, `img`, `enc`, `dock`) | the tab's icon |
+| The painted toolbar | a standard `CommandBar`, with Fluent icons |
+| The Settings window's layout | a standard `NavigationView` with standard controls; same content, different look |
+| Pinned tabs | no built-in pin: an icon, kept first by our own ordering |
+| Status bar, Find panel, Markdown toolbar | arrangements of standard controls |
+
 ### Rejected: a widget-level abstraction
 
 One interface over "menu", "tab strip", "dock pane" with a WinUI and a wx implementation behind it. Rejected because it can only offer

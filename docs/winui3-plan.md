@@ -127,9 +127,13 @@ Findings so far (2026-11-09, `spike/winui`, windows-reactor 0.100.0 pinned, run 
 - **Blocker for access keys as planned:** reactor 0.100 cannot open a menu from code and does not set `AccessKey`, so Alt+letter and
   F10 are decided but cannot be carried out. Needs a reactor feature, or WinUI calls outside reactor.
 - **Reactor quirk:** a tab added and selected in the same turn stays unselected; selecting it in a later publish works.
-- **Not seen yet:** pictures of a WinUI window on a hidden desktop do not show Scintilla's text (it holds and paints it), so whether the
-  editor shows on a real screen, menus opening over the editor, clicking between WinUI and the editor, and real keys need a person.
-  Also left: Scintilla's own popups, moving between monitors of different scale, drag and drop, screen readers, self-contained start.
+- **Scintilla must be a layered child window.** As a plain child it was invisible on a real screen: WinUI composes its content over
+  the whole window, covering GDI children. Created with `WS_EX_LAYERED` (fully opaque) it gets its own surface and shows; layered
+  children need the exe's manifest to declare Windows 8 or later, so the spike embeds Note++'s own `assets/app.manifest`.
+- **Checked by the owner on a real screen (2026-11-09):** the editor shows its text; the File and Edit menus open over the editor, not
+  behind it; clicking between the tabs and the editor works; Ctrl+Tab and Ctrl+N work while typing in the editor.
+- **Left:** Ctrl+S on a real keyboard, Scintilla's own popups (autocomplete, calltips), moving between monitors of different scale,
+  drag and drop, screen readers, a self-contained start, and the access keys above.
 
 ### Phase 3: the WinUI shell
 

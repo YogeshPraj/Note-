@@ -16,8 +16,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, SetFocus, VK_
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, EnumThreadWindows, GW_CHILD, GW_HWNDNEXT, GWL_EXSTYLE, GetClassNameW, GetClientRect, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    HWND_TOP, IsWindowVisible, SWP_SHOWWINDOW, SendMessageW, SetWindowPos, WM_APP, WM_KEYDOWN, WM_PAINT, WM_SYSKEYDOWN, WS_CHILD, WS_CLIPSIBLINGS, WS_TABSTOP,
-    WS_VISIBLE,
+    HWND_TOP, IsWindowVisible, LWA_ALPHA, SWP_SHOWWINDOW, SendMessageW, SetLayeredWindowAttributes, SetWindowPos, WM_APP, WM_KEYDOWN, WM_PAINT, WM_SYSKEYDOWN,
+    WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_TABSTOP, WS_VISIBLE,
 };
 
 /// A key the editor saw, as `core` routed it.
@@ -91,11 +91,17 @@ fn create(window: HWND) -> Result<HWND, String> {
     }
     let class = wide("Scintilla");
     let style = WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP;
+    // A plain GDI child is drawn under WinUI's composition; a layered child gets its own surface (needs the manifest).
+    let layered = std::env::var("NOTEPP_SPIKE_HOST").as_deref() != Ok("plain");
+    let ex = if layered { WS_EX_LAYERED } else { 0 };
     let editor = unsafe {
-        CreateWindowExW(0, class.as_ptr(), std::ptr::null(), style, 0, 0, 10, 10, window, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
+        CreateWindowExW(ex, class.as_ptr(), std::ptr::null(), style, 0, 0, 10, 10, window, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
     };
     if editor.is_null() {
-        return Err("CreateWindowExW(Scintilla) failed".into());
+        return Err(format!("CreateWindowExW(Scintilla, layered={layered}) failed"));
+    }
+    if layered {
+        unsafe { SetLayeredWindowAttributes(editor, 0, 255, LWA_ALPHA) };
     }
     unsafe { SetWindowSubclass(editor, Some(keys), 1, 0) };
     Ok(editor)

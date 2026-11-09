@@ -230,14 +230,12 @@ impl Component for Spike {
                 TabViewSlot::TabItems,
                 self.docs.iter().enumerate().map(|(i, d)| (i, TabViewItem::new().header(d.name.as_str()).is_closable(false))),
             );
-        Grid::new()
-            .rows([GridLength::Auto, GridLength::Auto, GridLength::Auto, GridLength::STAR])
-            .children((
-                bar,
-                tabs,
-                TextBlock::new().text(self.status.as_str()).margin(Thickness::new(8.0, 2.0, 8.0, 2.0)).grid_row(2),
-                SwapChainPanel::new().element_ref(&self.panel).grid_row(3),
-            ))
+        Grid::new().rows([GridLength::Auto, GridLength::Auto, GridLength::Auto, GridLength::STAR]).children((
+            bar,
+            tabs,
+            TextBlock::new().text(self.status.as_str()).margin(Thickness::new(8.0, 2.0, 8.0, 2.0)).grid_row(2),
+            SwapChainPanel::new().element_ref(&self.panel).grid_row(3),
+        ))
     }
 }
 

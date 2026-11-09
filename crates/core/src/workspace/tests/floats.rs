@@ -4,7 +4,7 @@ use super::*;
 use crate::session::FloatRect;
 
 /// Four text tabs, the last one active, with a second view for the dock.
-fn four() -> Workspace<FakeSci> {
+pub(super) fn four() -> Workspace<FakeSci> {
     let mut ws = Workspace::new(FakeSci::default());
     for _ in 0..4 {
         ws.new_tab();
@@ -13,7 +13,7 @@ fn four() -> Workspace<FakeSci> {
     ws
 }
 
-fn window() -> FakeSci {
+pub(super) fn window() -> FakeSci {
     FakeSci { next: Cell::new(700), shown: Cell::new(901), ..FakeSci::default() }
 }
 

@@ -49,6 +49,18 @@ pub fn place(saved: Option<FloatRect>, want_w: i32, want_h: i32, areas: &[Area])
     FloatRect { x, y, w, h, maximized: r.maximized }
 }
 
+/// What a window keeps for next time: where it is, or, while maximised, the place it goes back to. A minimised window says
+/// nothing (`None`: keep what was kept); one that was maximised from the start keeps its size as it is.
+pub fn remember(kept: Option<FloatRect>, now: FloatRect, minimized: bool) -> Option<FloatRect> {
+    if minimized {
+        return kept;
+    }
+    Some(match kept {
+        Some(before) if now.maximized => FloatRect { maximized: true, ..before },
+        _ => now,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +139,24 @@ mod tests {
     fn a_sliver_of_title_bar_is_not_enough() {
         let r = place(Some(rect(1880, 100, 1000, 700)), 1200, 800, &[LAPTOP]);
         assert_eq!(r, fit(1200, 800, LAPTOP));
+    }
+
+    #[test]
+    fn a_maximised_window_keeps_the_place_it_goes_back_to() {
+        let before = rect(100, 100, 900, 600);
+        let filling = FloatRect { x: -8, y: -8, w: 1936, h: 1048, maximized: true };
+        assert_eq!(remember(Some(before), filling, false), Some(FloatRect { maximized: true, ..before }));
+    }
+
+    #[test]
+    fn a_window_keeps_where_it_is_and_a_minimised_one_keeps_what_it_had() {
+        let before = rect(100, 100, 900, 600);
+        let now = rect(300, 200, 1000, 700);
+        assert_eq!(remember(Some(before), now, false), Some(now));
+        assert_eq!(remember(Some(before), now, true), Some(before));
+        assert_eq!(remember(None, now, true), None);
+        let maximised_from_the_start = FloatRect { maximized: true, ..now };
+        assert_eq!(remember(None, maximised_from_the_start, false), Some(maximised_from_the_start));
     }
 
     #[test]

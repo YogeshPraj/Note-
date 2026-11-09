@@ -96,6 +96,12 @@ fn frame_for(title: &str, rect: Option<FloatRect>) -> Frame {
     Frame::builder().with_title(title).with_position(Point::new(r.x, r.y)).with_size(Size::new(r.w, r.h)).build()
 }
 
+/// Where a window is now, as the session keeps it.
+fn rect_of(frame: &Frame) -> FloatRect {
+    let (p, s) = (frame.get_position(), frame.get_size());
+    FloatRect { x: p.x, y: p.y, w: s.width, h: s.height, maximized: frame.is_maximized() }
+}
+
 /// The window's content, added to `column`, with its tab moved to the workspace's floating ones. `None` if it cannot be made.
 fn fill(app: &mut App, panel: &Panel, i: usize, column: &BoxSizer) -> Option<Body> {
     if app.ws.tabs[i].kind == TabKind::Image {
@@ -287,11 +293,6 @@ impl App {
 
     pub(super) fn finish_window(&mut self, tab: u64, then: After) {
         match then {
-            After::DockBack if self.ws.docked_tab() == Some(tab) => {
-                self.ws.undock();
-                self.refresh();
-                self.focus_shown();
-            }
             After::DockBack => self.dock_back_window(tab),
             After::Close => {
                 if let Some(i) = self.ws.tabs.iter().position(|t| t.id == tab) {
@@ -312,15 +313,15 @@ impl App {
             }
             keep
         });
-        let (current, dark) = (self.ws.current_float(), self.ws.theme.dark);
+        let dark = self.ws.theme.dark;
+        let headings = self.ws.float_headings();
         for w in &mut self.float_windows {
-            let Some(i) = self.ws.tabs.iter().position(|t| t.id == w.tab) else { continue };
-            let title = self.ws.title_of(i);
-            if title != w.title {
-                w.frame.set_title(&title);
-                w.title = title;
+            let Some((_, title, heading)) = headings.iter().find(|(tab, ..)| *tab == w.tab) else { continue };
+            if *title != w.title {
+                w.frame.set_title(title);
+                w.title.clone_from(title);
             }
-            w.head.set(&self.ws.tabs[i].title, self.ws.is_dirty(i), current == Some(w.tab));
+            w.head.set(&heading.title, heading.modified, heading.current);
             match &w.body {
                 Body::Board(page) if page.is_ready() && page.sync_dark(dark) => wbm::set_theme(page, dark),
                 Body::Picture(page) if page.is_ready() && page.sync_dark(dark) => crate::imageedit::set_theme(page, dark),
@@ -340,7 +341,7 @@ impl App {
 
     /// The tab goes back to the strip and the keyboard with it to the main window.
     pub(super) fn dock_back_window(&mut self, tab: u64) {
-        self.ws.dock_back(tab);
+        self.ws.send_back(tab);
         self.refresh();
         crate::widgets::native::current().focus_window(self.frame.get_handle() as isize);
         self.focus_shown();
@@ -353,35 +354,17 @@ impl App {
         }
     }
 
-    /// Note where the main window is, for the session. A maximised window keeps the place it goes back to; one that
-    /// started maximised has none, and gets the size that fits when it is restored.
+    /// Note where the main window is, for the session (the rule is `placement::remember`).
     pub(super) fn keep_main_rect(&mut self) {
-        if self.frame.is_iconized() {
-            return;
-        }
-        let maximized = self.frame.is_maximized();
-        let (p, s) = (self.frame.get_position(), self.frame.get_size());
-        self.ws.main_window = Some(match self.ws.main_window {
-            Some(r) if maximized => FloatRect { maximized, ..r },
-            _ => FloatRect { x: p.x, y: p.y, w: s.width, h: s.height, maximized },
-        });
+        self.ws.main_window = notepp_core::placement::remember(self.ws.main_window, rect_of(&self.frame), self.frame.is_iconized());
     }
 
     /// Note where the windows are, for the session.
     pub(super) fn keep_float_rects(&mut self) {
         for w in &self.float_windows {
-            if w.frame.is_iconized() {
-                continue;
+            if let Some(rect) = notepp_core::placement::remember(self.ws.float_rect(w.tab), rect_of(&w.frame), w.frame.is_iconized()) {
+                self.ws.set_float_rect(w.tab, rect);
             }
-            let maximized = w.frame.is_maximized();
-            let was = self.ws.float_rect(w.tab);
-            let (p, s) = (w.frame.get_position(), w.frame.get_size());
-            // A maximised window fills the screen: the size to go back to is the one it had before.
-            let rect = match was {
-                Some(r) if maximized => FloatRect { maximized, ..r },
-                _ => FloatRect { x: p.x, y: p.y, w: s.width, h: s.height, maximized },
-            };
-            self.ws.set_float_rect(w.tab, rect);
         }
     }
 

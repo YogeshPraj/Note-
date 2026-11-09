@@ -266,6 +266,29 @@ impl<S: Send> Workspace<S> {
         }
     }
 
+    /// What each floating window shows in its title bar and its header, by tab.
+    pub fn float_headings(&self) -> Vec<(u64, String, crate::dock_layout::PaneHeading)> {
+        let current = self.current_float();
+        self.floats
+            .iter()
+            .filter_map(|f| {
+                let i = self.index_of(f.tab)?;
+                let heading =
+                    crate::dock_layout::PaneHeading { title: self.tabs[i].title.clone(), modified: self.is_dirty(i), current: current == Some(f.tab) };
+                Some((f.tab, self.title_of(i), heading))
+            })
+            .collect()
+    }
+
+    /// Dock Back for `tab`, whichever way it is out of the strip: a docked tab is undocked, a floating one goes back last.
+    pub fn send_back(&mut self, tab: u64) {
+        if self.docked_tab() == Some(tab) {
+            self.undock();
+        } else {
+            self.dock_back(tab);
+        }
+    }
+
     pub fn float_rect(&self, tab: u64) -> Option<FloatRect> {
         self.floats.iter().find(|f| f.tab == tab).and_then(|f| f.rect)
     }

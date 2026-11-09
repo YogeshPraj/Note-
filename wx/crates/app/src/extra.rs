@@ -41,17 +41,7 @@ fn ensure_context_menu_file() -> PathBuf {
 
 /// Entries of the context menu file: Some(command) or None for a separator.
 pub fn context_entries(text: &str) -> Vec<Option<(&'static str, usize, &'static str)>> {
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .filter_map(|l| {
-            if l == "-" {
-                Some(None)
-            } else {
-                notepp_core::registry::palette().find(|s| s.palette.eq_ignore_ascii_case(l)).map(|s| Some((s.palette, s.id, s.hint())))
-            }
-        })
-        .collect()
+    notepp_core::context_menus::editor_entries(text)
 }
 
 fn context_names(text: &str) -> Vec<String> {

@@ -174,7 +174,7 @@ fn spec_inner(a: &[Vec<Entry>], m: M) -> MenuSpec {
 
 /// Build the wxWidgets menu for a menu under construction.
 pub fn realize(m: M) -> Menu {
-    spec(m).realize()
+    crate::menu_spec::realize(&spec(m))
 }
 // ---- generated from the Win32 shell's menu definitions -----------------------------------------
 

@@ -42,50 +42,10 @@ pub(crate) fn open_menu_for_key(a: &Shared, key: &str) {
     }
 }
 
-/// Alt+letter opens the menu whose title underlines that letter; F10 opens the first.
-/// Ctrl+V in the editor: open the picture on the clipboard, if that is all it holds. True when the key was used.
-fn paste_picture_from_editor(app: &Shared) -> bool {
-    let Ok(mut a) = app.try_borrow_mut() else { return false };
-    a.stc().has_focus() && a.paste_image()
-}
-
+/// The main window's keys: Alt+letter, an open menu, Ctrl+Tab, a picture on Ctrl+V and F10, as `core::key_routing` decides.
 pub(super) fn wire_menu_keys(app: &Shared, frame: Frame) {
     let a = app.clone();
-    frame.on_char_hook(move |e| {
-        let wxdragon::event::WindowEventData::Keyboard(k) = &e else {
-            e.skip(true);
-            return;
-        };
-        let code = k.get_key_code().unwrap_or(0);
-        // Alt+letter opens the menu with that letter, also while another menu is open (the open one is replaced).
-        let alt_menu = (k.alt_down() && !k.control_down()).then(|| u8::try_from(code).ok().filter(u8::is_ascii_graphic)).flatten().and_then(|b| {
-            let titles = a.try_borrow().ok()?.chrome.menu_titles();
-            crate::widgets::menu_bar::menu_for_key(&titles, char::from(b))
-        });
-        if let Some(i) = alt_menu {
-            open_menu(&a, i, true);
-            return;
-        }
-        // An open menu takes every other key.
-        if crate::widgets::popup_menu::key(code, !k.control_down() && !k.alt_down()) {
-            return;
-        }
-        // Ctrl+Tab and Ctrl+Shift+Tab switch tabs. Tab is a navigation key, which the toolkit and the editor take
-        // before any menu shortcut sees it, so it is handled here.
-        if code == KEY_TAB && k.control_down() && !k.alt_down() {
-            switch_tab(&a, if k.shift_down() { -1 } else { 1 });
-            return;
-        }
-        // Ctrl+V with only a picture on the clipboard opens it in a tab of its own; with text it pastes as usual.
-        if code == KEY_V && k.control_down() && !k.alt_down() && !k.shift_down() && paste_picture_from_editor(&a) {
-            return;
-        }
-        if code == 344 && !k.alt_down() && !k.control_down() {
-            open_menu(&a, 0, true); // WXK_F10
-        } else {
-            e.skip(true);
-        }
-    });
+    frame.on_char_hook(move |e| super::keys::on_key(&a, &e, notepp_core::key_routing::Place::Main));
     // Switching to another program closes an open menu; coming back looks for files other programs changed or deleted.
     let a = app.clone();
     frame.on_activate(move |e| {

@@ -1,6 +1,6 @@
 # Plan: a WinUI 3 shell for Windows, with macOS and Linux kept
 
-Status: **proposed, not started.** Nothing below is approved for implementation yet; each phase needs its own go-ahead, and the
+Status: **in progress.** Phase 0 built (not yet proven on the build servers); phase 1's six steps done. Nothing below is approved for implementation yet; each phase needs its own go-ahead, and the
 spike (phase 2) decides whether phases 3 and later happen at all.
 
 ## Goal
@@ -81,6 +81,12 @@ the app working:
 4. the Settings window's actions (pages are data already)
 5. the tab strip's menu and what its items do
 6. key routing (which key does what, wherever the keyboard is)
+
+Status (2026-11-09): the six steps are done, each a commit with tests: `core::dock_layout`, floating windows' headings and Dock Back
+(`float_headings`, `send_back`, `placement::remember`), `core::status_bar`, `core::settings_pages`, `core::menu` and
+`core::context_menus`, `core::key_routing`. Not yet checked with real keys: key routing (posted keys skip wx's key hook on the test
+desktop). Still in `app` and worth moving later: the whiteboard and picture pages' traffic, the preview's choice of what to show, the
+command handlers' own logic.
 
 Rule, checked in review: shells hold drawing and wiring only, no decisions. `check-architecture.sh` keeps `core` free of any UI toolkit.
 Done when: what remains in `app` is drawing and event wiring. This phase is worth doing even if WinUI never happens.

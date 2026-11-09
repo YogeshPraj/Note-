@@ -20,6 +20,7 @@ pub mod hash;
 pub mod http;
 pub mod image;
 pub mod jsonpath;
+pub mod key_routing;
 pub mod keymap;
 pub mod lang;
 pub mod lexer;

@@ -92,9 +92,6 @@ pub type Shared = Rc<RefCell<App>>;
 /// The Tab key's code (`WXK_TAB`).
 const KEY_TAB: i32 = 9;
 
-/// The V key's code (`WXK_V` is the capital letter).
-const KEY_V: i32 = 86;
-
 /// How much of another tab's text its tool tip shows: lines, and characters per line.
 const TIP_LINES: usize = 12;
 const TIP_WIDTH: usize = 90;
@@ -116,6 +113,7 @@ mod float_board;
 mod float_keys;
 mod float_pane;
 mod float_picture;
+mod keys;
 mod mcp;
 mod mcp_board;
 mod mcp_safety;

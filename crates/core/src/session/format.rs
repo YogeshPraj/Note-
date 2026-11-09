@@ -142,6 +142,8 @@ pub(super) struct Extras {
     pub(super) dock: Option<SessionDock>,
     #[serde(default)]
     pub(super) floats: Vec<super::SessionFloat>,
+    #[serde(default)]
+    pub(super) window: Option<super::FloatRect>,
 }
 
 /// Before this app has saved anything, take the look from the settings file.
@@ -160,6 +162,7 @@ pub(super) fn extras_from_settings() -> Extras {
         date_format: String::new(),
         dock: None,
         floats: Vec::new(),
+        window: None,
     }
 }
 

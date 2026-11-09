@@ -321,6 +321,7 @@ impl App {
             let ticket = session::ticket();
             self.keep_dock_share();
             self.keep_float_rects();
+            self.keep_main_rect();
             let _ = self.ws.snapshot().save_in_order(&session::session_path(), ticket);
         }
     }

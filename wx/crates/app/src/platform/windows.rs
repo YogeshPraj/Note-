@@ -36,7 +36,6 @@ unsafe extern "system" {
     fn IsClipboardFormatAvailable(format: u32) -> i32;
     fn GetClipboardData(format: u32) -> isize;
     fn SetClipboardData(format: u32, mem: isize) -> isize;
-    fn MonitorFromRect(rect: *const Rect, flags: u32) -> isize;
 }
 
 #[link(name = "kernel32")]
@@ -57,14 +56,6 @@ unsafe extern "system" {
 #[link(name = "shell32")]
 unsafe extern "system" {
     fn ShellExecuteW(window: isize, verb: *const u16, file: *const u16, args: *const u16, dir: *const u16, show: i32) -> isize;
-}
-
-#[repr(C)]
-struct Rect {
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
 }
 
 const CF_UNICODETEXT: u32 = 13;
@@ -173,12 +164,6 @@ impl Platform for Windows {
         let units: Vec<u8> = text.encode_utf16().chain(std::iter::once(0)).flat_map(u16::to_le_bytes).collect();
         unsafe { EmptyClipboard() };
         clip.put(id, bytes) && clip.put(CF_UNICODETEXT, &units)
-    }
-
-    fn on_screen(&self, x: i32, y: i32, w: i32, h: i32) -> bool {
-        let rect = Rect { left: x, top: y, right: x + w, bottom: y + h };
-        // MONITOR_DEFAULTTONULL: no monitor touches the rectangle.
-        unsafe { MonitorFromRect(&raw const rect, 0) != 0 }
     }
 
     fn reveal_in_file_manager(&self, path: &Path) {

@@ -91,12 +91,9 @@ pub(super) fn restore(a: &Shared) {
 
 fn frame_for(title: &str, rect: Option<FloatRect>) -> Frame {
     let t = crate::widgets::theme::current();
-    let b = Frame::builder().with_title(title);
-    // A window saved on a monitor that has gone since opens where the system puts new ones.
-    match rect.filter(|r| crate::platform::current().on_screen(r.x, r.y, r.w, r.h)) {
-        Some(r) => b.with_position(Point::new(r.x, r.y)).with_size(Size::new(r.w, r.h)).build(),
-        None => b.with_size(Size::new(t.px(WIDTH), t.px(HEIGHT))).build(),
-    }
+    // Where it was, if its title bar is still on a screen, or a size that fits the main screen: the same rule as the main window.
+    let r = notepp_core::placement::place(rect, t.px(WIDTH), t.px(HEIGHT), &crate::platform::wx::screen_areas());
+    Frame::builder().with_title(title).with_position(Point::new(r.x, r.y)).with_size(Size::new(r.w, r.h)).build()
 }
 
 /// The window's content, added to `column`, with its tab moved to the workspace's floating ones. `None` if it cannot be made.
@@ -354,6 +351,20 @@ impl App {
         if !self.ask_board_first(tab, After::DockBack) {
             self.dock_back_window(tab);
         }
+    }
+
+    /// Note where the main window is, for the session. A maximised window keeps the place it goes back to; one that
+    /// started maximised has none, and gets the size that fits when it is restored.
+    pub(super) fn keep_main_rect(&mut self) {
+        if self.frame.is_iconized() {
+            return;
+        }
+        let maximized = self.frame.is_maximized();
+        let (p, s) = (self.frame.get_position(), self.frame.get_size());
+        self.ws.main_window = Some(match self.ws.main_window {
+            Some(r) if maximized => FloatRect { maximized, ..r },
+            _ => FloatRect { x: p.x, y: p.y, w: s.width, h: s.height, maximized },
+        });
     }
 
     /// Note where the windows are, for the session.

@@ -203,8 +203,15 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     wire_menu_keys(app, frame);
     wire(app, frame, &stc, view);
     app.borrow_mut().refresh();
+    // Where it was left, or a size that fits the screen: centring a fixed size put the title bar above a laptop's screen.
+    let t = crate::widgets::theme::current();
+    let saved = app.borrow().ws.main_window;
+    let place = notepp_core::placement::place(saved, t.px(DEFAULT_SIZE.0), t.px(DEFAULT_SIZE.1), &crate::platform::wx::screen_areas());
+    frame.set_size_with_pos(place.x, place.y, place.w, place.h);
     frame.show(true);
-    frame.centre();
+    if place.maximized {
+        frame.maximize(true);
+    }
     {
         // Our own menu bar replaces the native one (which cannot follow the theme); the native menus stay
         // attached so shortcuts and ticks keep working.
@@ -220,11 +227,15 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     float_pane::restore(app);
 }
 
-/// The main window, sized for the display (the display scale is taken first: everything after is laid out with it).
+/// The size the main window would like, at 100%, when nothing is saved and the screen has room.
+const DEFAULT_SIZE: (i32, i32) = (1200, 800);
+
+/// The main window, sized for the display (the display scale is taken first: everything after is laid out with it). It is
+/// put in its place before it is shown.
 fn main_frame() -> Frame {
     crate::widgets::theme::init_display_scale();
     let t = crate::widgets::theme::current();
-    Frame::builder().with_title("Note++").with_size(Size::new(t.px(1200), t.px(800))).build()
+    Frame::builder().with_title("Note++").with_size(Size::new(t.px(DEFAULT_SIZE.0), t.px(DEFAULT_SIZE.1))).build()
 }
 
 /// Build the menus and give them to the window.

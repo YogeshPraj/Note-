@@ -17,7 +17,7 @@ use super::mdformat;
 use super::preview;
 use super::sci::{self, Send, Theme};
 use super::search::{self, Opts};
-use super::session::{DockSide, Session, SessionDock, SessionFloat, SessionTab};
+use super::session::{DockSide, FloatRect, Session, SessionDock, SessionFloat, SessionTab};
 use super::settings::{self, Settings};
 use super::textools;
 use super::view;
@@ -73,6 +73,8 @@ pub struct Workspace<S: Send> {
     /// The floating tab asked for by something other than the keyboard: its window comes forward.
     raise: Option<u64>,
     saved_floats: Vec<SessionFloat>,
+    /// Where the main window is, kept for the session (see `placement`).
+    pub main_window: Option<FloatRect>,
     dock: Option<dock::Docked>,
     /// How much of the shared space the docked view has, in thousandths.
     dock_share: u32,
@@ -134,6 +136,7 @@ impl<S: Send> Workspace<S> {
             in_float: None,
             raise: None,
             saved_floats: Vec::new(),
+            main_window: None,
             dock: None,
             dock_share: 500,
             saved_dock: None,

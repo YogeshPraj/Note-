@@ -107,3 +107,5 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - MCP: a tab given to `preview_diagram` is searched for its first mermaid block, or is taken whole. An agent wanting another block gives it as text.
 - MCP: a diagram for an agent is always in the light theme, so that its picture reads the same whatever the user's theme.
 - MCP: a busy port is tried again every three seconds for as long as agents are on, and the failure is said once. So if two Note++ have agents on, the second takes over when the first closes.
+- The main window comes back where it was left, maximised or not, as floating windows already did. A place is used only while its title bar is on a screen that exists now; otherwise the window takes at most nine tenths of the main screen's usable area, in its middle. A fixed size centred on the screen put the title bar above a 1920 by 1200 laptop at 150%.
+- Floating windows follow the same rule, so a window can never open where it cannot be grabbed.

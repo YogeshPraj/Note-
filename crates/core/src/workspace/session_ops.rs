@@ -45,6 +45,7 @@ impl<S: Send> Workspace<S> {
             kept: self.kept.clone(),
             dock,
             floats,
+            window: self.main_window,
         }
     }
 
@@ -106,6 +107,7 @@ impl<S: Send> Workspace<S> {
         self.kept.clone_from(&s.kept);
         self.saved_dock = s.dock;
         self.saved_floats.clone_from(&s.floats);
+        self.main_window = s.window;
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         if s.dark {

@@ -29,6 +29,7 @@ fn session_round_trips() {
         kept: Vec::new(),
         dock: Some(SessionDock { tab: 0, side: DockSide::Bottom, share: 300 }),
         floats: vec![SessionFloat { tab: 1, rect: FloatRect { x: 1, y: 2, w: 300, h: 200, maximized: true } }],
+        window: Some(FloatRect { x: -1500, y: 40, w: 900, h: 700, maximized: true }),
     };
     let p = std::env::temp_dir().join("notepp_session_test.json");
     s.save(&p).unwrap();

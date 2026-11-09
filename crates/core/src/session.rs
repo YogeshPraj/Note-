@@ -107,6 +107,9 @@ pub struct Session {
     /// The tabs in floating windows.
     #[serde(default)]
     pub floats: Vec<SessionFloat>,
+    /// Where the main window was, and whether it was maximised (then the place it goes back to from there).
+    #[serde(default)]
+    pub window: Option<FloatRect>,
 }
 
 fn yes() -> bool {
@@ -210,6 +213,7 @@ impl Session {
             kept,
             dock: ex.dock,
             floats: ex.floats,
+            window: ex.window,
         })
     }
 
@@ -250,6 +254,7 @@ impl Session {
             date_format: self.date_format.clone(),
             dock: self.dock,
             floats: self.floats.clone(),
+            window: self.window,
         };
         let root = serde_json::json!({ "tabs": tabs, "native": extras });
         // Write-then-rename so a crash mid-write can't leave a truncated session.

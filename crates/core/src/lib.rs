@@ -26,6 +26,7 @@ pub mod mcp;
 pub mod mdformat;
 pub mod menu_provider;
 pub mod num;
+pub mod placement;
 pub mod preview;
 pub mod registry;
 pub mod schedule;

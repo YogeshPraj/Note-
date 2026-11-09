@@ -33,3 +33,4 @@ rust-port-iced/
 /wx-spike/target/
 
 /wx/target/
+/spike/winui/target/

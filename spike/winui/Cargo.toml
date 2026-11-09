@@ -1,0 +1,24 @@
+# Phase 2 of docs/winui3-plan.md: a throw-away spike, not shipped and not part of either workspace.
+# It answers whether stock WinUI 3 (through windows-reactor) can carry Note++ with Scintilla inside.
+[package]
+name = "notepp-winui-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Pinned exactly: a preview crate whose API moves between releases.
+windows-reactor = "=0.100.0"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+notepp-core = { path = "../../crates/core" }

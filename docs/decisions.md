@@ -109,3 +109,4 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - MCP: a busy port is tried again every three seconds for as long as agents are on, and the failure is said once. So if two Note++ have agents on, the second takes over when the first closes.
 - The main window comes back where it was left, maximised or not, as floating windows already did. A place is used only while its title bar is on a screen that exists now; otherwise the window takes at most nine tenths of the main screen's usable area, in its middle. A fixed size centred on the screen put the title bar above a 1920 by 1200 laptop at 150%.
 - Floating windows follow the same rule, so a window can never open where it cannot be grabbed.
+- The WinUI spike lives in `spike/winui`, its own Cargo workspace outside both product workspaces, so its preview dependencies never reach a release build or the checks; windows-reactor is pinned to an exact version.

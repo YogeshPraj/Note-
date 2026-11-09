@@ -1,6 +1,6 @@
 # Plan: a WinUI 3 shell for Windows, with macOS and Linux kept
 
-Status: **in progress.** Phase 0 built (not yet proven on the build servers); phase 1's six steps done. Nothing below is approved for implementation yet; each phase needs its own go-ahead, and the
+Status: **in progress.** Phase 0 built (not yet proven on the build servers); phase 1's six steps done; phase 2's spike started. Nothing below is approved for implementation yet; each phase needs its own go-ahead, and the
 spike (phase 2) decides whether phases 3 and later happen at all.
 
 ## Goal
@@ -110,6 +110,26 @@ opening and editing a file through `core`. It must show:
 
 Done when: each point above works, or has a found fix, and the cost of the rest is known. If the spike fails, phases 3 to 5 stop and
 phase 1's gains stay.
+
+Findings so far (2026-11-09, `spike/winui`, windows-reactor 0.100.0 pinned, run on a hidden desktop):
+- **Builds with the project's own toolchain** (`x86_64-pc-windows-gnu`) in framework-dependent mode: reactor adds the installed
+  `Microsoft.WindowsAppRuntime.2` (2.4 or later) to the process itself, no bootstrap DLL. The window is up in about 250 ms.
+- **Self-contained needs another target:** `windows-reactor-setup` supports MSVC and `gnullvm` only. Visual Studio 2022 is on this
+  machine, so the MSVC target is a `rustup target add`, not a new toolchain. Not tried yet.
+- **Menus from `core` data work** (`MenuSpec` to `MenuBar`). A click reports the item's label, not its key, so labels must be unique
+  within the bar. No shortcut text beside items and no `AccessKey` in reactor 0.100.
+- **Scintilla as a child window:** created, placed and resized with the layout, and above WinUI's content window in the z-order.
+  Reactor exposes neither the window handle nor where an element is, so the window is found among the thread's windows, and the editor
+  must be the last row of the layout (its place is the window's bottom-right corner minus the panel's size).
+- **Keys:** keys in the editor never reach WinUI, so shortcuts and Ctrl+Tab are handled by `core::key_routing` from the editor's own
+  window procedure; with probe messages every route came out right (Ctrl+Tab, Ctrl+Shift+Tab, Alt+F, Alt+E, F10, Ctrl+S, Ctrl+N, a plain
+  letter).
+- **Blocker for access keys as planned:** reactor 0.100 cannot open a menu from code and does not set `AccessKey`, so Alt+letter and
+  F10 are decided but cannot be carried out. Needs a reactor feature, or WinUI calls outside reactor.
+- **Reactor quirk:** a tab added and selected in the same turn stays unselected; selecting it in a later publish works.
+- **Not seen yet:** pictures of a WinUI window on a hidden desktop do not show Scintilla's text (it holds and paints it), so whether the
+  editor shows on a real screen, menus opening over the editor, clicking between WinUI and the editor, and real keys need a person.
+  Also left: Scintilla's own popups, moving between monitors of different scale, drag and drop, screen readers, self-contained start.
 
 ### Phase 3: the WinUI shell
 

@@ -6,30 +6,14 @@
 
 use std::cell::RefCell;
 
-use notepp_core::key_routing::{self as kr, Key, Place, Press, Route, Situation};
-use notepp_core::keymap::KeyMap;
-use notepp_core::shortcuts::Chord;
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, SetFocus, VK_CONTROL, VK_F10, VK_MENU, VK_SHIFT, VK_TAB};
-use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, EnumThreadWindows, GW_CHILD, GW_HWNDNEXT, GWL_EXSTYLE, GetClassNameW, GetClientRect, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    HWND_TOP, IsWindowVisible, LWA_ALPHA, SWP_SHOWWINDOW, SendMessageW, SetLayeredWindowAttributes, SetWindowPos, WM_APP, WM_KEYDOWN, WM_PAINT, WM_SYSKEYDOWN,
-    WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_TABSTOP, WS_VISIBLE,
+    CreateWindowExW, EnumThreadWindows, GW_CHILD, GW_HWNDNEXT, GetClassNameW, GetClientRect, GetWindow, GetWindowRect, HWND_TOP, IsWindowVisible, LWA_ALPHA,
+    SWP_SHOWWINDOW, SendMessageW, SetLayeredWindowAttributes, SetWindowPos, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_TABSTOP, WS_VISIBLE,
 };
-
-/// A key the editor saw, as `core` routed it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Routed {
-    pub press: String,
-    pub route: Route,
-}
-
-/// Probe message: `wparam` = virtual key, `lparam` bits 1 ctrl, 2 alt, 4 shift. Lets a test drive the routing
-/// without a keyboard (posted key messages carry no modifier state).
-pub const WM_PROBE_KEY: u32 = WM_APP + 1;
 
 const SCI_GETLENGTH: u32 = 2006;
 const SCI_GETTEXT: u32 = 2182;
@@ -42,19 +26,8 @@ struct Host {
     editor: HWND,
 }
 
-type KeySink = Box<dyn Fn(Routed)>;
-
 thread_local! {
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
-    static SINK: RefCell<Option<KeySink>> = const { RefCell::new(None) };
-    static PAINTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-    static ROUTING: RefCell<Option<(KeyMap, Vec<String>)>> = const { RefCell::new(None) };
-}
-
-/// Where routed keys go, and what the routing needs: the key map and the menu titles (with `&` marks).
-pub fn set_routing(keymap: KeyMap, titles: Vec<String>, sink: impl Fn(Routed) + 'static) {
-    ROUTING.with(|r| *r.borrow_mut() = Some((keymap, titles)));
-    SINK.with(|s| *s.borrow_mut() = Some(Box::new(sink)));
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -103,7 +76,7 @@ fn create(window: HWND) -> Result<HWND, String> {
     if layered {
         unsafe { SetLayeredWindowAttributes(editor, 0, 255, LWA_ALPHA) };
     }
-    unsafe { SetWindowSubclass(editor, Some(keys), 1, 0) };
+    crate::keys::set_editor(editor);
     Ok(editor)
 }
 
@@ -170,64 +143,6 @@ pub fn handles() -> Option<(HWND, HWND)> {
     HOST.with(|h| h.borrow().as_ref().map(|h| (h.window, h.editor)))
 }
 
-fn press_of(vk: u16, ctrl: bool, alt: bool, shift: bool) -> Press {
-    let key = match vk {
-        VK_TAB => Key::Tab,
-        VK_F10 => Key::F10,
-        v if (0x30..=0x5A).contains(&v) => u8::try_from(v).map_or(Key::Other, |b| Key::Char(char::from(b))),
-        _ => Key::Other,
-    };
-    Press { key, ctrl, alt, shift, chord: Some(Chord { ctrl, alt, shift, vk }) }
-}
-
-/// Route a key through `core`. In this shell the editor is a Win32 window, so WinUI never sees its keys: shortcuts are
-/// looked up here as in a floating window, menu letters as in the main one.
-fn route(p: &Press) -> Route {
-    ROUTING.with(|r| {
-        let r = r.borrow();
-        let Some((keymap, titles)) = r.as_ref() else { return Route::PassOn };
-        let is_letter =
-            |c: char| titles.iter().any(|t| t.char_indices().any(|(i, ch)| ch == '&' && t[i + 1..].chars().next().is_some_and(|n| n.eq_ignore_ascii_case(&c))));
-        let main = kr::route(p, &Situation { place: Place::Main, menu_open: false, is_menu_letter: &is_letter, keymap });
-        if main != Route::PassOn {
-            return main;
-        }
-        kr::route(p, &Situation { place: Place::Floating, menu_open: false, is_menu_letter: &is_letter, keymap })
-    })
-}
-
-fn deliver(p: Press) -> bool {
-    let route = route(&p);
-    let used = !matches!(route, Route::PassOn | Route::PastePicture);
-    let press = format!("{}{}{}{:?}", if p.ctrl { "Ctrl+" } else { "" }, if p.alt { "Alt+" } else { "" }, if p.shift { "Shift+" } else { "" }, p.key);
-    SINK.with(|s| {
-        if let Some(sink) = s.borrow().as_ref() {
-            sink(Routed { press, route });
-        }
-    });
-    used
-}
-
-unsafe extern "system" fn keys(h: HWND, msg: u32, w: WPARAM, l: LPARAM, _id: usize, _data: usize) -> LRESULT {
-    let down = |vk: u16| unsafe { GetKeyState(i32::from(vk)) } < 0;
-    match msg {
-        WM_KEYDOWN | WM_SYSKEYDOWN => {
-            let vk = u16::try_from(w).unwrap_or(0);
-            if ![VK_CONTROL, VK_MENU, VK_SHIFT].contains(&vk) && deliver(press_of(vk, down(VK_CONTROL), down(VK_MENU), down(VK_SHIFT))) {
-                return 0;
-            }
-        }
-        WM_PAINT => PAINTS.with(|p| p.set(p.get() + 1)),
-        WM_PROBE_KEY => {
-            let vk = u16::try_from(w).unwrap_or(0);
-            deliver(press_of(vk, l & 1 != 0, l & 2 != 0, l & 4 != 0));
-            return 0;
-        }
-        _ => {}
-    }
-    unsafe { DefSubclassProc(h, msg, w, l) }
-}
-
 /// The window's children, top of the z-order first: class, visible, screen rectangle.
 pub fn children() -> Vec<String> {
     let Some((window, editor)) = handles() else { return Vec::new() };
@@ -241,12 +156,6 @@ pub fn children() -> Vec<String> {
         h = unsafe { GetWindow(h, GW_HWNDNEXT) };
     }
     out
-}
-
-/// Paint messages the editor has had, its text length, and the WinUI window's extended style.
-pub fn paint_facts() -> String {
-    let ex = HOST.with(|h| h.borrow().as_ref().map_or(0, |h| unsafe { GetWindowLongPtrW(h.window, GWL_EXSTYLE) }));
-    format!("paints={} length={} window exstyle={ex:#x} (NOREDIRECTIONBITMAP={})", PAINTS.with(|p| p.get()), send(SCI_GETLENGTH, 0, 0), ex & 0x0020_0000 != 0)
 }
 
 /// Keep the raw pointer type out of the component's code.

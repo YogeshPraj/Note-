@@ -124,16 +124,53 @@ Findings so far (2026-11-09, `spike/winui`, windows-reactor 0.100.0 pinned, run 
 - **Keys:** keys in the editor never reach WinUI, so shortcuts and Ctrl+Tab are handled by `core::key_routing` from the editor's own
   window procedure; with probe messages every route came out right (Ctrl+Tab, Ctrl+Shift+Tab, Alt+F, Alt+E, F10, Ctrl+S, Ctrl+N, a plain
   letter).
-- **Blocker for access keys as planned:** reactor 0.100 cannot open a menu from code and does not set `AccessKey`, so Alt+letter and
-  F10 are decided but cannot be carried out. Needs a reactor feature, or WinUI calls outside reactor.
+- **Access keys, solved without touching the controls:** reactor 0.100 cannot open a menu from code and does not set `AccessKey`, and
+  its key accelerators know only R, the number pad and Enter, with Ctrl as the only modifier. So keys are routed by a message hook on
+  the UI thread (it sees every key wherever the keyboard is, and takes a key only when `core` gives it a job), and a menu is opened
+  by UI Automation's Expand on the menu bar item, from a worker thread, the way a screen reader opens it. On a real screen the menu is
+  open 15 to 35 ms after the key; on the hidden test desktop every UI Automation action takes 2 s (its window is never active). Costs:
+  the `windows` crate 0.62 for UI Automation, which brings a second, older `windows-core` beside reactor's; a bare Alt still shows no
+  access key hints.
 - **Reactor quirk:** a tab added and selected in the same turn stays unselected; selecting it in a later publish works.
 - **Scintilla must be a layered child window.** As a plain child it was invisible on a real screen: WinUI composes its content over
   the whole window, covering GDI children. Created with `WS_EX_LAYERED` (fully opaque) it gets its own surface and shows; layered
   children need the exe's manifest to declare Windows 8 or later, so the spike embeds Note++'s own `assets/app.manifest`.
 - **Checked by the owner on a real screen (2026-11-09):** the editor shows its text; the File and Edit menus open over the editor, not
   behind it; clicking between the tabs and the editor works; Ctrl+Tab and Ctrl+N work while typing in the editor.
-- **Left:** Ctrl+S on a real keyboard, Scintilla's own popups (autocomplete, calltips), moving between monitors of different scale,
-  drag and drop, screen readers, a self-contained start, and the access keys above.
+- **Checked by the owner on a real screen, second round:** Alt+F, Alt+E and F10 open their menus from the editor and from the tab
+  strip, Alt+letter moves between open menus, arrows, Enter and Escape work inside a menu, Ctrl+S saves from the editor.
+- **Left:** see the checklist below.
+
+#### Phase 2 checklist
+
+Who checks: **auto** = the hidden-desktop runs (`spike.ps1`), **owner** = a person at a real screen and keyboard.
+
+Done:
+- [x] Builds with the project's toolchain (`x86_64-pc-windows-gnu`), framework-dependent; window up in about 250 ms (auto)
+- [x] Menu bar built from `core`'s `MenuSpec`; a click runs the command (auto)
+- [x] Tabs: switching, adding, and the strip's highlight following the selection (auto)
+- [x] Scintilla visible inside the WinUI window, as a layered child (owner)
+- [x] Menus open over the editor, not behind it (owner)
+- [x] Clicking between the tabs and the editor keeps both working (owner)
+- [x] Ctrl+Tab and Ctrl+N from the editor (owner)
+- [x] Key routing from the editor through `core::key_routing`, every route (auto, probe keys)
+- [x] Ctrl+S from the editor on a real keyboard (owner)
+- [x] Alt+letter opens its menu with the editor focused; 15 to 35 ms on a real screen (owner)
+- [x] Alt+letter opens its menu with the tab strip focused (owner)
+- [x] F10 opens the first menu (owner)
+- [x] Alt+letter while a menu is open moves to that menu; arrows, Enter and Escape inside a menu (owner)
+
+Open:
+- [ ] Bare Alt shows the menus' access keys (owner; may not be possible without `AccessKey`)
+- [ ] Shortcuts (Ctrl+S, Ctrl+N) with the tab strip focused (owner; the report showed no Ctrl+N from the tab strip)
+- [ ] Where the keyboard goes after Escape closes a menu (owner)
+- [ ] Tab and F6 move the keyboard into and out of the editor (owner)
+- [ ] Scintilla's own popups (autocomplete, calltips) beside WinUI parts (auto, then owner)
+- [ ] Input methods (IME) in the editor (owner)
+- [ ] Moving between monitors of different scale; editor and WinUI both sharp and in place (owner)
+- [ ] Drag and drop: a file onto the tab strip, text within the editor (owner)
+- [ ] Narrator and NVDA read both the WinUI parts and the editor (owner)
+- [ ] Self-contained start on a machine without the Windows App Runtime; size of what it adds (auto, then owner)
 
 ### Phase 3: the WinUI shell
 

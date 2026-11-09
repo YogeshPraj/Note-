@@ -5,6 +5,8 @@
 #![windows_subsystem = "windows"]
 
 mod host;
+mod keys;
+mod menu_open;
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
@@ -64,7 +66,7 @@ enum Msg {
     /// The tab strip catches up with the selection (a tab added and selected in one turn is not selected by WinUI).
     ShowTab,
     Menu(String),
-    Key(host::Routed),
+    Key(keys::Routed),
     Placed(String),
 }
 
@@ -149,7 +151,7 @@ impl Spike {
         }
     }
 
-    fn key(&mut self, k: host::Routed) {
+    fn key(&mut self, k: keys::Routed) {
         report(&format!("key {} -> {:?}", k.press, k.route));
         match k.route {
             Route::SwitchTab(d) => {
@@ -158,9 +160,8 @@ impl Spike {
                 self.show(next);
             }
             Route::Command(id) => self.run(id),
-            Route::PassOn => report(&host::paint_facts()),
-            Route::MenuLetter(c) => self.status = format!("Alt+{c}: windows-reactor 0.100 cannot open a MenuBarItem from code"),
-            Route::FirstMenu => self.status = "F10: windows-reactor 0.100 cannot open the menu bar from code".into(),
+            Route::MenuLetter(c) => open_menu(keys::title_for(c)),
+            Route::FirstMenu => open_menu(keys::first_title()),
             _ => {}
         }
     }
@@ -188,9 +189,10 @@ impl Component for Spike {
         });
         let titles = menus().into_iter().map(|(t, _)| t).collect();
         let keys = context.sender().callback(Msg::Key);
-        host::set_routing(KeyMap::build(&BTreeMap::new()), titles, move |k| {
+        let hooked = keys::install(KeyMap::build(&BTreeMap::new()), titles, move |k| {
             let _ = keys.call(k);
         });
+        report(&format!("key hook installed: {hooked}"));
         report("created");
         Self { docs, selected: 0, tab_shown: 0, status: String::new(), panel, _surface: surface }
     }
@@ -237,6 +239,15 @@ impl Component for Spike {
             SwapChainPanel::new().element_ref(&self.panel).grid_row(3),
         ))
     }
+}
+
+/// Open a menu bar item by its title (UI Automation, on a worker thread); the outcome goes to the report.
+fn open_menu(title: Option<String>) {
+    let (Some(title), Some((window, _))) = (title, host::handles()) else {
+        report("open menu: no title or no window");
+        return;
+    };
+    menu_open::expand(host::hwnd_value(window), title, |outcome| report(&format!("open menu: {outcome}")));
 }
 
 thread_local! {

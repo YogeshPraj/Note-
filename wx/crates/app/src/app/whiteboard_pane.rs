@@ -8,6 +8,7 @@ impl App {
             wbm::Event::Ready => {
                 self.wbv.mark_ready();
                 self.wb.shown = None;
+                crate::start_check::note("whiteboard");
             }
             wbm::Event::State(s) => self.wb_apply_scene(s),
             wbm::Event::Data(s) => {

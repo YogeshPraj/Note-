@@ -212,6 +212,7 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     if place.maximized {
         frame.maximize(true);
     }
+    crate::start_check::note("window");
     {
         // Our own menu bar replaces the native one (which cannot follow the theme); the native menus stay
         // attached so shortcuts and ticks keep working.

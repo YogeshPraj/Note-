@@ -189,7 +189,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config libclang-dev \
-            libgtk-3-dev libwebkit2gtk-4.1-dev libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev libx11-dev
+            libgtk-3-dev libwebkit2gtk-4.1-dev libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev libx11-dev \
+            xvfb xauth dbus-x11
 
       - name: macOS packages
         if: runner.os == 'macOS'
@@ -226,6 +227,16 @@ jobs:
 
       - name: Package
         run: bash scripts/package-unix.sh ${{ matrix.target }}
+
+      # The package must open its window and load a web page; one that cannot is not published.
+      - name: Start check
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1920x1080x24" dbus-run-session -- bash scripts/start-check.sh ${{ matrix.target }}
+          else
+            bash scripts/start-check.sh ${{ matrix.target }}
+          fi
 
       - name: Upload build
         uses: actions/upload-artifact@v4

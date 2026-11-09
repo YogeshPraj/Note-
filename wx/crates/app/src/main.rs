@@ -31,6 +31,7 @@ mod services;
 mod settings_ui;
 mod settings_window;
 mod side;
+mod start_check;
 mod state;
 mod streams;
 mod tree_reader;

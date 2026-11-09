@@ -65,12 +65,26 @@ if ($env:CI) {
     $start.ArgumentList.Add('--new-instance')
     $start.Environment['PATH'] = "$env:SystemRoot\System32;$env:SystemRoot"
     $start.Environment['APPDATA'] = Join-Path $env:RUNNER_TEMP 'notepp-check'
+    # A whiteboard to open, and a file for the app to say it has shown its window and loaded the page (see start_check.rs).
+    $board = Join-Path $env:RUNNER_TEMP 'check.excalidraw'
+    $report = Join-Path $env:RUNNER_TEMP 'started.txt'
+    [IO.File]::WriteAllText($board, '{"type":"excalidraw","version":2,"source":"check","elements":[],"appState":{},"files":{}}')
+    Remove-Item $report -ErrorAction SilentlyContinue
+    $start.ArgumentList.Add($board)
+    $start.Environment['NOTEPP_START_CHECK'] = $report
+    $version = (Select-String -Path (Join-Path $proj 'Cargo.toml') -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
     $app = [Diagnostics.Process]::Start($start)
-    Start-Sleep 8
+    $seen = { param($what) (Test-Path $report) -and ((Get-Content $report) -contains "$what $version") }
+    $waited = 0
+    while ($waited -lt 60 -and -not $app.HasExited -and -not ((& $seen 'window') -and (& $seen 'whiteboard'))) { Start-Sleep 1; $waited++ }
+    Start-Sleep 3
+    if ($app.HasExited) { throw "Note++ ended during the start check" }
     $modules = (Get-Process -Id $app.Id).Modules.FileName
     Stop-Process -Id $app.Id -Force
+    if (-not (& $seen 'window')) { throw 'The package did not show its window' }
+    if (-not (& $seen 'whiteboard')) { throw 'The package showed its window but its whiteboard page never became ready' }
     if ($modules -notcontains (Join-Path $dist 'WebView2Loader.dll')) { throw 'The package does not load its WebView2 loader' }
     if ($modules -match 'ieframe|mshtml') { throw 'The package fell back to Internet Explorer' }
-    Write-Host 'Clean start passed: WebView2' -ForegroundColor Green
+    Write-Host "Clean start passed: WebView2, window and whiteboard page (${waited}s)" -ForegroundColor Green
 }
 Write-Host "Package ready: $dist" -ForegroundColor Green

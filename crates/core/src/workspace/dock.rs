@@ -246,6 +246,28 @@ impl<S: Send> Workspace<S> {
         self.dock_share = share.clamp(100, 900);
     }
 
+    /// How the dock splits a space `room` pixels long, when a tab is docked.
+    pub fn dock_layout(&self, room: i32) -> Option<crate::dock_layout::DockLayout> {
+        self.dock_side().map(|side| crate::dock_layout::layout(side, self.dock_share, room))
+    }
+
+    /// The user left the divider at `divider` in a space `room` long: keep that share for the session and the next dock. A
+    /// space with no size yet says nothing.
+    pub fn keep_dock_divider(&mut self, divider: i32, room: i32) {
+        if let Some(share) = self.dock_side().and_then(|side| crate::dock_layout::share_from(side, divider, room)) {
+            self.set_dock_share(share);
+        }
+    }
+
+    /// What the two pane headers say, the main pane's first, when a tab is docked.
+    pub fn dock_headings(&self) -> Option<(crate::dock_layout::PaneHeading, crate::dock_layout::PaneHeading)> {
+        self.dock_side()?;
+        let (main, in_dock) = (self.main_index(), self.in_dock());
+        let dock = self.docked_index().unwrap_or(main);
+        let heading = |i: usize, current: bool| crate::dock_layout::PaneHeading { title: self.tabs[i].title.clone(), modified: self.is_dirty(i), current };
+        Some((heading(main, !in_dock), heading(dock, in_dock)))
+    }
+
     /// The dock the session saved, once: it can be applied when the window is on screen.
     pub fn take_saved_dock(&mut self) -> Option<SessionDock> {
         self.saved_dock.take()

@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod detect;
 pub mod dispatch;
 pub mod doc;
+pub mod dock_layout;
 pub mod edit;
 pub mod error;
 pub mod files;

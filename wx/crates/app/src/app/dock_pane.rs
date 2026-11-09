@@ -73,15 +73,6 @@ impl DockPanes {
     }
 }
 
-fn vertical(side: DockSide) -> bool {
-    matches!(side, DockSide::Left | DockSide::Right)
-}
-
-/// Does the docked view come first (left of or above the main one)?
-fn dock_first(side: DockSide) -> bool {
-    matches!(side, DockSide::Left | DockSide::Top)
-}
-
 impl App {
     /// The editor view the user is in.
     pub(crate) fn stc(&self) -> StyledTextCtrl {
@@ -91,7 +82,7 @@ impl App {
     /// The length the splitter divides for a dock on `side`.
     fn dock_room(&self, side: DockSide) -> i32 {
         let area = self.dock_panes.split.get_client_size();
-        if vertical(side) { area.width } else { area.height }
+        if side.side_by_side() { area.width } else { area.height }
     }
 
     /// Show the docked view when the workspace has one, on its side; hide it when it has none.
@@ -108,10 +99,9 @@ impl App {
 
     /// Say in each header what its pane holds.
     fn name_panes(&self) {
-        let (main, in_dock) = (self.ws.main_index(), self.ws.in_dock());
-        let dock = self.ws.docked_index().unwrap_or(main);
-        self.dock_panes.main_head.set(&self.ws.tabs[main].title, self.ws.is_dirty(main), !in_dock);
-        self.dock_panes.dock_head.set(&self.ws.tabs[dock].title, self.ws.is_dirty(dock), in_dock);
+        let Some((main, dock)) = self.ws.dock_headings() else { return };
+        self.dock_panes.main_head.set(&main.title, main.modified, main.current);
+        self.dock_panes.dock_head.set(&dock.title, dock.modified, dock.current);
     }
 
     fn move_dock(&mut self, side: Option<DockSide>) {
@@ -122,14 +112,13 @@ impl App {
         self.dock_panes.shown = side;
         self.dock_panes.show_headers(side.is_some());
         let Some(side) = side else { return };
-        let room = self.dock_room(side);
-        let dock_px = room * crate::platform::wx::to_i32(self.ws.dock_share()) / 1000;
+        let Some(split) = self.ws.dock_layout(self.dock_room(side)) else { return };
         let (main, dock) = (self.dock_panes.main_box, self.dock_panes.dock_box);
-        let (first, second, sash) = if dock_first(side) { (dock, main, dock_px) } else { (main, dock, room - dock_px) };
-        if vertical(side) {
-            self.dock_panes.split.split_vertically(&first, &second, sash);
+        let (first, second) = if split.dock_first { (dock, main) } else { (main, dock) };
+        if split.side_by_side {
+            self.dock_panes.split.split_vertically(&first, &second, split.divider);
         } else {
-            self.dock_panes.split.split_horizontally(&first, &second, sash);
+            self.dock_panes.split.split_horizontally(&first, &second, split.divider);
         }
         self.dock_panes.show_headers(true);
         self.ws.refresh_docked();
@@ -138,13 +127,8 @@ impl App {
     /// Note where the user left the splitter, so the session and the next dock keep it.
     pub(crate) fn keep_dock_share(&mut self) {
         let Some(side) = self.dock_panes.shown else { return };
-        let room = self.dock_room(side);
-        if room <= 0 {
-            return;
-        }
-        let sash = self.dock_panes.split.sash_position();
-        let dock_px = if dock_first(side) { sash } else { room - sash };
-        self.ws.set_dock_share(crate::platform::wx::to_u32(dock_px * 1000 / room));
+        let (divider, room) = (self.dock_panes.split.sash_position(), self.dock_room(side));
+        self.ws.keep_dock_divider(divider, room);
     }
 }
 

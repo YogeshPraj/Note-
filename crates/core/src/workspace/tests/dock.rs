@@ -308,3 +308,34 @@ fn each_view_is_told_apart_for_the_headers_and_the_tab_strip() {
     assert!(!ws.tab_infos()[2].beside);
     assert!(!ws.tab_infos()[0].beside);
 }
+
+#[test]
+fn the_dock_says_how_it_splits_and_keeps_where_the_divider_was_left() {
+    let mut ws = docking_workspace();
+    assert_eq!(ws.dock_layout(1000), None, "nothing docked");
+    assert!(ws.dock_headings().is_none());
+    ws.dock_tab(1, DockSide::Right);
+    ws.set_dock_share(300);
+    let split = ws.dock_layout(1000).unwrap();
+    assert_eq!((split.side_by_side, split.dock_first, split.divider), (true, false, 700));
+    ws.keep_dock_divider(600, 1000);
+    assert_eq!(ws.dock_share(), 400);
+    ws.keep_dock_divider(600, 0);
+    assert_eq!(ws.dock_share(), 400, "a space with no size says nothing");
+    ws.keep_dock_divider(990, 1000);
+    assert_eq!(ws.dock_share(), 100, "never thinner than the smallest share");
+}
+
+#[test]
+fn the_pane_headers_name_each_pane_and_where_the_user_is() {
+    let mut ws = docking_workspace();
+    ws.dock_tab(1, DockSide::Left);
+    let (main, dock) = ws.dock_headings().unwrap();
+    let docked = ws.docked_index().unwrap();
+    assert_eq!((main.title.as_str(), dock.title.as_str()), (ws.tabs[ws.main_index()].title.as_str(), ws.tabs[docked].title.as_str()));
+    assert_ne!(main.title, dock.title);
+    assert_ne!(main.current, dock.current, "the user is in one pane");
+    ws.focus_other_pane();
+    let (main2, dock2) = ws.dock_headings().unwrap();
+    assert_eq!((main2.current, dock2.current), (!main.current, !dock.current));
+}

@@ -142,6 +142,9 @@ impl Spike {
             },
             Msg::Key(k) => self.key(k),
             Msg::Placed(line) => {
+                if line.starts_with("created") {
+                    report(&format!("WinUI from {}", host::xaml_from()));
+                }
                 report(&line);
                 if let Some((w, e)) = host::handles() {
                     report(&format!("window {:#x} editor {:#x}; children (top first) {:?}", host::hwnd_value(w), host::hwnd_value(e), host::children()));

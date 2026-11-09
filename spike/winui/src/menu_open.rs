@@ -21,9 +21,8 @@ fn expand_now(window: usize, title: &str, steps: &mut Vec<String>) -> windows::c
         mark("root");
         let all = root.FindAll(TreeScope_Descendants, &uia.CreateTrueCondition()?)?;
         mark(&format!("found {}", all.Length()?));
-        let is_it = |e: &IUIAutomationElement| {
-            e.CurrentControlType().is_ok_and(|t| t == UIA_MenuItemControlTypeId) && e.CurrentName().is_ok_and(|n| n == title)
-        };
+        let is_it =
+            |e: &IUIAutomationElement| e.CurrentControlType().is_ok_and(|t| t == UIA_MenuItemControlTypeId) && e.CurrentName().is_ok_and(|n| n == title);
         let item = (0..all.Length()?)
             .filter_map(|i| all.GetElement(i).ok())
             .find(is_it)

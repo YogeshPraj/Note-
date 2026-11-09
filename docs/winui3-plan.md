@@ -114,8 +114,14 @@ phase 1's gains stay.
 Findings so far (2026-11-09, `spike/winui`, windows-reactor 0.100.0 pinned, run on a hidden desktop):
 - **Builds with the project's own toolchain** (`x86_64-pc-windows-gnu`) in framework-dependent mode: reactor adds the installed
   `Microsoft.WindowsAppRuntime.2` (2.4 or later) to the process itself, no bootstrap DLL. The window is up in about 250 ms.
-- **Self-contained needs another target:** `windows-reactor-setup` supports MSVC and `gnullvm` only. Visual Studio 2022 is on this
-  machine, so the MSVC target is a `rustup target add`, not a new toolchain. Not tried yet.
+- **Self-contained works with the project's own gnu toolchain:** `windows-reactor-setup` supports only MSVC and `gnullvm`, but on gnu
+  it does all its work (fetches the runtime from nuget.org, copies it beside the exe, writes its manifest) and then panics choosing a
+  linker flag. The spike's `build.rs` catches that last step, merges the setup manifest into Note++'s own and embeds it with
+  windres. WinUI then loads from beside the exe. The runtime adds 22.2 MB to a zip (57 MB, 209 files unpacked; the largest are
+  `Microsoft.ui.xaml.dll` 14.6 MB and `Microsoft.UI.Xaml.Controls.dll` 6.6 MB); it also carries Microsoft's `WinUIEdit.dll`. The
+  MSVC route is closed on this machine anyway: neither Visual Studio install has the desktop C++ workload.
+- **DPI:** the exe's manifest must say `PerMonitorV2`; a manifest setting wins over reactor's own call, and Note++'s manifest is only
+  system aware (right for the wx shell).
 - **Menus from `core` data work** (`MenuSpec` to `MenuBar`). A click reports the item's label, not its key, so labels must be unique
   within the bar. No shortcut text beside items and no `AccessKey` in reactor 0.100.
 - **Scintilla as a child window:** created, placed and resized with the layout, and above WinUI's content window in the z-order.
@@ -159,18 +165,21 @@ Done:
 - [x] Alt+letter opens its menu with the tab strip focused (owner)
 - [x] F10 opens the first menu (owner)
 - [x] Alt+letter while a menu is open moves to that menu; arrows, Enter and Escape inside a menu (owner)
+- [x] Self-contained build with the project's gnu toolchain; WinUI loads from beside the exe; the runtime adds 22.2 MB zipped
+  (57 MB, 209 files unpacked) (auto)
+- [x] Scintilla's autocomplete list and calltip open as their own windows at the caret, above WinUI (auto; their look: owner)
 
 Open:
 - [ ] Bare Alt shows the menus' access keys (owner; may not be possible without `AccessKey`)
 - [ ] Shortcuts (Ctrl+S, Ctrl+N) with the tab strip focused (owner; the report showed no Ctrl+N from the tab strip)
 - [ ] Where the keyboard goes after Escape closes a menu (owner)
 - [ ] Tab and F6 move the keyboard into and out of the editor (owner)
-- [ ] Scintilla's own popups (autocomplete, calltips) beside WinUI parts (auto, then owner)
+- [ ] How Scintilla's autocomplete list and calltip look beside WinUI (owner)
 - [ ] Input methods (IME) in the editor (owner)
 - [ ] Moving between monitors of different scale; editor and WinUI both sharp and in place (owner)
 - [ ] Drag and drop: a file onto the tab strip, text within the editor (owner)
 - [ ] Narrator and NVDA read both the WinUI parts and the editor (owner)
-- [ ] Self-contained start on a machine without the Windows App Runtime; size of what it adds (auto, then owner)
+- [ ] Self-contained start on a machine without the Windows App Runtime, such as Windows Sandbox (owner)
 
 ### Phase 3: the WinUI shell
 

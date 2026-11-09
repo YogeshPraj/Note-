@@ -27,6 +27,9 @@ pub struct Routed {
 /// keyboard were in WinUI". Lets a test drive the routing without a keyboard (posted keys carry no modifier state).
 pub const WM_PROBE_KEY: u32 = WM_APP + 1;
 
+/// Probe message, posted to the editor: open Scintilla's autocomplete list (`wparam` 1) or a calltip (0).
+pub const WM_PROBE_POPUPS: u32 = WM_APP + 2;
+
 type Sink = Box<dyn Fn(Routed)>;
 
 thread_local! {
@@ -120,6 +123,10 @@ fn on_message(m: &MSG) -> bool {
         WM_PROBE_KEY => {
             let l = m.lParam;
             take(press_of(vk, l & 1 != 0, l & 2 != 0, l & 4 != 0), l & 8 == 0);
+            true
+        }
+        WM_PROBE_POPUPS => {
+            crate::host::show_popups(m.wParam == 1);
             true
         }
         _ => false,

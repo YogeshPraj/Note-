@@ -133,6 +133,8 @@ pub(super) struct Extras {
     #[serde(default)]
     pub(super) workspace: Option<String>,
     #[serde(default)]
+    pub(super) tree_hidden: bool,
+    #[serde(default)]
     pub(super) search_engine: usize,
     #[serde(default)]
     pub(super) symbols: crate::view::Symbols,
@@ -157,6 +159,7 @@ pub(super) fn extras_from_settings() -> Extras {
         minimap: flag("minimap", true),
         recent: root["recentFiles"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
         workspace: None,
+        tree_hidden: false,
         search_engine: 0,
         symbols: crate::view::Symbols::default(),
         date_format: String::new(),

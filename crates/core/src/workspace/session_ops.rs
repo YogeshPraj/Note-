@@ -39,6 +39,7 @@ impl<S: Send> Workspace<S> {
             minimap: self.minimap,
             recent: self.recent.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
             workspace: self.workspace.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            tree_hidden: self.tree_hidden,
             search_engine: self.search_engine,
             symbols: self.symbols,
             date_format: self.date_format.clone(),
@@ -110,6 +111,7 @@ impl<S: Send> Workspace<S> {
         self.main_window = s.window;
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
+        self.tree_hidden = s.tree_hidden;
         if s.dark {
             self.set_theme(Theme::dark());
         }

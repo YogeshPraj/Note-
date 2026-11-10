@@ -107,6 +107,18 @@ fn tabs_not_opened_this_time_stay_in_the_session() {
 }
 
 #[test]
+fn a_closed_tree_stays_closed_in_the_session() {
+    let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+    ws.new_tab();
+    assert!(!ws.snapshot().tree_hidden, "the tree shows unless the user closed it");
+    ws.tree_hidden = true;
+    let saved = ws.snapshot();
+    let mut next = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+    next.restore(&NoUi, &saved);
+    assert!(next.tree_hidden);
+}
+
+#[test]
 fn with_a_probe_the_editor_never_swaps_documents() {
     // Swapping a document into the editor costs it its multiple selections and horizontal scroll, so the session
     // autosave and the tab tool tips read hidden tabs through the probe view instead.

@@ -88,6 +88,9 @@ pub struct Session {
     /// Folder open in the workspace tree.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user closed the workspace tree: it stays closed on the next start.
+    #[serde(default)]
+    pub tree_hidden: bool,
     /// Which web search engine "Search on Internet" uses.
     #[serde(default)]
     pub search_engine: usize,
@@ -207,6 +210,7 @@ impl Session {
             minimap: ex.minimap,
             recent: ex.recent,
             workspace: ex.workspace,
+            tree_hidden: ex.tree_hidden,
             search_engine: ex.search_engine,
             symbols: ex.symbols,
             date_format: ex.date_format,
@@ -249,6 +253,7 @@ impl Session {
             minimap: self.minimap,
             recent: self.recent.clone(),
             workspace: self.workspace.clone(),
+            tree_hidden: self.tree_hidden,
             search_engine: self.search_engine,
             symbols: self.symbols,
             date_format: self.date_format.clone(),

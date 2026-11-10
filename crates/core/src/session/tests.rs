@@ -23,6 +23,7 @@ fn session_round_trips() {
         minimap: true,
         recent: vec!["C:\\a\\b.txt".into()],
         workspace: Some("C:\\proj".into()),
+        tree_hidden: true,
         search_engine: 2,
         symbols: crate::view::Symbols::default(),
         date_format: "yyyy".into(),

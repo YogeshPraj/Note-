@@ -93,6 +93,8 @@ pub struct Workspace<S: Send> {
     pub closed: Vec<PathBuf>,
     /// Folder shown in the workspace tree (also the root for Quick Open and Find in Files).
     pub workspace: Option<PathBuf>,
+    /// The tree was closed by the user (kept in the session, so it stays closed on the next start).
+    pub tree_hidden: bool,
     /// Index into the platform's list of web search engines.
     pub search_engine: usize,
     /// User preferences (Settings menu).
@@ -149,6 +151,7 @@ impl<S: Send> Workspace<S> {
             recent: Vec::new(),
             closed: Vec::new(),
             workspace: None,
+            tree_hidden: false,
             search_engine: 0,
             symbols: view::Symbols::default(),
             settings: Settings::default(),

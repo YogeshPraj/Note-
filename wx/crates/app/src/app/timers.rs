@@ -44,11 +44,23 @@ pub(super) fn wire_timers(app: &Shared, frame: Frame) {
     });
     ticker.start(base, false);
     std::mem::forget(ticker);
-    // Closing the window saves the session; unsaved text comes back next time.
+    // The close button sends the window to the tray (the session is saved first: if the program is then ended from
+    // outside, nothing is lost). Ending it for real saves the session too; unsaved text comes back next time.
     let a = app.clone();
     frame.on_close(move |e| {
         if let Ok(mut app) = a.try_borrow_mut() {
             app.save_session();
+            let request = if let WindowEventData::General(ev) = &e { Some(*ev) } else { None };
+            if let Some(ev) = request
+                && crate::tray::wanted(ev.can_veto())
+            {
+                drop(app);
+                if crate::tray::hide(&a, &frame) {
+                    ev.veto();
+                    return;
+                }
+            }
+            crate::tray::remove_icon();
             // The session is written and nothing runs after the main loop, so the program ends here. Taking the windows
             // and their web views down one by one crashed now and then (twice in about 30 test runs, cause not found).
             std::process::exit(0);

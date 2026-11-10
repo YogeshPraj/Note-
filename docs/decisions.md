@@ -116,3 +116,7 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 ## The WinUI 3 migration is abandoned
 
 Version 2.1.1 (the wx shell) stays the Windows app. The WinUI shell was dropped before release: its menu bar repeated entries on every redraw (windows-reactor 0.100.0 bug) and its tab strip and menus needed patched crates, so it could not stay on stock controls. The shared core::main_menu and core::toolbar, built along the way, stay because wx uses them.
+
+## The close button sends Note++ to the system tray
+
+The window's close button hides the window and leaves Note++'s icon in the tray (wx shell, wx/crates/app/src/tray.rs). A double-click on the icon, its menu's Open Note++, or a second launch brings the window back. File > Exit, the tray menu's Exit, an installing update, and the system forcing the window closed (logging off) still end the program. The session is saved before the window goes to the tray, so ending Note++ from outside loses nothing. The icon is read from the executable's own assets/app.ico (core::icon).

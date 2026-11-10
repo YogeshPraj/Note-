@@ -190,7 +190,12 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     {
         let mut a = app.borrow_mut();
         if let Some(dir) = a.ws.workspace.clone() {
+            // Opening a folder shows its tree; one the user had closed stays closed.
+            let hidden = a.ws.tree_hidden;
             a.open_workspace(dir);
+            if hidden {
+                a.set_tree(false);
+            }
         }
     }
     replace_editor_popup(app, stc);

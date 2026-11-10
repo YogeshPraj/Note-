@@ -241,7 +241,7 @@ impl App {
         }
         match update::launch_apply(dir, &[]) {
             Ok(()) => {
-                self.frame.close(false);
+                crate::tray::quit(&self.frame);
             }
             Err(e) => self.ui.error(&format!("Cannot install the update\n\n{e}")),
         }

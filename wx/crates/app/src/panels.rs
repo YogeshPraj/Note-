@@ -220,6 +220,7 @@ impl App {
     }
 
     pub fn set_tree(&mut self, on: bool) {
+        self.ws.tree_hidden = !on;
         if self.panels.tree_box.is_shown() != on {
             self.panels.tree_box.show(on);
             self.editor_pane.layout();

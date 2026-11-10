@@ -34,6 +34,7 @@ mod side;
 mod start_check;
 mod state;
 mod streams;
+mod tray;
 mod tree_reader;
 mod ui;
 mod updates;

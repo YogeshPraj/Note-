@@ -185,10 +185,7 @@ impl App {
         }
         self.refresh();
         self.stc().set_focus();
-        if self.frame.is_iconized() {
-            self.frame.iconize(false);
-        }
-        self.frame.raise();
+        crate::tray::restore(&self.frame);
     }
 
     /// Ask about open files that another program changed or deleted since they were read or saved.

@@ -18,7 +18,7 @@ impl CommandHandler<App> for ViewCommands {
 
     fn handle(&self, app: &mut App, id: usize) -> bool {
         match id {
-            ID_EXIT => app.frame.close(false),
+            ID_EXIT => crate::tray::quit(&app.frame),
             ID_RELOAD => {
                 if app.ws.reload_from_disk(&app.ui) {
                     app.whiteboard_reloaded();

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use notepp_core::commands::{ID_CLOSE, ID_SAVE};
 use notepp_core::commands::{
     ID_COPY, ID_CUT, ID_ENC_TOGGLE, ID_FIND, ID_LOG_FOLLOW, ID_NEW, ID_NEW_WB, ID_OPEN, ID_PASTE, ID_PREVIEW, ID_PRINT, ID_PW_TOOLBAR, ID_REDO, ID_REPLACE,
-    ID_SAVEALL, ID_THEME, ID_UNDO, ID_WRAP, ID_ZOOMIN, ID_ZOOMOUT,
+    ID_SAVEALL, ID_UNDO, ID_WRAP, ID_ZOOMIN, ID_ZOOMOUT,
 };
 use notepp_core::workspace::TabInfo;
 use wxdragon::prelude::*;
@@ -58,51 +58,38 @@ pub struct Chrome {
     strip: TabStrip,
     status_bar: Bar,
 }
-/// A toolbar button: its command and icon; the tool-tip is the registry's (name and shortcut) unless one is given.
-macro_rules! btn {
-    ($cmd:expr, $file:literal) => {
-        (Some($cmd), include_bytes!(concat!("../../../../assets/", $file)) as &[u8], None)
-    };
-    ($cmd:expr, $file:literal, $tip:literal) => {
-        (Some($cmd), include_bytes!(concat!("../../../../assets/", $file)) as &[u8], Some($tip))
-    };
+/// Note++'s own SVG icon for toolbar command `id` (the order and tool-tips are `notepp_core::toolbar`'s).
+fn toolbar_icon(id: usize) -> &'static [u8] {
+    macro_rules! svg {
+        ($file:literal) => {
+            include_bytes!(concat!("../../../../assets/", $file)) as &[u8]
+        };
+    }
+    match id {
+        ID_NEW => svg!("new.svg"),
+        ID_NEW_WB => svg!("whiteboard.svg"),
+        ID_OPEN => svg!("open.svg"),
+        ID_SAVE => svg!("save.svg"),
+        ID_SAVEALL => svg!("saveall.svg"),
+        ID_CLOSE => svg!("close.svg"),
+        ID_PRINT => svg!("print.svg"),
+        ID_ENC_TOGGLE => svg!("lock.svg"),
+        ID_PW_TOOLBAR => svg!("key.svg"),
+        ID_CUT => svg!("cut.svg"),
+        ID_COPY => svg!("copy.svg"),
+        ID_PASTE => svg!("paste.svg"),
+        ID_UNDO => svg!("undo.svg"),
+        ID_REDO => svg!("redo.svg"),
+        ID_FIND => svg!("find.svg"),
+        ID_REPLACE => svg!("replace.svg"),
+        ID_ZOOMIN => svg!("zoomin.svg"),
+        ID_ZOOMOUT => svg!("zoomout.svg"),
+        ID_WRAP => svg!("wordwrap.svg"),
+        ID_PREVIEW => svg!("preview.svg"),
+        ID_LOG_FOLLOW => svg!("follow.svg"),
+        _ => svg!("darkmode.svg"),
+    }
 }
-
-type Button = (Option<usize>, &'static [u8], Option<&'static str>);
-
-fn toolbar_table() -> Vec<Button> {
-    let sep = (None, &[][..], None);
-    vec![
-        btn!(ID_NEW, "new.svg"),
-        btn!(ID_NEW_WB, "whiteboard.svg"),
-        btn!(ID_OPEN, "open.svg"),
-        btn!(ID_SAVE, "save.svg"),
-        btn!(ID_SAVEALL, "saveall.svg"),
-        btn!(ID_CLOSE, "close.svg"),
-        btn!(ID_PRINT, "print.svg", "Print"),
-        btn!(ID_ENC_TOGGLE, "lock.svg", "Encrypt this file (or remove its encryption)"),
-        btn!(ID_PW_TOOLBAR, "key.svg", "Passwords (Bitwarden)"),
-        sep,
-        btn!(ID_CUT, "cut.svg"),
-        btn!(ID_COPY, "copy.svg"),
-        btn!(ID_PASTE, "paste.svg"),
-        sep,
-        btn!(ID_UNDO, "undo.svg"),
-        btn!(ID_REDO, "redo.svg"),
-        sep,
-        btn!(ID_FIND, "find.svg"),
-        btn!(ID_REPLACE, "replace.svg"),
-        sep,
-        btn!(ID_ZOOMIN, "zoomin.svg"),
-        btn!(ID_ZOOMOUT, "zoomout.svg"),
-        sep,
-        btn!(ID_WRAP, "wordwrap.svg"),
-        btn!(ID_PREVIEW, "preview.svg"),
-        btn!(ID_LOG_FOLLOW, "follow.svg", "Log Follow: stream a .log / .out / .err file as it grows"),
-        btn!(ID_THEME, "darkmode.svg"),
-    ]
-}
-
 /// The icon in the colour a command that cannot run is drawn in.
 fn faded_svg(svg: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(svg);
@@ -125,15 +112,14 @@ fn faded_svg(svg: &[u8]) -> Vec<u8> {
 fn toolbar_items() -> Vec<Item> {
     let side = crate::widgets::tool_bar::icon_size();
     let bitmap = |svg: &[u8]| BitmapBundle::from_svg_data(svg, Size::new(side, side)).and_then(|b| b.get_bitmap(Size::new(side, side)));
-    toolbar_table()
-        .into_iter()
-        .map(|(cmd, data, tip)| match cmd {
-            Some(cmd) => {
-                let tip =
-                    tip.map_or_else(|| notepp_core::registry::spec(cmd).map(notepp_core::registry::CommandSpec::tooltip).unwrap_or_default(), str::to_string);
-                Item::Button { cmd, tip, icon: bitmap(data), faded: bitmap(&faded_svg(data)) }
+    notepp_core::toolbar::LAYOUT
+        .iter()
+        .map(|tool| match *tool {
+            notepp_core::toolbar::Tool::Button { id, .. } => {
+                let data = toolbar_icon(id);
+                Item::Button { cmd: id, tip: notepp_core::toolbar::tip(id), icon: bitmap(data), faded: bitmap(&faded_svg(data)) }
             }
-            None => Item::Separator,
+            notepp_core::toolbar::Tool::Separator => Item::Separator,
         })
         .collect()
 }
@@ -259,11 +245,11 @@ impl Chrome {
 
     /// Tool-tips that come from the registry show the keymap's effective shortcut.
     pub fn refresh_tips(&self, keymap: &notepp_core::keymap::KeyMap) {
-        for (cmd, _, tip) in toolbar_table() {
-            if let (Some(cmd), None) = (cmd, tip)
-                && let Some(spec) = notepp_core::registry::spec(cmd)
+        for tool in notepp_core::toolbar::LAYOUT {
+            if let notepp_core::toolbar::Tool::Button { id, tip: None } = *tool
+                && let Some(spec) = notepp_core::registry::spec(id)
             {
-                self.tool_bar.set_tip(cmd, spec.tooltip_with(keymap.shown(cmd)));
+                self.tool_bar.set_tip(id, spec.tooltip_with(keymap.shown(id)));
             }
         }
     }

@@ -19,19 +19,7 @@ pub enum WinAction {
     Sort(SortField, bool),
 }
 
-/// Window > Sort By, in the customary order (also the dialog's "Sort tabs" choice).
-pub const SORTS: [(&str, SortField, bool); 10] = [
-    ("Name A to Z", SortField::Name, false),
-    ("Name Z to A", SortField::Name, true),
-    ("Path A to Z", SortField::Path, false),
-    ("Path Z to A", SortField::Path, true),
-    ("Type A to Z", SortField::Type, false),
-    ("Type Z to A", SortField::Type, true),
-    ("Content Length Ascending", SortField::Length, false),
-    ("Content Length Descending", SortField::Length, true),
-    ("Modified Time Ascending", SortField::Modified, false),
-    ("Modified Time Descending", SortField::Modified, true),
-];
+pub use notepp_core::main_menu::SORTS;
 
 const WIN_LIST: usize = 100;
 const WIN_SAVE: usize = 101;

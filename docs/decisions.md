@@ -110,3 +110,9 @@ which was not kept in the repository; its outcome is `docs/architecture.md`.)
 - The main window comes back where it was left, maximised or not, as floating windows already did. A place is used only while its title bar is on a screen that exists now; otherwise the window takes at most nine tenths of the main screen's usable area, in its middle. A fixed size centred on the screen put the title bar above a 1920 by 1200 laptop at 150%.
 - Floating windows follow the same rule, so a window can never open where it cannot be grabbed.
 - The WinUI spike lives in `spike/winui`, its own Cargo workspace outside both product workspaces, so its preview dependencies never reach a release build or the checks; windows-reactor is pinned to an exact version.
+- The main menu bar's structure lives in core::main_menu (moved from the wx app, snapshot test crates/core/tests/menus.golden); the wx shell only realizes it.
+- The toolbar's buttons and order are core::toolbar; the wx shell picks the icons (Note++'s SVGs).
+
+## The WinUI 3 migration is abandoned
+
+Version 2.1.1 (the wx shell) stays the Windows app. The WinUI shell was dropped before release: its menu bar repeated entries on every redraw (windows-reactor 0.100.0 bug) and its tab strip and menus needed patched crates, so it could not stay on stock controls. The shared core::main_menu and core::toolbar, built along the way, stay because wx uses them.

@@ -55,6 +55,10 @@ fn log_note(who: &str, what: &str, target: &str) {
 /// Ask with nothing borrowed, so that the window and agents already allowed go on working meanwhile.
 pub(super) fn ask(app: &Shared, question: &Question) {
     let Some((frame, text)) = app.try_borrow().ok().map(|a| (a.frame, question.text(Level::from_key(&a.ws.settings.mcp_level)))) else { return };
+    // In the tray nobody would see the question, and the agent would wait for nothing: bring the window back first.
+    if !frame.is_shown() {
+        crate::tray::restore(&frame);
+    }
     let allowed = crate::widgets::ask::yes_no(&frame, "AI agent", &text, true);
     if let Ok(mut a) = app.try_borrow_mut() {
         a.mcp_answered(question, allowed);

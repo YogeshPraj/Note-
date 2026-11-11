@@ -37,6 +37,7 @@ mod file_io;
 mod floats;
 mod session_ops;
 mod tabs;
+mod title_path;
 mod view_ops;
 
 /// How many recently closed files are remembered.

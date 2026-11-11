@@ -1,5 +1,6 @@
 //! The tab list: pinning, colours, order, activation and what the window shows about it.
 
+use super::title_path::{TITLE_PATH, short_path};
 use super::*;
 
 impl<S: Send> Workspace<S> {
@@ -283,7 +284,7 @@ impl<S: Send> Workspace<S> {
     /// The title of the window showing tab `i`.
     pub fn title_of(&self, i: usize) -> String {
         let t = &self.tabs[i];
-        let name = t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.display().to_string());
+        let name = t.path.as_ref().map_or_else(|| t.title.clone(), |p| short_path(&p.display().to_string(), TITLE_PATH));
         format!("{}{} - Note++", if self.is_dirty(i) { "* " } else { "" }, name)
     }
 

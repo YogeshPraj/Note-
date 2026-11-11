@@ -73,7 +73,8 @@ const WS_BORDER: isize = 0x0080_0000;
 const WS_EX_EDGES: isize = 0x0000_0200 | 0x0002_0000; // WS_EX_CLIENTEDGE | WS_EX_STATICEDGE
 const SW_SHOWNOACTIVATE: i32 = 4;
 const WH_KEYBOARD: i32 = 2;
-const WH_MOUSE: i32 = 7;
+// A low-level hook, not a per-thread one: clicks inside an embedded web view (its own process) never reach this thread's queue.
+const WH_MOUSE_LL: i32 = 14;
 const VK_CONTROL: i32 = 0x11;
 
 /// (virtual-key code, neither Ctrl nor Alt held, Alt held) -> consumed?
@@ -220,7 +221,7 @@ impl Native for Windows {
         let installed = MOUSE_HOOK.with(std::cell::Cell::get);
         match on_press {
             Some(_) if installed == 0 => {
-                let h = unsafe { SetWindowsHookExW(WH_MOUSE, mouse_hook, 0, GetCurrentThreadId()) };
+                let h = unsafe { SetWindowsHookExW(WH_MOUSE_LL, mouse_hook, GetModuleHandleW(std::ptr::null()), 0) };
                 MOUSE_HOOK.with(|c| c.set(h));
                 h != 0
             }

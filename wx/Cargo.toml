@@ -5,7 +5,7 @@ resolver = "2"
 members = ["crates/ui-kit", "crates/app"]
 
 [workspace.package]
-version = "2.1.1"
+version = "2.2.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

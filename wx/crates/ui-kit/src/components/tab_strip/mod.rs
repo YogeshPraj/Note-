@@ -221,13 +221,14 @@ impl TabStrip {
     }
 
     fn wire(&self) {
-        self.wire_motion_and_press();
-        self.wire_release_and_clicks();
+        let timer = repeat::timer(self.panel, &self.st);
+        self.wire_motion_and_press(&timer);
+        self.wire_release_and_clicks(&timer);
     }
 
-    fn wire_motion_and_press(&self) {
+    fn wire_motion_and_press(&self, timer: &Rc<Timer<Panel>>) {
         self.wire_motion_and_press_1();
-        self.wire_motion_and_press_2();
+        self.wire_motion_and_press_2(timer);
     }
 
     fn wire_motion_and_press_1(&self) {
@@ -278,8 +279,8 @@ impl TabStrip {
         });
     }
 
-    fn wire_motion_and_press_2(&self) {
-        let (p, st) = (self.panel, self.st.clone());
+    fn wire_motion_and_press_2(&self, timer: &Rc<Timer<Panel>>) {
+        let (p, st, timer) = (self.panel, self.st.clone(), timer.clone());
         p.on_mouse_left_down(move |e| {
             let (x, y) = pos(&e);
             let event = {
@@ -292,6 +293,8 @@ impl TabStrip {
                         Some(TabEvent::New)
                     } else {
                         s.scroll.step(b);
+                        timer.start(repeat::AFTER, false);
+                        p.capture_mouse();
                         None
                     }
                 } else if let Some(i) = s.layout.tab_at(x, y) {
@@ -316,15 +319,16 @@ impl TabStrip {
         });
     }
 
-    fn wire_release_and_clicks(&self) {
-        let (p, st) = (self.panel, self.st.clone());
+    fn wire_release_and_clicks(&self, timer: &Rc<Timer<Panel>>) {
+        let (p, st, timer) = (self.panel, self.st.clone(), timer.clone());
         p.on_mouse_left_up(move |_| {
-            let was_drag = {
+            timer.stop();
+            {
                 let mut s = st.borrow_mut();
                 s.btn_down = None;
-                s.drag.take().is_some()
-            };
-            if was_drag && p.has_capture() {
+                s.drag = None;
+            }
+            if p.has_capture() {
                 p.release_mouse();
             }
             p.refresh(false, None);
@@ -388,3 +392,4 @@ mod tips;
 use tips::tab_tip;
 mod paint;
 use paint::*;
+mod repeat;

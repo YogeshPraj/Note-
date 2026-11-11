@@ -57,14 +57,47 @@ pub fn show(parent: &impl WxWidget, title: &str, text: &str, icon: Option<Icon>,
     code
 }
 
+/// Longest run of characters kept unbroken; a longer word (a file path) is cut after a separator.
+const LONGEST_WORD: usize = 44;
+
+/// `line` with a break after a path separator wherever a word with no spaces would run longer than `LONGEST_WORD`: a path is
+/// otherwise one word, and a box as wide as it is.
+fn break_long(line: &str) -> String {
+    let mut out = String::new();
+    for (n, word) in line.split(' ').enumerate() {
+        if n > 0 {
+            out.push(' ');
+        }
+        let mut run = 0;
+        for ch in word.chars() {
+            out.push(ch);
+            run += 1;
+            if run >= LONGEST_WORD / 2 && matches!(ch, '\\' | '/') && word.chars().count() > LONGEST_WORD {
+                out.push('\n');
+                run = 0;
+            }
+        }
+    }
+    out
+}
+
 /// The text wrapped at `width`, one label per line: under the dark theme a native static control paints only its
 /// first line. `&` is shown as itself, not as a mnemonic.
 fn lines(d: &Dialog, text: &str, width: i32) -> Vec<Label> {
-    let probe = Label::new(d, &text.replace('&', "&&"));
-    probe.wrap(width);
-    let wrapped = probe.get_label();
-    probe.destroy();
-    wrapped.split('\n').map(|l| Label::new(d, if l.is_empty() { " " } else { l })).collect()
+    // Paragraph by paragraph: wrapping the whole text at once lost every line after one too long to break (a long path).
+    let mut out = Vec::new();
+    for paragraph in text.split('\n') {
+        if paragraph.is_empty() {
+            out.push(Label::new(d, " "));
+            continue;
+        }
+        let probe = Label::new(d, &break_long(paragraph).replace('&', "&&"));
+        probe.wrap(width);
+        let wrapped = probe.get_label();
+        probe.destroy();
+        out.extend(wrapped.split('\n').map(|l| Label::new(d, if l.is_empty() { " " } else { l })));
+    }
+    out
 }
 
 /// Lay the box out from the controls' own sizes: icon and text in a row, buttons right-aligned under them. Placed
@@ -135,5 +168,20 @@ fn look(t: &theme::Theme, icon: Icon) -> (Rgb, &'static str) {
         Icon::Question => (t.colors.accent, "?"),
         Icon::Warning => (t.colors.warning, "!"),
         Icon::Error => (t.colors.danger, "\u{00D7}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::break_long;
+
+    #[test]
+    fn a_long_path_is_cut_after_separators_and_short_text_is_left_alone() {
+        let path = r"C:\src\crm.cmsp.consumer-uat-ka-profile\foundry\src\CMSP.Consumer.Foundry.Api\config-store\routing\default.json";
+        let cut = break_long(path);
+        assert!(cut.contains('\n'));
+        assert_eq!(cut.replace('\n', ""), path);
+        assert!(cut.lines().all(|l| l.chars().count() <= 70));
+        assert_eq!(break_long("Reload it? C:\\a\\b"), "Reload it? C:\\a\\b");
     }
 }

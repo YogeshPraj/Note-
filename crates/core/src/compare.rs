@@ -3,7 +3,7 @@
 //! The page has no external resources and no script that reads the compared text; the text is
 //! only ever placed in the page as escaped HTML. Long runs of unchanged lines are folded.
 
-use similar::{ChangeTag, DiffOp, TextDiff};
+use similar::{DiffOp, TextDiff};
 
 /// Unchanged lines kept around each change.
 const CONTEXT: usize = 3;
@@ -29,50 +29,119 @@ fn strip_eol(l: &str) -> &str {
     l.strip_suffix("\r\n").or_else(|| l.strip_suffix('\n')).or_else(|| l.strip_suffix('\r')).unwrap_or(l)
 }
 
-/// Mark the characters that differ between two similar lines: (left html, right html).
-fn inline(a: &str, b: &str) -> (String, String) {
-    // Very long lines are marked as a whole; a character diff of them is slow and unreadable.
-    if a.len() > 2000 || b.len() > 2000 {
-        return (format!("<b>{}</b>", esc(a)), format!("<b>{}</b>", esc(b)));
+/// Lines longer than this are not compared inside: it is slow, and the marks would be unreadable.
+const MAX_INLINE: usize = 2000;
+/// Two lines sharing less than this share of their text are different lines, not one line that was edited.
+const RELATED_PERCENT: usize = 35;
+const RELATED: f32 = 0.35;
+/// A changed block with more line pairs than this is paired in order, not by likeness (the pairing looks at every pair).
+const MAX_PAIRINGS: usize = 4000;
+
+/// Mark what differs between two versions of a line: (left html, right html). The comparison drops coincidental
+/// matches (two different sentences share many letters), so whole words and phrases are marked, not single letters.
+/// None when the lines have too little in common to be versions of one line, or are too long.
+fn inline(a: &str, b: &str) -> Option<(String, String)> {
+    if a.len() > MAX_INLINE || b.len() > MAX_INLINE {
+        return None;
     }
-    let diff = TextDiff::from_chars(a, b);
+    let chunks = dissimilar::diff(a, b);
+    let same: usize = chunks.iter().map(|c| if let dissimilar::Chunk::Equal(t) = c { t.trim().chars().count() } else { 0 }).sum();
+    // What the two share, against both: a line that grew a long tail is still the same line.
+    let both = (a.trim().chars().count() + b.trim().chars().count()).max(1);
+    if same * 2 * 100 < both * RELATED_PERCENT {
+        return None;
+    }
     let (mut l, mut r) = (String::new(), String::new());
-    // Runs of changed characters share one <b>.
-    let (mut in_l, mut in_r) = (false, false);
-    let open = |s: &mut String, state: &mut bool, want: bool| {
-        if *state != want {
-            s.push_str(if want { "<b>" } else { "</b>" });
-            *state = want;
-        }
-    };
-    for ch in diff.iter_all_changes() {
-        let t = esc(ch.value());
-        match ch.tag() {
-            ChangeTag::Equal => {
-                open(&mut l, &mut in_l, false);
-                open(&mut r, &mut in_r, false);
-                l.push_str(&t);
-                r.push_str(&t);
+    for c in chunks {
+        match c {
+            dissimilar::Chunk::Equal(t) => {
+                l.push_str(&esc(t));
+                r.push_str(&esc(t));
             }
-            ChangeTag::Delete => {
-                open(&mut l, &mut in_l, true);
-                l.push_str(&t);
-            }
-            ChangeTag::Insert => {
-                open(&mut r, &mut in_r, true);
-                r.push_str(&t);
-            }
+            dissimilar::Chunk::Delete(t) => l.push_str(&format!("<b>{}</b>", esc(t))),
+            dissimilar::Chunk::Insert(t) => r.push_str(&format!("<b>{}</b>", esc(t))),
         }
     }
-    open(&mut l, &mut in_l, false);
-    open(&mut r, &mut in_r, false);
-    (l, r)
+    Some((l, r))
+}
+
+/// Which old line of a changed block is which new line: pairs (old, new), in order, of lines alike enough to be one
+/// line edited. The pairing with the most likeness in total wins, so a line added in the middle of a block does not
+/// shift every line after it onto the wrong partner.
+fn pair_lines(old: &[&str], new: &[&str]) -> Vec<(usize, usize)> {
+    let (m, n) = (old.len(), new.len());
+    if m == 0 || n == 0 || m * n > MAX_PAIRINGS {
+        return Vec::new();
+    }
+    let alike = |i: usize, j: usize| {
+        let (a, b) = (old[i].trim(), new[j].trim());
+        if a.is_empty() || b.is_empty() || a.len() > MAX_INLINE || b.len() > MAX_INLINE {
+            return 0.0;
+        }
+        // On the words alone: the spaces between them match in any two sentences.
+        let (wa, wb): (Vec<&str>, Vec<&str>) = (a.split_whitespace().collect(), b.split_whitespace().collect());
+        let ratio = TextDiff::from_slices(&wa, &wb).ratio();
+        if ratio < RELATED { 0.0 } else { ratio }
+    };
+    let sim: Vec<Vec<f32>> = (0..m).map(|i| (0..n).map(|j| alike(i, j)).collect()).collect();
+    // best[i][j]: the most likeness reachable pairing old[i..] with new[j..].
+    let mut best = vec![vec![0.0f32; n + 1]; m + 1];
+    for i in (0..m).rev() {
+        for j in (0..n).rev() {
+            let paired = if sim[i][j] > 0.0 { sim[i][j] + best[i + 1][j + 1] } else { 0.0 };
+            best[i][j] = paired.max(best[i + 1][j]).max(best[i][j + 1]);
+        }
+    }
+    let (mut i, mut j, mut pairs) = (0, 0, Vec::new());
+    while i < m && j < n {
+        if sim[i][j] > 0.0 && sim[i][j] + best[i + 1][j + 1] >= best[i + 1][j].max(best[i][j + 1]) {
+            pairs.push((i, j));
+            i += 1;
+            j += 1;
+        } else if best[i + 1][j] >= best[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    pairs
 }
 
 struct Row {
     left: Option<(usize, String)>,
     right: Option<(usize, String)>,
     kind: &'static str, // "eq" | "del" | "ins" | "chg"
+}
+
+/// A run of lines inside a changed block: the block's first line number less one, then the run's start and end.
+type Run = (usize, usize, usize);
+
+/// The rows of a run of old lines against a run of new lines, none of which are paired by likeness: they sit side by
+/// side as far as both last (a line replaced by a different one), the rest alone.
+fn unpaired(old: &[&str], (o0, from, to): Run, new: &[&str], (n0, nfrom, nto): Run, out: &mut Vec<Row>) {
+    for k in 0..(to - from).max(nto - nfrom) {
+        let l = (from + k < to).then(|| (o0 + from + k + 1, esc(strip_eol(old[from + k]))));
+        let r = (nfrom + k < nto).then(|| (n0 + nfrom + k + 1, esc(strip_eol(new[nfrom + k]))));
+        let kind = match (&l, &r) {
+            (Some(_), Some(_)) => "chg",
+            (Some(_), None) => "del",
+            _ => "ins",
+        };
+        out.push(Row { left: l, right: r, kind });
+    }
+}
+
+/// The rows of a changed block: `old` (its first line is line `o0 + 1`) became `new`.
+fn replaced(old: &[&str], o0: usize, new: &[&str], n0: usize, out: &mut Vec<Row>) {
+    let (mut i, mut j) = (0, 0);
+    for (pi, pj) in pair_lines(old, new) {
+        unpaired(old, (o0, i, pi), new, (n0, j, pj), out);
+        let (l, r) = (strip_eol(old[pi]), strip_eol(new[pj]));
+        let (lh, rh) = inline(l, r).unwrap_or_else(|| (esc(l), esc(r)));
+        out.push(Row { left: Some((o0 + pi + 1, lh)), right: Some((n0 + pj + 1, rh)), kind: "chg" });
+        (i, j) = (pi + 1, pj + 1);
+    }
+    unpaired(old, (o0, i, old.len()), new, (n0, j, new.len()), out);
 }
 
 /// Differences found: (rows, changed blocks, lines removed, lines added).
@@ -109,30 +178,7 @@ fn rows(a: &str, b: &str) -> (Vec<Row>, usize, usize, usize) {
                 blocks += 1;
                 removed += old_len;
                 added += new_len;
-                for k in 0..old_len.max(new_len) {
-                    let l = (k < old_len).then(|| strip_eol(la[old_index + k]));
-                    let r = (k < new_len).then(|| strip_eol(lb[new_index + k]));
-                    let (lh, rh) = match (l, r) {
-                        (Some(l), Some(r)) => {
-                            let (a, b) = inline(l, r);
-                            (Some(a), Some(b))
-                        }
-                        (Some(l), None) => (Some(esc(l)), None),
-                        (None, Some(r)) => (None, Some(esc(r))),
-                        (None, None) => (None, None),
-                    };
-                    out.push(Row {
-                        left: lh.map(|h| (old_index + k + 1, h)),
-                        right: rh.map(|h| (new_index + k + 1, h)),
-                        kind: if l.is_some() && r.is_some() {
-                            "chg"
-                        } else if l.is_some() {
-                            "del"
-                        } else {
-                            "ins"
-                        },
-                    });
-                }
+                replaced(&la[old_index..old_index + old_len], old_index, &lb[new_index..new_index + new_len], new_index, &mut out);
             }
         }
     }
@@ -157,7 +203,7 @@ table{border-collapse:collapse;width:100%;table-layout:fixed}td{padding:0 8px;ve
 td.n{width:52px;text-align:right;color:var(--muted);user-select:none;border-right:1px solid var(--line)}td.t{width:calc(50% - 52px)}\
 td.t+td.n{border-left:2px solid var(--line)}\
 .del{background:var(--del)}.ins{background:var(--ins)}.chg{background:var(--chg)}.void{background:var(--void)}\
-td.del b,td.chg b{background:var(--delb);color:#fff;font-weight:normal;border-radius:2px}td.ins b,.chg+.t b{font-weight:normal}\
+td.del b,td.chg b{background:var(--delb);color:#fff;font-weight:normal;border-radius:2px}td.t.chg~td.t.chg b{background:var(--insb)}td.ins b{font-weight:normal}\
 tr.fold td{background:var(--bar);color:var(--muted);text-align:center;font:12px 'Segoe UI',sans-serif;padding:3px}\
 tr.cur td{outline:1px solid #3883fa;outline-offset:-1px}.same{padding:40px;text-align:center;color:var(--muted);font:15px 'Segoe UI',sans-serif}";
 
@@ -267,5 +313,36 @@ mod tests {
         assert!(diff_html("a", "x\r\ny\r\n", "b", "x\ny\n", false).contains("identical"));
         let h = diff_html("a", "", "b", "new\n", false);
         assert!(h.contains("+1") && h.contains("t ins"));
+    }
+    #[test]
+    fn a_reworded_line_marks_phrases_not_scattered_letters() {
+        let a = "Route only when the customer has named a product AND that product's issue clearly matches a listed specialist.\n";
+        let b = "Route only when the customer has named a product and a listed specialist covers it.\n";
+        let h = diff_html("a", a, "b", b, false);
+        let marks = h.matches("<b>").count() - 2;
+        assert!((1..=8).contains(&marks), "{marks} marks: {h}");
+        assert!(h.contains("Route only when the customer has named a product "), "the shared start is left unmarked: {h}");
+    }
+
+    #[test]
+    fn unrelated_lines_are_not_marked_inside() {
+        let h = diff_html("a", "The quick brown fox jumps over the lazy dog.\n", "b", "fn main() { println!(42); }\n", false);
+        assert_eq!(h.matches("<b>").count(), 2, "only the two names in the bar are bold: {h}");
+        assert!(h.contains("t chg"), "they still sit side by side as a changed line");
+    }
+
+    #[test]
+    fn a_line_added_inside_a_block_does_not_shift_the_pairs() {
+        let a = "alpha one two three\nbeta four five six\ngamma seven eight nine\n";
+        let b = "alpha one two 3\nsomething else entirely here\nbeta four five 6\ngamma seven eight 9\n";
+        let (rows, _, _, _) = rows(a, b);
+        let pairs: Vec<(Option<usize>, Option<usize>)> = rows.iter().map(|r| (r.left.as_ref().map(|l| l.0), r.right.as_ref().map(|r| r.0))).collect();
+        assert_eq!(pairs, vec![(Some(1), Some(1)), (None, Some(2)), (Some(2), Some(3)), (Some(3), Some(4))]);
+    }
+
+    #[test]
+    fn pairing_keeps_order_and_skips_what_has_no_partner() {
+        assert_eq!(pair_lines(&["same words here", "zzz"], &["qqq", "same words here!"]), vec![(0, 1)]);
+        assert!(pair_lines(&[], &["x"]).is_empty());
     }
 }

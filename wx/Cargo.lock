@@ -343,6 +343,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dissimilar"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -961,6 +967,7 @@ version = "2.2.0"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
+ "dissimilar",
  "encoding_rs",
  "fancy-regex",
  "flate2",

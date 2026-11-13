@@ -90,6 +90,7 @@ fn tabs_not_opened_this_time_stay_in_the_session() {
         enc: "utf8".into(),
         eol: "lf".into(),
         pinned: false,
+        favourite: false,
         color: None,
         encrypted,
         kind: "text".into(),
@@ -219,7 +220,45 @@ fn margins_follow_the_display_scale() {
 
 mod agent;
 mod agent_pages;
+mod brain;
 mod dock;
 mod float_views;
 mod floats;
 mod image;
+
+#[test]
+fn a_saved_file_can_be_marked_a_favourite_and_unmarked() {
+    let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+    ws.new_tab();
+    ws.tabs[0].path = Some(PathBuf::from("C:\\work\\a.txt"));
+    assert!(!ws.active_is_favourite());
+    assert!(ws.toggle_favourite() && ws.active_is_favourite());
+    assert_eq!(ws.favourites, [PathBuf::from("C:\\work\\a.txt")]);
+    let file = std::env::temp_dir().join(format!("notepp_fav_{}.json", std::process::id()));
+    ws.snapshot().save(&file).unwrap();
+    let back = Session::load(&file).unwrap();
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(back.favourites, ["C:\\work\\a.txt"], "favourites survive a restart");
+    assert!(ws.toggle_favourite() && ws.favourites.is_empty());
+}
+
+#[test]
+fn an_unsaved_tab_is_a_favourite_until_it_is_closed_or_saved_under_a_name() {
+    let mut ws = Workspace::new(FakeSci { next: Cell::new(100), ..FakeSci::default() });
+    ws.new_tab();
+    ws.new_tab();
+    ws.activate(1);
+    let title = ws.tabs[1].title.clone();
+    assert!(ws.toggle_favourite() && ws.active_is_favourite());
+    assert_eq!(ws.favourite_list(), [(title, "Not saved yet".to_string())]);
+    // Saved under a name: listed by the file name from then on, and it stays after the tab is closed.
+    ws.adopt_path(PathBuf::from("C:\\work\\notes.txt"));
+    assert!(!ws.tabs[1].favourite);
+    assert_eq!(ws.favourite_list(), [("notes.txt".to_string(), "C:\\work\\notes.txt".to_string())]);
+    // Another unsaved favourite that is closed: gone from the list.
+    ws.activate(0);
+    assert!(ws.toggle_favourite());
+    assert_eq!(ws.favourite_list().len(), 2);
+    ws.remove_tab(0, false);
+    assert_eq!(ws.favourite_list().len(), 1);
+}

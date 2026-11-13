@@ -1,6 +1,7 @@
 //! The View, Encoding, Language, Settings, Tools and Help menus.
 
 use super::*;
+use crate::menu_provider::Favourites;
 
 /// The View menu: modes and switches on top, everything else grouped into sub-menus so the menu stays short.
 pub(super) fn menu_view_basic() -> M {
@@ -169,6 +170,18 @@ pub(super) fn menu_settings() -> M {
 /// The Tools menu: one submenu per digest, then the text tools.
 pub(super) fn menu_tools() -> M {
     let tools = B::popup();
+    let brain = B::popup();
+    B::cmd(brain, ID_BRAIN_PANEL);
+    B::cmd(brain, ID_BRAIN_CAPTURE);
+    B::cmd(brain, ID_BRAIN_SELECTION);
+    B::sep(brain);
+    B::cmd(brain, ID_BRAIN_TODAY);
+    B::cmd(brain, ID_BRAIN_SEARCH);
+    B::sep(brain);
+    B::cmd(brain, ID_BRAIN_FOLDER);
+    B::cmd(brain, ID_BRAIN_EXPORT);
+    B::submenu(tools, "&Quick Notes", brain);
+    B::sep(tools);
     for (i, algo) in ALGOS.iter().enumerate() {
         let sub = B::popup();
         B::add(sub, ID_HASH_BASE + i * 10, "Generate...");
@@ -196,4 +209,23 @@ pub(super) fn menu_tools() -> M {
     B::cmd(tools, ID_MCP_LOG);
     B::cmd(tools, ID_MCP_STOP);
     tools
+}
+
+/// The Favourites menu before any file is a favourite.
+pub(super) fn empty_favourites_menu() -> M {
+    let m = B::popup();
+    fill_favourites_menu(m, &[], false, false);
+    m
+}
+
+/// The Favourites menu: add or remove the current tab, then every favourite to go straight to it.
+pub fn fill_favourites_menu(m: M, names: &[String], is_favourite: bool, can_toggle: bool) {
+    B::clear(m);
+    B::add_state(m, ID_FAV_TOGGLE, if is_favourite { "&Remove Current Tab from Favourites" } else { "&Add Current Tab to Favourites" }, can_toggle);
+    B::sep(m);
+    if names.is_empty() {
+        B::add_state(m, 0, "(no favourites yet)", false);
+    } else {
+        add_items(m, &Favourites { names });
+    }
 }

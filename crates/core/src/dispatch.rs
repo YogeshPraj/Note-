@@ -8,15 +8,16 @@ use crate::commands::{
     ID_BM_PREV, ID_BM_TOGGLE, ID_BRACE_GOTO, ID_BRACE_SEL, ID_C_LOWER, ID_C_UPPER, ID_CASE_INVERT, ID_CASE_PROPER, ID_CASE_PROPER_BLEND, ID_CASE_RANDOM,
     ID_CASE_SENTENCE, ID_CASE_SENTENCE_BLEND, ID_CLEAR_RO, ID_CLEAR_STYLE_BASE, ID_CLOSE, ID_CLOSE_ALL, ID_CLOSE_LEFT, ID_CLOSE_OTHERS, ID_CLOSE_RIGHT,
     ID_CLOSE_UNCHANGED, ID_CMT_BLOCK, ID_CMT_LINE, ID_COMMENT, ID_COPY, ID_CUT, ID_DECRYPT, ID_DELETE, ID_ENC_LOCK, ID_ENC_TOGGLE, ID_ENCRYPT, ID_ENGINE_BASE,
-    ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXPORT_THEME, ID_FOLD_ALL, ID_FOLD_CUR, ID_FOLD_LEVEL_BASE, ID_HIDE_LINES, ID_INDENT_DEC, ID_INDENT_INC, ID_JSON_MIN,
-    ID_JSON_PRETTY, ID_JUMP_DOWN_BASE, ID_JUMP_UP_BASE, ID_L_COPY, ID_L_CUT, ID_L_DEDUP, ID_L_DEL, ID_L_DOWN, ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW,
-    ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC, ID_L_SORT_ASC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC,
-    ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC, ID_L_SORT_NOCASE_ASC, ID_L_SORT_NOCASE_DESC, ID_L_SPLIT,
-    ID_L_TRANSPOSE, ID_L_TRIM, ID_L_UP, ID_MOVE_NEW_INSTANCE, ID_MOVE_TAB_BACK, ID_MOVE_TAB_FWD, ID_NEW, ID_NEW_WB, ID_NEXT_TAB, ID_OPEN, ID_OPEN_ALL_RECENT,
-    ID_OPEN_NEW_INSTANCE, ID_PASTE, ID_PREV_TAB, ID_PW_LOCK, ID_READONLY, ID_RECENT_CLEAR, ID_RECYCLE, ID_REDO, ID_RENAME, ID_RESTORE_CLOSED, ID_SAVE,
-    ID_SAVE_COPY, ID_SAVEALL, ID_SAVEAS, ID_SELALL, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_SYM_ALL, ID_SYM_CTRL, ID_SYM_EOL, ID_SYM_INDENT, ID_SYM_NONPRINT,
-    ID_SYM_WRAP, ID_SYM_WS, ID_TAB_BASE, ID_TAB_COLOR_BASE, ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_THEME, ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL,
-    ID_UNFOLD_CUR, ID_UNFOLD_LEVEL_BASE, ID_URL_DEC, ID_URL_ENC, ID_WINDOW_DOC_BASE, ID_WRAP, ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
+    ID_EOL_CR, ID_EOL_CRLF, ID_EOL_LF, ID_EXPORT_THEME, ID_FAV_TOGGLE, ID_FOLD_ALL, ID_FOLD_CUR, ID_FOLD_LEVEL_BASE, ID_HIDE_LINES, ID_INDENT_DEC,
+    ID_INDENT_INC, ID_JSON_MIN, ID_JSON_PRETTY, ID_JUMP_DOWN_BASE, ID_JUMP_UP_BASE, ID_L_COPY, ID_L_CUT, ID_L_DEDUP, ID_L_DEL, ID_L_DOWN, ID_L_DUP,
+    ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK, ID_L_RM_CONSEC, ID_L_SORT_ASC, ID_L_SORT_COMMA_ASC,
+    ID_L_SORT_COMMA_DESC, ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC, ID_L_SORT_INT_DESC, ID_L_SORT_NOCASE_ASC,
+    ID_L_SORT_NOCASE_DESC, ID_L_SPLIT, ID_L_TRANSPOSE, ID_L_TRIM, ID_L_UP, ID_MOVE_NEW_INSTANCE, ID_MOVE_TAB_BACK, ID_MOVE_TAB_FWD, ID_NEW, ID_NEW_WB,
+    ID_NEXT_TAB, ID_OPEN, ID_OPEN_ALL_RECENT, ID_OPEN_NEW_INSTANCE, ID_PASTE, ID_PREV_TAB, ID_PW_LOCK, ID_READONLY, ID_RECENT_CLEAR, ID_RECYCLE, ID_REDO,
+    ID_RENAME, ID_RESTORE_CLOSED, ID_SAVE, ID_SAVE_COPY, ID_SAVEALL, ID_SAVEAS, ID_SELALL, ID_STYLE_ALL_BASE, ID_STYLE_ONE_BASE, ID_SYM_ALL, ID_SYM_CTRL,
+    ID_SYM_EOL, ID_SYM_INDENT, ID_SYM_NONPRINT, ID_SYM_WRAP, ID_SYM_WS, ID_TAB_BASE, ID_TAB_COLOR_BASE, ID_TAB_COLOR_NONE, ID_TAB_PIN, ID_THEME,
+    ID_UNCMT_BLOCK, ID_UNCMT_LINE, ID_UNDO, ID_UNFOLD_ALL, ID_UNFOLD_CUR, ID_UNFOLD_LEVEL_BASE, ID_URL_DEC, ID_URL_ENC, ID_WINDOW_DOC_BASE, ID_WRAP,
+    ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN, ID_ZOOMOUT, ID_ZOOMRESET,
 };
 use crate::doc::{CHARSETS, Enc, Eol};
 use crate::edit::{self, SortKind};
@@ -91,6 +92,19 @@ fn command_core_1<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
 fn command_core_2<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash: &mut Option<String>, id: usize) -> bool {
     let sci = ws.sci;
     match id {
+        ID_FAV_TOGGLE => {
+            let was = ws.active_is_favourite();
+            *flash = Some(
+                if !ws.toggle_favourite() {
+                    "Save the file first to make it a favourite"
+                } else if was {
+                    "Removed from Favourites"
+                } else {
+                    "Added to Favourites"
+                }
+                .into(),
+            );
+        }
         ID_TAB_PIN => {
             let i = ws.active;
             ws.toggle_pin(i);
@@ -139,6 +153,13 @@ use view_cmds::*;
 /// The family commands carry their index, so nothing here does id arithmetic.
 fn run_family<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash: &mut Option<String>, cmd: Command) -> bool {
     match cmd {
+        Command::OpenFavourite(i) => {
+            let mut gone = None;
+            ws.open_favourite(ui, i, &mut gone);
+            if let Some(p) = gone {
+                *flash = Some(format!("{} no longer exists and was removed from Favourites", p.display()));
+            }
+        }
         Command::OpenRecent(i) => {
             if let Some(p) = ws.recent.get(i).cloned() {
                 if p.exists() {

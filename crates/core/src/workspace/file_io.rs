@@ -16,6 +16,16 @@ impl<S: Send> Workspace<S> {
     /// The active tab as it goes to `path`: encrypted when the tab is protected (asking for the
     /// password first if the profile is locked). None when that was declined or failed.
     pub(super) fn bytes_for(&mut self, ui: &dyn Ui, path: &Path) -> Option<Vec<u8>> {
+        if self.is_image() {
+            // A picture goes out in the format the file name asks for.
+            return match crate::image::encode_for(&self.current_bytes(), path) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    ui.error(&format!("Cannot save {}\n\n{e}", path.display()));
+                    None
+                }
+            };
+        }
         if self.is_page() || !self.tabs[self.active].encrypted {
             return Some(self.current_bytes());
         }
@@ -64,6 +74,10 @@ impl<S: Send> Workspace<S> {
     }
 
     pub fn save(&mut self, ui: &dyn Ui) -> bool {
+        // A picture nobody has changed is already what is on disk: writing it again would only re-encode it.
+        if self.is_image() && !self.is_dirty(self.active) && self.tabs[self.active].path.as_deref().is_some_and(Path::exists) {
+            return true;
+        }
         match self.tabs[self.active].path.clone() {
             Some(p) => self.write_to(ui, &p),
             None => self.save_as(ui),
@@ -74,10 +88,11 @@ impl<S: Send> Workspace<S> {
         let t = &self.tabs[self.active];
         let suggested = match t.kind {
             TabKind::Whiteboard if !t.title.contains('.') => format!("{}.excalidraw", t.title),
-            TabKind::Image => crate::image::png_path(Path::new(&t.title)).to_string_lossy().into_owned(),
+            TabKind::Image => t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.to_string_lossy().into_owned()),
             _ => t.title.clone(),
         };
-        let Some(mut p) = ui.pick_save(&suggested) else { return false };
+        let picked = if t.kind == TabKind::Image { ui.pick_save_image(&suggested) } else { ui.pick_save(&suggested) };
+        let Some(mut p) = picked else { return false };
         if self.is_image() {
             p = crate::image::png_path(&p);
         }
@@ -87,7 +102,11 @@ impl<S: Send> Workspace<S> {
     /// Write the active tab to another file, leaving the tab itself untouched.
     pub fn save_copy_as(&mut self, ui: &dyn Ui) -> Option<PathBuf> {
         let t = &self.tabs[self.active];
-        let mut p = ui.pick_save(&t.title)?;
+        let mut p = if t.kind == TabKind::Image {
+            ui.pick_save_image(&t.path.as_ref().map_or_else(|| t.title.clone(), |p| p.to_string_lossy().into_owned()))?
+        } else {
+            ui.pick_save(&t.title)?
+        };
         if self.is_image() {
             p = crate::image::png_path(&p);
         }
@@ -129,7 +148,7 @@ impl<S: Send> Workspace<S> {
         let title = self.tabs[self.active].title.clone();
         if self.is_image() {
             let t = &mut self.tabs[self.active];
-            t.content = crate::image::to_content(&bytes);
+            t.content = crate::image::to_content(&crate::image::for_page(&bytes).unwrap_or(bytes));
             t.disk = stamp_of(&path);
             t.dirty = false;
             return true;
@@ -286,6 +305,11 @@ impl<S: Send> Workspace<S> {
             return false;
         }
         self.recent.retain(|r| !same_path(r, &old));
+        for f in &mut self.favourites {
+            if same_path(f, &old) {
+                f.clone_from(&new);
+            }
+        }
         self.adopt_path(new);
         true
     }
@@ -308,10 +332,15 @@ impl<S: Send> Workspace<S> {
         let t = &mut self.tabs[self.active];
         t.title = file_title(&p);
         t.disk = stamp_of(&p);
-        t.path = Some(p);
+        // A favourite tab that has just been saved is a favourite file from now on, listed by its file name.
+        let was_favourite = std::mem::take(&mut t.favourite);
+        t.path = Some(p.clone());
         if !whiteboard {
             t.lang = lang;
             t.lang_label = label;
+        }
+        if was_favourite && !self.favourites.iter().any(|f| same_path(f, &p)) {
+            self.favourites.push(p);
         }
         if changed {
             lang::apply_lexer(&self.sci, lang, &self.theme);
@@ -330,6 +359,7 @@ impl<S: Send> Workspace<S> {
             return false;
         }
         self.recent.retain(|r| !same_path(r, &path));
+        self.favourites.retain(|r| !same_path(r, &path));
         self.remove_tab(self.active, false);
         true
     }

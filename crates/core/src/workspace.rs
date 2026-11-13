@@ -30,9 +30,11 @@ mod agent_board;
 pub use self::agent_board::{BoardRequest, PREVIEW_PAGE};
 mod agent_commands;
 mod agent_edit;
+mod brain;
 mod dock;
 mod documents;
 mod editing;
+mod favourites;
 mod file_io;
 mod floats;
 mod session_ops;
@@ -90,6 +92,8 @@ pub struct Workspace<S: Send> {
     pub search: Opts,
     /// Most recently opened/saved files, newest first (max `MAX_RECENT`).
     pub recent: Vec<PathBuf>,
+    /// Files the user marked as favourites, in the order they were added (the Favourites menu).
+    pub favourites: Vec<PathBuf>,
     /// Recently closed files, most recent first, for "Restore Recent Closed File".
     pub closed: Vec<PathBuf>,
     /// Folder shown in the workspace tree (also the root for Quick Open and Find in Files).
@@ -106,6 +110,8 @@ pub struct Workspace<S: Send> {
     pub date_format: String,
     /// The encryption profile and, while unlocked, its key.
     pub vault: crypto::Vault,
+    /// The local date and time, which the core has no way to know: the shell sets it. Agents' Brain tools need it.
+    pub clock: Option<fn() -> crate::edit::DateTime>,
     /// Where "Begin/End Select" was started: (document, caret position).
     select_anchor: Option<(isize, usize)>,
     smart_key: (usize, usize, usize),
@@ -150,6 +156,7 @@ impl<S: Send> Workspace<S> {
             minimap: true,
             search: Opts { wrap: true, ..Default::default() },
             recent: Vec::new(),
+            favourites: Vec::new(),
             closed: Vec::new(),
             workspace: None,
             tree_hidden: false,
@@ -158,6 +165,7 @@ impl<S: Send> Workspace<S> {
             settings: Settings::default(),
             date_format: "yyyy-MM-dd HH:mm:ss".into(),
             vault: crypto::Vault::load(),
+            clock: None,
             select_anchor: None,
             smart_key: (0, 0, 0),
             detect_seen: (0, 0),

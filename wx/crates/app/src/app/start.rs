@@ -113,6 +113,7 @@ pub(super) fn load_workspace(ui: &WxUi, views: [&StyledTextCtrl; 4], settings: S
     let mut ws = Workspace::new(sci);
     ws.set_ui_percent(crate::platform::wx::to_isize(crate::widgets::theme::current().px(100)));
     ws.set_settings(settings);
+    ws.clock = Some(|| crate::platform::current().local_time());
     ws.attach_minimap(WxSci::of(mini));
     ws.attach_probe(WxSci::of(probe));
     ws.attach_second(WxSci::of(dock_stc));
@@ -255,6 +256,7 @@ fn attach_menu_bar(frame: &Frame) -> (Vec<(String, menus::M)>, menus::Menus) {
     (bar, menu_set)
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn start(files: &[PathBuf]) {
     hand_off_to_running_instance(files);
     // The only copy running: a downloaded update goes in now, before there is a window to flicker.
@@ -321,6 +323,7 @@ pub fn start(files: &[PathBuf]) {
         session_key: ((usize::MAX, 0, 0, 0), 0),
         recent_key: (vec![PathBuf::from("\u{0}")], false),
         window_key: (vec!["\u{0}".into()], 0),
+        fav_key: (vec![("\u{0}".into(), String::new())], false),
     }));
     finish_start(&app, frame, stc, mini, &wbv, &view, &bar);
 }

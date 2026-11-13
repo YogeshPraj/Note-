@@ -58,3 +58,63 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.ghash]
 opt-level = 3
+
+# AV1 encoding (AVIF) is far too slow unoptimised.
+[profile.dev.package.rav1e]
+opt-level = 3
+[profile.dev.package.ravif]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.v_frame]
+opt-level = 3
+[profile.dev.package.av-scenechange]
+opt-level = 3
+[profile.dev.package.rayon]
+opt-level = 3
+[profile.dev.package.rayon-core]
+opt-level = 3
+[profile.dev.package.crossbeam-deque]
+opt-level = 3
+[profile.dev.package.crossbeam-epoch]
+opt-level = 3
+[profile.dev.package.crossbeam-utils]
+opt-level = 3
+[profile.dev.package.arrayvec]
+opt-level = 3
+[profile.dev.package.num-traits]
+opt-level = 3
+[profile.dev.package.itertools]
+opt-level = 3
+[profile.dev.package.aligned]
+opt-level = 3
+[profile.dev.package.simd_helpers]
+opt-level = 3
+[profile.dev.package.noop_proc_macro]
+opt-level = 3
+[profile.dev.package.bitstream-io]
+opt-level = 3
+[profile.dev.package.new_debug_unreachable]
+opt-level = 3
+[profile.dev.package.paste]
+opt-level = 3
+[profile.dev.package.rgb]
+opt-level = 3
+[profile.dev.package.imgref]
+opt-level = 3
+[profile.dev.package.loop9]
+opt-level = 3
+[profile.dev.package.quick-error]
+opt-level = 3
+[profile.dev.package.thiserror]
+opt-level = 3
+[profile.dev.package.zerocopy]
+opt-level = 3
+[profile.dev.package.cfg-if]
+opt-level = 3
+[profile.dev.package.profiling]
+opt-level = 3
+[profile.dev.package.built]
+opt-level = 3
+[profile.dev.package.arg_enum_proc_macro]
+opt-level = 3

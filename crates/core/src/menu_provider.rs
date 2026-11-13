@@ -61,6 +61,41 @@ impl MenuProvider for RecentFiles<'_> {
     }
 }
 
+/// `text` cut in the middle to at most `max` characters, so the start and the end (the extension) both show.
+fn shorten(text: &str, max: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max {
+        return text.to_string();
+    }
+    let tail = max / 3;
+    let head = max - tail - 1;
+    format!("{}…{}", chars[..head].iter().collect::<String>(), chars[chars.len() - tail..].iter().collect::<String>())
+}
+
+/// The favourites by name, numbered like the recent files.
+#[derive(Clone, Copy, Debug)]
+pub struct Favourites<'a> {
+    pub names: &'a [String],
+}
+
+impl MenuProvider for Favourites<'_> {
+    fn items(&self) -> Vec<MenuItemSpec> {
+        self.names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let mnemonic = if i < 9 { format!("&{}", i + 1) } else { "1&0".to_string() };
+                let text = shorten(name, 40);
+                MenuItemSpec {
+                    command: Command::OpenFavourite(i),
+                    label: format!("{mnemonic}: {}", escape(&text)),
+                    palette: Some(format!("Favourite: {name}")),
+                }
+            })
+            .collect()
+    }
+}
+
 /// "Encode in ..." (reopen the file in an encoding).
 #[derive(Clone, Copy, Debug)]
 pub struct EncodeInItems;
@@ -174,6 +209,15 @@ pub fn palette_items() -> Vec<MenuItemSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_favourite_is_cut_in_the_middle_and_keeps_its_extension() {
+        let long = format!("{}.pdf", "a".repeat(80));
+        let cut = shorten(&long, 40);
+        assert_eq!(cut.chars().count(), 40);
+        assert!(cut.ends_with('f'), "{cut}");
+        assert_eq!(shorten("short.txt", 40), "short.txt");
+    }
 
     #[test]
     fn recent_files_get_numbered_mnemonics_and_escaped_ampersands() {

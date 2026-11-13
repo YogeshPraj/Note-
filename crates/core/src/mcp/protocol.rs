@@ -20,7 +20,7 @@ pub fn client_name(msg: &Value) -> &str {
 }
 
 const INSTRUCTIONS: &str = "Note++ is a text editor the user has open. These tools work on its tabs, and the user sees every change. \
-Call list_tabs first; list_commands gives the editor's own commands, for run_command. Tabs are named by the id it gives; ids stay the same while a tab is open. Whiteboards have tools of their own: read_whiteboard, add_shapes, add_tree and whiteboard_image, which shows the result. Pictures likewise: read_picture, add_annotations, edit_picture and picture_image. preview_diagram draws Mermaid and reports its errors. An encrypted document needs the user's permission: the tool says so, and Note++ asks them.";
+Call list_tabs first; list_commands gives the editor's own commands, for run_command. Tabs are named by the id it gives; ids stay the same while a tab is open. Whiteboards have tools of their own: read_whiteboard, add_shapes, draw_elements (Excalidraw MCP's element format: read whiteboard_guide first), add_mermaid (Mermaid text: flowcharts and sequence diagrams become editable shapes, other types a picture; offline), add_tree and whiteboard_image, which shows the result. Pictures likewise: read_picture, add_annotations, edit_picture and picture_image. preview_diagram draws Mermaid and reports its errors. An encrypted document needs the user's permission: the tool says so, and Note++ asks them.";
 
 /// A JSON-RPC error reply.
 pub fn error_reply(id: &Value, code: i32, message: &str) -> Value {

@@ -35,6 +35,7 @@ impl<S: Send> Workspace<S> {
                 lang_label,
                 encrypted: false,
                 pinned: false,
+                favourite: false,
                 color: None,
                 caret: 0,
                 anchor: None,
@@ -102,6 +103,7 @@ impl<S: Send> Workspace<S> {
                 lang_label: "Normal text",
                 encrypted: false,
                 pinned: false,
+                favourite: false,
                 color: None,
                 caret: 0,
                 anchor: None,
@@ -246,10 +248,13 @@ impl<S: Send> Workspace<S> {
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return, // the user cancelled the read
             Err(e) => return ui.error(&format!("Cannot open {}\n\n{e}", path.display())),
         };
-        if crate::image::is_image_path(path) && crate::num::to_u64(bytes.len()) <= crate::image::MAX_FILE_BYTES && crate::image::sniff_mime(&bytes).is_some() {
-            // A PNG is edited in place; any other format becomes a new picture that is saved as a PNG.
-            let in_place = crate::image::is_png(&bytes).then(|| path.to_path_buf());
-            self.open_image(file_title(path), in_place, crate::image::to_content(&bytes), false);
+        let picture = (crate::image::is_image_path(path) && crate::num::to_u64(bytes.len()) <= crate::image::MAX_FILE_BYTES)
+            .then(|| crate::image::for_page(&bytes))
+            .flatten();
+        if let Some(shown) = picture {
+            // A type that can be written is edited in place (Save keeps the file's own type); another becomes a new picture.
+            let in_place = crate::image::can_write(path).then(|| path.to_path_buf());
+            self.open_image(file_title(path), in_place, crate::image::to_content(&shown), false);
             self.note_recent(path);
             return;
         }

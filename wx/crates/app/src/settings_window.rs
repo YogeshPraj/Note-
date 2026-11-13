@@ -99,6 +99,11 @@ fn act(a: &mut App, action: Action) {
             crate::handlers::AppearanceCommands::apply_style(a, &crate::settings_ui::StyleEdit { reset: true, entered: Vec::new() });
         }
         Action::Encryption(e) => encryption(a, e),
+        Action::BrainEncrypt(on) => brain_encryption(a, on),
+        Action::CopyBrainPrompt => {
+            let copied = crate::services::clipboard::copy(notepp_core::brain::AGENT_PROMPT);
+            a.ui.notice(if copied { "Copied. Paste it into your agent." } else { "The clipboard is busy. Try again." }, crate::widgets::toast::Tone::Info);
+        }
         Action::CopyAgentSetup | Action::NewAgentToken | Action::ForgetAgents | Action::ShowAgentLog => {
             match action {
                 Action::CopyAgentSetup => a.mcp_copy_setup(),
@@ -108,6 +113,20 @@ fn act(a: &mut App, action: Action) {
             }
             a.refresh();
         }
+    }
+}
+
+/// The Brain page's toggle: the notes are rewritten first, and the setting follows only when that worked.
+fn brain_encryption(a: &mut App, on: bool) {
+    let App { ws, ui, .. } = a;
+    match ws.brain_set_encrypted(ui, on) {
+        Ok(n) => {
+            let s = a.ws.settings.clone();
+            crate::settings_ui::apply_settings(a, s);
+            a.fill_brain();
+            a.ui.notice(&format!("{n} note(s) are now {}.", if on { "encrypted" } else { "plain" }), crate::widgets::toast::Tone::Info);
+        }
+        Err(e) => a.ui.notice(&format!("Quick Notes was left as it was.\n\n{e}"), crate::widgets::toast::Tone::Error),
     }
 }
 
@@ -154,7 +173,7 @@ mod tests {
     fn every_page_and_row_reaches_the_kit_as_core_describes_it() {
         let pages = kit_pages(sp::pages(&Facts::default()), None, &Theme::light());
         let ids: Vec<&str> = pages.iter().map(|p| p.id).collect();
-        assert_eq!(ids, ["general", "editor", "appearance", "colours", "shortcuts", "context", "security", "agents"]);
+        assert_eq!(ids, ["general", "editor", "appearance", "colours", "shortcuts", "context", "security", "brain", "agents"]);
         let editors = pages.iter().flat_map(|p| p.rows.iter()).filter(|r| matches!(r.control, Control::Custom(_))).count();
         assert_eq!(editors, 3, "colours, shortcuts and the right-click menu are built here");
         let theme = pages.iter().flat_map(|p| p.rows.iter()).find(|r| r.key == "theme").map(|r| r.control.clone());

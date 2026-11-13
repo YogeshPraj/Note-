@@ -519,6 +519,17 @@
 3340	Encryption...	true	None
 3307	Edit Popup ContextMenu	true	None
 # T&ools
+> &Quick Notes
+  3367	&Panel	true	Some(false)
+  3360	&Capture...	Ctrl+Alt+N	true	None
+  3361	Send &Selection to Quick Notes	true	None
+  -
+  3362	&Today's Note	true	None
+  3363	S&earch...	Ctrl+Alt+Y	true	None
+  -
+  3365	Open &Folder	true	None
+  3366	E&xport...	true	None
+-
 > MD5
   3400	Generate...	true	None
   3401	Generate from files...	true	None
@@ -553,6 +564,10 @@
 -
 3347	AI Activity Log	true	None
 3346	Stop AI Agents	true	None
+# F&avourites
+5630	&Add Current Tab to Favourites	false	None
+-
+0	(no favourites yet)	false	None
 # &Window
 > &Sort By
   3610	Name A to Z	true	None

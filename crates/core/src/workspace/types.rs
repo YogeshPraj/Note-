@@ -13,6 +13,10 @@ pub enum Confirm {
 pub trait Ui {
     fn pick_open(&self) -> Vec<PathBuf>;
     fn pick_save(&self, suggested: &str) -> Option<PathBuf>;
+    /// Pick where to save a picture: the dialog offers every picture type, and the extension chosen is the format.
+    fn pick_save_image(&self, suggested: &str) -> Option<PathBuf> {
+        self.pick_save(suggested)
+    }
     fn confirm_save(&self, name: &str) -> Confirm;
     fn ask_yes_no(&self, msg: &str) -> bool;
     /// Move a file to the Recycle Bin.
@@ -134,6 +138,8 @@ pub struct Tab {
     pub encrypted: bool,
     /// Pinned tabs sit at the left, show no close button and survive the Close All commands.
     pub pinned: bool,
+    /// Marked a favourite while it has no file: the Favourites menu lists it by its tab name (a saved file is listed by its path instead).
+    pub favourite: bool,
     /// The colour mark: one of `TAB_COLORS` or a custom colour.
     pub color: Option<(u8, u8, u8)>,
     pub caret: usize,

@@ -3,6 +3,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod brain;
 mod chrome;
 mod command;
 mod dialogs;

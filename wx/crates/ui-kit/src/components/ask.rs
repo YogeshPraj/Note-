@@ -75,6 +75,22 @@ pub fn save_file(parent: &impl WxWidget, title: &str, suggested: &str, wildcard:
     (d.show_modal() == ID_OK).then(|| d.get_path()).flatten().map(PathBuf::from)
 }
 
+/// Pick where to save with the folder and the name given apart, and the entry of `wildcard` that is preselected
+/// (counted from 0). Returns the path and the index of the entry that was selected when the user pressed Save.
+pub fn save_file_typed(parent: &impl WxWidget, title: &str, dir: Option<&str>, name: &str, wildcard: &str, filter: usize) -> Option<(PathBuf, usize)> {
+    let mut b = FileDialog::builder(parent).with_message(title).with_default_file(name).with_wildcard(wildcard);
+    if let Some(dir) = dir {
+        b = b.with_default_dir(dir);
+    }
+    let d = b.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt).build();
+    d.set_filter_index(i32::try_from(filter).unwrap_or(0));
+    if d.show_modal() != ID_OK {
+        return None;
+    }
+    let chosen = usize::try_from(d.get_filter_index()).unwrap_or(0);
+    d.get_path().map(|p| (PathBuf::from(p), chosen))
+}
+
 /// Pick a folder.
 pub fn folder(parent: &impl WxWidget, title: &str) -> Option<PathBuf> {
     let d = DirDialog::builder(parent, title, "").build();

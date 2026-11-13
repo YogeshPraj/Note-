@@ -85,6 +85,7 @@ pub struct App {
     session_key: ((usize, usize, usize, u64), u64),
     recent_key: (Vec<PathBuf>, bool),
     window_key: (Vec<String>, usize),
+    fav_key: (Vec<(String, String)>, bool),
 }
 
 pub type Shared = Rc<RefCell<App>>;
@@ -225,6 +226,7 @@ impl App {
     pub fn reset_recent_key(&mut self) {
         self.recent_key = (vec![PathBuf::from("\u{0}")], false);
         self.window_key = (vec!["\u{0}".into()], 0);
+        self.fav_key = (vec![("\u{0}".into(), String::new())], false);
     }
 
     /// Bring the tab strip, status bar, title and menu ticks in line with the workspace.
@@ -266,6 +268,7 @@ impl App {
             }
         }
         self.sync_file_menu();
+        self.sync_favourites_menu();
         self.sync_window_menu();
         self.sync_command_state();
     }
@@ -289,6 +292,18 @@ impl App {
         self.recent_key = key;
     }
 
+    /// The Favourites menu lists the favourite files and says whether the current file is one: rebuild it on change.
+    fn sync_favourites_menu(&mut self) {
+        let key = (self.ws.favourite_list(), self.ws.active_is_favourite());
+        if key == self.fav_key {
+            return;
+        }
+        let names: Vec<String> = key.0.iter().map(|(n, _)| n.clone()).collect();
+        menus::fill_favourites_menu(self.menus.favourites, &names, key.1, true);
+        self.menubar.replace(8, menus::realize(self.menus.favourites), "F&avourites");
+        self.fav_key = key;
+    }
+
     /// The Window menu lists the open documents: rebuild it when the tabs or the active one change.
     fn sync_window_menu(&mut self) {
         let key = (self.ws.tab_infos().into_iter().map(|t| t.title).collect::<Vec<_>>(), self.ws.active);
@@ -296,7 +311,7 @@ impl App {
             return;
         }
         menus::fill_window_menu(self.menus.window, &key.0, key.1);
-        self.menubar.replace(8, menus::realize(self.menus.window), "&Window");
+        self.menubar.replace(9, menus::realize(self.menus.window), "&Window");
         self.window_key = key;
     }
 

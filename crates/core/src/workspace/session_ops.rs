@@ -38,6 +38,7 @@ impl<S: Send> Workspace<S> {
             dark: self.theme.dark,
             minimap: self.minimap,
             recent: self.recent.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+            favourites: self.favourites.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
             workspace: self.workspace.as_ref().map(|p| p.to_string_lossy().into_owned()),
             tree_hidden: self.tree_hidden,
             search_engine: self.search_engine,
@@ -88,6 +89,7 @@ impl<S: Send> Workspace<S> {
             eol: t.eol.key().into(),
             encrypted: t.encrypted && has_text,
             pinned: t.pinned,
+            favourite: t.favourite,
             color: t.color,
             kind: match t.kind {
                 TabKind::Whiteboard => "whiteboard".into(),
@@ -109,6 +111,7 @@ impl<S: Send> Workspace<S> {
         self.saved_dock = s.dock;
         self.saved_floats.clone_from(&s.floats);
         self.main_window = s.window;
+        self.favourites = s.favourites.iter().map(PathBuf::from).take(crate::registry::FAV_SLOTS).collect();
         self.recent = s.recent.iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT).collect();
         self.workspace = s.workspace.as_ref().map(PathBuf::from).filter(|p| p.is_dir());
         self.tree_hidden = s.tree_hidden;
@@ -192,12 +195,13 @@ impl<S: Send> Workspace<S> {
         };
         let i = self.open_whiteboard(st.title.clone(), path, content, dirty);
         self.tabs[i].pinned = st.pinned;
+        self.tabs[i].favourite = st.favourite;
         self.tabs[i].color = st.color;
     }
 
     /// One saved picture tab: its unsaved bytes if it has any, else the file on disk.
     pub(super) fn restore_image(&mut self, st: &crate::session::SessionTab, path: Option<PathBuf>) {
-        let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).filter(|b| crate::image::sniff_mime(b).is_some());
+        let disk = path.as_ref().and_then(|p| std::fs::read(p).ok()).and_then(|b| crate::image::for_page(&b));
         let (content, dirty, path) = match (&st.text, disk) {
             (Some(t), Some(d)) => (t.clone(), *t != crate::image::to_content(&d), path),
             (Some(t), None) => (t.clone(), true, path),
@@ -206,6 +210,7 @@ impl<S: Send> Workspace<S> {
         };
         let i = self.open_image(st.title.clone(), path, content, dirty);
         self.tabs[i].pinned = st.pinned;
+        self.tabs[i].favourite = st.favourite;
         self.tabs[i].color = st.color;
     }
 
@@ -258,6 +263,7 @@ impl<S: Send> Workspace<S> {
             let t = &mut self.tabs[idx];
             t.encrypted = encrypted;
             t.pinned = st.pinned;
+            t.favourite = st.favourite;
             t.color = st.color;
             t.caret = st.caret;
             t.top = st.top;

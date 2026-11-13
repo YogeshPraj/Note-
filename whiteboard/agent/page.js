@@ -3,13 +3,17 @@
 
 import { CaptureUpdateAction, convertToExcalidrawElements, exportToBlob } from '@excalidraw/excalidraw';
 
+import { parseMermaidToExcalidraw } from '@excalidraw/mermaid-to-excalidraw';
+
 import { ICONS } from '../tree/icons.js';
 import { insert, modelOf, redraw } from '../tree/scene.js';
+import { plan } from './draw.js';
 import { borrowedCopy, describeScene, fromOutline, isContainer, isTreePart, nextPlace, patched, removal, route, skeletons } from './shapes.js';
 
 /** The longest side of the picture an agent gets: large enough to read, small enough to send. */
 const IMAGE_SIZE = 1600;
 const FONT_FAMILY = 2;
+const MAX_MERMAID_ELEMENTS = 300;
 const ICON_NAMES = ICONS.map(([name]) => name);
 
 const fail = (message) => { throw new Error(message); };
@@ -26,9 +30,8 @@ function merged(all, changed) {
   return [...kept, ...changed.filter((e) => !known.has(e.id))];
 }
 
-function addShapes(api, args) {
-  const all = everything(api);
-  const { list, borrowed } = skeletons(args.shapes, all);
+/** The new shapes added to `all`, with the shapes on the board that their arrows join noted as joined. */
+function attached(all, list, borrowed) {
   const copies = borrowed.map((id) => borrowedCopy(all.find((e) => e.id === id)));
   const made = convert([...copies, ...list]);
   const fresh = made.filter((e) => !borrowed.includes(e.id));
@@ -38,9 +41,44 @@ function addShapes(api, args) {
     const arrows = (copy.boundElements || []).filter((b) => b.type === 'arrow');
     return { ...real, boundElements: [...(real.boundElements || []), ...arrows], ...bump(real) };
   });
-  commit(api, [...merged(all, joined), ...fresh]);
+  return { elements: [...merged(all, joined), ...fresh], fresh };
+}
+
+const described = (fresh) => ({ shapes: fresh.filter((e) => !e.containerId).map((e) => ({ id: e.id, type: e.type })) });
+
+function addShapes(api, args) {
+  const all = everything(api);
+  const { list, borrowed } = skeletons(args.shapes, all);
+  const { elements, fresh } = attached(all, list, borrowed);
+  commit(api, elements);
   api.scrollToContent(fresh, { animate: false });
-  return { shapes: fresh.filter((e) => !e.containerId).map((e) => ({ id: e.id, type: e.type })) };
+  return described(fresh);
+}
+
+/** Excalidraw MCP's `create_view`, on the open whiteboard: its element format, with `delete` and `cameraUpdate` entries. */
+function drawElements(api, args) {
+  const all = everything(api);
+  const { list, borrowed, remove, camera } = plan(args.elements, all);
+  let base = all;
+  if (remove.length) {
+    const { gone, changed } = removal(all, remove);
+    const out = gone.map((id) => all.find((e) => e.id === id)).map((e) => ({ ...e, isDeleted: true, ...bump(e) }));
+    const kept = changed.map(({ id, patch }) => ({ ...all.find((e) => e.id === id), ...patch, ...bump(all.find((e) => e.id === id)) }));
+    base = merged(all, [...out, ...kept]);
+  }
+  const { elements, fresh } = list.length ? attached(base, list, borrowed) : { elements: base, fresh: [] };
+  api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+  if (camera) {
+    const { width, height } = api.getAppState();
+    const zoom = Math.min(width / camera.width, height / camera.height);
+    api.updateScene({
+      appState: { zoom: { value: zoom }, scrollX: -camera.x + (width / zoom - camera.width) / 2, scrollY: -camera.y + (height / zoom - camera.height) / 2 },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  } else if (fresh.length) {
+    api.scrollToContent(fresh, { animate: false });
+  }
+  return { ...described(fresh), removed: remove.length };
 }
 
 const shownShape = (all, id) => all.find((e) => e.id === id && !e.isDeleted) ?? fail(`No shape has the id "${id}".`);
@@ -113,6 +151,30 @@ function setTree(api, args) {
   return { id: args.id };
 }
 
+/** A flowchart from Mermaid text, drawn offline as ordinary shapes and arrows the user can edit. */
+async function addMermaid(api, args) {
+  const source = String(args.mermaid ?? '').trim();
+  if (!source) fail('"mermaid" is empty: give the diagram\'s Mermaid text.');
+  let parsed;
+  try {
+    parsed = await parseMermaidToExcalidraw(source, { themeVariables: { fontSize: '20px' } });
+  } catch (e) {
+    fail(`Mermaid could not read the diagram: ${e?.message ?? e}`);
+  }
+  if (!parsed.elements.length) fail('The diagram has nothing to draw. Flowcharts ("flowchart TD" or "graph LR") are supported.');
+  if (parsed.elements.length > MAX_MERMAID_ELEMENTS) fail(`The diagram is too big: up to ${MAX_MERMAID_ELEMENTS} parts.`);
+  const made = convertToExcalidrawElements(parsed.elements, { regenerateIds: true });
+  const all = everything(api);
+  const place = nextPlace(api.getSceneElements());
+  const dx = (args.x ?? place.x) - Math.min(...made.map((e) => e.x));
+  const dy = (args.y ?? place.y) - Math.min(...made.map((e) => e.y));
+  const fresh = made.map((e) => ({ ...e, x: e.x + dx, y: e.y + dy }));
+  const files = Object.values(parsed.files ?? {});
+  if (files.length) api.addFiles(files);
+  commit(api, [...all, ...fresh]);
+  api.scrollToContent(fresh, { animate: false });
+  return { shapes: fresh.filter((e) => !e.containerId).map((e) => ({ id: e.id, type: e.type })) };
+}
 async function picture(api) {
   const elements = api.getSceneElements();
   if (!elements.length) fail('The whiteboard is empty.');
@@ -137,8 +199,10 @@ const OPS = {
   read_whiteboard: (api) => ({ shapes: describeScene(api.getSceneElements()) }),
   whiteboard_image: picture,
   add_shapes: addShapes,
+  draw_elements: drawElements,
   update_shape: updateShape,
   delete_shapes: deleteShapes,
+  add_mermaid: addMermaid,
   add_tree: addTree,
   set_tree: setTree,
   // Only so that the app gets the latest scene: saving needs it.

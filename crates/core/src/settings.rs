@@ -50,6 +50,10 @@ pub struct Settings {
     pub mcp_level: String,
     /// The agents the user has allowed, by the names they give.
     pub mcp_clients: Vec<String>,
+    /// Keep the Brain's notes encrypted with the profile's key (docs/brain-plan.md). Off until the user turns it on.
+    pub brain_encrypt: bool,
+    /// Agents and the Brain (off, read or add): off until the user says.
+    pub brain_agents: String,
 }
 
 impl Default for Settings {
@@ -81,6 +85,8 @@ impl Default for Settings {
             mcp_port: crate::mcp::DEFAULT_PORT,
             mcp_level: "read".into(),
             mcp_clients: Vec::new(),
+            brain_encrypt: false,
+            brain_agents: "read".into(),
         }
     }
 }

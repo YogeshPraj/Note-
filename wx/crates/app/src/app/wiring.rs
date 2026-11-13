@@ -104,6 +104,7 @@ pub(crate) fn run_command(a: &Shared, id: usize) {
         ID_MARK => return crate::find::open_panel(a, Mode::Mark),
         ID_FINDNEXT | ID_FINDPREV => return crate::find::step(a, id == ID_FINDNEXT),
         ID_GOTO => return crate::find::goto_line(a),
+        id if crate::brain::run_command(a, id) => return,
         _ => {}
     }
     if let Ok(mut app) = a.try_borrow_mut() {

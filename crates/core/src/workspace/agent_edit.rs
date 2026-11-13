@@ -14,6 +14,7 @@ impl<S: Send> Workspace<S> {
     pub(super) fn agent_change(&mut self, tool: &str, args: Args<'_>) -> Result<Value, Error> {
         match tool {
             "new_document" => self.agent_new(args),
+            "brain_add" => self.agent_brain_add(args),
             "edit_text" => self.agent_replace_exact(args),
             "insert_text" => self.agent_insert(args),
             "write_document" => self.agent_write(args),
@@ -29,7 +30,7 @@ impl<S: Send> Workspace<S> {
     }
 
     /// Run `f` on tab `i`'s document as one undo step, and mark the tab modified.
-    fn agent_edit<R>(&mut self, i: usize, f: impl FnOnce(&S) -> Result<R, Error>) -> Result<R, Error> {
+    pub(super) fn agent_edit<R>(&mut self, i: usize, f: impl FnOnce(&S) -> Result<R, Error>) -> Result<R, Error> {
         if self.with_doc(self.tabs[i].doc, |s| s.send(sci::SCI_GETREADONLY, 0, 0)) != 0 {
             return Err(Error::Agent(format!("\"{}\" is read-only.", self.tabs[i].title)));
         }

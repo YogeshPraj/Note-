@@ -12,9 +12,7 @@ const SNIPPET: usize = 160;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Note {
     pub path: PathBuf,
-    /// The day of a day's note; None for a topic note.
-    pub day: Option<Date>,
-    /// A topic's name (the file's name without `.md`); the day as text for a day's note.
+    /// The file's name without `.md`.
     pub name: String,
     pub text: String,
 }
@@ -26,7 +24,7 @@ pub struct Query {
     pub words: Vec<String>,
     /// Tags (lower case) the entry must carry; `deploy` also finds `deploy/azure`.
     pub tags: Vec<String>,
-    /// Only entries of day notes from the first day to the last.
+    /// Only entries under a day from the first day to the last.
     pub days: Option<(Date, Date)>,
 }
 
@@ -65,7 +63,7 @@ pub struct Hit {
     pub path: PathBuf,
     /// The entry's line in the note, from 1.
     pub line: usize,
-    /// `2026-11-12 14:32` for a capture, `Azure › Slots` for a topic's section.
+    /// `2026-11-12 14:32` for a capture, `Azure › Slots` for a section of a note with no day.
     pub title: String,
     /// The line of the entry that best shows the match.
     pub snippet: String,
@@ -109,7 +107,7 @@ fn snippet(entry: &Entry, q: &Query) -> String {
 }
 
 fn title(note: &Note, entry: &Entry) -> String {
-    match (&note.day, &entry.time) {
+    match (&entry.day, &entry.time) {
         (Some(day), Some(time)) => format!("{day} {time}"),
         (Some(day), None) => day.to_string(),
         (None, _) if entry.heading.is_empty() || entry.heading == note.name => note.name.clone(),
@@ -122,12 +120,12 @@ fn title(note: &Note, entry: &Entry) -> String {
 pub fn search(notes: &[Note], q: &Query, limit: usize) -> Vec<Hit> {
     let mut found: Vec<(usize, Hit)> = Vec::new();
     for note in notes {
-        if let Some((first, last)) = q.days
-            && !note.day.is_some_and(|d| first <= d && d <= last)
-        {
-            continue;
-        }
         for entry in entries(&note.text) {
+            if let Some((first, last)) = q.days
+                && !entry.day.is_some_and(|d| first <= d && d <= last)
+            {
+                continue;
+            }
             if !q.tags.iter().all(|t| has_tag(&entry, t)) {
                 continue;
             }
@@ -138,7 +136,7 @@ pub fn search(notes: &[Note], q: &Query, limit: usize) -> Vec<Hit> {
                 title: title(note, &entry),
                 snippet: snippet(&entry, q),
                 tags: entry.tags.clone(),
-                day: note.day,
+                day: entry.day,
             };
             found.push((points, hit));
         }
@@ -169,18 +167,14 @@ mod tests {
     }
 
     fn notes() -> Vec<Note> {
-        let daily = |d: u32, text: &str| Note {
-            path: PathBuf::from(format!("daily/2026-11-{d:02}.md")),
-            day: Some(day(d)),
-            name: day(d).to_string(),
-            text: text.into(),
-        };
         vec![
-            daily(10, "# 2026-11-10 Tuesday\n\n## 09:00 #deploy/azure\nThe swap fails without the flag.\n\n## 11:30\nLunch with the data team.\n"),
-            daily(12, "# 2026-11-12 Thursday\n\n## 14:32 #deploy\nStaging slot: set the flag first.\nfrom: D:\\work\\deploy.ps1:120\n"),
+            Note {
+                path: "quick-notes.md".into(),
+                name: "brain".into(),
+                text: "# 2026-11-10 Tuesday\n\n## 09:00 #deploy/azure\nThe swap fails without the flag.\n\n## 11:30\nLunch with the data team.\n\n# 2026-11-12 Thursday\n\n## 14:32 #deploy\nStaging slot: set the flag first.\nfrom: D:\\work\\deploy.ps1:120\n".into(),
+            },
             Note {
                 path: "topics/Azure.md".into(),
-                day: None,
                 name: "Azure".into(),
                 text: "# Azure\n\n## Slots\nA slot swap is not instant. #deploy\n\n## Costs\nWatch the egress.\n".into(),
             },
@@ -204,7 +198,7 @@ mod tests {
         let hits = search(&notes(), &Query::default(), 3);
         let titles: Vec<&str> = hits.iter().map(|h| h.title.as_str()).collect();
         assert_eq!(titles, ["2026-11-12 14:32", "2026-11-10 11:30", "2026-11-10 09:00"]);
-        assert_eq!(hits[0].line, 3);
+        assert_eq!(hits[0].line, 11, "the line in the one file");
     }
 
     #[test]
@@ -237,7 +231,7 @@ mod tests {
 
     #[test]
     fn a_long_line_is_cut_for_the_list() {
-        let long = Note { path: "t.md".into(), day: None, name: "t".into(), text: format!("## h\n{}\n", "word ".repeat(100)) };
+        let long = Note { path: "t.md".into(), name: "t".into(), text: format!("## h\n{}\n", "word ".repeat(100)) };
         let hit = &search(&[long], &Query::default(), 1)[0];
         assert!(hit.snippet.chars().count() <= SNIPPET && hit.snippet.ends_with('…'));
     }

@@ -233,6 +233,7 @@ impl App {
             (c::ID_CLIP_HISTORY, crate::side::Mode::Clipboard),
             (c::ID_DOC_LIST, crate::side::Mode::Documents),
             (c::ID_FUNC_LIST, crate::side::Mode::Functions),
+            (c::ID_BRAIN_PANEL, crate::side::Mode::Brain),
         ] {
             self.menubar.check_item(crate::platform::wx::to_i32(id), side == Some(m));
         }

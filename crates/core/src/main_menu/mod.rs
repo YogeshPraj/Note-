@@ -13,8 +13,8 @@ use crate::commands::{
     ID_CLEAR_STYLE_BASE, ID_CLIP_HISTORY, ID_CLOSE, ID_CLOSE_ALL, ID_CLOSE_LEFT, ID_CLOSE_OTHERS, ID_CLOSE_RIGHT, ID_CLOSE_UNCHANGED, ID_CMT_BLOCK,
     ID_CMT_LINE, ID_COLUMN_EDITOR, ID_COLUMN_MODE, ID_COMMENT, ID_COPY, ID_COPY_STYLED_BASE, ID_CP_ALLNAMES, ID_CP_ALLPATHS, ID_CP_DIR, ID_CP_FULLPATH,
     ID_CP_NAME, ID_CUT, ID_DECRYPT, ID_DELETE, ID_DISTRACTION, ID_DOC_LIST, ID_EDIT_CONTEXT, ID_ENC_SETTINGS, ID_ENCRYPT, ID_ENGINE_BASE, ID_EOL_CR,
-    ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_EXPORT_THEME, ID_FIF, ID_FIND, ID_FIND_CHARS, ID_FINDNEXT, ID_FINDPREV, ID_FOCUS_OTHER, ID_FOLD_ALL, ID_FOLD_CUR,
-    ID_FOLD_LEVEL_BASE, ID_FULLSCREEN, ID_FUNC_LIST, ID_GOTO, ID_HASH_BASE, ID_HIDE_LINES, ID_HTTP_SEND, ID_IMPORT_THEME, ID_INCR, ID_INDENT_DEC,
+    ID_EOL_CRLF, ID_EOL_LF, ID_EXIT, ID_EXPORT_THEME, ID_FAV_TOGGLE, ID_FIF, ID_FIND, ID_FIND_CHARS, ID_FINDNEXT, ID_FINDPREV, ID_FOCUS_OTHER, ID_FOLD_ALL,
+    ID_FOLD_CUR, ID_FOLD_LEVEL_BASE, ID_FULLSCREEN, ID_FUNC_LIST, ID_GOTO, ID_HASH_BASE, ID_HIDE_LINES, ID_HTTP_SEND, ID_IMPORT_THEME, ID_INCR, ID_INDENT_DEC,
     ID_INDENT_INC, ID_INS_DATE_CUSTOM, ID_INS_DATE_LONG, ID_INS_DATE_SHORT, ID_JSON_MIN, ID_JSON_PRETTY, ID_JUMP_DOWN_BASE, ID_JUMP_UP_BASE, ID_L_COPY,
     ID_L_CUT, ID_L_DEDUP, ID_L_DEL, ID_L_DOWN, ID_L_DUP, ID_L_INS_ABOVE, ID_L_INS_BELOW, ID_L_JOIN, ID_L_NOEMPTY, ID_L_RANDOM, ID_L_REVERSE, ID_L_RM_BLANK,
     ID_L_RM_CONSEC, ID_L_SORT_ASC, ID_L_SORT_COMMA_ASC, ID_L_SORT_COMMA_DESC, ID_L_SORT_DESC, ID_L_SORT_DOT_ASC, ID_L_SORT_DOT_DESC, ID_L_SORT_INT_ASC,
@@ -30,6 +30,7 @@ use crate::commands::{
     ID_VOL_NEXT, ID_VOL_PREV, ID_WINDOW_DOC_BASE, ID_WINDOW_SORT_BASE, ID_WINDOWS, ID_WORKSPACE_TOGGLE, ID_WRAP, ID_XML_MIN, ID_XML_PRETTY, ID_ZOOMIN,
     ID_ZOOMOUT, ID_ZOOMRESET,
 };
+use crate::commands::{ID_BRAIN_CAPTURE, ID_BRAIN_EXPORT, ID_BRAIN_FOLDER, ID_BRAIN_PANEL, ID_BRAIN_SEARCH, ID_BRAIN_SELECTION, ID_BRAIN_TODAY};
 use crate::hash::ALGOS;
 use crate::{edit, settings};
 
@@ -155,6 +156,7 @@ fn checkable(id: usize) -> bool {
             | ID_CLIP_HISTORY
             | ID_DOC_LIST
             | ID_FUNC_LIST
+            | ID_BRAIN_PANEL
             | ID_FULLSCREEN
             | ID_ON_TOP
             | ID_POSTIT
@@ -199,6 +201,7 @@ pub struct Menus {
     pub enc: M,
     pub eol: M,
     pub lang: M,
+    pub favourites: M,
     pub window: M,
 }
 
@@ -294,7 +297,7 @@ fn menu_file() -> (M, M, M, M, M) {
 mod edit_search;
 use edit_search::*;
 mod view_more;
-use view_more::*;
+pub use view_more::*;
 
 pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     let (file, open_folder, close_multi, print, recent) = menu_file();
@@ -308,9 +311,9 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
     let help = menu_help();
     let settings_menu = menu_settings();
     let tools = menu_tools();
-    // Window: Sort By, Windows..., then the open documents (see `fill_window_menu`).
-    let window = B::popup();
+    let window = B::popup(); // Sort By, Windows..., then the open documents (see `fill_window_menu`)
     fill_window_menu(window, &[], 0);
+    let favourites = empty_favourites_menu();
     let bar = vec![
         ("&File".to_string(), file),
         ("&Edit".to_string(), edit),
@@ -320,10 +323,11 @@ pub fn build_menus() -> (Vec<(String, M)>, Menus) {
         ("&Language".to_string(), lang),
         ("Set&tings".to_string(), settings_menu),
         ("T&ools".to_string(), tools),
+        ("F&avourites".to_string(), favourites),
         ("&Window".to_string(), window),
         ("&?".to_string(), help),
     ];
-    let menus = Menus { file, open_folder, close_multi, print, recent, enc, eol: eol_sub, lang, window };
+    let menus = Menus { file, open_folder, close_multi, print, recent, enc, eol: eol_sub, lang, favourites, window };
     fill_file_menu(&menus, &[], false);
     (bar, menus)
 }

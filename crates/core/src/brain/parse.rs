@@ -1,7 +1,8 @@
 //! Reading a note back: its entries (a heading and the text under it), `#tags` and `[[links]]`.
 
-/// One entry of a note: a heading and what is under it. In a day's note that is one capture; in a topic note, one
-/// section. Text before the first heading is an entry with an empty heading.
+use super::date::Date;
+
+/// One entry of a note: a heading and what is under it: one capture, or one section of a note the user wrote. Text before the first heading is an entry with an empty heading.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     /// The heading without its `#` marks.
@@ -14,6 +15,8 @@ pub struct Entry {
     pub from: Option<String>,
     /// Every `#tag` in the heading and the text, lower case, each once, in order of appearance.
     pub tags: Vec<String>,
+    /// The day this entry is under: the last `# 2026-11-12 Thursday` heading before it.
+    pub day: Option<Date>,
     /// The heading's line in the note, from 1 (the first line of the text for an entry without a heading).
     pub line: usize,
 }
@@ -34,7 +37,17 @@ fn time_of(heading: &str) -> Option<String> {
     (digits && b[2] == b':' && ends).then(|| t.to_string())
 }
 
-fn finish(heading: &str, line: usize, body: &[&str]) -> Option<Entry> {
+/// The day a first-level heading names: `# 2026-11-12 Thursday` gives 2026-11-12.
+fn day_of(line: &str) -> Option<Date> {
+    line.strip_prefix("# ").and_then(|h| Date::parse(h.trim()))
+}
+
+/// The day of the last day heading in `note`.
+pub fn last_day(note: &str) -> Option<Date> {
+    note.lines().rev().find_map(day_of)
+}
+
+fn finish(heading: &str, line: usize, body: &[&str], day: Option<Date>) -> Option<Entry> {
     let from = body.iter().rev().find(|l| !l.trim().is_empty()).and_then(|l| l.strip_prefix("from: ")).map(|f| f.trim().to_string());
     let kept: Vec<&str> = body.iter().copied().filter(|l| from.is_none() || !l.starts_with("from: ")).collect();
     let text = kept.join("\n").trim().to_string();
@@ -42,7 +55,7 @@ fn finish(heading: &str, line: usize, body: &[&str]) -> Option<Entry> {
         return None;
     }
     let tags = tags_in(&format!("{heading}\n{text}"));
-    Some(Entry { heading: heading.to_string(), time: time_of(heading), text, from, tags, line })
+    Some(Entry { heading: heading.to_string(), time: time_of(heading), text, from, tags, day, line })
 }
 
 /// The entries of `note`, in order. A day's title (`# 2026-11-12 Thursday`, a first-level heading with nothing under
@@ -51,6 +64,7 @@ pub fn entries(note: &str) -> Vec<Entry> {
     let mut out = Vec::new();
     let (mut heading, mut at, mut body): (String, usize, Vec<&str>) = (String::new(), 1, Vec::new());
     let (mut fenced, mut title_pending) = (false, false);
+    let (mut today, mut began): (Option<Date>, Option<Date>) = (None, None);
     for (i, line) in note.lines().enumerate() {
         if line.trim_start().starts_with("```") {
             fenced = !fenced;
@@ -59,9 +73,12 @@ pub fn entries(note: &str) -> Vec<Entry> {
             // A title with nothing of its own under it is the note's name, not an entry.
             let empty_title = title_pending && body.iter().all(|l| l.trim().is_empty());
             if !empty_title {
-                out.extend(finish(&heading, at, &body));
+                out.extend(finish(&heading, at, &body, began));
             }
-            title_pending = line.starts_with("# ") && out.is_empty();
+            let title = if fenced { None } else { day_of(line) };
+            title_pending = title.is_some() || (line.starts_with("# ") && out.is_empty());
+            today = title.or(today);
+            began = today;
             (heading, at, body) = (h.to_string(), i + 1, Vec::new());
         } else {
             if heading.is_empty() && body.is_empty() && !line.trim().is_empty() {
@@ -72,7 +89,7 @@ pub fn entries(note: &str) -> Vec<Entry> {
     }
     let empty_title = title_pending && body.iter().all(|l| l.trim().is_empty());
     if !empty_title {
-        out.extend(finish(&heading, at, &body));
+        out.extend(finish(&heading, at, &body, began));
     }
     out
 }
@@ -153,6 +170,16 @@ mod tests {
         assert_eq!(got, [("Slots", "swap\n```\n## not a heading\n```"), ("Deeper", "more")]);
         assert!(e.iter().all(|x| x.time.is_none()));
         assert!(entries("").is_empty() && entries("# Only a title\n").is_empty());
+    }
+
+    #[test]
+    fn every_entry_knows_the_day_it_is_under() {
+        let e = entries("# 2026-11-11 Wednesday\n\n## 09:00\na\n\n# 2026-11-12 Thursday\n\n## 09:00\nb\n\n## 10:00\nc\n");
+        let days: Vec<String> = e.iter().map(|x| x.day.unwrap().to_string()).collect();
+        assert_eq!(days, ["2026-11-11", "2026-11-12", "2026-11-12"], "{e:?}");
+        assert_eq!(e[1].line, 8);
+        assert_eq!(last_day("# 2026-11-11 x\n\n# 2026-11-12 y\n\n## 09:00\nz\n").unwrap().to_string(), "2026-11-12");
+        assert_eq!(last_day("# Azure\n"), None);
     }
 
     #[test]

@@ -38,6 +38,8 @@ pub struct Handlers {
     pub moved: Rc<dyn Fn((i32, i32))>,
     /// The menu went away, by whatever route.
     pub closed: Rc<dyn Fn()>,
+    /// The tool tip of the item with this command id (empty for none), shown while the pointer rests on it.
+    pub tip: Rc<dyn Fn(usize) -> String>,
 }
 
 impl std::fmt::Debug for Handlers {
@@ -303,8 +305,20 @@ fn hover(s: &Shared, i: usize, row: Option<usize>) {
     };
     if changed {
         refresh(s, i);
+        show_tip(s, i);
         sync_sub(s, i, false);
     }
+}
+
+/// Put the tool tip of level `i`'s hot item on its window.
+fn show_tip(s: &Shared, i: usize) {
+    let lv = s.levels.borrow();
+    let Some(l) = lv.get(i) else { return };
+    let tip = match l.hot.map(|r| &l.entries[r]) {
+        Some(Entry::Item(item)) => (s.handlers.tip)(item.id),
+        _ => String::new(),
+    };
+    l.panel.set_tooltip(&tip);
 }
 
 /// Show the sub-menu of level `i`'s hot row, and nothing deeper if that row has none.

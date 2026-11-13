@@ -57,6 +57,49 @@ pub const TOOLS: &[Tool] = &[
         required: &[],
     },
     Tool {
+        name: "brain_overview",
+        title: "Overview of Quick Notes",
+        description: "What the user's Quick Notes holds: the recent days with entry counts, the Quick Notes file(s) with their paths and the most used #tags. Start here, then brain_search and brain_read. Only when the user allows agents into Quick Notes (Settings, Quick Notes).",
+        level: Level::Read,
+        properties: || json!({}),
+        required: &[],
+    },
+    Tool {
+        name: "brain_read",
+        title: "Read a Quick Notes note",
+        description: "Reads one note of Quick Notes by the `note` path that brain_search or brain_overview gave. A long note comes in parts: go on from next_line.",
+        level: Level::Read,
+        properties: || {
+            json!({
+                "note": { "type": "string", "description": "The note's path." },
+                "start_line": { "type": "integer", "description": "First line, from 1." },
+                "line_count": { "type": "integer", "description": "How many lines. All when left out." },
+            })
+        },
+        required: &["note"],
+    },
+    Tool {
+        name: "brain_search",
+        title: "Search Quick Notes",
+        description: "Searches the user's Quick Notes (one local Markdown file, a section per day). Words must all match; #tag finds tagged entries; today, yesterday, week, month or date:2026-11 limit the days. Not available while encrypted Quick Notes is locked.",
+        level: Level::Read,
+        properties: || {
+            json!({
+                "query": { "type": "string", "description": "Words, #tags and day words." },
+                "limit": { "type": "integer", "description": "How many results at most (20 when left out, 50 at most)." },
+            })
+        },
+        required: &["query"],
+    },
+    Tool {
+        name: "brain_add",
+        title: "Add to Quick Notes",
+        description: "Adds an entry, stamped with the time, to today's note in the user's Quick Notes. Words with # in front are tags. Not available while encrypted Quick Notes is locked.",
+        level: Level::Edit,
+        properties: || json!({ "text": { "type": "string", "description": "What to remember." } }),
+        required: &["text"],
+    },
+    Tool {
         name: "find_text",
         title: "Find text",
         description: "Finds text in a tab and gives each match's line.",
@@ -154,6 +197,14 @@ pub const TOOLS: &[Tool] = &[
         required: &[],
     },
     Tool {
+        name: "whiteboard_guide",
+        title: "How to draw on a whiteboard",
+        description: "The element format that draw_elements takes, with colours, sizes and an example. Read it before the first draw_elements.",
+        level: Level::Read,
+        properties: || json!({}),
+        required: &[],
+    },
+    Tool {
         name: "list_commands",
         title: "List commands",
         description: "Lists the Note++ commands run_command can run, and the level each needs.",
@@ -239,6 +290,7 @@ mod tests {
     fn nothing_that_changes_a_document_is_read_level() {
         let changing = [
             "new_document",
+            "brain_add",
             "edit_text",
             "insert_text",
             "write_document",
@@ -255,6 +307,8 @@ mod tests {
             "add_shapes",
             "update_shape",
             "delete_shapes",
+            "add_mermaid",
+            "draw_elements",
             "add_tree",
             "set_tree",
         ];

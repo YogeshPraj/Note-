@@ -4,10 +4,12 @@
 //! does. The host ([`Side`]) only tracks which one is shown. Nothing here touches the toolkit, so it is all
 //! unit tested; `panels.rs` fills the actual list control from it.
 
+pub mod brain;
 pub mod characters;
 pub mod history;
 pub mod targets;
 
+use self::brain::BrainList;
 use self::characters::Characters;
 use self::history::History;
 use self::targets::Targets;
@@ -21,6 +23,7 @@ pub enum Mode {
     Clipboard,
     Documents,
     Functions,
+    Brain,
 }
 
 /// What the application should do when a row is activated.
@@ -32,6 +35,10 @@ pub enum Activate {
     Document(usize),
     /// Go to this 0-based line.
     Goto(usize),
+    /// Open this Brain note.
+    Note(std::path::PathBuf),
+    /// Search the Brain for this tag.
+    Tag(String),
 }
 
 /// One thing the side list can show.
@@ -52,6 +59,7 @@ pub struct Side {
     pub history: History,
     pub documents: Targets,
     pub functions: Targets,
+    pub brain: BrainList,
 }
 
 impl Default for Side {
@@ -62,6 +70,7 @@ impl Default for Side {
             history: History::default(),
             documents: Targets::new(vec![("Name", 100), ("Path", SIDE_W - 124)]),
             functions: Targets::new(vec![("Function", SIDE_W - 74), ("Line", 50)]),
+            brain: BrainList::default(),
         }
     }
 }
@@ -73,6 +82,7 @@ impl Side {
             Mode::Clipboard => &self.history,
             Mode::Documents => &self.documents,
             Mode::Functions => &self.functions,
+            Mode::Brain => &self.brain,
         })
     }
 
@@ -82,6 +92,7 @@ impl Side {
             Mode::Clipboard => &mut self.history,
             Mode::Documents => &mut self.documents,
             Mode::Functions => &mut self.functions,
+            Mode::Brain => &mut self.brain,
         })
     }
 

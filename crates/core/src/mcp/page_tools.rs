@@ -65,6 +65,9 @@ fn annotation() -> Value {
     })
 }
 
+/// How to use `draw_elements`: Excalidraw MCP's element format, as `whiteboard_guide` answers.
+pub const GUIDE: &str = include_str!("whiteboard_guide.md");
+
 /// The tools for pages.
 pub const TOOLS: &[Tool] = &[
     Tool {
@@ -126,6 +129,22 @@ pub const TOOLS: &[Tool] = &[
         level: Level::Edit,
         properties: || json!({ "tab": board(), "ids": { "type": "array", "items": { "type": "string" } } }),
         required: &["ids"],
+    },
+    Tool {
+        name: "draw_elements",
+        title: "Draw elements",
+        description: "Draws a JSON list of elements in the Excalidraw MCP format (labelled shapes, joined arrows, delete and cameraUpdate entries) on a whiteboard, offline, as one undo step. Call whiteboard_guide first for the format.",
+        level: Level::Edit,
+        properties: || json!({ "tab": board(), "elements": { "type": "string", "description": "A JSON list of elements, as whiteboard_guide describes. Valid JSON: no comments, no trailing commas." } }),
+        required: &["elements"],
+    },
+    Tool {
+        name: "add_mermaid",
+        title: "Draw a Mermaid diagram",
+        description: "Draws Mermaid text on a whiteboard, offline, in one undo step. Flowcharts (\"flowchart TD\", \"graph LR\") and sequence diagrams become ordinary shapes and arrows the user can edit. Any other Mermaid type (class, state, ER, pie, gantt, mindmap and so on) is drawn as one picture that moves and resizes but is not editable shape by shape. A diagram Mermaid cannot read is reported with its error.",
+        level: Level::Edit,
+        properties: || json!({ "tab": board(), "mermaid": { "type": "string", "description": "The diagram's Mermaid text." }, "x": { "type": "number" }, "y": { "type": "number" } }),
+        required: &["mermaid"],
     },
     Tool {
         name: "add_tree",

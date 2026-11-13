@@ -19,6 +19,8 @@ const MAX_PICTURE_AREA: u64 = 64_000_000;
 pub const PREVIEW_PAGE: u64 = 0;
 /// The longest diagram source, the limit Mermaid itself keeps to.
 const MAX_DIAGRAM: usize = 50_000;
+/// The longest list of elements to draw, as Excalidraw MCP keeps to.
+const MAX_ELEMENTS: usize = 5 * 1024 * 1024;
 
 /// A request for the page showing tab `tab`.
 #[derive(Debug, PartialEq)]
@@ -43,6 +45,27 @@ fn check_new_picture(args: Args<'_>) -> Result<(), Error> {
     }
     args.opt_text("background")?;
     Ok(())
+}
+
+/// What the page would refuse about a list of elements to draw: it is JSON text, or the list itself.
+fn check_elements(args: &Value) -> Result<(), Error> {
+    match args.get("elements") {
+        Some(Value::String(s)) if s.len() > MAX_ELEMENTS => {
+            Err(Error::Agent(format!("\"elements\" is too long: up to {MAX_ELEMENTS} characters. Draw in several calls.")))
+        }
+        Some(Value::String(s)) if !s.trim().is_empty() => Ok(()),
+        Some(Value::Array(a)) if !a.is_empty() => Ok(()),
+        _ => Err(Error::Agent("\"elements\" must be a JSON list of elements. Read whiteboard_guide.".into())),
+    }
+}
+
+/// What the page would refuse about a Mermaid flowchart, checked before the tab is brought to the front.
+fn check_mermaid(args: Args<'_>) -> Result<(), Error> {
+    match args.opt_text("mermaid")? {
+        Some(text) if text.len() > MAX_DIAGRAM => Err(Error::Agent(format!("The diagram is too long: Mermaid takes up to {MAX_DIAGRAM} characters."))),
+        Some(text) if !text.trim().is_empty() => Ok(()),
+        _ => Err(Error::Agent("\"mermaid\" must be the diagram's Mermaid text.".into())),
+    }
 }
 
 impl<S: Send> Workspace<S> {
@@ -80,6 +103,12 @@ impl<S: Send> Workspace<S> {
             check_new_picture(a)?;
             let i = self.new_image(String::new());
             return Ok(Some(BoardRequest { tab: self.tabs[i].id, op: json!({ "tool": tool, "args": args }), save_after: false }));
+        }
+        if tool == "add_mermaid" {
+            check_mermaid(a)?;
+        }
+        if tool == "draw_elements" {
+            check_elements(args)?;
         }
         let i = self.agent_page_tab(a, kind)?;
         if saving {

@@ -59,21 +59,63 @@ fn the_status_bar_and_tool_tip_name_the_size() {
     assert!(ws.tab_preview(i, 3, 20).contains("Picture, 40 x 30"));
 }
 
+/// A real 4 x 3 picture, written as `format`.
+fn picture(format: ::image::ImageFormat) -> Vec<u8> {
+    let img = ::image::DynamicImage::ImageRgba8(::image::RgbaImage::from_pixel(4, 3, ::image::Rgba([200, 30, 30, 255])));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, format).unwrap();
+    out.into_inner()
+}
+
 #[test]
-fn a_picture_is_saved_as_its_bytes_and_always_as_png() {
+fn a_picture_is_saved_as_the_type_its_file_name_asks_for() {
     let dir = std::env::temp_dir().join(format!("npp_img_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
+    let png = picture(::image::ImageFormat::Png);
     let mut ws = workspace();
-    let i = ws.new_image(crate::image::to_content(&PNG));
-    // Asked for a .jpg, it is written as .png: the page produces PNGs.
-    assert!(ws.save_as(&SaveTo(dir.join("shot.jpg"))));
-    let written = dir.join("shot.png");
-    assert_eq!(std::fs::read(&written).unwrap(), PNG);
-    assert_eq!(ws.tabs[i].path.as_deref(), Some(written.as_path()));
+    let i = ws.new_image(crate::image::to_content(&png));
+    // The same type is written untouched.
+    assert!(ws.save_as(&SaveTo(dir.join("shot.png"))));
+    assert_eq!(std::fs::read(dir.join("shot.png")).unwrap(), png);
+    assert_eq!(ws.tabs[i].path.as_deref(), Some(dir.join("shot.png").as_path()));
     assert!(!ws.is_dirty(i));
+    // Another type is converted: the bytes on disk are that format.
+    for (name, format) in [
+        ("a.jpg", ::image::ImageFormat::Jpeg),
+        ("b.webp", ::image::ImageFormat::WebP),
+        ("c.bmp", ::image::ImageFormat::Bmp),
+        ("d.tiff", ::image::ImageFormat::Tiff),
+        ("e.gif", ::image::ImageFormat::Gif),
+        ("f.ico", ::image::ImageFormat::Ico),
+        ("g.tga", ::image::ImageFormat::Tga),
+        ("h.qoi", ::image::ImageFormat::Qoi),
+    ] {
+        assert!(ws.save_as(&SaveTo(dir.join(name))), "{name}");
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        if format != ::image::ImageFormat::Tga {
+            assert_eq!(::image::guess_format(&bytes).ok(), Some(format), "{name}");
+        }
+        assert_eq!(::image::load_from_memory_with_format(&bytes, format).map(|p| (p.width(), p.height())).ok(), Some((4, 3)), "{name}");
+    }
+    // A type that cannot be written falls back to PNG.
+    assert!(ws.save_as(&SaveTo(dir.join("z.dds"))));
+    assert!(dir.join("z.png").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn any_picture_type_opens_as_a_picture_tab() {
+    let dir = std::env::temp_dir().join(format!("npp_img_t_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let tiff = dir.join("scan.tif");
+    std::fs::write(&tiff, picture(::image::ImageFormat::Tiff)).unwrap();
+    let mut ws = workspace();
+    ws.open_path(&NoUi, &tiff);
+    let t = ws.tabs.last().unwrap();
+    assert_eq!((t.kind, t.path.as_deref()), (TabKind::Image, Some(tiff.as_path())), "Save keeps the file's own type");
+    assert_eq!(crate::image::sniff_mime(&crate::image::from_content(&t.content)), Some("image/png"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
 #[test]
 fn an_unsaved_picture_survives_a_restart_and_a_saved_one_comes_from_its_file() {
     let dir = std::env::temp_dir().join(format!("npp_img_s_{}", std::process::id()));
@@ -99,7 +141,7 @@ fn an_unsaved_picture_survives_a_restart_and_a_saved_one_comes_from_its_file() {
 }
 
 #[test]
-fn opening_a_picture_file_makes_a_picture_tab_and_only_a_png_is_edited_in_place() {
+fn opening_a_picture_file_makes_a_picture_tab_and_saves_in_its_own_type() {
     let dir = std::env::temp_dir().join(format!("npp_img_o_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let (png, gif, fake) = (dir.join("a.png"), dir.join("b.gif"), dir.join("c.png"));
@@ -111,8 +153,19 @@ fn opening_a_picture_file_makes_a_picture_tab_and_only_a_png_is_edited_in_place(
     ws.open_path(&NoUi, &gif);
     ws.open_path(&NoUi, &fake);
     let kinds: Vec<(TabKind, bool)> = ws.tabs.iter().map(|t| (t.kind, t.path.is_some())).collect();
-    // new 1 (text), a.png (picture, in place), b.gif (picture, no path: it saves as a PNG), c.png (read as text)
-    assert_eq!(kinds, vec![(TabKind::Text, false), (TabKind::Image, true), (TabKind::Image, false), (TabKind::Text, true)]);
+    // new 1 (text), a.png (picture, in place), b.gif (picture, in place: Save writes a GIF), c.png (read as text)
+    assert_eq!(kinds, vec![(TabKind::Text, false), (TabKind::Image, true), (TabKind::Image, true), (TabKind::Text, true)]);
     assert_eq!(ws.tabs[2].title, "b.gif");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_picture_can_be_saved_as_avif() {
+    let dir = std::env::temp_dir().join(format!("npp_img_a_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let mut ws = workspace();
+    ws.new_image(crate::image::to_content(&picture(::image::ImageFormat::Png)));
+    assert!(ws.save_as(&SaveTo(dir.join("sky.avif"))));
+    assert_eq!(crate::image::sniff_mime(&std::fs::read(dir.join("sky.avif")).unwrap()), Some("image/avif"));
     let _ = std::fs::remove_dir_all(&dir);
 }

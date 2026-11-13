@@ -93,9 +93,13 @@ impl<S: Send> Workspace<S> {
             "list_tabs" => Ok(self.agent_list()),
             "read_document" => self.agent_read(args),
             "find_text" => self.agent_find(args),
+            "brain_search" => self.agent_brain_search(args),
+            "brain_overview" => self.agent_brain_overview(),
+            "brain_read" => self.agent_brain_read(args),
             "open_file" => self.agent_open(args),
             "switch_tab" => self.agent_switch(args),
             "list_commands" => Ok(crate::mcp::commands::listing()),
+            "whiteboard_guide" => Ok(Value::String(crate::mcp::page_tools::GUIDE.into())),
             _ => self.agent_change(tool, args),
         }
     }

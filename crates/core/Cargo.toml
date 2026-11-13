@@ -33,3 +33,4 @@ ring = "0.17"
 similar = { version = "2", features = ["inline"] }
 # Differences inside a changed line, with coincidental matches dropped (a port of diff-match-patch).
 dissimilar = "1"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "tiff", "ico", "tga", "qoi", "pnm", "hdr", "exr", "dds", "avif"] }

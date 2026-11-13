@@ -97,6 +97,8 @@ pub(super) const COMMENTS_BY_LABEL: &[(&str, Comments)] = &[
 /// Languages with no entry here (or ours differ): fall back on the Lexilla lexer.
 pub(super) fn comments_by_lexer(lexer: &str) -> Comments {
     match lexer {
+        // Plain text has no syntax of its own; `//` is what people expect when they ask for a comment there.
+        "null" => cm("//", "", ""),
         "julia" | "nix" | "raku" => cm("#", "", ""),
         "zig" | "dart" => cm("//", "/*", "*/"),
         "fsharp" => cm("//", "(*", "*)"),

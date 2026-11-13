@@ -146,6 +146,7 @@ pub fn pages(f: &Facts) -> Vec<Page> {
         page("shortcuts", "Shortcuts", 0, vec![editor_row(Editor::Shortcuts)]),
         page("context", "Context menu", 0, vec![editor_row(Editor::ContextMenu)]),
         security(f),
+        brain(f),
         agents(f),
     ]
 }
@@ -251,6 +252,39 @@ fn security(f: &Facts) -> Page {
                 i64::from(f.settings.passwords_auto_lock_min),
                 0,
                 1440,
+            ),
+        ],
+    )
+}
+
+/// What agents may do with the Brain: the key kept in the settings, and its words.
+pub const BRAIN_AGENTS: [(&str, &str); 3] = [("off", "Nothing"), ("read", "Search and read"), ("add", "Search, read and add entries")];
+
+fn brain(f: &Facts) -> Page {
+    page(
+        "brain",
+        "Quick Notes",
+        0,
+        vec![
+            heading("Notes"),
+            button(
+                "brain_prompt",
+                "Ask Quick Notes",
+                "Copies a note for your AI agent that says how to use Quick Notes: look at the overview, search, read, and answer with the notes it used.",
+                "Copy agent prompt",
+            ),
+            choice(
+                "brain_agents",
+                "What AI agents may do with Quick Notes",
+                "Search and read by default. An agent connects through Settings, AI Agents (turn that on and copy the agent setup); it can then search and read Quick Notes, and add entries if you allow it. Nothing leaves this computer unless the agent you attach sends it. An encrypted Quick Notes stays closed while the profile is locked.",
+                &BRAIN_AGENTS,
+                &f.settings.brain_agents,
+            ),
+            toggle(
+                "brain_encrypt",
+                "Encrypt Quick Notes",
+                "Keep every quick note encrypted with your encryption profile. Turning this on or off rewrites the notes, and needs the profile unlocked. Encrypted notes can only be read, searched or added to while it is unlocked.",
+                f.settings.brain_encrypt,
             ),
         ],
     )

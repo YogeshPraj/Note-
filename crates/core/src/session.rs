@@ -17,6 +17,9 @@ pub struct SessionTab {
     /// Pinned tabs stay at the left and are skipped by the Close All commands.
     #[serde(default)]
     pub pinned: bool,
+    /// A favourite tab with no file yet.
+    #[serde(default)]
+    pub favourite: bool,
     /// The colour mark of the tab.
     #[serde(default)]
     pub color: Option<(u8, u8, u8)>,
@@ -85,6 +88,8 @@ pub struct Session {
     pub minimap: bool,
     #[serde(default)]
     pub recent: Vec<String>,
+    /// The favourite files.
+    pub favourites: Vec<String>,
     /// Folder open in the workspace tree.
     #[serde(default)]
     pub workspace: Option<String>,
@@ -209,6 +214,7 @@ impl Session {
             dark: ex.dark,
             minimap: ex.minimap,
             recent: ex.recent,
+            favourites: ex.favourites,
             workspace: ex.workspace,
             tree_hidden: ex.tree_hidden,
             search_engine: ex.search_engine,
@@ -252,6 +258,7 @@ impl Session {
             dark: self.dark,
             minimap: self.minimap,
             recent: self.recent.clone(),
+            favourites: self.favourites.clone(),
             workspace: self.workspace.clone(),
             tree_hidden: self.tree_hidden,
             search_engine: self.search_engine,

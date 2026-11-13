@@ -44,11 +44,20 @@ fn pick_handler(app: &Shared) -> Rc<dyn Fn(usize)> {
     })
 }
 
+/// The tool tips of menu items: a favourite shows its full path.
+fn tip_of(app: &Shared) -> Rc<dyn Fn(usize) -> String> {
+    let a = app.clone();
+    Rc::new(move |id| {
+        let Some(i) = id.checked_sub(notepp_core::commands::ID_FAV_BASE) else { return String::new() };
+        a.try_borrow().ok().and_then(|a| a.ws.favourite_list().get(i).map(|(_, tip)| tip.clone())).unwrap_or_default()
+    })
+}
+
 /// Show `spec` at `at` (screen coordinates); choosing an item runs its command. Items that are also in the menu bar
 /// show its current state: Cut and Copy greyed without a selection, the current encoding or line ending ticked.
 fn show(app: &Shared, frame: &Frame, spec: MenuSpec, at: Point) {
     let Some(list) = app.try_borrow().ok().map(|a| entries(&spec.tidy(), Some(&a.menubar), true)) else { return };
-    let handlers = Handlers { pick: pick_handler(app), nav: Rc::new(|_| {}), moved: Rc::new(|_| {}), closed: Rc::new(|| {}) };
+    let handlers = Handlers { pick: pick_handler(app), nav: Rc::new(|_| {}), moved: Rc::new(|_| {}), closed: Rc::new(|| {}), tip: tip_of(app) };
     crate::app::take_focus_for_menu(app);
     pm::show(frame, list, (at.x, at.y), true, handlers);
 }
@@ -74,6 +83,7 @@ pub fn bar_menu(app: &Shared, i: usize, keyboard: bool) {
     let (a, b, m) = (app.clone(), app.clone(), app.clone());
     let handlers = Handlers {
         pick: pick_handler(app),
+        tip: tip_of(app),
         nav: Rc::new(move |dir| {
             let n = crate::platform::wx::to_i32(usize::try_from(count).unwrap_or(1).max(1));
             bar_menu(&a, usize::try_from((crate::platform::wx::to_i32(i) + dir).rem_euclid(n)).unwrap_or(0), true);

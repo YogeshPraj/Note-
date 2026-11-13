@@ -89,13 +89,13 @@ fn a_picture_call_is_checked_like_a_whiteboard_one() {
 }
 
 #[test]
-fn saving_a_picture_asks_its_page_first_and_makes_a_png() {
+fn saving_a_picture_asks_its_page_first_and_makes_a_png_when_the_type_cannot_be_written() {
     let dir = std::env::temp_dir().join(format!("notepp-agent-png-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut ws = workspace();
     ws.workspace = Some(dir.clone());
-    ws.new_image(String::new());
-    let asked = dir.join("shot.jpg");
+    ws.new_image("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==".into());
+    let asked = dir.join("shot.dds");
     let request = ws.agent_board(Level::Edit, "save_document", &json!({ "path": asked })).unwrap().unwrap();
     assert_eq!((request.op["tool"].as_str(), request.save_after), (Some("sync"), true));
     ws.agent_call(Level::Edit, "save_document", &json!({ "path": asked })).unwrap();
@@ -113,4 +113,36 @@ fn a_new_picture_with_a_wrong_size_leaves_no_empty_tab() {
     assert_eq!(ws.tabs.len(), 1);
     assert!(ws.agent_board(Level::Edit, "new_picture", &json!({ "width": 10, "height": 10 })).unwrap().is_some());
     assert_eq!(ws.tabs.len(), 2);
+}
+
+#[test]
+fn a_mermaid_flowchart_is_checked_before_the_board_is_asked() {
+    let mut ws = workspace();
+    ws.new_whiteboard();
+    let board = ws.tabs[1].id;
+    ws.activate(0);
+    let call = |ws: &mut Workspace<_>, args| ws.agent_board(Level::Edit, "add_mermaid", &args).map(|_| json!(0));
+    assert!(failure(call(&mut ws, json!({ "tab": board }))).contains("mermaid"));
+    assert!(failure(call(&mut ws, json!({ "tab": board, "mermaid": "   " }))).contains("mermaid"));
+    assert!(failure(call(&mut ws, json!({ "tab": board, "mermaid": "a".repeat(50_001) }))).contains("too long"));
+    assert_eq!(ws.active, 0, "a refused call moves nobody");
+    let request = ws.agent_board(Level::Edit, "add_mermaid", &json!({ "tab": board, "mermaid": "flowchart TD; A-->B" })).unwrap().unwrap();
+    assert_eq!((request.tab, request.op["tool"].as_str()), (board, Some("add_mermaid")));
+    assert!(failure(ws.agent_board(Level::Read, "add_mermaid", &json!({ "tab": board, "mermaid": "x" })).map(|_| json!(0))).contains("Edit"));
+}
+
+#[test]
+fn a_list_of_elements_is_checked_before_the_board_is_asked() {
+    let mut ws = workspace();
+    ws.new_whiteboard();
+    let board = ws.tabs[1].id;
+    ws.activate(0);
+    let call = |ws: &mut Workspace<_>, args| ws.agent_board(Level::Edit, "draw_elements", &args).map(|_| json!(0));
+    assert!(failure(call(&mut ws, json!({ "tab": board }))).contains("elements"));
+    assert!(failure(call(&mut ws, json!({ "tab": board, "elements": [] }))).contains("elements"));
+    assert!(failure(call(&mut ws, json!({ "tab": board, "elements": "a".repeat(5 * 1024 * 1024 + 1) }))).contains("too long"));
+    assert_eq!(ws.active, 0, "a refused call moves nobody");
+    let request = ws.agent_board(Level::Edit, "draw_elements", &json!({ "tab": board, "elements": "[]" })).unwrap().unwrap();
+    assert_eq!(request.op["tool"].as_str(), Some("draw_elements"));
+    assert!(ws.agent_call(Level::Read, "whiteboard_guide", &json!({})).unwrap().as_str().is_some_and(|g| g.contains("draw_elements")));
 }

@@ -215,6 +215,8 @@ pub const ID_READONLY: usize = 2334;
 pub const ID_CLEAR_RO: usize = 2335;
 pub const ID_RECENT_BASE: usize = 10000; // + index into the recent list
 pub const ID_RECENT_CLEAR: usize = 10100;
+pub const ID_FAV_BASE: usize = 10200; // + index into the favourites list
+pub const ID_FAV_TOGGLE: usize = 5630; // Add the file of the current tab to the Favourites, or take it out
 pub const ID_OPEN_FOLDER_EXPLORER: usize = 1101;
 pub const ID_OPEN_FOLDER_CMD: usize = 1102;
 pub const ID_OPEN_FOLDER_WS: usize = 1103;
@@ -243,6 +245,14 @@ pub const ID_ENC_LOCK: usize = 3344;
 pub const ID_PW_TOOLBAR: usize = 3345;
 pub const ID_MCP_STOP: usize = 3346;
 pub const ID_MCP_LOG: usize = 3347;
+// Brain (docs/brain-plan.md).
+pub const ID_BRAIN_CAPTURE: usize = 3360;
+pub const ID_BRAIN_SELECTION: usize = 3361;
+pub const ID_BRAIN_TODAY: usize = 3362;
+pub const ID_BRAIN_SEARCH: usize = 3363;
+pub const ID_BRAIN_FOLDER: usize = 3365;
+pub const ID_BRAIN_EXPORT: usize = 3366;
+pub const ID_BRAIN_PANEL: usize = 3367;
 pub const ID_TAB_PIN: usize = 5600;
 pub const ID_TAB_COLOR_BASE: usize = 5601; // + 0..7 = the colours
 pub const ID_TAB_COLOR_NONE: usize = 5609;

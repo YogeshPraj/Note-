@@ -14,6 +14,7 @@ pub struct TabFacts {
     pub has_path: bool,
     pub is_text: bool,
     pub pinned: bool,
+    pub favourite: bool,
     pub color: Option<(u8, u8, u8)>,
     pub can_dock: bool,
     pub can_float: bool,
@@ -29,6 +30,7 @@ impl TabFacts {
             has_path: t.path.is_some(),
             is_text: t.kind == TabKind::Text,
             pinned: t.pinned,
+            favourite: ws.active_is_favourite(),
             color: t.color,
             can_dock: ws.can_dock(i),
             can_float: ws.can_float(i),
@@ -58,6 +60,7 @@ fn colour_menu(f: &TabFacts) -> MenuSpec {
 pub fn tab_menu(f: &TabFacts) -> MenuSpec {
     MenuSpec::new()
         .item(c::ID_TAB_PIN, if f.pinned { "Unpin Tab" } else { "Pin Tab" })
+        .item(c::ID_FAV_TOGGLE, if f.favourite { "Remove from Favourites" } else { "Add to Favourites" })
         .sep()
         .item(c::ID_CLOSE, "Close")
         .item(c::ID_CLOSE_ALL, "Close All")
@@ -127,7 +130,7 @@ mod tests {
     use crate::menu::Entry;
 
     fn facts() -> TabFacts {
-        TabFacts { has_path: false, is_text: true, pinned: false, color: None, can_dock: false, can_float: false, out_of_strip: false }
+        TabFacts { has_path: false, is_text: true, pinned: false, favourite: false, color: None, can_dock: false, can_float: false, out_of_strip: false }
     }
 
     fn enabled(m: &MenuSpec, id: usize) -> Option<bool> {

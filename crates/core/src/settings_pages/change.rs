@@ -37,6 +37,10 @@ pub enum Action {
     NewAgentToken,
     ForgetAgents,
     ShowAgentLog,
+    /// Keep the Brain's notes encrypted (true) or plain (false). The notes are rewritten first, so it is not a plain setting.
+    BrainEncrypt(bool),
+    /// Copy the words that tell an agent how to use the Brain.
+    CopyBrainPrompt,
 }
 
 impl Action {
@@ -73,6 +77,7 @@ fn action_for(key: &str) -> Option<Action> {
         "enc_recovery" => Action::Encryption(EncryptionAction::Recovery),
         "enc_import" => Action::Encryption(EncryptionAction::Import),
         "mcp_copy" => Action::CopyAgentSetup,
+        "brain_prompt" => Action::CopyBrainPrompt,
         "mcp_token" => Action::NewAgentToken,
         "mcp_forget" => Action::ForgetAgents,
         "mcp_log" => Action::ShowAgentLog,
@@ -103,6 +108,7 @@ fn set(s: &mut Settings, key: &str, v: &Value) -> bool {
         ("lock", Value::Int(n)) => s.passwords_auto_lock_min = u32::try_from(*n).unwrap_or(0),
         ("mcp_on", Value::Bool(b)) => s.mcp_enabled = *b,
         ("mcp_level", Value::Choice(i)) => s.mcp_level = Level::ALL.get(*i).copied().unwrap_or(Level::Read).key().to_string(),
+        ("brain_agents", Value::Choice(i)) => s.brain_agents = choice_key(&super::BRAIN_AGENTS, *i),
         ("mcp_port", Value::Int(n)) => s.mcp_port = u16::try_from(*n).unwrap_or(DEFAULT_PORT),
         _ => return false,
     }
@@ -113,6 +119,9 @@ fn set(s: &mut Settings, key: &str, v: &Value) -> bool {
 pub fn change(s: &mut Settings, key: &str, v: &Value) -> Change {
     if let (Some(action), Value::Pressed) = (action_for(key), v) {
         return Change::Action(action);
+    }
+    if let ("brain_encrypt", Value::Bool(on)) = (key, v) {
+        return Change::Action(Action::BrainEncrypt(*on));
     }
     if let ("theme", Value::Choice(i)) = (key, v) {
         // The extra "Custom" entry is where the user already is.

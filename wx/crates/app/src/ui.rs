@@ -35,6 +35,36 @@ impl WxUi {
 
 const ALL_FILES: &str = "All files (*.*)|*.*|Text (*.txt)|*.txt";
 
+/// The types a picture can be saved as, in the order of the save dialog's list: its label and extensions (the first
+/// one is what a name typed with no extension gets). `OpenEXR` comes last.
+const PICTURE_TYPES: [(&str, &[&str]); 13] = [
+    ("PNG", &["png"]),
+    ("JPEG", &["jpg", "jpeg"]),
+    ("WebP", &["webp"]),
+    ("AVIF", &["avif"]),
+    ("GIF", &["gif"]),
+    ("BMP", &["bmp"]),
+    ("TIFF", &["tif", "tiff"]),
+    ("ICO", &["ico"]),
+    ("TGA", &["tga"]),
+    ("QOI", &["qoi"]),
+    ("PNM", &["ppm", "pgm", "pbm", "pnm", "pam"]),
+    ("HDR", &["hdr"]),
+    ("OpenEXR", &["exr"]),
+];
+
+/// The save list for a picture in wxWidgets' "Label (*.ext)|*.ext|..." form: one entry per type it can be written as.
+fn picture_wildcard() -> String {
+    PICTURE_TYPES
+        .iter()
+        .map(|(label, exts)| {
+            let globs: Vec<String> = exts.iter().map(|e| format!("*.{e}")).collect();
+            format!("{label} ({})|{}", globs.join(";"), globs.join(";"))
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 impl Ui for WxUi {
     fn pick_open(&self) -> Vec<PathBuf> {
         ask::open_files(&self.frame, "Open", ALL_FILES, true)
@@ -42,6 +72,21 @@ impl Ui for WxUi {
 
     fn pick_save(&self, suggested: &str) -> Option<PathBuf> {
         ask::save_file(&self.frame, "Save As", suggested, ALL_FILES)
+    }
+
+    /// The name is shown without its extension, which is the type preselected in the list; the folder is the file's own.
+    fn pick_save_image(&self, suggested: &str) -> Option<PathBuf> {
+        let suggested = Path::new(suggested);
+        let dir = suggested.parent().filter(|d| !d.as_os_str().is_empty()).map(|d| d.to_string_lossy().into_owned());
+        let stem = suggested.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+        let ext = suggested.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+        let shown = PICTURE_TYPES.iter().position(|t| t.1.contains(&ext.as_str())).unwrap_or(0);
+        let (mut p, chosen) = ask::save_file_typed(&self.frame, "Save Picture As", dir.as_deref(), &stem, &picture_wildcard(), shown)?;
+        // A name typed with no extension takes the one of the type chosen in the list.
+        if p.extension().is_none() {
+            p.set_extension(PICTURE_TYPES.get(chosen).map_or("exr", |t| t.1[0]));
+        }
+        Some(p)
     }
 
     fn confirm_save(&self, name: &str) -> Confirm {

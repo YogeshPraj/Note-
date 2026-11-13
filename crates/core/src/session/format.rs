@@ -131,6 +131,8 @@ pub(super) struct Extras {
     #[serde(default)]
     pub(super) recent: Vec<String>,
     #[serde(default)]
+    pub(super) favourites: Vec<String>,
+    #[serde(default)]
     pub(super) workspace: Option<String>,
     #[serde(default)]
     pub(super) tree_hidden: bool,
@@ -158,6 +160,7 @@ pub(super) fn extras_from_settings() -> Extras {
         dark: flag("darkMode", false),
         minimap: flag("minimap", true),
         recent: root["recentFiles"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
+        favourites: Vec::new(),
         workspace: None,
         tree_hidden: false,
         search_engine: 0,
@@ -191,6 +194,7 @@ pub(super) fn tab_to_json(i: usize, t: &SessionTab, active: bool) -> serde_json:
         "active": active,
         "dirty": t.text.is_some(),
         "pinned": t.pinned,
+        "favourite": t.favourite,
         "color": t.color.map(crate::settings::to_hex),
         "caret": t.caret,
         "top": t.top,
@@ -245,6 +249,7 @@ pub(super) fn tab_from_json(v: &serde_json::Value) -> Option<SessionTab> {
         enc: enc_key(v["encoding"].as_str().unwrap_or("UTF-8")),
         eol: eol_key(v["eol"].as_str().unwrap_or("")).into(),
         pinned: v["pinned"].as_bool().unwrap_or(false),
+        favourite: v["favourite"].as_bool().unwrap_or(false),
         color: v["color"].as_str().and_then(tab_colour_from_hex),
         encrypted,
         kind: if image {

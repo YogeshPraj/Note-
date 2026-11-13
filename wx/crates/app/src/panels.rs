@@ -106,8 +106,13 @@ pub fn wire(app: &Shared) {
         if n < 0 {
             return;
         }
+        let n = crate::platform::wx::to_usize(n);
+        // A tag runs a search, which needs a window of its own with nothing borrowed.
+        if let Some(t) = crate::brain::tag_at(&a, n) {
+            return crate::brain::search_for(&a, &format!("#{t}"));
+        }
         if let Ok(mut app) = a.try_borrow_mut() {
-            app.side_activate(crate::platform::wx::to_usize(n));
+            app.side_activate(n);
         }
     });
     let a = app.clone();
@@ -142,13 +147,6 @@ pub(crate) fn path_of(tree: &TreeCtrl, item: &TreeItemId) -> Option<PathBuf> {
     Some(p)
 }
 
-/// Read a folder's items now (Reveal in File Tree needs them at once; expanding goes through `tree_reader`).
-fn load_children(tree: &TreeCtrl, item: &TreeItemId) {
-    if let Some(path) = path_of(tree, item).filter(|_| needs_reading(tree, item)) {
-        fill(tree, item, list_dir(&path));
-    }
-}
-
 /// Only a folder whose single child is the placeholder still needs reading.
 pub(crate) fn needs_reading(tree: &TreeCtrl, item: &TreeItemId) -> bool {
     tree.get_first_child(item).is_some_and(|(first, _)| tree.get_item_text(&first).as_deref() == Some(DUMMY))
@@ -170,31 +168,6 @@ pub(crate) fn fill(tree: &TreeCtrl, item: &TreeItemId, entries: Vec<(PathBuf, bo
     }
 }
 
-/// Is there a placeholder-free file at `rel` under the tree? Expand down to it and select it.
-fn reveal(tree: &TreeCtrl, root: &Path, file: &Path) -> bool {
-    let Ok(rel) = file.strip_prefix(root) else { return false };
-    let Some(mut item) = tree.get_root_item() else { return false };
-    for comp in rel.components() {
-        load_children(tree, &item);
-        tree.expand(&item);
-        let want = comp.as_os_str().to_string_lossy().to_lowercase();
-        let Some((mut child, mut cookie)) = tree.get_first_child(&item) else { return false };
-        loop {
-            if tree.get_item_text(&child).is_some_and(|t| t.to_lowercase() == want) {
-                break;
-            }
-            match tree.get_next_child(&item, &mut cookie) {
-                Some(n) => child = n,
-                None => return false,
-            }
-        }
-        item = child;
-    }
-    tree.select_item(&item);
-    tree.ensure_visible(&item);
-    true
-}
-
 impl App {
     pub fn tree_visible(&self) -> bool {
         self.panels.tree_box.is_shown()
@@ -210,7 +183,7 @@ impl App {
         t.delete_all_items();
         if let Some(root) = t.add_root(&name, None, None) {
             t.append_item(&root, DUMMY, None, None);
-            load_children(&t, &root);
+            crate::tree_reader::load_children(&t, &root);
             t.expand(&root);
         }
         // Quick Open lists this folder: start now, in the background, so it is ready when asked for.
@@ -238,7 +211,7 @@ impl App {
         }
         self.set_tree(true);
         if let Some(root) = self.ws.workspace.clone()
-            && !reveal(&self.panels.tree, &root, &p)
+            && !crate::tree_reader::reveal(&self.panels.tree, &root, &p)
         {
             self.flash = Some("The file was not found in the tree".into());
         }
@@ -252,6 +225,7 @@ impl App {
             }
             self.side_key = None;
             self.panels.side.show(true);
+            self.fill_brain();
             self.fill_side();
         } else {
             self.panels.side.show(false);
@@ -278,6 +252,7 @@ impl App {
             self.fill_side();
         }
     }
+
     /// Show the current content in the side list.
     pub fn fill_side(&self) {
         let l = self.panels.side;
@@ -345,10 +320,14 @@ impl App {
         match self.side.content().and_then(|c| c.activate(n)) {
             Some(Activate::Insert(text)) => self.ws.insert_text(&text),
             Some(Activate::Document(i)) => self.ws.activate(i),
+            Some(Activate::Note(path)) => {
+                let App { ws, ui, .. } = self;
+                ws.open_path(ui, &path);
+            }
             Some(Activate::Goto(line)) => {
                 search::goto_line(&self.ws.sci, line + 1);
             }
-            None => {}
+            Some(Activate::Tag(_)) | None => {}
         }
         self.refresh();
         self.stc().set_focus();
@@ -369,6 +348,7 @@ impl CommandHandler<App> for PanelCommands {
             c::ID_CLIP_HISTORY => app.toggle_side(Mode::Clipboard),
             c::ID_DOC_LIST => app.toggle_side(Mode::Documents),
             c::ID_FUNC_LIST => app.toggle_side(Mode::Functions),
+            c::ID_BRAIN_PANEL => app.toggle_side(Mode::Brain),
             c::ID_WORKSPACE_TOGGLE => {
                 if app.ws.workspace.is_some() {
                     let on = !app.tree_visible();

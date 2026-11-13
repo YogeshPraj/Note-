@@ -1,7 +1,7 @@
 //! Brain: one place for what the user learns at work (docs/brain-plan.md).
 //!
-//! A folder of Markdown notes, one per day plus one per topic. A quick capture becomes an entry in the day's note: a
-//! `## HH:MM` heading, the text, and where it came from. Everything here is plain text in and out, so it is the same
+//! One Markdown file, `quick-notes.md`, with a `# 2026-11-12 Thursday` heading per day. A quick capture becomes an entry at
+//! its end: a `## HH:MM` heading, the text, and where it came from. Everything here is plain text in and out, so it is the same
 //! on every shell and is unit tested; reading and writing the files is in [`store`].
 
 use std::path::{Path, PathBuf};
@@ -22,21 +22,9 @@ pub fn root(config: &Path) -> PathBuf {
     config.join("brain")
 }
 
-/// The note of `day`: `daily/2026/2026-11-12.md`.
-pub fn day_path(root: &Path, day: Date) -> PathBuf {
-    root.join("daily").join(format!("{:04}", day.year)).join(format!("{day}.md"))
-}
-
-/// A topic's file name: what the user typed, without the characters a file name cannot hold. None when nothing is left.
-pub fn topic_file(name: &str) -> Option<String> {
-    let clean: String = name.trim().chars().filter(|c| !matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control()).collect();
-    let clean = clean.trim().trim_matches('.').trim();
-    (!clean.is_empty()).then(|| clean.to_string())
-}
-
-/// The note of the topic called `name`: `topics/<name>.md`. None when the name holds nothing a file can be called.
-pub fn topic_path(root: &Path, name: &str) -> Option<PathBuf> {
-    topic_file(name).map(|f| root.join("topics").join(format!("{f}.md")))
+/// The Brain's one file: `brain/brain.md`.
+pub fn note_path(root: &Path) -> PathBuf {
+    root.join("quick-notes.md")
 }
 
 /// Where a captured selection came from.
@@ -47,6 +35,9 @@ pub struct Source {
     /// The first selected line, from 1.
     pub line: usize,
 }
+
+/// What to tell an AI agent so it can answer questions from the Brain and cite the notes it used.
+pub const AGENT_PROMPT: &str = "You can use my Quick Notes through the Note++ tools: brain_overview (what it holds), brain_search (words, #tags, today, yesterday, week, month, date:2026-11), brain_read (the notes, in parts) and, if I allowed it, brain_add (a new entry). Answer my questions from my notes: search first, read the notes that matter, and say which notes and dates you used. If the notes do not say, tell me so instead of guessing. Never put anything into Quick Notes unless I ask.";
 
 /// The first line of a day's note: `# 2026-11-12 Thursday`.
 pub fn day_heading(when: &DateTime) -> String {
@@ -64,22 +55,42 @@ pub fn entry_text(when: &DateTime, text: &str, from: Option<&Source>) -> String 
     out
 }
 
-/// The day's `note` with one more entry at its end. An empty note first gets the day's heading. The note's own line
-/// endings are kept.
-pub fn with_entry(note: &str, when: &DateTime, text: &str, from: Option<&Source>) -> String {
+/// `note` with the heading of `when`'s day at its end, unless the last day in it already is that day. The note's own
+/// line endings are kept.
+pub fn with_day(note: &str, when: &DateTime) -> String {
+    if parse::last_day(note) == Some(Date::of(when)) {
+        return note.to_string();
+    }
     let nl = if note.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out = note.trim_end().replace("\r\n", "\n");
-    if out.is_empty() {
-        out = day_heading(when);
+    if !out.is_empty() {
+        out.push_str("\n\n");
     }
+    out.push_str(&day_heading(when));
+    out.push_str("\n\n");
+    if nl == "\n" { out } else { out.replace('\n', nl) }
+}
+
+/// `note` with one more entry at its end, under the heading of `when`'s day (which is added when the note's last day
+/// is another). The note's own line endings are kept.
+pub fn with_entry(note: &str, when: &DateTime, text: &str, from: Option<&Source>) -> String {
+    let note = with_day(note, when);
+    let nl = if note.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = note.trim_end().replace("\r\n", "\n");
     out.push_str("\n\n");
     out.push_str(&entry_text(when, text, from));
     if nl == "\n" { out } else { out.replace('\n', nl) }
 }
 
-/// What a new topic note starts with.
-pub fn topic_start(name: &str) -> String {
-    format!("# {}\n\n", name.trim())
+/// The smallest edit that turns `old` into `new` when `new` is `old` with something added at its end (as
+/// [`with_entry`] makes it): where the change starts in `old`, and the text that goes from there to the end. An open
+/// note is changed this way, so the user's caret and everything above stay put.
+pub fn tail_edit<'a>(old: &str, new: &'a str) -> (usize, &'a str) {
+    let mut same = old.bytes().zip(new.bytes()).take_while(|(a, b)| a == b).count();
+    while !new.is_char_boundary(same) || !old.is_char_boundary(same) {
+        same -= 1;
+    }
+    (same, &new[same..])
 }
 
 #[cfg(test)]
@@ -91,13 +102,20 @@ mod tests {
     }
 
     #[test]
-    fn notes_have_their_places() {
-        let root = Path::new("b");
-        assert_eq!(day_path(root, Date { year: 2026, month: 11, day: 2 }), Path::new("b").join("daily").join("2026").join("2026-11-02.md"));
-        assert_eq!(topic_path(root, " Azure: deploy? "), Some(Path::new("b").join("topics").join("Azure deploy.md")));
-        assert_eq!(topic_path(root, " ../.. "), None, "a name cannot leave the folder");
-        assert_eq!(topic_path(root, "a/b\\c"), Some(Path::new("b").join("topics").join("abc.md")));
-        assert_eq!(topic_path(root, "???"), None);
+    fn the_brain_is_one_file() {
+        assert_eq!(note_path(Path::new("b")), Path::new("b").join("quick-notes.md"));
+    }
+
+    #[test]
+    fn a_new_day_gets_its_heading_and_the_same_day_does_not() {
+        let first = with_entry("", &at(9, 0), "one", None);
+        let mut next = at(8, 15);
+        next.day = 13;
+        next.weekday = 5;
+        let two = with_entry(&first, &next, "two", None);
+        assert_eq!(two, "# 2026-11-12 Thursday\n\n## 09:00\none\n\n# 2026-11-13 Friday\n\n## 08:15\ntwo\n");
+        assert_eq!(with_day(&two, &next), two, "today's heading is there already");
+        assert_eq!(with_day("", &at(9, 0)), "# 2026-11-12 Thursday\n\n");
     }
 
     #[test]
@@ -112,6 +130,17 @@ mod tests {
         let src = Source { file: "D:\\work\\deploy.ps1".into(), line: 120 };
         let both = with_entry(&first, &at(16, 0), "two\r\nlines", Some(&src));
         assert_eq!(both, "# 2026-11-12 Thursday\n\n## 09:05\none\n\n## 16:00\ntwo\nlines\nfrom: D:\\work\\deploy.ps1:120\n");
+    }
+
+    #[test]
+    fn adding_to_an_open_note_changes_only_its_end() {
+        let old = "# 2026-11-12 Thursday\n\n## 09:00\none\n\n\n";
+        let new = with_entry(old, &at(10, 0), "two", None);
+        let (from, tail) = tail_edit(old, &new);
+        assert_eq!((from, tail), (37, "## 10:00\ntwo\n"), "only what follows the common start is replaced");
+        assert_eq!(format!("{}{tail}", &old[..from]), new);
+        assert_eq!(tail_edit("", "abc"), (0, "abc"));
+        assert_eq!(tail_edit("h\u{e9}", "h\u{e8}x"), (1, "\u{e8}x"), "never inside a character");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use super::*;
-use crate::brain::{entries, topic_path};
+use crate::brain::entries;
 
 fn at(day: u32, hour: u32, minute: u32) -> DateTime {
     DateTime { year: 2026, month: 11, day, weekday: 4, hour, minute, second: 0 }
@@ -17,10 +17,10 @@ fn key() -> Dek {
 }
 
 #[test]
-fn captures_of_a_day_land_in_its_note_in_order() {
+fn captures_land_in_the_one_file_in_order() {
     let s = store("add");
     let (path, line) = s.add(&at(12, 9, 0), "first", None, None).unwrap();
-    assert_eq!((path.clone(), line), (day_path(&s.root, Date { year: 2026, month: 11, day: 12 }), 3));
+    assert_eq!((path.clone(), line), (note_path(&s.root), 3));
     let (_, line) = s.add(&at(12, 9, 30), "second #tag", Some(&Source { file: "a.rs".into(), line: 7 }), None).unwrap();
     assert_eq!(line, 6);
     let note = s.read(&path, None).unwrap();
@@ -45,7 +45,7 @@ fn writers_at_the_same_time_lose_nothing() {
     for t in threads {
         t.join().unwrap();
     }
-    let note = s.read(&day_path(&s.root, Date { year: 2026, month: 11, day: 12 }), None).unwrap();
+    let note = s.read(&note_path(&s.root), None).unwrap();
     assert_eq!(entries(&note).len(), 40, "{note}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -78,39 +78,53 @@ fn with_a_key_notes_are_encrypted_and_need_it_to_be_read() {
 }
 
 #[test]
-fn turning_encryption_on_and_off_rewrites_every_note_and_can_stop_midway() {
+fn turning_encryption_on_and_off_rewrites_the_file_and_older_notes_and_can_stop_midway() {
     let (s, key) = (store("convert"), key());
-    for d in 1..=4 {
-        s.add(&at(d, 9, 0), &format!("day {d}"), None, None).unwrap();
-    }
-    s.write(&topic_path(&s.root, "Azure").unwrap(), "# Azure\n\nslots\n", None).unwrap();
-    // Stopped after two notes: those two are encrypted, the rest still plain, and all are readable.
-    let done = s.convert(None, Some(&key), &mut |done, _| done < 2).unwrap();
-    assert_eq!(done, 2);
+    s.add(&at(1, 9, 0), "day 1", None, None).unwrap();
+    s.add(&at(2, 9, 0), "day 2", None, None).unwrap();
+    let old = s.root.join("topics").join("Azure.md");
+    s.write(&old, "# Azure\n\nslots\n", None).unwrap();
+    // Stopped before the second note: the Brain's file is encrypted, the older note still plain, and both are readable.
+    let done = s.convert(None, Some(&key), &mut |done, _| done < 1).unwrap();
+    assert_eq!(done, 1);
     let forms: Vec<bool> = s.list().iter().map(|l| crypto::parse_envelope(&std::fs::read(&l.path).unwrap()).is_some()).collect();
-    assert_eq!(forms, [true, true, false, false, false]);
+    assert_eq!(forms, [true, false]);
     assert!(s.list().iter().all(|l| s.read(&l.path, Some(&key)).is_ok()));
-    assert_eq!(s.convert(None, Some(&key), &mut |_, _| true).unwrap(), 5);
+    assert_eq!(s.convert(None, Some(&key), &mut |_, _| true).unwrap(), 2);
     assert!(s.list().iter().all(|l| matches!(s.read(&l.path, None), Err(Error::Locked))));
-    assert_eq!(s.convert(Some(&key), None, &mut |_, _| true).unwrap(), 5);
-    assert_eq!(s.read(&topic_path(&s.root, "Azure").unwrap(), None).unwrap(), "# Azure\n\nslots\n");
+    assert_eq!(s.convert(Some(&key), None, &mut |_, _| true).unwrap(), 2);
+    assert_eq!(s.read(&old, None).unwrap(), "# Azure\n\nslots\n");
     assert!(!s.has_encrypted());
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
 #[test]
-fn notes_are_listed_newest_day_first_then_topics() {
+fn the_brain_file_comes_first_then_older_notes_and_nothing_else() {
     let s = store("list");
     for d in [3, 9, 5] {
         s.add(&at(d, 9, 0), "x", None, None).unwrap();
     }
     for t in ["zeta", "Alpha"] {
-        s.write(&topic_path(&s.root, t).unwrap(), "# t\n", None).unwrap();
+        s.write(&s.root.join("topics").join(format!("{t}.md")), "# t\n", None).unwrap();
     }
+    s.write(&s.root.join("daily").join("2026").join("2026-11-01.md"), "# 2026-11-01 Sunday\n", None).unwrap();
     std::fs::write(s.root.join("topics").join("not a note.txt"), "x").unwrap();
     let names: Vec<String> = s.list().into_iter().map(|l| l.name).collect();
-    assert_eq!(names, ["2026-11-09", "2026-11-05", "2026-11-03", "Alpha", "zeta"]);
+    assert_eq!(names, ["quick-notes", "zeta", "Alpha", "2026-11-01"]);
     assert!(store("nothing").list().is_empty());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+#[test]
+fn several_days_share_the_file_and_each_entry_knows_its_day() {
+    let s = store("days");
+    for d in [3, 3, 9] {
+        s.add(&at(d, 9, 0), "x", None, None).unwrap();
+    }
+    let note = s.read(&note_path(&s.root), None).unwrap();
+    assert_eq!(note.matches("# 2026-11-").count(), 2, "one heading per day: {note}");
+    let days: Vec<u32> = entries(&note).iter().map(|e| e.day.unwrap().day).collect();
+    assert_eq!(days, [3, 3, 9]);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -118,7 +132,7 @@ fn notes_are_listed_newest_day_first_then_topics() {
 fn the_index_reads_again_only_what_changed() {
     let s = store("index");
     let (first, _) = s.add(&at(1, 9, 0), "one", None, None).unwrap();
-    s.add(&at(2, 9, 0), "two", None, None).unwrap();
+    s.write(&s.root.join("topics").join("Azure.md"), "# Azure\n", None).unwrap();
     let mut index = Index::default();
     assert_eq!(index.notes(&s, None).unwrap().len(), 2);
     // Changed behind the index's back without touching size or time: the kept text is served, so nothing was re-read.
@@ -131,5 +145,20 @@ fn the_index_reads_again_only_what_changed() {
     assert!(notes.iter().any(|n| n.text.contains("ONE") && n.text.contains("more")), "a changed note is read again");
     std::fs::remove_file(&first).unwrap();
     assert_eq!(index.notes(&s, None).unwrap().len(), 1, "a deleted note is gone");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+#[test]
+fn export_zips_every_file_by_its_relative_name() {
+    let s = store("export");
+    s.add(&at(12, 9, 0), "one", None, None).unwrap();
+    std::fs::create_dir_all(s.root.join("topics")).unwrap();
+    std::fs::write(s.root.join("topics").join("Azure.md"), "# Azure\n").unwrap();
+    let zip_path = s.root.join("out.zip");
+    assert_eq!(s.export(&zip_path).unwrap(), 2);
+    let mut z = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+    let mut names: Vec<String> = (0..z.len()).map(|i| z.by_index(i).unwrap().enclosed_name().unwrap().to_string_lossy().replace('\\', "/")).collect();
+    names.sort();
+    assert_eq!(names, ["quick-notes.md", "topics/Azure.md"]);
     let _ = std::fs::remove_dir_all(&s.root);
 }

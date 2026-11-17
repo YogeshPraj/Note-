@@ -3,8 +3,8 @@
 //! registry's unless a button says its own.
 
 use crate::commands::{
-    ID_CLOSE, ID_COPY, ID_CUT, ID_ENC_TOGGLE, ID_FIND, ID_LOG_FOLLOW, ID_NEW, ID_NEW_WB, ID_OPEN, ID_PASTE, ID_PREVIEW, ID_PRINT, ID_PW_TOOLBAR, ID_REDO,
-    ID_REPLACE, ID_SAVE, ID_SAVEALL, ID_THEME, ID_UNDO, ID_WRAP, ID_ZOOMIN, ID_ZOOMOUT,
+    ID_CAPTURE_REGION, ID_CAPTURE_SCREEN, ID_CLOSE, ID_COPY, ID_CUT, ID_ENC_TOGGLE, ID_FIND, ID_LOG_FOLLOW, ID_NEW, ID_NEW_WB, ID_OPEN, ID_PASTE, ID_PREVIEW,
+    ID_PRINT, ID_PW_TOOLBAR, ID_REDO, ID_REPLACE, ID_SAVE, ID_SAVEALL, ID_THEME, ID_UNDO, ID_WRAP, ID_ZOOMIN, ID_ZOOMOUT,
 };
 use crate::registry;
 
@@ -55,6 +55,10 @@ pub const LAYOUT: &[Tool] = &[
     button(ID_WRAP),
     button(ID_PREVIEW),
     tipped(ID_LOG_FOLLOW, "Log Follow: stream a .log / .out / .err file as it grows"),
+    Tool::Separator,
+    tipped(ID_CAPTURE_SCREEN, "Capture Screen: the whole screen opens as a picture"),
+    tipped(ID_CAPTURE_REGION, "Capture Region: drag over part of the screen"),
+    Tool::Separator,
     button(ID_THEME),
 ];
 

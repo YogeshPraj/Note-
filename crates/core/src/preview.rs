@@ -8,6 +8,8 @@
 use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd, html};
 use std::path::Path;
 
+pub mod jwt;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
     Markdown,
@@ -17,6 +19,8 @@ pub enum Kind {
     Json,
     /// An `.http` / `.rest` scratchpad: the preview pane shows the response of the last request.
     Http,
+    /// A JSON Web Token and nothing else in the pad: shown decoded.
+    Jwt,
     /// A `.log` / `.out` / `.err` file: the pane follows it as it grows (Log Follow).
     Log,
 }

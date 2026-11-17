@@ -50,10 +50,17 @@ impl App {
     /// so the paste carries on as usual.
     pub(crate) fn paste_image(&mut self) -> bool {
         let Some((width, height, rgba)) = crate::services::clipboard::paste_image() else { return false };
-        self.ws.new_image(String::new());
-        self.img.pending = Some((width, height, notepp_core::textools::base64_encode(&rgba)));
-        self.refresh();
+        self.open_picture(width, height, &rgba);
+        self.img.captured = false;
         true
+    }
+
+    /// Open RGBA pixels as a new picture tab.
+    pub(crate) fn open_picture(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        self.ws.new_image(String::new());
+        self.img.captured = true;
+        self.img.pending = Some((width, height, notepp_core::textools::base64_encode(rgba)));
+        self.refresh();
     }
 
     /// Show the picture page instead of the editor while a picture tab is active, and hand it the tab's picture when
@@ -83,7 +90,7 @@ impl App {
             self.img.shown = Some(id);
             let content = self.ws.tabs[main].content.clone();
             match self.img.pending.take() {
-                Some((w, h, pixels)) => ime::load_pixels(&self.imgv, w, h, &pixels),
+                Some((w, h, pixels)) => ime::load_pixels(&self.imgv, w, h, &pixels, std::mem::take(&mut self.img.captured)),
                 None if !content.is_empty() => ime::load(&self.imgv, &content),
                 None => {}
             }

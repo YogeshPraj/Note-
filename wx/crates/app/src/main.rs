@@ -3,7 +3,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod autostart;
 mod brain;
+mod capture;
 mod chrome;
 mod command;
 mod dialogs;
@@ -12,6 +14,8 @@ mod extra;
 mod find;
 mod findpanel;
 mod handlers;
+#[allow(unsafe_code)]
+mod hotkey;
 mod imageedit;
 mod in_files;
 mod incr;
@@ -54,6 +58,10 @@ fn main() {
     if args.iter().any(|a| a == "--new-instance") {
         notepp_core::session::set_standalone();
         args.retain(|a| a != "--new-instance");
+    }
+    if args.iter().any(|a| a == autostart::FLAG) {
+        autostart::set_tray_start();
+        args.retain(|a| a != autostart::FLAG);
     }
     let files: Vec<std::path::PathBuf> = args.into_iter().map(std::path::PathBuf::from).collect();
     let _ = wxdragon::main(move |_| app::start(&files));

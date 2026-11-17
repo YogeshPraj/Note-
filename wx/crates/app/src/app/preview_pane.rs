@@ -161,7 +161,7 @@ impl App {
         self.preview.sent = None;
         let view = self.view.clone();
         let Some(kind) = self.ws.preview_kind() else {
-            return preview::render(&view, "message", "Preview is available for Markdown, HTML, Mermaid and JSON files.");
+            return preview::render(&view, "message", "Preview is available for Markdown, HTML, Mermaid and JSON files, and for a JWT.");
         };
         let text = sci::get_text(&self.ws.sci);
         match kind {
@@ -173,6 +173,10 @@ impl App {
             pcore::Kind::Html => preview::render(&view, "html", &text),
             pcore::Kind::Mermaid => preview::render(&view, "mermaid", &text),
             pcore::Kind::Json => preview::render(&view, "json", &text),
+            pcore::Kind::Jwt => {
+                let html = pcore::jwt::parse(&text).map(|t| pcore::jwt::html(&t, pcore::jwt::now())).unwrap_or_default();
+                preview::render(&view, "markdown", &html);
+            }
             pcore::Kind::Log | pcore::Kind::Http => self.stream_preview(kind, force),
         }
     }

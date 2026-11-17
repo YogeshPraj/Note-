@@ -120,6 +120,7 @@ impl App {
     pub fn reinstall_menus(&mut self) {
         self.keymap = notepp_core::keymap::KeyMap::build(&self.ws.settings.shortcuts);
         crate::menus::set_keymap(&self.keymap);
+        crate::hotkey::sync(&self.keymap);
         self.chrome.refresh_tips(&self.keymap);
         if let Some(p) = self.keymap.problems().first() {
             self.flash = Some(p.to_string());

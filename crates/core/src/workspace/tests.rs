@@ -225,6 +225,7 @@ mod dock;
 mod float_views;
 mod floats;
 mod image;
+mod word;
 
 #[test]
 fn a_saved_file_can_be_marked_a_favourite_and_unmarked() {

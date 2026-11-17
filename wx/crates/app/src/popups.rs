@@ -136,17 +136,17 @@ pub fn custom_tab_colour(app: &Shared) {
 
 /// Right-click in the editor: the menu listed in contextmenu.txt.
 pub fn editor_menu(app: &Shared, at: Point) {
-    let (frame, shortcuts) = {
+    let (frame, shortcuts, json) = {
         let Ok(a) = app.try_borrow() else { return };
-        (a.frame, a.keymap.overrides())
+        (a.frame, a.keymap.overrides(), a.ws.preview_kind() == Some(notepp_core::preview::Kind::Json))
     };
     let text = std::fs::read_to_string(context_menu_path()).unwrap_or_default();
     let text = if text.is_empty() { crate::extra::default_context_menu().to_string() } else { text };
     let entries = context_entries(&text);
-    if entries.is_empty() {
+    if entries.is_empty() && !json {
         return;
     }
-    show(app, &frame, notepp_core::context_menus::editor_menu(&entries, &shortcuts), at);
+    show(app, &frame, notepp_core::context_menus::editor_menu(&entries, &shortcuts, json), at);
 }
 
 /// Right-click on the minimap: hide it (View > Document Map brings it back).

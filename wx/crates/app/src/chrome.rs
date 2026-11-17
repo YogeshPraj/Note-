@@ -73,6 +73,8 @@ fn toolbar_icon(id: usize) -> &'static [u8] {
         ID_SAVEALL => svg!("saveall.svg"),
         ID_CLOSE => svg!("close.svg"),
         ID_PRINT => svg!("print.svg"),
+        notepp_core::commands::ID_CAPTURE_SCREEN => svg!("capture-screen.svg"),
+        notepp_core::commands::ID_CAPTURE_REGION => svg!("capture-region.svg"),
         ID_ENC_TOGGLE => svg!("lock.svg"),
         ID_PW_TOOLBAR => svg!("key.svg"),
         ID_CUT => svg!("cut.svg"),

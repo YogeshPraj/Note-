@@ -26,6 +26,11 @@ impl<S: Send> Workspace<S> {
                 }
             };
         }
+        match self.word_bytes(ui, path) {
+            word::Word::Other => {}
+            word::Word::Failed => return None,
+            word::Word::Bytes(b) => return Some(b),
+        }
         if self.is_page() || !self.tabs[self.active].encrypted {
             return Some(self.current_bytes());
         }
@@ -96,6 +101,11 @@ impl<S: Send> Workspace<S> {
         if self.is_image() {
             p = crate::image::png_path(&p);
         }
+        if self.tabs[self.active].kind == TabKind::Text && crate::docx::is_docx_path(&p) {
+            // A Word file is an export: the tab keeps its own file and stays as it is.
+            self.exported = self.export_to(ui, &p);
+            return false;
+        }
         self.write_and_adopt(ui, p)
     }
 
@@ -110,9 +120,14 @@ impl<S: Send> Workspace<S> {
         if self.is_image() {
             p = crate::image::png_path(&p);
         }
-        let bytes = self.bytes_for(ui, &p)?;
-        match files::atomic_write(&p, &bytes) {
-            Ok(()) => Some(p),
+        self.export_to(ui, &p)
+    }
+
+    /// Write the active tab to p as it would be saved there, leaving the tab itself untouched.
+    fn export_to(&mut self, ui: &dyn Ui, p: &Path) -> Option<PathBuf> {
+        let bytes = self.bytes_for(ui, p)?;
+        match files::atomic_write(p, &bytes) {
+            Ok(()) => Some(p.to_path_buf()),
             Err(e) => {
                 ui.error(&format!("Cannot save {}\n\n{e}", p.display()));
                 None

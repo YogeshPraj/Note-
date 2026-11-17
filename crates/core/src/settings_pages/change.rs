@@ -93,6 +93,7 @@ fn set(s: &mut Settings, key: &str, v: &Value) -> bool {
         ("eol", Value::Choice(i)) => s.new_doc_eol = choice_key(&LINE_ENDINGS, *i),
         ("remote_images", Value::Bool(b)) => s.preview_remote_images = *b,
         ("auto_update", Value::Bool(b)) => s.auto_update = *b,
+        ("start_with_os", Value::Bool(b)) => s.start_with_os = *b,
         ("font_size", Value::Int(n)) => s.font_size = to_i32(*n),
         ("tab", Value::Int(n)) => s.tab_width = to_i32(*n),
         ("spaces", Value::Bool(b)) => s.use_spaces = *b,

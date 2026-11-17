@@ -29,6 +29,8 @@ pub struct ImageState {
     pub shown: Option<u64>,
     /// A picture pasted from the clipboard that the page has not been given yet: width, height, base64 RGBA pixels.
     pub pending: Option<(u32, u32, String)>,
+    /// Whether that picture is a screen capture (the page then starts on the Freehand tool unless the user chose another).
+    pub captured: bool,
 }
 
 /// The preview pane (Markdown, HTML, Mermaid, JSON, logs, HTTP).

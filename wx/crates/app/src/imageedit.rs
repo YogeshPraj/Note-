@@ -21,8 +21,8 @@ pub fn load(pane: &WebPane, content: &str) {
 }
 
 /// Show a picture given as base64 RGBA pixels (a bitmap from the clipboard).
-pub fn load_pixels(pane: &WebPane, width: u32, height: u32, rgba_base64: &str) {
-    pane.call_big("window.np.loadPixels", &format!("{width},{height},"), rgba_base64);
+pub fn load_pixels(pane: &WebPane, width: u32, height: u32, rgba_base64: &str, captured: bool) {
+    pane.call_big("window.np.loadPixels", &format!("{width},{height},{captured},"), rgba_base64);
 }
 
 /// Hand the page an agent's request. It is parsed in the page, so that nothing in it can be taken for script.

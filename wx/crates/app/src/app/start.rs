@@ -232,6 +232,13 @@ pub(super) fn finish_start(app: &Shared, frame: Frame, stc: StyledTextCtrl, mini
     stc.set_focus();
     dock_board::restore(app);
     float_pane::restore(app);
+    let (on, to_tray) = (app.borrow().ws.settings.start_with_os, crate::autostart::take_tray_start());
+    if on {
+        crate::autostart::sync(true);
+    }
+    if on && to_tray {
+        crate::tray::hide(app, &frame);
+    }
 }
 
 /// The size the main window would like, at 100%, when nothing is saved and the screen has room.

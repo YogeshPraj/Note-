@@ -258,6 +258,10 @@ impl<S: Send> Workspace<S> {
             self.note_recent(path);
             return;
         }
+        if crate::docx::is_docx_path(path) {
+            self.open_word_file(ui, path, &bytes);
+            return;
+        }
         let Some((text, enc, eol, encrypted)) = self.read_text(ui, &bytes, &file_title(path)) else { return };
         if !encrypted && crate::whiteboard::is_whiteboard_file(&text, path) {
             self.open_whiteboard(file_title(path), Some(path.to_path_buf()), text, false);

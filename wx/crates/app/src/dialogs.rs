@@ -205,6 +205,7 @@ pub(crate) fn vk_of(code: i32) -> Option<u16> {
         317 => 0x28,                                                 // Down
         366 => 0x21,                                                 // Page Up
         367 => 0x22,                                                 // Page Down
+        319 | 321 => 0x2C,                                           // Print Screen
         322 => 0x2D,                                                 // Insert
         127 => 0x2E,                                                 // Delete
         _ => return None,

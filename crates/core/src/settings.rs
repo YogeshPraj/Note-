@@ -41,6 +41,7 @@ pub struct Settings {
     pub shortcuts: BTreeMap<String, String>,
     /// Look for new versions in the background (and download them).
     pub auto_update: bool,
+    pub start_with_os: bool, // start at sign-in, waiting in the system tray
     /// Lock the Bitwarden vault after this many idle minutes; 0 = never.
     pub passwords_auto_lock_min: u32,
     /// Run the MCP server, so AI agents can work in Note++. Off until the user turns it on.
@@ -81,6 +82,7 @@ impl Default for Settings {
             shortcuts: BTreeMap::new(),
             passwords_auto_lock_min: 15,
             auto_update: true,
+            start_with_os: false,
             mcp_enabled: false,
             mcp_port: crate::mcp::DEFAULT_PORT,
             mcp_level: "read".into(),

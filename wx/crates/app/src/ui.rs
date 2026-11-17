@@ -33,7 +33,7 @@ impl WxUi {
     }
 }
 
-const ALL_FILES: &str = "All files (*.*)|*.*|Text (*.txt)|*.txt";
+const ALL_FILES: &str = "All files (*.*)|*.*|Text (*.txt)|*.txt|Markdown (*.md)|*.md|Word document (*.docx)|*.docx";
 
 /// The types a picture can be saved as, in the order of the save dialog's list: its label and extensions (the first
 /// one is what a name typed with no extension gets). `OpenEXR` comes last.

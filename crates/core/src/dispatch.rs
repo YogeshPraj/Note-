@@ -62,6 +62,9 @@ fn command_core_1<S: sci::Send + Copy>(ws: &mut Workspace<S>, ui: &dyn Ui, flash
         }
         ID_SAVEAS => {
             ws.save_as(ui);
+            if let Some(p) = ws.exported.take() {
+                *flash = Some(format!("Saved a copy to {}", p.display()));
+            }
         }
         ID_SAVEALL => ws.save_all(ui),
         ID_CLOSE => {

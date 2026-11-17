@@ -5,6 +5,8 @@ use super::*;
 /// Every fixed command, in the palette's order.
 pub static SPECS: &[CommandSpec] = &[
     row(ID_NEW, "&New", "File: New", "Ctrl+N", ""),
+    row(ID_CAPTURE_SCREEN, "Capture &Screen", "File: Capture Screen", "Ctrl+Alt+Shift+S", ""),
+    row(ID_CAPTURE_REGION, "Capture &Region...", "File: Capture Region", "Ctrl+Alt+Shift+R", ""),
     row(ID_NEW_WB, "New &Whiteboard", "File: New Whiteboard", "", ""),
     row(ID_OPEN, "&Open...", "File: Open...", "Ctrl+O", ""),
     row(ID_OPEN_FOLDER_EXPLORER, "&Explorer", "File: Open Containing Folder in Explorer", "", ""),

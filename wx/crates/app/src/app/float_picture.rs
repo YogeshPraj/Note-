@@ -80,7 +80,7 @@ impl App {
         if !content.is_empty() {
             ime::load(page, &content);
         } else if let Some((w, h, pixels)) = self.img.pending.take() {
-            ime::load_pixels(page, w, h, &pixels);
+            ime::load_pixels(page, w, h, &pixels, std::mem::take(&mut self.img.captured));
         }
     }
 }

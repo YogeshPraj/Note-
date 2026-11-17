@@ -41,6 +41,7 @@ mod session_ops;
 mod tabs;
 mod title_path;
 mod view_ops;
+mod word;
 
 /// How many recently closed files are remembered.
 pub const MAX_CLOSED: usize = 20;
@@ -92,6 +93,8 @@ pub struct Workspace<S: Send> {
     pub search: Opts,
     /// Most recently opened/saved files, newest first (max `MAX_RECENT`).
     pub recent: Vec<PathBuf>,
+    /// The file the last Save As wrote without taking it over (a Word file), for the shell to say so.
+    pub exported: Option<PathBuf>,
     /// Files the user marked as favourites, in the order they were added (the Favourites menu).
     pub favourites: Vec<PathBuf>,
     /// Recently closed files, most recent first, for "Restore Recent Closed File".
@@ -156,6 +159,7 @@ impl<S: Send> Workspace<S> {
             minimap: true,
             search: Opts { wrap: true, ..Default::default() },
             recent: Vec::new(),
+            exported: None,
             favourites: Vec::new(),
             closed: Vec::new(),
             workspace: None,

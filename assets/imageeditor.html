@@ -97,8 +97,8 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     text: '<path d="M6 6h12M12 6v13M9 19h6"/>',
     bubble: '<path d="M5 4h14a1 1 0 011 1v9a1 1 0 01-1 1h-7l-4 4.5V15H5a1 1 0 01-1-1V5a1 1 0 011-1z"/>',
     step: '<circle cx="12" cy="12" r="8.5"/><path d="M10 10l2.3-1.8v7.8"/>',
-    highlight: '<rect x="4" y="15" width="16" height="5" fill="currentColor" fill-opacity=".35" stroke="none"/><path d="M8 14l6-9 3.2 2.2-5.6 8.6z"/>',
-    hide: '<path d="M4 4h5v5H4zM14 4h5v5h-5zM9 9h5v5H9zM4 14h5v5H4zM14 14h5v5h-5z" fill="currentColor" fill-opacity=".4"/>',
+    highlight: '<rect x="3" y="16" width="18" height="5" rx="1" fill="#ffe14d" stroke="none"/><path d="M8 14l6-9 3.2 2.2-5.6 8.6z" fill="currentColor" fill-opacity=".25"/>',
+    hide: '<path d="M4 4h5v5H4zM14 4h5v5h-5zM9 9h5v5H9zM4 14h5v5H4zM14 14h5v5h-5z" fill="currentColor" fill-opacity=".8"/>',
     crop: '<path d="M7 2v15h15M2 7h15v15"/>',
     rotl: '<path d="M4 9a8 8 0 112 8M4 3v6h6"/>',
     rotr: '<path d="M20 9a8 8 0 10-2 8M20 3v6h-6"/>',
@@ -111,12 +111,29 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
     ['text', 'Text'], ['bubble', 'Speech bubble'], ['step', 'Step label (numbered)'], ['highlight', 'Highlight'], ['hide', 'Hide: pixelate a rectangle'], null,
     ['crop', 'Crop: drag a rectangle, then Enter or Apply'], ['rotl', 'Rotate left'], ['rotr', 'Rotate right'], ['fliph', 'Flip horizontally'], ['flipv', 'Flip vertically'], ['resz', 'Resize the picture']
   ];
+  // Each tool has its own colour (the icons draw with currentColor), bright enough for the light and the dark theme.
+  var TINT = { select: '#3b8eea', rect: '#e5484d', oval: '#f08c1a', line: '#8e6bd8', arrow: '#e5484d', free: '#12a594', text: '#3b8eea', bubble: '#d6409f', step: '#f5a524', highlight: '#c98a00', hide: '#6f42c1', crop: '#2e9e44', rotl: '#0f9fc2', rotr: '#0f9fc2', fliph: '#8e6bd8', flipv: '#8e6bd8', resz: '#2e9e44' };
+  // The tool the user picked last (kept across sessions where the page can store it); a capture starts on Freehand until then.
+  var chosen = null;
+  try { chosen = localStorage.getItem('np.imageTool'); } catch (e) { }
+  // Tool-tips are drawn here: the embedded page does not show the native title tip.
+  var tip = document.createElement('div');
+  tip.style.cssText = 'position:fixed;z-index:99;display:none;padding:3px 8px;font-size:12px;border-radius:4px;background:#333;color:#fff;border:1px solid #666;white-space:nowrap;pointer-events:none;box-shadow:0 2px 6px rgba(0,0,0,.35)';
+  document.body.appendChild(tip);
+  var tipTimer = null;
+  function showTip(b) { var r = b.getBoundingClientRect(); tip.textContent = b.getAttribute('data-tip'); tip.style.left = (r.right + 6) + 'px'; tip.style.top = (r.top + 3) + 'px'; tip.style.display = 'block'; }
+  function hideTip() { clearTimeout(tipTimer); tip.style.display = 'none'; }
   var DRAW = { rect: 1, oval: 1, line: 1, arrow: 1, free: 1, text: 1, bubble: 1, step: 1, highlight: 1, hide: 1, crop: 1 };
   TOOLS.forEach(function (t) {
     if (!t) { var g = document.createElement('div'); g.className = 'gap'; $('left').appendChild(g); return; }
-    var b = document.createElement('button'); b.setAttribute('data-tool', t[0]); b.title = t[1];
+    var b = document.createElement('button'); b.setAttribute('data-tool', t[0]); b.setAttribute('data-tip', t[1]); b.setAttribute('aria-label', t[1]); b.style.color = TINT[t[0]] || '';
     b.innerHTML = '<svg viewBox="0 0 24 24">' + ICONS[t[0]] + '</svg>';
-    b.onclick = function () { choose(t[0]); };
+    b.onmouseenter = function () { clearTimeout(tipTimer); tipTimer = setTimeout(function () { showTip(b); }, 300); };
+    b.onmouseleave = hideTip;
+    b.onclick = function () {
+      hideTip(); choose(t[0]);
+      if (DRAW[t[0]] || t[0] === 'select') { chosen = t[0]; try { localStorage.setItem('np.imageTool', chosen); } catch (e) { } }
+    };
     $('left').appendChild(b);
   });
 
@@ -653,11 +670,12 @@ input[type=number] { width:54px; height:22px; border:1px solid var(--barborder);
       agentLoading = true;
       img.src = 'data:' + mime + ';base64,' + b64;
     },
-    loadPixels: function (w, h, b64) {
+    loadPixels: function (w, h, captured, b64) {
       var bin = atob(b64), data = new Uint8ClampedArray(w * h * 4);
       for (var i = 0; i < data.length; i++) data[i] = bin.charCodeAt(i);
       base = document.createElement('canvas'); base.width = w; base.height = h; base.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0);
       setSize(w, h); showLoaded(); emitNow(false);
+      if (captured) choose(chosen && ICONS[chosen] ? chosen : 'free');
     },
     // An agent's request. A picture still loading is finished first, so the request is about the right picture.
     agent: function (id, op) { if (agentLoading) agentWaiting.push({ id: id, op: op }); else agentRun(id, op); },

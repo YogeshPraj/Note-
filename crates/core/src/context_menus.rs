@@ -98,9 +98,16 @@ pub fn editor_entries(text: &str) -> Vec<Option<(&'static str, usize, &'static s
 }
 
 /// The editor's right-click menu from its file's entries, with the user's shortcuts (`shortcuts`: command id to keys)
-/// over the defaults.
-pub fn editor_menu(entries: &[Option<(&str, usize, &str)>], shortcuts: &BTreeMap<String, String>) -> MenuSpec {
+/// over the defaults. A JSON document gets Format Document first (a separator after it, when the menu has more).
+pub fn editor_menu(entries: &[Option<(&str, usize, &str)>], shortcuts: &BTreeMap<String, String>, json: bool) -> MenuSpec {
     let mut m = MenuSpec::new();
+    if json {
+        let key = shortcuts.get(&c::ID_JSON_PRETTY.to_string()).map_or("", String::as_str);
+        m = m.item(c::ID_JSON_PRETTY, &if key.is_empty() { "Format Document".to_string() } else { format!("Format Document\t{key}") });
+        if !entries.is_empty() {
+            m = m.sep();
+        }
+    }
     for e in entries {
         m = match e {
             None => m.sep(),
@@ -208,7 +215,10 @@ mod tests {
     fn the_editor_menu_shows_the_users_shortcut_over_the_default() {
         let mut keys = BTreeMap::new();
         keys.insert("7".to_string(), "Ctrl+Q".to_string());
-        let m = editor_menu(&[Some(("Edit: Cut", 7, "Ctrl+X")), None, Some(("Edit: Copy", 8, ""))], &keys);
+        let m = editor_menu(&[Some(("Edit: Cut", 7, "Ctrl+X")), None, Some(("Edit: Copy", 8, ""))], &keys, false);
+        let json = editor_menu(&[Some(("Edit: Copy", 8, ""))], &BTreeMap::new(), true);
+        assert_eq!(json.entries().len(), 3);
+        assert!(matches!(&json.entries()[0], Entry::Item { label, .. } if label == "Format Document"));
         let labels: Vec<String> = m.entries().iter().filter_map(|e| if let Entry::Item { label, .. } = e { Some(label.clone()) } else { None }).collect();
         assert_eq!(labels, vec!["Cut\tCtrl+Q", "Copy"]);
         assert_eq!(m.entries()[1], Entry::Sep);

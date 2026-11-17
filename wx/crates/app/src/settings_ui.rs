@@ -8,7 +8,12 @@ use wxdragon::prelude::*;
 /// hidden; a save that fails is said on the status bar (the change still holds until the program closes).
 pub fn apply_settings(app: &mut crate::app::App, s: Settings) {
     notepp_core::bitwarden::set_auto_lock_minutes(s.passwords_auto_lock_min);
+    let start_with_os = s.start_with_os;
+    let changed = start_with_os != app.ws.settings.start_with_os;
     app.ws.set_settings(s);
+    if changed {
+        crate::autostart::sync(start_with_os);
+    }
     app.ws.set_margins_visible(!app.distraction);
     app.mcp_sync();
     if let Err(e) = app.ws.settings.save() {

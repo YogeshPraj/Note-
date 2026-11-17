@@ -176,6 +176,13 @@ fn general(s: &Settings) -> Page {
                 "Show images that live on the internet in Markdown previews (applies after a restart).",
                 s.preview_remote_images,
             ),
+            heading("Startup"),
+            toggle(
+                "start_with_os",
+                "Start with the system",
+                "Start Note++ when you sign in. It waits in the system tray, with Print Screen ready, until you open it.",
+                s.start_with_os,
+            ),
             heading("Updates"),
             toggle(
                 "auto_update",

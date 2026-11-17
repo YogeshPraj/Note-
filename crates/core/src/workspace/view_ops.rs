@@ -251,7 +251,13 @@ impl<S: Send> Workspace<S> {
     /// What the active tab can be previewed as, if anything.
     pub fn preview_kind(&self) -> Option<preview::Kind> {
         let t = self.tabs.get(self.active)?;
-        preview::kind_for(t.lang, t.path.as_deref())
+        preview::kind_for(t.lang, t.path.as_deref()).or_else(|| self.holds_jwt().then_some(preview::Kind::Jwt))
+    }
+
+    /// Is the active pad a JSON Web Token and nothing else? (A pad too long to be one is not read.)
+    fn holds_jwt(&self) -> bool {
+        let small = usize::try_from(sci::length(&self.sci)).is_ok_and(|n| n <= preview::jwt::MAX_LEN);
+        small && preview::jwt::parse(&sci::get_text(&self.sci)).is_some()
     }
 
     /// Identity of the active document's content, to skip redundant re-renders.

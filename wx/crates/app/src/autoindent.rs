@@ -106,11 +106,30 @@ fn on_char(stc: &StyledTextCtrl, e: &WindowEventData) {
     let plain = s.send(sci::SCI_GETSELECTIONS, 0, 0) == 1 && s.send(sci::SCI_GETREADONLY, 0, 0) == 0 && s.send(SCI_AUTOCACTIVE, 0, 0) == 0;
     let used = plain
         && match typed_char(k) {
-            Some('\r' | '\n') => enter(stc, &s),
+            Some('\r' | '\n') => enter_key(stc, &s),
             Some(c) => typed(stc, &s, c),
             None => false,
         };
     e.skip(!used);
+}
+
+/// Enter pressed on its own: indent the new line, or leave it to the editor.
+fn on_key_down(stc: &StyledTextCtrl, e: &WindowEventData) {
+    const KEY_ENTER: i32 = 13;
+    const KEY_NUMPAD_ENTER: i32 = 370;
+    let WindowEventData::Keyboard(k) = e else {
+        e.skip(true);
+        return;
+    };
+    let enter = matches!(k.get_key_code(), Some(KEY_ENTER | KEY_NUMPAD_ENTER));
+    let s = WxSci::of(stc);
+    let plain = !k.control_down()
+        && !k.alt_down()
+        && !k.shift_down()
+        && s.send(sci::SCI_GETSELECTIONS, 0, 0) == 1
+        && s.send(sci::SCI_GETREADONLY, 0, 0) == 0
+        && s.send(SCI_AUTOCACTIVE, 0, 0) == 0;
+    e.skip(!(enter && plain && enter_key(stc, &s)));
 }
 
 /// An opening or closing character was typed: true when the aids dealt with it.
@@ -153,7 +172,7 @@ fn typed(stc: &StyledTextCtrl, s: &WxSci, ch: char) -> bool {
 }
 
 /// Enter: a new line indented like this one. True when it was done here.
-fn enter(stc: &StyledTextCtrl, s: &WxSci) -> bool {
+fn enter_key(stc: &StyledTextCtrl, s: &WxSci) -> bool {
     let (a, b) = (stc.get_selection_start(), stc.get_selection_end());
     let line = stc.line_from_position(a);
     let start = stc.position_from_line(line);
@@ -208,4 +227,7 @@ pub(crate) fn wire(stc: &StyledTextCtrl) {
     WxSci::of(stc).send(sci::SCI_INDICSETSTYLE, MARK, INDIC_HIDDEN as isize);
     let s = *stc;
     stc.on_char(move |e| on_char(&s, &e));
+    // The editor turns Enter into a command on the key-down, so no character event follows: take it here.
+    let s = *stc;
+    stc.on_key_down(move |e| on_key_down(&s, &e));
 }

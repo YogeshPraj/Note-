@@ -64,6 +64,16 @@ impl<S: Send> Workspace<S> {
             v.send(sci::SCI_SETVSCROLLBAR, 0, 0);
             v.send(sci::SCI_SETHSCROLLBAR, 0, 0);
         } else {
+            // Tab and Backspace move by whole indents; Ctrl+click adds carets that all type and paste together.
+            for (msg, on) in [
+                (sci::SCI_SETTABINDENTS, 1),
+                (sci::SCI_SETBACKSPACEUNINDENTS, 1),
+                (sci::SCI_SETMULTIPLESELECTION, 1),
+                (sci::SCI_SETADDITIONALSELECTIONTYPING, 1),
+                (sci::SCI_SETMULTIPASTE, 1),
+            ] {
+                v.send(msg, on, 0);
+            }
             sci::setup_line_numbers(v, theme, 54);
             sci::setup_folding(v, theme);
             bookmarks::setup(v, theme);
@@ -179,7 +189,9 @@ impl<S: Send> Workspace<S> {
     pub fn update_smart(&mut self) {
         let a = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONSTART, 0, 0).max(0));
         let b = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONEND, 0, 0).max(0));
-        let key = (a, b, crate::num::to_usize(sci::length(&self.sci).max(0)));
+        // The document is part of the key: another tab of the same length and selection must be marked afresh.
+        let doc = self.tabs.get(self.active).map_or(0, |t| crate::num::to_usize(t.doc.max(0)));
+        let key = (a ^ doc.rotate_left(40), b, crate::num::to_usize(sci::length(&self.sci).max(0)));
         if !self.is_page() {
             search::highlight_braces(&self.sci);
         }
@@ -199,12 +211,19 @@ impl<S: Send> Workspace<S> {
         let caret = crate::num::to_usize(self.send(sci::SCI_GETCURRENTPOS, 0, 0).max(0));
         let anchor = crate::num::to_usize(self.send(sci::SCI_GETANCHOR, 0, 0).max(0));
         let (top, x_offset) = (self.top_doc_line(), self.send(sci::SCI_GETXOFFSET, 0, 0));
+        let count = crate::num::to_usize(self.send(sci::SCI_GETSELECTIONS, 0, 0).max(1));
+        let at = |msg: u32, n: usize| crate::num::to_usize(self.send(msg, n, 0).max(0));
+        let selections: Vec<(usize, usize)> =
+            if count > 1 { (0..count).map(|n| (at(sci::SCI_GETSELECTIONNCARET, n), at(sci::SCI_GETSELECTIONNANCHOR, n))).collect() } else { Vec::new() };
+        let main = at(sci::SCI_GETMAINSELECTION, 0);
         let t = &mut self.tabs[self.active];
         t.dirty = dirty;
         t.caret = caret;
         t.anchor = Some(anchor);
         t.top = top;
         t.x_offset = x_offset;
+        t.selections = selections;
+        t.main_selection = main;
     }
 
     /// Re-apply language colours to every view (does not touch caret or scroll).
@@ -235,6 +254,13 @@ impl<S: Send> Workspace<S> {
         match t.anchor {
             Some(anchor) => drop(self.send(sci::SCI_SETSEL, anchor, crate::num::to_isize(t.caret))),
             None => drop(self.send(sci::SCI_GOTOPOS, t.caret, 0)),
+        }
+        if let [(caret, anchor), rest @ ..] = t.selections.as_slice() {
+            self.send(sci::SCI_SETSELECTION, *caret, crate::num::to_isize(*anchor));
+            for (caret, anchor) in rest {
+                self.send(sci::SCI_ADDSELECTION, *caret, crate::num::to_isize(*anchor));
+            }
+            self.send(sci::SCI_SETMAINSELECTION, t.main_selection, 0);
         }
         self.set_top_doc_line(t.top);
         self.send(sci::SCI_SETXOFFSET, crate::num::to_usize(t.x_offset.max(0)), 0);

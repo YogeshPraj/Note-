@@ -46,7 +46,11 @@ impl App {
         let Some(job) = self.results.job.take() else { return };
         findpanel::set_searching(false);
         let note = match outcome {
-            Ok((hits, complete)) => self.list_in_files_hits(job.dir, hits, complete),
+            Ok((hits, complete)) => {
+                let skipped = job.progress.skipped.load(Ordering::Relaxed);
+                let note = self.list_in_files_hits(job.dir, hits, complete);
+                if skipped > 0 { format!("{note}; {skipped} files skipped (too large or unreadable)") } else { note }
+            }
             Err(e) => crate::app::error_note(&e),
         };
         findpanel::set_status(&note);

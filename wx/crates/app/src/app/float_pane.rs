@@ -252,6 +252,7 @@ fn wire_window(a: &Shared, main: Frame, frame: Frame, tab: u64, head: &PaneHeade
 
 /// What a floating editor needs from the main view's wiring.
 fn wire_editor(a: &Shared, main: Frame, frame: Frame, tab: u64, stc: StyledTextCtrl) {
+    crate::autoindent::wire(&stc);
     stc.on_stc_change(|_| {
         EDITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });

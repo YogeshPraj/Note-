@@ -84,7 +84,20 @@ impl<S: Send> Workspace<S> {
             return true;
         }
         match self.tabs[self.active].path.clone() {
-            Some(p) => self.write_to(ui, &p),
+            Some(p) => {
+                // Another program wrote the file since it was loaded or last saved: do not overwrite that unasked.
+                let now = stamp_of(&p);
+                if now.is_some() && now != self.tabs[self.active].disk {
+                    let msg = format!(
+                        "{}\n\nThis file has been modified by another program since you opened or saved it.\nSave anyway and replace those changes?",
+                        p.display()
+                    );
+                    if !ui.ask_yes_no(&msg) {
+                        return false;
+                    }
+                }
+                self.write_to(ui, &p)
+            }
             None => self.save_as(ui),
         }
     }

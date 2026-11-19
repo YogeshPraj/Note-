@@ -12,7 +12,7 @@ pub(crate) fn refocus_editor(app: &Shared) {
     crate::widgets::defer::later(&frame, move || {
         if let (true, Some(page)) = (took, &page) {
             page.set_focus();
-        } else if took || bars.iter().any(WxWidget::has_focus) {
+        } else if took || frame.has_focus() || bars.iter().any(WxWidget::has_focus) {
             stc.set_focus();
         }
     });
@@ -259,6 +259,7 @@ pub(super) fn wire_events(app: &Shared, frame: Frame, stc: &StyledTextCtrl, view
     frame.on_menu(move |e| run_command(&a, crate::platform::wx::to_usize(e.get_id())));
 
     // Every change to the text counts, for the session autosave (an edit can keep the length the same).
+    crate::autoindent::wire(stc);
     stc.on_stc_change(|_| {
         EDITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });

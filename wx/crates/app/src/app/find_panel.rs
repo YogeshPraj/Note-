@@ -92,6 +92,11 @@ impl App {
             let App { ws, ui, .. } = self;
             if let Some(p) = &h.path {
                 ws.open_path(ui, p);
+                // The file could not be opened: the offsets belong to it, not to whatever tab is still active.
+                let opened = ws.tabs.get(ws.active).and_then(|t| t.path.as_deref()).is_some_and(|q| notepp_core::workspace::same_path(q, p));
+                if !opened {
+                    return;
+                }
             }
             let a = ws.active;
             let sci = ws.sci;

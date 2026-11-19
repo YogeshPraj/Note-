@@ -149,6 +149,9 @@ pub struct Tab {
     pub top: usize,
     /// How far the view was scrolled to the right, in pixels.
     pub x_offset: isize,
+    /// Every selection as (caret, anchor) when there are several (Ctrl+click carets), and which one is the main one.
+    pub selections: Vec<(usize, usize)>,
+    pub main_selection: usize,
     /// The file's modification time and size when it was last read or written, to notice
     /// changes made by other programs.
     pub disk: Option<Stamp>,
@@ -251,7 +254,7 @@ pub struct Status {
     pub lang: String,
 }
 
-pub(super) fn same_path(a: &Path, b: &Path) -> bool {
+pub fn same_path(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,

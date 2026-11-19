@@ -316,21 +316,25 @@ impl App {
     }
 
     /// Write the session now (the window is closing): this one waits for the write.
-    pub fn save_session(&mut self) {
-        if !session::standalone() {
-            let ticket = session::ticket();
-            self.keep_dock_share();
-            self.keep_float_rects();
-            self.keep_main_rect();
-            let _ = self.ws.snapshot().save_in_order(&session::session_path(), ticket);
+    /// Whether the unsaved text is now safe in the session file.
+    pub fn save_session(&mut self) -> bool {
+        if session::standalone() {
+            return false;
         }
+        let ticket = session::ticket();
+        self.keep_dock_share();
+        self.keep_float_rects();
+        self.keep_main_rect();
+        self.ws.snapshot().save_in_order(&session::session_path(), ticket).is_ok()
     }
 
     fn autosave_session(&mut self) {
         // The tabs and their unsaved text, plus the edit count: an edit that keeps the length (a case change, overtyping,
         // a same-length replacement) must still reach the session file.
         let key = (self.ws.session_fingerprint(), EDITS.load(std::sync::atomic::Ordering::Relaxed));
-        if key == self.session_key || session::standalone() {
+        // A write that failed is tried again at the next tick, though nothing has changed since.
+        let retry = SESSION_FAILED.swap(false, std::sync::atomic::Ordering::Relaxed);
+        if (key == self.session_key && !retry) || session::standalone() {
             return;
         }
         self.session_key = key;
@@ -339,10 +343,15 @@ impl App {
         // on a worker thread. The tickets keep a late write from replacing a newer one.
         let (snapshot, ticket) = (self.ws.snapshot(), session::ticket());
         std::thread::spawn(move || {
-            let _ = snapshot.save_in_order(&session::session_path(), ticket);
+            if snapshot.save_in_order(&session::session_path(), ticket).is_err() {
+                SESSION_FAILED.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
         });
     }
 }
+
+/// The last background session write failed.
+static SESSION_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Default shortcut table for accelerators of items that are not in a menu.
 #[allow(dead_code)]

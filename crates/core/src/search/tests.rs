@@ -184,3 +184,8 @@ fn empty_matches_terminate() {
     let re = compile(&Opts { regex: true, ..opts("x*") }).unwrap();
     assert_eq!(all_matches("ab", &re).len(), 3);
 }
+
+#[test]
+fn star_dot_star_matches_files_without_extension() {
+    assert!(passes_filter("*.*", "Makefile"));
+}

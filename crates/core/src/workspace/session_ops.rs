@@ -99,6 +99,17 @@ impl<S: Send> Workspace<S> {
             lang: (t.path.is_none() && t.kind == TabKind::Text && t.lang != "null").then(|| t.lang_label.to_string()),
         })
     }
+    /// Titles of the tabs whose unsaved text would be lost if the program ended now: all of them when the session file
+    /// cannot be written (`session_kept` false), otherwise only protected tabs while encryption is locked (their text
+    /// can only be kept encrypted, and the key is gone).
+    pub fn unrecoverable(&self, session_kept: bool) -> Vec<String> {
+        let locked = !self.vault.unlocked();
+        (0..self.tabs.len())
+            .filter(|&i| self.is_dirty(i) && (!session_kept || (self.tabs[i].encrypted && locked)))
+            .map(|i| self.tabs[i].title.clone())
+            .collect()
+    }
+
     /// Restore the whole saved state (startup): settings, workspace and tabs.
     pub fn restore(&mut self, ui: &dyn Ui, s: &Session) {
         self.minimap = s.minimap;

@@ -49,7 +49,8 @@ pub(super) fn wire_timers(app: &Shared, frame: Frame) {
     let a = app.clone();
     frame.on_close(move |e| {
         if let Ok(mut app) = a.try_borrow_mut() {
-            app.save_session();
+            let kept = app.save_session();
+            let lost = app.ws.unrecoverable(kept);
             let request = if let WindowEventData::General(ev) = &e { Some(*ev) } else { None };
             if let Some(ev) = request
                 && crate::tray::wanted(ev.can_veto())
@@ -58,6 +59,19 @@ pub(super) fn wire_timers(app: &Shared, frame: Frame) {
                 if crate::tray::hide(&a, &frame) {
                     ev.veto();
                     return;
+                }
+            }
+            // Ending for real: say so when unsaved text would not come back (the session file cannot hold it).
+            if !lost.is_empty() {
+                let veto = if let WindowEventData::General(ev) = &e { ev.can_veto().then_some(*ev) } else { None };
+                if let Some(ev) = veto {
+                    let names = lost.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+                    let msg = format!("These have unsaved changes that cannot be kept for next time: {names}.\n\nExit and lose them?");
+                    if !crate::widgets::ask::yes_no(&frame, "Note++", &msg, false) {
+                        crate::tray::cancel_quit();
+                        ev.veto();
+                        return;
+                    }
                 }
             }
             crate::tray::remove_icon();

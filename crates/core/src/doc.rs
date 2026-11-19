@@ -190,8 +190,13 @@ fn utf16_without_bom(bytes: &[u8]) -> Option<bool> {
     }
 }
 
+/// Does decode read these bytes as UTF-16 (with or without a byte-order mark)?
+pub fn is_utf16(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) || utf16_without_bom(bytes).is_some()
+}
+
 pub fn decode(bytes: &[u8]) -> (String, Enc, Eol) {
-    let (text, enc) = if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+    let (text, enc) = if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).filter(|r| std::str::from_utf8(r).is_ok()) {
         (String::from_utf8_lossy(rest).into_owned(), Enc::Utf8Bom)
     } else if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         (encoding_rs::UTF_16LE.decode_without_bom_handling(rest).0.into_owned(), Enc::Utf16Le)
@@ -277,6 +282,12 @@ pub fn can_encode(text: &str, enc: Enc) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn malformed_utf8_bom_file_round_trips() {
+        let bytes = [0xEF, 0xBB, 0xBF, b'a', 0xFF, b'b'];
+        let (text, enc, _) = decode(&bytes);
+        assert_eq!(encode(&text, enc), bytes);
+    }
     use super::*;
 
     #[test]

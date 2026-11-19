@@ -116,6 +116,19 @@ pub fn select_range<S: Send>(s: &S, start: usize, end: usize) {
 
 /// Every non-overlapping match, in order. Empty matches advance by one char.
 pub fn all_matches(text: &str, re: &Regex) -> Vec<Span> {
+    scan(text, re).0
+}
+
+/// Every match, or the error that stopped the search (a pattern that backtracks too much), so that a caller about to
+/// change the text does not act on a partial list.
+pub fn try_all_matches(text: &str, re: &Regex) -> Result<Vec<Span>, Error> {
+    match scan(text, re) {
+        (found, None) => Ok(found),
+        (_, Some(e)) => Err(e),
+    }
+}
+
+fn scan(text: &str, re: &Regex) -> (Vec<Span>, Option<Error>) {
     let mut out = Vec::new();
     let mut pos = 0;
     while pos <= text.len() {
@@ -124,10 +137,11 @@ pub fn all_matches(text: &str, re: &Regex) -> Vec<Span> {
                 out.push((m.start(), m.end()));
                 pos = if m.end() > m.start() { m.end() } else { next_boundary(text, m.end()) };
             }
-            _ => break,
+            Ok(None) => break,
+            Err(e) => return (out, Some(Error::Pattern(e.to_string()))),
         }
     }
-    out
+    (out, None)
 }
 
 fn next_boundary(text: &str, pos: usize) -> usize {
@@ -202,20 +216,21 @@ pub fn expand(rep: &str, caps: &Captures<'_, str>) -> String {
     }
     out
 }
-fn replacement_for(text: &str, re: &Regex, o: &Opts, span: Span) -> String {
+fn replacement_for(text: &str, re: &Regex, o: &Opts, span: Span) -> Result<String, Error> {
     if !o.regex {
-        return if o.extended { unescape_ext(&o.replace) } else { o.replace.clone() };
+        return Ok(if o.extended { unescape_ext(&o.replace) } else { o.replace.clone() });
     }
     match re.captures_from_pos(text, span.0) {
-        Ok(Some(c)) => expand(&o.replace, &c),
-        _ => o.replace.clone(),
+        Ok(Some(c)) => Ok(expand(&o.replace, &c)),
+        Ok(None) => Ok(o.replace.clone()),
+        Err(e) => Err(Error::Pattern(e.to_string())),
     }
 }
 
 /// (start, end, replacement) for every match, ready to apply back to front.
 pub fn replacements(text: &str, o: &Opts) -> Result<Vec<(usize, usize, String)>, Error> {
     let re = compile(o)?;
-    Ok(all_matches(text, &re).into_iter().map(|s| (s.0, s.1, replacement_for(text, &re, o, s))).collect())
+    try_all_matches(text, &re)?.into_iter().map(|s| replacement_for(text, &re, o, s).map(|with| (s.0, s.1, with))).collect()
 }
 
 // ---- Scintilla-facing -----------------------------------------------------
@@ -292,7 +307,7 @@ pub fn replace_current<S: Send>(s: &S, o: &Opts) -> (bool, Found) {
     let (a, b) = selection(s);
     let mut replaced = false;
     if next_match(&text, &re, a) == Some((a, b)) {
-        let with = replacement_for(&text, &re, o, (a, b));
+        let Ok(with) = replacement_for(&text, &re, o, (a, b)) else { return (false, find(s, o, true)) };
         replace_range(s, a, b, &with);
         let end = a + with.len();
         s.send(sci::SCI_SETSEL, end, crate::num::to_isize(end));
@@ -303,6 +318,10 @@ pub fn replace_current<S: Send>(s: &S, o: &Opts) -> (bool, Found) {
 
 pub fn replace_all<S: Send>(s: &S, o: &Opts) -> Result<usize, Error> {
     if o.find.is_empty() {
+        return Ok(0);
+    }
+    // With "in selection" ticked and nothing selected there is no range to replace in; never fall back to everything.
+    if o.in_selection && limit(s, o).is_none() {
         return Ok(0);
     }
     let range = limit(s, o);

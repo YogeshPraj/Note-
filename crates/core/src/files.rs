@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 /// Write `bytes` to `path` so a crash or full disk mid-save can never leave a truncated file:
 /// the data goes to a temporary file in the same folder, is flushed to disk, then replaces the
 /// target in one step. Symbolic links, read-only files and folders that refuse a new file are
-/// written in place instead, so those keep behaving as before.
+/// written in place instead, so those keep behaving as before. Any other failure is returned and the target is untouched.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let meta = std::fs::symlink_metadata(path).ok();
     let in_place = meta.as_ref().is_some_and(|m| m.file_type().is_symlink() || m.permissions().readonly());
@@ -23,13 +23,15 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         f.write_all(bytes)?;
         f.sync_all()
     })();
-    if staged.is_err() {
+    if let Err(e) = staged {
         let _ = std::fs::remove_file(&tmp);
-        return std::fs::write(path, bytes);
+        // Only a folder that refuses new files is written in place. Any other failure (a full disk) is reported: writing
+        // the target itself would be the very truncation this function exists to prevent.
+        return if e.kind() == std::io::ErrorKind::PermissionDenied { std::fs::write(path, bytes) } else { Err(e) };
     }
-    std::fs::rename(&tmp, path).or_else(|_| {
+    std::fs::rename(&tmp, path).or_else(|e| {
         let _ = std::fs::remove_file(&tmp);
-        std::fs::write(path, bytes)
+        if e.kind() == std::io::ErrorKind::PermissionDenied { std::fs::write(path, bytes) } else { Err(e) }
     })
 }
 

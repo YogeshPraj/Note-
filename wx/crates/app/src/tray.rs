@@ -24,6 +24,11 @@ pub fn quit(frame: &Frame) {
     frame.close(false);
 }
 
+/// The program is not ending after all (the user declined to lose unsaved text).
+pub fn cancel_quit() {
+    QUITTING.with(|q| q.set(false));
+}
+
 /// Whether the window may go to the tray now: not when the program is being ended on purpose, and not when the system
 /// forces the window closed (logging off).
 pub fn wanted(can_veto: bool) -> bool {

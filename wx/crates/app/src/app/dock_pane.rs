@@ -152,6 +152,7 @@ fn pane_focused(app: &Shared, frame: Frame, dock: bool) {
 
 /// What both views need beyond the main one's wiring: the docked view's changes count, and focus picks the current view.
 pub(super) fn wire_dock(app: &Shared, frame: Frame, main: StyledTextCtrl, dock: StyledTextCtrl) {
+    crate::autoindent::wire(&dock);
     dock.on_stc_change(|_| {
         EDITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });

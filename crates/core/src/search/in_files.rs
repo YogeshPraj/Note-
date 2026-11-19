@@ -10,6 +10,8 @@ use crate::error::Error;
 
 /// `*` and `?` wildcard match, case-insensitive.
 pub fn glob_match(pattern: &str, name: &str) -> bool {
+    // As in Windows, `*.*` is every file, including those with no extension (Makefile, LICENSE).
+    let pattern = if pattern == "*.*" { "*" } else { pattern };
     fn go(p: &[char], n: &[char]) -> bool {
         match (p.first(), n.first()) {
             (None, None) => true,
@@ -43,6 +45,8 @@ const MAX_FILE: u64 = 8_000_000;
 #[derive(Debug, Default)]
 pub struct SearchProgress {
     pub files: AtomicUsize,
+    /// Files that passed the filter but were not searched: too large, or not readable.
+    pub skipped: AtomicUsize,
     pub cancel: AtomicBool,
 }
 
@@ -87,9 +91,17 @@ pub fn find_in_files_with(dir: &Path, filters: &str, o: &Opts, progress: &Search
                 if !SKIP_DIRS.contains(&name.as_str()) {
                     stack.push(e.path());
                 }
-            } else if passes_filter(filters, &name) && e.metadata().is_ok_and(|m| m.len() <= MAX_FILE) {
+            } else if passes_filter(filters, &name) {
+                if !e.metadata().is_ok_and(|m| m.len() <= MAX_FILE) {
+                    progress.skipped.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 progress.files.fetch_add(1, Ordering::Relaxed);
-                let Some(text) = searchable_text(&e.path()) else { continue };
+                let Ok(bytes) = std::fs::read(e.path()) else {
+                    progress.skipped.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                };
+                let Some(text) = searchable_text(&bytes) else { continue };
                 hits.extend(hits_in_text(&text, &re, Some(&e.path())));
                 if hits.len() >= MAX_HITS {
                     hits.truncate(MAX_HITS);
@@ -101,15 +113,14 @@ pub fn find_in_files_with(dir: &Path, filters: &str, o: &Opts, progress: &Search
     Ok((hits, true))
 }
 
-/// The text of a file worth searching: None for binaries (a NUL byte early on, unless it is UTF-16) and unreadable files.
-fn searchable_text(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
+/// The text of a file worth searching: None for binaries (a NUL byte early on, unless it is UTF-16 as a document would
+/// open it).
+fn searchable_text(bytes: &[u8]) -> Option<String> {
     let head = &bytes[..bytes.len().min(8000)];
-    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
-    if !utf16 && head.contains(&0) {
+    if head.contains(&0) && !doc::is_utf16(bytes) {
         return None;
     }
-    Some(doc::decode(&bytes).0)
+    Some(doc::decode(bytes).0)
 }
 
 #[cfg(test)]
